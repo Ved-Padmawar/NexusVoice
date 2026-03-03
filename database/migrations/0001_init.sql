@@ -1,0 +1,25 @@
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (email);
+
+CREATE TABLE IF NOT EXISTS transcripts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+);
+
+CREATE INDEX IF NOT EXISTS idx_transcripts_created_at ON transcripts (created_at);
+
+CREATE TABLE IF NOT EXISTS dictionary (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  term TEXT NOT NULL,
+  replacement TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_dictionary_term ON dictionary (term);

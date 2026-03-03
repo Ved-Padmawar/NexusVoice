@@ -1,0 +1,4 @@
+# Use a single target dir at repo root so `cargo test --manifest-path src-tauri\Cargo.toml`
+# and Tauri builds share the same artifacts. No need to set CARGO_TARGET_DIR.
+[build]
+target-dir = ".cargo-target"

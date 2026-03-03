@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "NexusVoice",
+  "version": "0.0.0",
+  "identifier": "com.nexusvoice.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "NexusVoice",
+        "width": 1200,
+        "height": 800,
+        "visible": false,
+        "decorations": true,
+        "resizable": true,
+        "url": "index.html"
+      },
+      {
+        "label": "pill",
+        "title": "Recording Pill",
+        "width": 200,
+        "height": 60,
+        "visible": true,
+        "decorations": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "transparent": true,
+        "url": "pill.html"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.ico"
+    ]
+  }
+}

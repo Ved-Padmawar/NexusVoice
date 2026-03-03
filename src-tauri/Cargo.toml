@@ -1,0 +1,27 @@
+[package]
+name = "nexusvoice"
+version = "0.0.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-clipboard-manager = "2"
+sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio-rustls", "chrono", "migrate"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+argon2 = { version = "0.5", features = ["std"] }
+sysinfo = "0.33"
+serde = { version = "1", features = ["derive"] }
+rand_core = "0.6"
+enigo = "0.2"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
