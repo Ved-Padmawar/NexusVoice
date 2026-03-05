@@ -1,136 +1,15 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Recording Pill</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      width: 200px;
-      height: 60px;
-      overflow: hidden;
-      background: transparent;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
-
-    .pill {
-      width: 100%;
-      height: 100%;
-      background: rgba(30, 30, 30, 0.95);
-      border-radius: 30px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      padding: 0 20px;
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      transition: all 0.3s ease;
-    }
-
-    .pill.recording {
-      background: rgba(220, 38, 38, 0.95);
-      box-shadow: 0 0 20px rgba(220, 38, 38, 0.5);
-    }
-
-    .dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.5);
-      transition: all 0.3s ease;
-    }
-
-    .pill.recording .dot {
-      background: white;
-      animation: pulse 1s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% {
-        transform: scale(1);
-        opacity: 1;
-      }
-      50% {
-        transform: scale(1.3);
-        opacity: 0.7;
-      }
-    }
-
-    .text {
-      color: rgba(255, 255, 255, 0.9);
-      font-size: 13px;
-      font-weight: 500;
-      user-select: none;
-    }
-
-    .pill.recording .text {
-      color: white;
-    }
-  </style>
-</head>
-<body>
-  <div class="pill" id="pill">
-    <div class="dot"></div>
-    <div class="text" id="text">Ready</div>
-  </div>
-
-  <script type="module">
-    import { listen } from '@tauri-apps/api/event';
-    import { invoke } from '@tauri-apps/api/core';
-
-    const pill = document.getElementById('pill');
-    const text = document.getElementById('text');
-    let isRecording = false;
-
-    // Listen for hotkey events
-    await listen('hotkey-pressed', async () => {
-      if (!isRecording) {
-        isRecording = true;
-        pill.classList.add('recording');
-        text.textContent = 'Listening...';
-        await invoke('start_transcription');
-      }
-    });
-
-    await listen('hotkey-released', async () => {
-      if (isRecording) {
-        isRecording = false;
-        pill.classList.remove('recording');
-        text.textContent = 'Processing...';
-        
-        try {
-          await invoke('stop_transcription');
-          // Simulate getting transcription result
-          // In real implementation, this would come from the backend
-          const transcribedText = "Sample transcribed text";
-          await invoke('type_text', { text: transcribedText });
-          
-          text.textContent = 'Ready';
-        } catch (error) {
-          console.error('Transcription error:', error);
-          text.textContent = 'Error';
-          setTimeout(() => {
-            text.textContent = 'Ready';
-          }, 2000);
-        }
-      }
-    });
-
-    // Listen for transcription complete event
-    await listen('transcription-complete', async (event) => {
-      const transcribedText = event.payload;
-      if (transcribedText) {
-        await invoke('type_text', { text: transcribedText });
-      }
-      text.textContent = 'Ready';
-    });
-  </script>
-</body>
+<!doctype html>
+<html lang="en" style="background: transparent;">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NexusVoice Pill</title>
+    <style>
+      html, body, #root { background: transparent !important; }
+    </style>
+  </head>
+  <body style="background: transparent;">
+    <div id="root"></div>
+    <script type="module" src="/src/pill-main.tsx"></script>
+  </body>
 </html>

@@ -26,3 +26,12 @@ dist-ssr
 # Rust / Cargo
 .cargo-target
 src-tauri/target
+
+# Claude Code
+.claude/
+
+# Scratch files
+1.txt
+image.png
+image1.png
+ROADMAP.md

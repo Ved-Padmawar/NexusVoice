@@ -25,14 +25,15 @@
       {
         "label": "pill",
         "title": "Recording Pill",
-        "width": 200,
-        "height": 60,
+        "width": 176,
+        "height": 44,
         "visible": true,
         "decorations": false,
         "resizable": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "transparent": true,
+        "shadow": false,
         "url": "pill.html"
       }
     ],
@@ -43,8 +44,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": [
-      "icons/icon.ico"
-    ]
+    "icon": ["icons/icon.ico"]
   }
 }

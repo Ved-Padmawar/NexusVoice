@@ -1,0 +1,189 @@
+/* ===== Pill Overlay Styles ===== */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  background: transparent;
+}
+
+body {
+  width: 176px;
+  height: 44px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  width: 160px;
+  height: 28px;
+  background: transparent;
+}
+
+/* ===== Pill Container ===== */
+.pill {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 6px;
+  cursor: grab;
+  user-select: none;
+  position: relative;
+
+  background: rgba(14, 14, 20, 0.92);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.pill:active {
+  cursor: grabbing;
+}
+
+/* ===== Recording State ===== */
+.pill--recording {
+  border-color: rgba(239, 68, 68, 0.45);
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.55),
+    0 0 18px rgba(239, 68, 68, 0.18);
+}
+
+/* ===== Processing State ===== */
+.pill--processing {
+  border-color: rgba(124, 108, 239, 0.4);
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.55),
+    0 0 14px rgba(124, 108, 239, 0.14);
+}
+
+/* ===== Icon Badge ===== */
+.pill__icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.85);
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+.pill--recording .pill__icon {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+  animation: iconPulse 1.8s ease-in-out infinite;
+}
+
+.pill--processing .pill__icon {
+  background: rgba(124, 108, 239, 0.18);
+  color: #a78bfa;
+}
+
+@keyframes iconPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.12); opacity: 0.8; }
+}
+
+/* ===== Center Content ===== */
+.pill__center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* ===== Idle: brand name ===== */
+.pill__brand {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/* ===== Recording: waveform + timer ===== */
+.pill__waveform-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.pill__waveform {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 14px;
+}
+
+.pill__bar {
+  width: 2px;
+  border-radius: 999px;
+  background: #f87171;
+  animation: waveform 0.75s ease-in-out infinite alternate;
+  will-change: height;
+}
+
+.pill__bar:nth-child(1) { height: 4px;  animation-delay: 0.00s; }
+.pill__bar:nth-child(2) { height: 8px;  animation-delay: 0.10s; }
+.pill__bar:nth-child(3) { height: 14px; animation-delay: 0.20s; }
+.pill__bar:nth-child(4) { height: 8px;  animation-delay: 0.10s; }
+.pill__bar:nth-child(5) { height: 4px;  animation-delay: 0.00s; }
+
+@keyframes waveform {
+  0%   { transform: scaleY(0.35); opacity: 0.55; }
+  100% { transform: scaleY(1);    opacity: 1; }
+}
+
+.pill__timer {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(248, 113, 113, 0.9);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+/* ===== Processing: spinner + label ===== */
+.pill__processing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pill__spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(167, 139, 250, 0.2);
+  border-top-color: #a78bfa;
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.pill__proc-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(167, 139, 250, 0.85);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
