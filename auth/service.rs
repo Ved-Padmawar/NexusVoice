@@ -141,7 +141,10 @@ impl AuthService {
     #[allow(dead_code)]
     pub fn validate_token(&self, access_token: &str) -> Result<i64, AuthError> {
         let claims = validate_access_token(access_token, &jwt_secret())?;
-        claims.sub.parse::<i64>().map_err(|_| AuthError::TokenInvalid)
+        claims
+            .sub
+            .parse::<i64>()
+            .map_err(|_| AuthError::TokenInvalid)
     }
 
     async fn issue_token_pair(&self, user_id: i64) -> Result<TokenPair, AuthError> {

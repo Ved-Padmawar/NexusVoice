@@ -11,7 +11,11 @@ interface AuthGuardProps {
  */
 export function AuthGuard({ children }: AuthGuardProps) {
   const user = useAppStore((s) => s.user)
+  const authChecking = useAppStore((s) => s.authChecking)
   const location = useLocation()
+
+  // Still waiting for backend auth:ready event — don't redirect yet
+  if (authChecking) return null
 
   if (!user) {
     return <Navigate to="/auth" state={{ from: location }} replace />

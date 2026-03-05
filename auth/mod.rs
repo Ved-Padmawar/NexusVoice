@@ -141,7 +141,9 @@ mod tests {
     #[tokio::test]
     async fn login_with_tokens_returns_pair() {
         let svc = make_service().await;
-        svc.register("tok@example.com", "pass123").await.expect("register");
+        svc.register("tok@example.com", "pass123")
+            .await
+            .expect("register");
         let (_user, pair) = svc
             .login_with_tokens("tok@example.com", "pass123")
             .await
@@ -154,7 +156,9 @@ mod tests {
     #[tokio::test]
     async fn token_rotation_works() {
         let svc = make_service().await;
-        svc.register("rot@example.com", "pass123").await.expect("register");
+        svc.register("rot@example.com", "pass123")
+            .await
+            .expect("register");
         let (_user, pair1) = svc
             .login_with_tokens("rot@example.com", "pass123")
             .await
@@ -181,7 +185,9 @@ mod tests {
     #[tokio::test]
     async fn revoke_token_invalidates_refresh() {
         let svc = make_service().await;
-        svc.register("rev@example.com", "pass123").await.expect("register");
+        svc.register("rev@example.com", "pass123")
+            .await
+            .expect("register");
         let (_user, pair) = svc
             .login_with_tokens("rev@example.com", "pass123")
             .await
@@ -199,7 +205,10 @@ mod tests {
     #[tokio::test]
     async fn access_token_validates() {
         let svc = make_service().await;
-        let user = svc.register("val@example.com", "pass123").await.expect("register");
+        let user = svc
+            .register("val@example.com", "pass123")
+            .await
+            .expect("register");
         let (_u, pair) = svc
             .login_with_tokens("val@example.com", "pass123")
             .await
@@ -212,7 +221,9 @@ mod tests {
     #[tokio::test]
     async fn invalid_access_token_rejected() {
         let svc = make_service().await;
-        let err = svc.validate_token("not.a.real.token").expect_err("should fail");
+        let err = svc
+            .validate_token("not.a.real.token")
+            .expect_err("should fail");
         assert!(matches!(err, AuthError::TokenInvalid));
     }
 }

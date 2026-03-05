@@ -11,7 +11,13 @@ const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
 
 function App() {
-  const { theme, init, isLoading, user } = useAppStore()
+  const { theme, init, isLoading, user, authChecking, listenForAuthReady } = useAppStore()
+
+  useEffect(() => {
+    // Subscribe to auth:ready / auth:unauthenticated before anything else
+    const cleanup = listenForAuthReady()
+    return () => { cleanup.then(fn => fn()) }
+  }, [listenForAuthReady])
 
   useEffect(() => {
     init()
@@ -33,7 +39,8 @@ function App() {
     }
   }, [])
 
-  if (isLoading) {
+  // Wait for backend to emit auth:ready or auth:unauthenticated before rendering routes
+  if (authChecking || isLoading) {
     return (
       <div className="app-loading" role="status" aria-live="polite">
         <div className="loading-spinner" />

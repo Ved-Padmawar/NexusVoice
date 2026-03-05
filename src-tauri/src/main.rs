@@ -3,7 +3,7 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    Emitter, Manager,
 };
 
 mod audio;
@@ -36,7 +36,34 @@ fn main() {
             )?;
 
             let auth = auth::AuthService::new(pool.clone());
-            app.manage(state::AppState::new(pool, auth));
+            let token_store_path = app_data_dir.join("refresh_token");
+            let app_state = state::AppState::new(pool, auth, token_store_path);
+            app.manage(app_state);
+
+            // Silent re-auth on startup
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = app_handle.state::<state::AppState>();
+                if let Some(raw_token) = state.load_refresh_token() {
+                    match state.auth.refresh_tokens(&raw_token).await {
+                        Ok(pair) => {
+                            // Parse user_id from the new access token
+                            if let Ok(user_id) = state.auth.validate_token(&pair.access_token) {
+                                state.set_auth_session(user_id, pair.access_token).await;
+                                // Persist the new rotated refresh token
+                                let _ = state.save_refresh_token(&pair.refresh_token);
+                                let _ = app_handle.emit("auth:ready", user_id);
+                                return;
+                            }
+                        }
+                        Err(_) => {
+                            // Token invalid/expired — clear it
+                            state.delete_refresh_token();
+                        }
+                    }
+                }
+                let _ = app_handle.emit("auth:unauthenticated", ());
+            });
 
             // System tray setup
             let show_item = MenuItem::with_id(app, "show", "Show Dashboard", true, None::<&str>)?;
@@ -79,6 +106,9 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::get_auth_state,
+            commands::store_refresh_token,
+            commands::clear_stored_token,
             commands::register,
             commands::login,
             commands::login_with_tokens,

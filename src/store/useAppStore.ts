@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 
 export type ThemeName =
   | 'midnight'
@@ -51,8 +52,12 @@ export type UsageStats = {
   avgPaceWpm: number
 }
 
+type AuthReadyPayload = { authenticated: boolean; userId: number | null }
+
 type AppState = {
   user: User | null
+  /** Stored in memory only — never persisted to localStorage */
+  refreshToken: string | null
   theme: ThemeName
   selectedModel: ModelId
   hardwareTier: HardwareTier | null
@@ -62,13 +67,17 @@ type AppState = {
   stats: UsageStats | null
   isLoading: boolean
   error: string | null
+  /** True while waiting for auth:ready / auth:unauthenticated on startup */
+  authChecking: boolean
   init: () => Promise<void>
+  /** Subscribe to auth:ready and auth:unauthenticated events from the backend */
+  listenForAuthReady: () => Promise<() => void>
   setTheme: (theme: ThemeName) => void
   setSelectedModel: (model: ModelId) => void
   setUser: (user: User | null) => void
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string) => Promise<void>
-  logout: () => void
+  logout: () => Promise<void>
   setError: (message: string | null) => void
   fetchModelInfo: () => Promise<void>
   fetchHardwareTier: () => Promise<void>
@@ -79,8 +88,9 @@ type AppState = {
 
 export const useAppStore = create<AppState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
+      refreshToken: null,
       theme: 'midnight',
       selectedModel: 'whisper-base',
       hardwareTier: null,
@@ -90,6 +100,7 @@ export const useAppStore = create<AppState>()(
       stats: null,
       isLoading: false,
       error: null,
+      authChecking: true,
       init: async () => {
         set({ isLoading: true, error: null })
         try {
@@ -106,14 +117,36 @@ export const useAppStore = create<AppState>()(
           set({ isLoading: false })
         }
       },
+      listenForAuthReady: async () => {
+        // Listen for auth:ready — backend emits this after successful silent re-auth
+        const unlistenReady = await listen<number>('auth:ready', (event) => {
+          // event.payload is the user_id; we don't have full user object here,
+          // but the session is valid — mark as checking done with a stub user
+          set({ authChecking: false, user: { id: event.payload, email: '' } })
+        })
+        // Listen for auth:unauthenticated — no stored token or it expired
+        const unlistenUnauth = await listen<AuthReadyPayload>('auth:unauthenticated', () => {
+          set({ authChecking: false, user: null })
+        })
+        return () => {
+          unlistenReady()
+          unlistenUnauth()
+        }
+      },
       setTheme: (theme) => set({ theme }),
       setSelectedModel: (model) => set({ selectedModel: model }),
       setUser: (user) => set({ user }),
       login: async (email, password) => {
         set({ error: null })
         try {
-          const user = await invoke<User>('login', { email, password })
-          set({ user })
+          const resp = await invoke<{ user: User; tokens: { accessToken: string; refreshToken: string; expiresInSeconds: number } }>('login_with_tokens', { email, password })
+          set({ user: resp.user, refreshToken: resp.tokens.refreshToken })
+          // Persist to backend secure file store
+          await invoke('store_refresh_token', {
+            refreshToken: resp.tokens.refreshToken,
+            userId: resp.user.id,
+            accessToken: resp.tokens.accessToken,
+          })
         } catch (e) {
           const message =
             typeof e === 'object' && e !== null && 'message' in e
@@ -126,8 +159,13 @@ export const useAppStore = create<AppState>()(
       register: async (email, password) => {
         set({ error: null })
         try {
-          const user = await invoke<User>('register', { email, password })
-          set({ user })
+          const resp = await invoke<{ user: User; tokens: { accessToken: string; refreshToken: string; expiresInSeconds: number } }>('register_with_tokens', { email, password })
+          set({ user: resp.user, refreshToken: resp.tokens.refreshToken })
+          await invoke('store_refresh_token', {
+            refreshToken: resp.tokens.refreshToken,
+            userId: resp.user.id,
+            accessToken: resp.tokens.accessToken,
+          })
         } catch (e) {
           const message =
             typeof e === 'object' && e !== null && 'message' in e
@@ -137,7 +175,11 @@ export const useAppStore = create<AppState>()(
           throw new Error(message)
         }
       },
-      logout: () => set({ user: null, error: null, transcripts: [], dictionary: [], stats: null }),
+      logout: async () => {
+        const token = get().refreshToken
+        await invoke('clear_stored_token', { refreshToken: token }).catch(() => {})
+        set({ user: null, refreshToken: null, error: null, transcripts: [], dictionary: [], stats: null })
+      },
       setError: (message) => set({ error: message }),
       fetchModelInfo: async () => {
         try {
@@ -199,6 +241,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'nexus-voice-storage',
+      // Only persist UI prefs — tokens and user session are managed by the backend
       partialize: (state) => ({ theme: state.theme, selectedModel: state.selectedModel }),
     }
   )

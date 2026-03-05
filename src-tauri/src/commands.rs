@@ -151,6 +151,62 @@ pub struct ModelInfoResponse {
     pub execution_provider: String,
 }
 
+/// Guard: returns the current user_id if authenticated, or an ApiError if not.
+#[allow(dead_code)]
+pub async fn require_auth(state: &AppState) -> Result<i64, ApiError> {
+    state
+        .current_user_id()
+        .await
+        .ok_or_else(|| ApiError::new("unauthenticated", "authentication required"))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthStateResponse {
+    pub authenticated: bool,
+    pub user_id: Option<i64>,
+}
+
+/// Returns the current auth state without requiring authentication.
+/// Used by the frontend to check session on startup.
+#[tauri::command]
+pub async fn get_auth_state(state: State<'_, AppState>) -> Result<AuthStateResponse, ApiError> {
+    let user_id = state.current_user_id().await;
+    Ok(AuthStateResponse {
+        authenticated: user_id.is_some(),
+        user_id,
+    })
+}
+
+/// Called by frontend after a successful login to persist the refresh token for next startup.
+#[tauri::command]
+pub async fn store_refresh_token(
+    state: State<'_, AppState>,
+    refresh_token: String,
+    user_id: i64,
+    access_token: String,
+) -> Result<(), ApiError> {
+    state
+        .save_refresh_token(&refresh_token)
+        .map_err(|e| ApiError::new("io_error", e.to_string()))?;
+    state.set_auth_session(user_id, access_token).await;
+    Ok(())
+}
+
+/// Called by frontend on logout to clear the persisted token and session.
+#[tauri::command]
+pub async fn clear_stored_token(
+    state: State<'_, AppState>,
+    refresh_token: Option<String>,
+) -> Result<(), ApiError> {
+    if let Some(token) = refresh_token {
+        let _ = state.auth.revoke_token(&token).await;
+    }
+    state.delete_refresh_token();
+    state.clear_auth_session().await;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn register(
     state: State<'_, AppState>,
