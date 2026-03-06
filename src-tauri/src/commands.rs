@@ -350,11 +350,14 @@ pub async fn start_transcription(
 
     let running = Arc::clone(&state.transcription_running);
     let audio_buffer = Arc::clone(&state.audio_buffer);
+    let native_rate = Arc::clone(&state.native_sample_rate);
     let app_handle = app.clone();
 
     std::thread::spawn(move || {
-        if let Err(e) = capture_microphone(running, audio_buffer) {
+        if let Err(e) = capture_microphone(Arc::clone(&running), audio_buffer, native_rate) {
             eprintln!("microphone capture error: {e}");
+            // Reset flag so the next start_transcription attempt can proceed
+            running.store(false, Ordering::SeqCst);
             let _ = app_handle.emit("transcription-error", e);
         }
     });
@@ -377,31 +380,48 @@ pub async fn stop_transcription(
     // Give cpal stream a moment to flush its last callback
     tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
 
-    let samples = {
+    let (samples, captured_rate) = {
         let buf = state.audio_buffer.lock().unwrap();
-        buf.clone()
+        let rate = *state.native_sample_rate.lock().unwrap();
+        (buf.clone(), rate)
     };
 
     if samples.is_empty() {
         return Ok(false);
     }
 
-    let model_path = state.models_dir.join("ggml-tiny.bin");
+    let provider = SysinfoProvider::new();
+    let profile = detect_profile(&provider);
+    let override_size = { *state.model_override.lock().await };
+    let selection = select_model(&profile, override_size);
+    let model_filename = model_size_to_filename(selection.size);
+    let model_path = state.models_dir.join(model_filename);
+    let pool = state.pool.clone();
     let app_handle = app.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
         // Download model if missing
         if !model_path.exists() {
-            if let Err(e) = download_whisper_model(&model_path) {
+            let _ = app_handle.emit("model-download-start", ());
+            if let Err(e) = download_whisper_model(&model_path, &app_handle) {
                 let _ = app_handle.emit("transcription-error", format!("model download failed: {e}"));
                 return;
             }
+            let _ = app_handle.emit("model-download-complete", ());
         }
 
+        // Resample from native device rate to 16kHz mono (required by Whisper)
+        let resampled = resample_to_16k(&samples, captured_rate);
+
         match crate::inference::WhisperEngine::new(&model_path, ExecutionProvider::Cpu) {
-            Ok(engine) => match engine.transcribe(&samples) {
+            Ok(engine) => match engine.transcribe(&resampled) {
                 Ok(text) if !text.is_empty() => {
-                    let _ = app_handle.emit("transcription-complete", text);
+                    let _ = app_handle.emit("transcription-complete", text.clone());
+                    // Save transcript to DB
+                    let repo = crate::database::repositories::transcript::TranscriptRepository::new(pool);
+                    let _ = tauri::async_runtime::block_on(
+                        repo.create(crate::database::dto::transcript::CreateTranscript { content: text })
+                    );
                 }
                 Ok(_) => {}
                 Err(e) => {
@@ -417,9 +437,29 @@ pub async fn stop_transcription(
     Ok(true)
 }
 
+fn resample_to_16k(samples: &[f32], source_rate: u32) -> Vec<f32> {
+    const TARGET: u32 = 16_000;
+    if source_rate == TARGET || samples.is_empty() {
+        return samples.to_vec();
+    }
+    let ratio = TARGET as f64 / source_rate as f64;
+    let out_len = ((samples.len() as f64) * ratio).round().max(1.0) as usize;
+    let max_idx = samples.len() - 1;
+    let mut out = Vec::with_capacity(out_len);
+    for i in 0..out_len {
+        let src = (i as f64) / ratio;
+        let left = src.floor() as usize;
+        let right = (left + 1).min(max_idx);
+        let frac = (src - left as f64) as f32;
+        out.push(samples[left] * (1.0 - frac) + samples[right] * frac);
+    }
+    out
+}
+
 fn capture_microphone(
     running: Arc<std::sync::atomic::AtomicBool>,
     buffer: Arc<std::sync::Mutex<Vec<f32>>>,
+    native_rate: Arc<std::sync::Mutex<u32>>,
 ) -> Result<(), String> {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use cpal::SampleFormat;
@@ -434,8 +474,12 @@ fn capture_microphone(
         .map_err(|e| format!("failed to get input config: {e}"))?;
 
     let channels = config.channels() as usize;
+    let sample_rate = config.sample_rate();
     let sample_format = config.sample_format();
     let stream_config: cpal::StreamConfig = config.into();
+
+    // Store the native rate so stop_transcription can resample correctly
+    *native_rate.lock().unwrap() = sample_rate;
 
     let buf_clone = Arc::clone(&buffer);
     let running_clone = Arc::clone(&running);
@@ -522,20 +566,39 @@ impl ToF32 for u16 {
     }
 }
 
-fn download_whisper_model(dest: &std::path::Path) -> Result<(), String> {
+fn model_size_to_filename(size: ModelSize) -> &'static str {
+    match size {
+        ModelSize::Tiny => "ggml-tiny.bin",
+        ModelSize::Small => "ggml-small.bin",
+        ModelSize::Medium => "ggml-medium.bin",
+        ModelSize::Large => "ggml-large-v3.bin",
+    }
+}
+
+fn download_whisper_model(dest: &std::path::Path, app: &AppHandle) -> Result<(), String> {
     use std::io::Write;
 
-    const MODEL_URL: &str =
-        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin";
+    let filename = dest
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("ggml-tiny.bin");
+    let model_url = format!(
+        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{filename}"
+    );
 
-    let response = reqwest::blocking::get(MODEL_URL)
+    let response = reqwest::blocking::get(&model_url)
         .map_err(|e| format!("download request failed: {e}"))?;
 
     if !response.status().is_success() {
         return Err(format!("download HTTP {}", response.status()));
     }
 
+    let total = response.content_length().unwrap_or(0);
     let bytes = response.bytes().map_err(|e| format!("read body failed: {e}"))?;
+
+    if total > 0 {
+        let _ = app.emit("model-download-progress", 100u8);
+    }
 
     let mut file =
         std::fs::File::create(dest).map_err(|e| format!("create model file failed: {e}"))?;
@@ -567,6 +630,37 @@ pub async fn get_model_info(
         size: model_size_label(selection.size).to_string(),
         reason: selection.reason,
         execution_provider: profile.execution_provider,
+    })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageStatsResponse {
+    pub total_words: i64,
+    pub speaking_time_seconds: i64,
+    pub total_sessions: i64,
+    pub avg_pace_wpm: i64,
+}
+
+#[tauri::command]
+pub async fn get_usage_stats(state: State<'_, AppState>) -> Result<UsageStatsResponse, ApiError> {
+    let repo = TranscriptRepository::new(state.pool.clone());
+    let transcripts = repo.list_recent(10_000).await?;
+
+    let total_sessions = transcripts.len() as i64;
+    let total_words: i64 = transcripts
+        .iter()
+        .map(|t| t.content.split_whitespace().count() as i64)
+        .sum();
+    // Rough estimate: average speaking pace ~130 wpm → words × (60/130) seconds
+    let speaking_time_seconds = (total_words as f64 * 60.0 / 130.0).round() as i64;
+    let avg_pace_wpm = if total_sessions > 0 { total_words / total_sessions.max(1) } else { 0 };
+
+    Ok(UsageStatsResponse {
+        total_words,
+        speaking_time_seconds,
+        total_sessions,
+        avg_pace_wpm,
     })
 }
 
@@ -696,13 +790,27 @@ pub async fn hide_main_window(app: AppHandle) -> Result<(), ApiError> {
 }
 
 #[tauri::command]
-pub async fn type_text(text: String) -> Result<(), ApiError> {
-    use enigo::{Enigo, Keyboard, Settings};
+pub async fn type_text(app: AppHandle, text: String) -> Result<(), ApiError> {
+    use enigo::{Enigo, Key, Keyboard, Settings};
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+
+    // Best-practice for voice-to-text on Windows: write to clipboard then
+    // simulate Ctrl+V. Direct enigo.text() is unreliable — it synthesises
+    // individual keystrokes and frequently drops characters or stops after
+    // the first word due to Windows key-event rate limits.
+    app.clipboard()
+        .write_text(text)
+        .map_err(|e| ApiError::new("clipboard_error", e.to_string()))?;
 
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        let mut enigo = Enigo::new(&Settings::default()).unwrap();
-        let _ = enigo.text(&text);
+        // Small delay so the target window can regain focus after the pill
+        // overlay releases its hold on input.
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
+            let _ = enigo.key(Key::Control, enigo::Direction::Press);
+            let _ = enigo.key(Key::Unicode('v'), enigo::Direction::Click);
+            let _ = enigo.key(Key::Control, enigo::Direction::Release);
+        }
     });
 
     Ok(())

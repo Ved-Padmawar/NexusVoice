@@ -1,83 +1,88 @@
 import { useState } from 'react'
+import { ArrowRight, Trash2, BookOpen, CheckCircle2, AlertCircle, X } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Label } from '@/components/ui/label'
 
 export function Dictionary() {
   const { dictionary, updateDictionary, deleteDictionaryEntry, error, setError } = useAppStore()
-
   const [term, setTerm] = useState('')
   const [replacement, setReplacement] = useState('')
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
 
   const handleAdd = async () => {
-    const t = term.trim()
-    const r = replacement.trim()
+    const t = term.trim(), r = replacement.trim()
     if (!t || !r) return
-    setSaving(true)
-    setError(null)
-    setSuccess(false)
+    setSaving(true); setError(null); setSuccess(false)
     try {
       await updateDictionary(t, r)
-      setTerm('')
-      setReplacement('')
-      setSuccess(true)
-      setTimeout(() => setSuccess(false), 2500)
-    } finally {
-      setSaving(false)
-    }
+      setTerm(''); setReplacement('')
+      setSuccess(true); setTimeout(() => setSuccess(false), 2500)
+    } finally { setSaving(false) }
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="page-header">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', gap: '14px' }}>
+      {/* Header */}
+      <div className="page-header" style={{ marginBottom: 0 }}>
         <h1 className="page-title">Dictionary</h1>
         <p className="page-subtitle">
-          Map spoken words or typos to their correct form. Applied automatically during transcription.
+          Map spoken words to their correct form — applied automatically during transcription.
         </p>
       </div>
 
+      {/* Banners */}
       {error && (
-        <Alert variant="destructive" className="mb-4 flex-shrink-0">
-          <AlertDescription className="flex items-center justify-between">
-            {error}
-            <button type="button" onClick={() => setError(null)} aria-label="Dismiss" className="opacity-70 hover:opacity-100 text-base leading-none ml-2">×</button>
-          </AlertDescription>
-        </Alert>
+        <div className="notice notice--error">
+          <AlertCircle size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--danger)' }} />
+          <span style={{ flex: 1 }}>{error}</span>
+          <button type="button" className="notice__close" onClick={() => setError(null)}>
+            <X size={13} strokeWidth={2} />
+          </button>
+        </div>
       )}
-
       {success && (
-        <Alert className="mb-4 flex-shrink-0 border-green-500/30 bg-green-500/10 text-green-400">
-          <AlertDescription>Entry saved!</AlertDescription>
-        </Alert>
+        <div className="notice notice--success">
+          <CheckCircle2 size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--success)' }} />
+          <span>Entry saved successfully.</span>
+        </div>
       )}
 
       {/* Add form */}
-      <div className="card mb-4 flex-shrink-0">
+      <div className="card" style={{ flexShrink: 0 }}>
         <div className="card__header">
           <div>
             <h2 className="card__title">Add / Update Entry</h2>
-            <p className="card__desc">Exact and fuzzy matches are both supported.</p>
+            <p className="card__desc">Fuzzy matching corrects near-misses within 2 characters.</p>
           </div>
         </div>
         <div className="card__body">
-          <div className="flex items-end gap-2.5">
-            <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-              <span className="field-label">Spoken / misspelled</span>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px' }}>
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              <Label htmlFor="dict-term">Spoken / misspelled</Label>
               <Input
+                id="dict-term"
                 value={term}
                 onChange={(e) => setTerm(e.target.value)}
                 placeholder="e.g. teh, gonna"
                 disabled={saving}
               />
             </div>
-            <span className="text-[var(--muted-color)] text-base pb-2 flex-shrink-0">→</span>
-            <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-              <span className="field-label">Replace with</span>
+
+            <div style={{
+              width: '28px', height: '36px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--muted)', flexShrink: 0,
+            }}>
+              <ArrowRight size={14} strokeWidth={1.75} />
+            </div>
+
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              <Label htmlFor="dict-replacement">Replace with</Label>
               <Input
+                id="dict-replacement"
                 value={replacement}
                 onChange={(e) => setReplacement(e.target.value)}
                 placeholder="e.g. the, going to"
@@ -85,45 +90,54 @@ export function Dictionary() {
                 onKeyDown={(e) => { if (e.key === 'Enter') handleAdd() }}
               />
             </div>
+
             <Button
               type="button"
               onClick={handleAdd}
               disabled={saving || !term.trim() || !replacement.trim()}
-              className="flex-shrink-0 h-9 px-5"
+              style={{ flexShrink: 0 }}
             >
               {saving ? 'Saving…' : 'Add'}
             </Button>
           </div>
-          <p className="text-[11px] text-[var(--muted-color)] mt-2">
-            Fuzzy matching corrects near-misses within 2 characters of edit distance.
-          </p>
         </div>
       </div>
 
-      {/* Entry list */}
-      <div className="card flex-1 min-h-0 flex flex-col">
+      {/* List */}
+      <div className="card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <div className="card__header">
           <div>
             <h2 className="card__title">Entries</h2>
-            <p className="card__desc">{dictionary.length} {dictionary.length === 1 ? 'entry' : 'entries'}</p>
+            <p className="card__desc">
+              {dictionary.length === 0
+                ? 'No entries yet'
+                : `${dictionary.length} ${dictionary.length === 1 ? 'entry' : 'entries'}`}
+            </p>
           </div>
         </div>
-        <div className="card__body overflow-y-auto flex-1 min-h-0">
+        <div className="card__body" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
           {dictionary.length === 0 ? (
-            <p className="text-[12px] text-[var(--muted-color)]">No entries yet. Add one above.</p>
+            <div className="empty-state">
+              <div className="empty-icon">
+                <BookOpen size={16} strokeWidth={1.5} />
+              </div>
+              <p className="empty-text">No entries yet. Add your first correction above.</p>
+            </div>
           ) : (
-            <div className="flex flex-col gap-1.5">
+            <div className="stack-sm">
               {dictionary.map((entry) => (
-                <div key={entry.id} className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-[var(--surface)] border border-transparent hover:border-[var(--border-subtle)] transition-colors group">
-                  <Badge variant="secondary" className="font-mono text-[11px] shrink-0">{entry.term}</Badge>
-                  <span className="text-[var(--muted-color)] text-xs">→</span>
-                  <span className="flex-1 text-[13px] text-[var(--fg)] truncate">{entry.replacement}</span>
+                <div key={entry.id} className="dict-row">
+                  <span className="dict-term">{entry.term}</span>
+                  <ArrowRight size={12} strokeWidth={1.75} style={{ flexShrink: 0, color: 'var(--muted)' }} />
+                  <span className="dict-replacement">{entry.replacement}</span>
                   <button
                     type="button"
                     onClick={() => deleteDictionaryEntry(entry.id)}
                     aria-label={`Delete ${entry.term}`}
-                    className="opacity-0 group-hover:opacity-100 text-[var(--muted-color)] hover:text-red-500 transition-all text-base leading-none px-1 rounded"
-                  >×</button>
+                    className="dict-delete"
+                  >
+                    <Trash2 size={12} strokeWidth={1.75} />
+                  </button>
                 </div>
               ))}
             </div>

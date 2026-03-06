@@ -6,14 +6,14 @@
   box-sizing: border-box;
 }
 
-html {
-  background: transparent;
+html, body {
+  width: 140px;
+  height: 30px;
+  background: transparent !important;
+  overflow: hidden;
 }
 
 body {
-  width: 176px;
-  height: 44px;
-  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -22,9 +22,9 @@ body {
 }
 
 #root {
-  width: 160px;
-  height: 28px;
-  background: transparent;
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
 }
 
 /* ===== Pill Container ===== */
@@ -34,19 +34,17 @@ body {
   border-radius: 999px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 10px 0 6px;
+  gap: 5px;
+  padding: 0 10px 0 5px;
   cursor: grab;
   user-select: none;
   position: relative;
 
-  background: rgba(14, 14, 20, 0.92);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  /* No box-shadow — clipped by WebView on Windows. Use border for depth. */
+  background: rgba(16, 16, 22, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.13);
 
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  transition: border-color 0.25s ease;
 }
 
 .pill:active {
@@ -55,24 +53,20 @@ body {
 
 /* ===== Recording State ===== */
 .pill--recording {
-  border-color: rgba(239, 68, 68, 0.45);
-  box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.55),
-    0 0 18px rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.6);
+  background: rgba(20, 14, 14, 0.97);
 }
 
 /* ===== Processing State ===== */
 .pill--processing {
-  border-color: rgba(124, 108, 239, 0.4);
-  box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.55),
-    0 0 14px rgba(124, 108, 239, 0.14);
+  border-color: rgba(124, 108, 239, 0.55);
+  background: rgba(14, 14, 22, 0.97);
 }
 
 /* ===== Icon Badge ===== */
 .pill__icon {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -186,4 +180,31 @@ body {
   color: rgba(167, 139, 250, 0.85);
   letter-spacing: 0.02em;
   white-space: nowrap;
+}
+
+/* ===== Error State ===== */
+.pill--error {
+  border-color: rgba(239, 68, 68, 0.6);
+  background: rgba(20, 14, 14, 0.97);
+}
+
+.pill__error-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #f87171;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* ===== Downloading State ===== */
+.pill--downloading {
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
+.pill--downloading .pill__spinner {
+  border-top-color: #fbbf24;
+}
+
+.pill--downloading .pill__proc-label {
+  color: rgba(251, 191, 36, 0.85);
 }

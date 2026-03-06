@@ -25,8 +25,8 @@
       {
         "label": "pill",
         "title": "Recording Pill",
-        "width": 176,
-        "height": 44,
+        "width": 140,
+        "height": 30,
         "visible": true,
         "decorations": false,
         "resizable": false,

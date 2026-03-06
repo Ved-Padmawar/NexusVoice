@@ -5,3 +5,4 @@ target-dir = ".cargo-target"
 
 [env]
 LIBCLANG_PATH = "C:\\Program Files\\LLVM\\bin"
+CMAKE = "C:\\Program Files\\CMake\\bin\\cmake.exe"

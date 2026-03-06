@@ -4,10 +4,12 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 
 export type ThemeName =
-  | 'midnight'
-  | 'arctic'
-  | 'slate'
-  | 'warm'
+  | 'void'
+  | 'obsidian'
+  | 'nord'
+  | 'sage'
+  | 'dusk'
+  | 'paper'
 
 export type User = {
   id: number
@@ -69,6 +71,7 @@ type AppState = {
   error: string | null
   /** True while waiting for auth:ready / auth:unauthenticated on startup */
   authChecking: boolean
+  hasHotkey: boolean
   init: () => Promise<void>
   /** Subscribe to auth:ready and auth:unauthenticated events from the backend */
   listenForAuthReady: () => Promise<() => void>
@@ -92,7 +95,7 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       user: null,
       refreshToken: null,
-      theme: 'midnight',
+      theme: 'void',
       selectedModel: 'whisper-base',
       hardwareTier: null,
       transcripts: [],
@@ -102,14 +105,16 @@ export const useAppStore = create<AppState>()(
       isLoading: false,
       error: null,
       authChecking: true,
+      hasHotkey: false,
       init: async () => {
         set({ isLoading: true, error: null })
         try {
-          const [transcripts, dictionary] = await Promise.all([
+          const [transcripts, dictionary, hotkeys] = await Promise.all([
             invoke<Transcript[]>('get_transcripts'),
             invoke<DictionaryEntry[]>('get_dictionary'),
+            invoke<string[]>('get_registered_hotkeys'),
           ])
-          set({ transcripts, dictionary })
+          set({ transcripts, dictionary, hasHotkey: hotkeys.length > 0 })
         } catch (e) {
           set({
             error: e instanceof Error ? e.message : 'Failed to load data',

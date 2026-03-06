@@ -83,6 +83,15 @@ fn main() {
                         }
                     }
                     "quit" => {
+                        // Stop any active mic capture before exiting —
+                        // app.exit() calls std::process::exit() which does NOT
+                        // trigger RunEvent::Exit, so we must clean up here.
+                        let state = app.state::<state::AppState>();
+                        state.transcription_running.store(
+                            false,
+                            std::sync::atomic::Ordering::SeqCst,
+                        );
+                        std::thread::sleep(std::time::Duration::from_millis(200));
                         app.exit(0);
                     }
                     _ => {}
@@ -179,6 +188,7 @@ fn main() {
             commands::start_transcription,
             commands::stop_transcription,
             commands::get_model_info,
+            commands::get_usage_stats,
             commands::get_transcripts,
             commands::get_dictionary,
             commands::save_transcript,
@@ -192,6 +202,25 @@ fn main() {
             commands::unregister_hotkey,
             commands::get_registered_hotkeys,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            use tauri::RunEvent;
+            match event {
+                RunEvent::Exit => {
+                    // Ensure any active mic capture thread is stopped before the
+                    // process exits. Tauri does NOT call Drop on managed state,
+                    // so we must signal manually.
+                    let state = app.state::<state::AppState>();
+                    state.transcription_running.store(false, std::sync::atomic::Ordering::SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+                RunEvent::ExitRequested { .. } => {
+                    // Also stop recording when the last window is closed
+                    let state = app.state::<state::AppState>();
+                    state.transcription_running.store(false, std::sync::atomic::Ordering::SeqCst);
+                }
+                _ => {}
+            }
+        });
 }

@@ -10,6 +10,7 @@ use super::errors::InferenceError;
 /// `transcribe()` which takes the full audio buffer and returns the decoded text.
 pub struct WhisperEngine {
     context: WhisperContext,
+    #[allow(dead_code)]
     provider: ExecutionProvider,
 }
 

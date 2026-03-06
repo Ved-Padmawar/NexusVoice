@@ -4,11 +4,13 @@ import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import './PillApp.css'
 
-type PillState = 'idle' | 'recording' | 'processing'
+type PillState = 'idle' | 'recording' | 'processing' | 'error' | 'downloading'
 
 export function PillApp() {
   const [state, setState] = useState<PillState>('idle')
   const [elapsed, setElapsed] = useState(0)
+  const [errorMsg, setErrorMsg] = useState('')
+  const [downloadPct, setDownloadPct] = useState(0)
   const timerRef = useRef<number | null>(null)
   const startTimeRef = useRef<number>(0)
 
@@ -49,26 +51,42 @@ export function PillApp() {
     void getCurrentWindow().setAlwaysOnTop(true)
   }, [])
 
+  const isRecordingRef = useRef(false)
+
   useEffect(() => {
     const unlisteners: (() => void)[] = []
 
     const setup = async () => {
       const u1 = await listen('hotkey-pressed', async () => {
+        // Guard against key-repeat: if already recording, ignore subsequent presses
+        if (isRecordingRef.current) return
+        isRecordingRef.current = true
         setState('recording')
         try {
           await invoke('start_transcription')
-        } catch (err) {
-          console.error('Failed to start:', err)
+        } catch (err: unknown) {
+          const msg = err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : String(err)
+          console.error('Failed to start:', msg)
+          setErrorMsg(msg)
+          setState('error')
+          isRecordingRef.current = false
+          setTimeout(() => setState('idle'), 3000)
         }
       })
       unlisteners.push(u1)
 
       const u2 = await listen('hotkey-released', async () => {
+        if (!isRecordingRef.current) return
+        isRecordingRef.current = false
         setState('processing')
         try {
           await invoke('stop_transcription')
-        } catch (err) {
-          console.error('Failed to stop:', err)
+        } catch (err: unknown) {
+          const msg = err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : String(err)
+          console.error('Failed to stop:', msg)
+          setErrorMsg(msg)
+          setState('error')
+          setTimeout(() => setState('idle'), 3000)
         }
       })
       unlisteners.push(u2)
@@ -81,6 +99,31 @@ export function PillApp() {
         setState('idle')
       })
       unlisteners.push(u3)
+
+      const u4 = await listen<string>('transcription-error', (event) => {
+        console.error('Transcription error:', event.payload)
+        setErrorMsg(event.payload ?? 'Transcription failed')
+        setState('error')
+        setTimeout(() => setState('idle'), 3000)
+      })
+      unlisteners.push(u4)
+
+      const u5 = await listen('model-download-start', () => {
+        setState('downloading')
+        setDownloadPct(0)
+      })
+      unlisteners.push(u5)
+
+      const u6 = await listen<number>('model-download-progress', (event) => {
+        setDownloadPct(event.payload)
+      })
+      unlisteners.push(u6)
+
+      const u7 = await listen('model-download-complete', () => {
+        setState('processing')
+        setDownloadPct(0)
+      })
+      unlisteners.push(u7)
     }
 
     setup()
@@ -123,6 +166,15 @@ export function PillApp() {
             <div className="pill__spinner" />
             <span className="pill__proc-label">Processing…</span>
           </div>
+        )}
+        {state === 'downloading' && (
+          <div className="pill__processing">
+            <div className="pill__spinner" />
+            <span className="pill__proc-label">Downloading model{downloadPct > 0 ? ` ${downloadPct}%` : '…'}</span>
+          </div>
+        )}
+        {state === 'error' && (
+          <span className="pill__error-label" title={errorMsg}>Error</span>
         )}
       </div>
     </div>

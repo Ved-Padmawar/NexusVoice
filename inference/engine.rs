@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::inference::errors::InferenceError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

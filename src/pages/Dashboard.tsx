@@ -1,110 +1,129 @@
 import { useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import {
+  Hash, Timer, Mic, Activity,
+  AlertCircle, Copy,
+  Settings2,
+} from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 
-function formatSpeakingTime(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`
-  const h = Math.floor(m / 60)
-  const rm = m % 60
+function fmtTime(s: number) {
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60), rem = s % 60
+  if (m < 60) return rem > 0 ? `${m}m ${rem}s` : `${m}m`
+  const h = Math.floor(m / 60), rm = m % 60
   return rm > 0 ? `${h}h ${rm}m` : `${h}h`
 }
 
-function formatDate(dateStr: string): string {
+function fmtDate(d: string) {
   try {
-    return new Date(dateStr).toLocaleString(undefined, {
+    return new Date(d).toLocaleString(undefined, {
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
     })
-  } catch {
-    return dateStr
-  }
+  } catch { return d }
 }
 
+const STATS = [
+  { key: 'totalWords',         label: 'Total Words',   fmt: (v: number) => v.toLocaleString(),   Icon: Hash },
+  { key: 'speakingTimeSeconds',label: 'Speaking Time', fmt: (v: number) => fmtTime(v),           Icon: Timer },
+  { key: 'totalSessions',      label: 'Sessions',      fmt: (v: number) => v.toLocaleString(),   Icon: Mic },
+  { key: 'avgPaceWpm',         label: 'Avg Pace',      fmt: (v: number) => `${v} wpm`,           Icon: Activity },
+]
+
 export function Dashboard() {
-  const {
-    transcripts,
-    stats,
-    fetchStats,
-    error,
-    setError,
-  } = useAppStore()
+  const { transcripts, stats, fetchStats, hasHotkey, error, setError } = useAppStore()
+  const navigate = useNavigate()
 
-  useEffect(() => {
-    fetchStats()
-  }, [fetchStats])
-
-  const handleCopy = async (content: string) => {
-    await navigator.clipboard.writeText(content)
-  }
+  useEffect(() => { fetchStats() }, [fetchStats])
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="page-header">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', gap: '16px' }}>
+      {/* Header */}
+      <div className="page-header" style={{ marginBottom: 0 }}>
         <h1 className="page-title">Dashboard</h1>
-        <p className="page-subtitle">Overview of your transcription activity.</p>
+        <p className="page-subtitle">Your transcription activity at a glance.</p>
       </div>
 
+      {/* Banners */}
+      {!hasHotkey && (
+        <div className="notice notice--warning">
+          <AlertCircle size={14} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--warning)' }} />
+          <span style={{ flex: 1 }}>No hotkey set — NexusVoice won't record until you configure one.</span>
+          <Button
+            size="sm"
+            onClick={() => navigate('/settings', { state: { tab: 'audio' } })}
+            style={{ flexShrink: 0 }}
+          >
+            <Settings2 size={12} strokeWidth={2} />
+            Set hotkey
+          </Button>
+        </div>
+      )}
+
       {error && (
-        <Alert variant="destructive" className="mb-5 flex-shrink-0">
-          <AlertDescription className="flex items-center justify-between">
-            {error}
-            <button
-              type="button"
-              onClick={() => setError(null)}
-              aria-label="Dismiss"
-              className="opacity-70 hover:opacity-100 text-base leading-none ml-2"
-            >×</button>
-          </AlertDescription>
-        </Alert>
+        <div className="notice notice--error">
+          <AlertCircle size={14} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--danger)' }} />
+          <span style={{ flex: 1 }}>{error}</span>
+          <button type="button" className="notice__close" onClick={() => setError(null)}>
+            <X size={14} strokeWidth={2} />
+          </button>
+        </div>
       )}
 
       {/* Stats */}
-      <div className="flex gap-3.5 flex-wrap flex-shrink-0 mb-5">
-        {[
-          { value: stats?.totalWords.toLocaleString(), label: 'Total Words' },
-          { value: stats ? formatSpeakingTime(stats.speakingTimeSeconds) : undefined, label: 'Speaking Time' },
-          { value: stats?.totalSessions.toLocaleString(), label: 'Sessions' },
-          { value: stats ? String(stats.avgPaceWpm) : undefined, label: 'Avg Pace (wpm)' },
-        ].map(({ value, label }) => (
-          <div key={label} className="stat-card flex-1 min-w-[120px]">
-            <p className="stat-value">{value ?? '—'}</p>
-            <p className="stat-label">{label}</p>
-          </div>
-        ))}
+      <div className="stat-grid">
+        {STATS.map(({ key, label, fmt, Icon }) => {
+          const raw = stats?.[key as keyof typeof stats] as number | undefined
+          return (
+            <div key={key} className="stat-card">
+              <div className="stat-icon"><Icon size={14} strokeWidth={1.75} /></div>
+              <p className="stat-value">{raw != null ? fmt(raw) : '—'}</p>
+              <p className="stat-label">{label}</p>
+            </div>
+          )
+        })}
       </div>
 
-      {/* Recent Activity */}
-      <div className="card flex-1 min-h-0 flex flex-col">
+      {/* Activity */}
+      <div className="card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <div className="card__header">
           <div>
             <h2 className="card__title">Recent Activity</h2>
-            <p className="card__desc">Your latest transcription sessions.</p>
+            <p className="card__desc">
+              {transcripts.length > 0
+                ? `${transcripts.length} transcript${transcripts.length !== 1 ? 's' : ''}`
+                : 'No transcripts yet'}
+            </p>
           </div>
         </div>
-        <div className="card__body overflow-y-auto flex-1 min-h-0">
+
+        <div className="card__body" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
           {transcripts.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-7 text-center">
-              <div className="w-9 h-9 rounded-xl bg-[var(--surface)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--muted-color)] opacity-70">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-                  <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-                </svg>
+            <div className="empty-state">
+              <div className="empty-icon">
+                <Mic size={16} strokeWidth={1.5} />
               </div>
-              <p className="text-[13px] text-[var(--muted-color)] max-w-[260px] leading-relaxed">No transcripts yet. Start recording to see activity here.</p>
+              <p className="empty-text">
+                Hold your hotkey and speak. Transcripts appear here automatically.
+              </p>
             </div>
           ) : (
-            <div className="flex flex-col gap-1.5">
+            <div className="stack-sm">
               {transcripts.map((item) => (
-                <article key={item.id} className="flex flex-col gap-2 p-3 rounded-xl bg-[var(--surface)] border border-transparent hover:border-[var(--border-subtle)] transition-colors">
-                  <p className="text-[13px] text-[var(--fg)] leading-relaxed">{item.content}</p>
-                  <div className="flex items-center justify-between">
-                    <p className="text-[11px] text-[var(--muted-color)]">{formatDate(item.createdAt)}</p>
-                    <Button variant="ghost" size="sm" type="button" onClick={() => handleCopy(item.content)} className="h-6 px-2 text-xs opacity-60 hover:opacity-100">
+                <article key={item.id} className="activity-item">
+                  <p className="activity-text">{item.content}</p>
+                  <div className="activity-meta">
+                    <span className="activity-time">{fmtDate(item.createdAt)}</span>
+                    <button
+                      type="button"
+                      className="activity-copy"
+                      onClick={() => navigator.clipboard.writeText(item.content)}
+                      title="Copy to clipboard"
+                    >
+                      <Copy size={11} strokeWidth={2} />
                       Copy
-                    </Button>
+                    </button>
                   </div>
                 </article>
               ))}
@@ -113,5 +132,15 @@ export function Dashboard() {
         </div>
       </div>
     </div>
+  )
+}
+
+// X icon inline (not re-exporting from lucide to avoid import clash)
+function X({ size, strokeWidth }: { size: number; strokeWidth: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18"/>
+      <line x1="6" y1="6" x2="18" y2="18"/>
+    </svg>
   )
 }

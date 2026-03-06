@@ -11,6 +11,9 @@ use crate::models::ModelSize;
 /// Shared audio sample buffer filled by the cpal capture thread.
 pub type AudioBuffer = Arc<std::sync::Mutex<Vec<f32>>>;
 
+/// Native sample rate captured from the cpal device, set when recording starts.
+pub type NativeSampleRate = Arc<std::sync::Mutex<u32>>;
+
 /// Holds the authenticated session for the current app run.
 /// Set after login or successful silent re-auth on startup.
 #[derive(Debug, Default)]
@@ -34,6 +37,8 @@ pub struct AppState {
     pub current_hotkey: Mutex<Option<String>>,
     /// Audio samples collected during an active recording session.
     pub audio_buffer: AudioBuffer,
+    /// Native sample rate of the captured audio (set when recording starts).
+    pub native_sample_rate: NativeSampleRate,
     /// Path to the directory where whisper model files are stored.
     pub models_dir: PathBuf,
 }
@@ -56,6 +61,7 @@ impl AppState {
             model_override: Mutex::new(None),
             current_hotkey: Mutex::new(None),
             audio_buffer: Arc::new(std::sync::Mutex::new(Vec::new())),
+            native_sample_rate: Arc::new(std::sync::Mutex::new(44100)),
             models_dir,
         }
     }

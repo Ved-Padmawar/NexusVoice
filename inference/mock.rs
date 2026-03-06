@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::engine::{ExecutionProvider, InferenceEngine};
 use super::errors::InferenceError;
 

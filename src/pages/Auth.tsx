@@ -3,11 +3,11 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { Zap, Check, AlertCircle, X } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 
 type Mode = 'login' | 'register'
 
@@ -21,20 +21,25 @@ const registerSchema = z.object({
   email: z.string().email('Enter a valid email address'),
   password: z
     .string()
-    .min(8, 'Password must be at least 8 characters')
-    .regex(/[A-Z]/, 'Must contain an uppercase letter')
-    .regex(/[0-9]/, 'Must contain a number'),
+    .min(8, 'At least 8 characters')
+    .regex(/[A-Z]/, 'One uppercase letter required')
+    .regex(/[0-9]/, 'One number required'),
   rememberMe: z.boolean(),
 })
 
 type FormValues = z.infer<typeof loginSchema>
+
+const FEATURES = [
+  'Hold a hotkey, speak naturally, release to paste',
+  'On-device Whisper AI — no data leaves your machine',
+  'Custom dictionary for technical terms & names',
+]
 
 export function Auth() {
   const [mode, setMode] = useState<Mode>('login')
   const { login, register, error, setError } = useAppStore()
   const navigate = useNavigate()
   const location = useLocation()
-
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? '/'
 
   const {
@@ -51,11 +56,8 @@ export function Auth() {
   const onSubmit = async (data: FormValues) => {
     setError(null)
     try {
-      if (mode === 'login') {
-        await login(data.email, data.password)
-      } else {
-        await register(data.email, data.password)
-      }
+      if (mode === 'login') await login(data.email, data.password)
+      else await register(data.email, data.password)
       navigate(from, { replace: true })
     } catch {
       setFieldError('root', { message: 'Authentication failed. Please try again.' })
@@ -68,66 +70,67 @@ export function Auth() {
     reset({ email: '', password: '', rememberMe: false })
   }
 
-  const storeError = error
-
   return (
     <div className="auth-page">
-      {/* Left — brand panel */}
+      {/* Left panel */}
       <div className="auth-left">
-        <div className="auth-left-brand">
+        <div className="auth-brand">
           <div className="auth-logo">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M13 2L4.5 13.5H11L10 22L19.5 10.5H13L13 2Z" />
-            </svg>
+            <Zap size={15} strokeWidth={2.5} />
           </div>
           <span className="auth-brand-name">NexusVoice</span>
         </div>
 
-        <div className="auth-left-body">
-          <h2 className="auth-left-headline">Voice-to-text,<br />reimagined.</h2>
-          <p className="auth-left-sub">
-            Press a hotkey, speak naturally, and watch your words appear instantly — anywhere on your screen.
+        <div className="auth-hero">
+          <h2 className="auth-headline">
+            Voice-to-text,<br /><span>reimagined.</span>
+          </h2>
+          <p className="auth-subheadline">
+            Speak naturally. Paste instantly. Works everywhere on your desktop.
           </p>
+
+          <div style={{ marginTop: '28px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {FEATURES.map((f) => (
+              <div key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                <div style={{
+                  width: '18px', height: '18px', borderRadius: 'var(--r-sm)',
+                  background: 'var(--accent-soft)', color: 'var(--accent)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0, marginTop: '1px',
+                }}>
+                  <Check size={10} strokeWidth={3} />
+                </div>
+                <span style={{ fontSize: '12px', color: 'var(--fg-2)', lineHeight: 1.5 }}>{f}</span>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <span className="auth-left-footer">© 2026 NexusVoice</span>
+        <span className="auth-footer-text">© 2026 NexusVoice · All rights reserved</span>
       </div>
 
-      {/* Right — form panel */}
+      {/* Right panel — form */}
       <div className="auth-right">
-        <div className="auth-card">
-          {/* Heading */}
-          <div className="auth-heading">
+        <div className="auth-box">
+          <div>
             <h1 className="auth-title">
-              {mode === 'login' ? 'Welcome back' : 'Create account'}
+              {mode === 'login' ? 'Welcome back' : 'Get started'}
             </h1>
             <p className="auth-subtitle">
               {mode === 'login'
-                ? 'Sign in to continue to NexusVoice'
-                : 'Get started with NexusVoice for free'}
+                ? 'Sign in to your NexusVoice account'
+                : 'Create your free account'}
             </p>
           </div>
 
-          {/* Errors */}
-          {storeError && (
-            <Alert variant="destructive">
-              <AlertDescription className="flex items-center justify-between gap-2">
-                <span>{storeError}</span>
-                <button
-                  type="button"
-                  onClick={() => setError(null)}
-                  aria-label="Dismiss"
-                  className="shrink-0 opacity-60 hover:opacity-100 text-lg leading-none"
-                >
-                  ×
-                </button>
-              </AlertDescription>
-            </Alert>
-          )}
-          {errors.root && (
-            <Alert variant="destructive">
-              <AlertDescription>{errors.root.message}</AlertDescription>
-            </Alert>
+          {(error || errors.root) && (
+            <div className="notice notice--error">
+              <AlertCircle size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--danger)' }} />
+              <span style={{ flex: 1 }}>{error ?? errors.root?.message}</span>
+              <button type="button" className="notice__close" onClick={() => setError(null)}>
+                <X size={13} strokeWidth={2} />
+              </button>
+            </div>
           )}
 
           <form onSubmit={handleSubmit(onSubmit)} className="auth-form" noValidate>
@@ -143,9 +146,7 @@ export function Auth() {
                 aria-invalid={!!errors.email}
                 {...formRegister('email')}
               />
-              {errors.email && (
-                <p className="auth-field-error" role="alert">{errors.email.message}</p>
-              )}
+              {errors.email && <p className="auth-field-error" role="alert">{errors.email.message}</p>}
             </div>
 
             <div className="auth-field">
@@ -159,11 +160,9 @@ export function Auth() {
                 aria-invalid={!!errors.password}
                 {...formRegister('password')}
               />
-              {errors.password && (
-                <p className="auth-field-error" role="alert">{errors.password.message}</p>
-              )}
+              {errors.password && <p className="auth-field-error" role="alert">{errors.password.message}</p>}
               {mode === 'register' && !errors.password && (
-                <p className="auth-field-hint">Min. 8 characters, one uppercase, one number.</p>
+                <p className="auth-field-hint">Min. 8 chars · 1 uppercase · 1 number</p>
               )}
             </div>
 
@@ -175,12 +174,15 @@ export function Auth() {
                 disabled={isSubmitting}
                 {...formRegister('rememberMe')}
               />
-              <Label htmlFor="auth-remember" className="auth-remember-label">
+              <Label
+                htmlFor="auth-remember"
+                style={{ textTransform: 'none', fontSize: '11px', letterSpacing: 0, fontWeight: 400, color: 'var(--fg-2)', cursor: 'pointer' }}
+              >
                 Remember me for 30 days
               </Label>
             </div>
 
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
+            <Button type="submit" className="w-full" disabled={isSubmitting} style={{ marginTop: '4px' }}>
               {isSubmitting
                 ? (mode === 'login' ? 'Signing in…' : 'Creating account…')
                 : (mode === 'login' ? 'Sign in' : 'Create account')}
@@ -191,7 +193,7 @@ export function Auth() {
             {mode === 'login' ? "Don't have an account?" : 'Already have an account?'}{' '}
             <button
               type="button"
-              className="auth-switch-link"
+              className="auth-switch-btn"
               onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}
             >
               {mode === 'login' ? 'Create one' : 'Sign in'}
