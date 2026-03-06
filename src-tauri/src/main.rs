@@ -37,7 +37,8 @@ fn main() {
 
             let auth = auth::AuthService::new(pool.clone());
             let token_store_path = app_data_dir.join("refresh_token");
-            let app_state = state::AppState::new(pool, auth, token_store_path);
+            let hotkey_store_path = app_data_dir.join("hotkey");
+            let app_state = state::AppState::new(pool, auth, token_store_path, hotkey_store_path);
             app.manage(app_state);
 
             // Silent re-auth on startup
@@ -101,7 +102,62 @@ fn main() {
                 })
                 .build(app)?;
 
-            // Note: No default hotkey is registered. Users must set it in Settings.
+            // Restore persisted model override
+            {
+                let state = app.state::<state::AppState>();
+                if let Some(size_str) = state.load_model_override() {
+                    let parsed = match size_str.as_str() {
+                        "tiny" => Some(models::ModelSize::Tiny),
+                        "small" => Some(models::ModelSize::Small),
+                        "medium" => Some(models::ModelSize::Medium),
+                        "large" => Some(models::ModelSize::Large),
+                        _ => None,
+                    };
+                    if let Some(size) = parsed {
+                        let mut guard = tauri::async_runtime::block_on(state.model_override.lock());
+                        *guard = Some(size);
+                    }
+                }
+            }
+
+            // Position pill window: centered horizontally, near bottom of primary monitor
+            if let Some(pill) = app.get_webview_window("pill") {
+                if let Some(monitor) = pill.primary_monitor().ok().flatten() {
+                    let screen = monitor.size();
+                    let scale = monitor.scale_factor();
+                    // Physical pill size → logical pixels
+                    let pill_w = 176.0;
+                    let pill_h = 44.0;
+                    let margin = 24.0;
+                    let logical_w = screen.width as f64 / scale;
+                    let logical_h = screen.height as f64 / scale;
+                    let x = ((logical_w - pill_w) / 2.0) as i32;
+                    let y = (logical_h - pill_h - margin) as i32;
+                    let _ = pill.set_position(tauri::LogicalPosition::new(x, y));
+                }
+            }
+
+            // Re-register persisted hotkey on startup
+            {
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                let state = app.state::<state::AppState>();
+                if let Some(hotkey) = state.load_hotkey() {
+                    let app_handle = app.handle().clone();
+                    let _ = app.global_shortcut().on_shortcut(
+                        hotkey.as_str(),
+                        move |_app, _shortcut, event| {
+                            use tauri_plugin_global_shortcut::ShortcutState;
+                            if event.state == ShortcutState::Pressed {
+                                let _ = app_handle.emit("hotkey-pressed", ());
+                            } else {
+                                let _ = app_handle.emit("hotkey-released", ());
+                            }
+                        },
+                    );
+                    let mut current = tauri::async_runtime::block_on(state.current_hotkey.lock());
+                    *current = Some(hotkey);
+                }
+            }
 
             Ok(())
         })
@@ -115,7 +171,10 @@ fn main() {
             commands::register_with_tokens,
             commands::refresh_token,
             commands::logout_token,
+            commands::get_hardware_tier,
             commands::get_hardware_profile,
+            commands::set_model_override,
+            commands::clear_model_override,
             commands::start_transcription,
             commands::stop_transcription,
             commands::get_model_info,
@@ -123,10 +182,13 @@ fn main() {
             commands::get_dictionary,
             commands::save_transcript,
             commands::update_dictionary,
+            commands::delete_dictionary_entry,
+            commands::apply_dictionary,
             commands::show_main_window,
             commands::hide_main_window,
             commands::type_text,
             commands::register_hotkey,
+            commands::unregister_hotkey,
             commands::get_registered_hotkeys,
         ])
         .run(tauri::generate_context!())

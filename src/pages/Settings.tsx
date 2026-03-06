@@ -102,6 +102,13 @@ export function Settings() {
 
   const tierOrder: Record<string, number> = { low: 0, mid: 1, high: 2 }
 
+  const applyModel = (modelId: ModelId) => {
+    setSelectedModel(modelId)
+    // Extract size token from model id (e.g. 'whisper-small' → 'small')
+    const size = modelId.replace('whisper-', '')
+    invoke('set_model_override', { size }).catch(() => {})
+  }
+
   const handleModelChange = (modelId: ModelId) => {
     const model = MODEL_OPTIONS.find(m => m.id === modelId)
     if (!model) return
@@ -109,15 +116,13 @@ export function Settings() {
       setPendingModel(modelId)
       setShowOverrideWarning(true)
     } else {
-      setSelectedModel(modelId)
-      invoke('set_model', { modelId }).catch(() => {})
+      applyModel(modelId)
     }
   }
 
   const confirmOverride = () => {
     if (!pendingModel) return
-    setSelectedModel(pendingModel)
-    invoke('set_model', { modelId: pendingModel }).catch(() => {})
+    applyModel(pendingModel)
     setPendingModel(null)
     setShowOverrideWarning(false)
   }
@@ -198,17 +203,34 @@ export function Settings() {
     try {
       await invoke('register_hotkey', { hotkey: shortcut })
       setCurrentHotkey(shortcut)
+      setPressedKeys([])
+      keysRef.current.clear()
       setHotkeySuccess(true)
       setTimeout(() => setHotkeySuccess(false), 3000)
     } catch (e: unknown) {
-      const errorMsg = e instanceof Error ? e.message : String(e)
-      if (errorMsg.includes('already registered') || errorMsg.includes('already in use')) {
-        setError('This hotkey is already in use. Try a different combination.')
+      const err = e as { code?: string; message?: string }
+      if (err?.code === 'hotkey_already_in_use') {
+        setError('This hotkey is already in use by another application.')
+      } else if (err?.code === 'hotkey_permission_denied') {
+        setError('OS denied hotkey registration — try a different combination.')
+      } else if (err?.code === 'hotkey_invalid') {
+        setError(err.message ?? 'Invalid hotkey combination.')
       } else {
-        setError(errorMsg || 'Failed to register hotkey')
+        setError(err?.message ?? 'Failed to register hotkey.')
       }
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleUnregisterHotkey = async () => {
+    try {
+      await invoke('unregister_hotkey')
+      setCurrentHotkey(null)
+      setHotkeySuccess(false)
+    } catch (e: unknown) {
+      const err = e as { message?: string }
+      setError(err?.message ?? 'Failed to unregister hotkey.')
     }
   }
 
@@ -298,15 +320,26 @@ export function Settings() {
             </div>
             <div className="card__body">
               {currentHotkey && (
-                <div>
+                <div style={{ marginBottom: 16 }}>
                   <span className="field-label">Current hotkey</span>
-                  <div className="hotkey-keys" style={{ marginTop: 4 }}>
-                    {currentHotkey.split('+').map((key, i) => (
-                      <span key={i}>
-                        {i > 0 && <span className="key-plus">+</span>}
-                        <span className="key-badge">{displayKey(key)}</span>
-                      </span>
-                    ))}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                    <div className="hotkey-keys">
+                      {currentHotkey.split('+').map((key, i) => (
+                        <span key={i}>
+                          {i > 0 && <span className="key-plus">+</span>}
+                          <span className="key-badge">{displayKey(key)}</span>
+                        </span>
+                      ))}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleUnregisterHotkey}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      Remove
+                    </Button>
                   </div>
                 </div>
               )}

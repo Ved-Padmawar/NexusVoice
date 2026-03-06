@@ -996,3 +996,53 @@
     padding: 20px 16px;
   }
 }
+
+/* ===== Dictionary ===== */
+.dict-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dict-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.dict-term {
+  min-width: 80px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.dict-arrow {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.dict-replacement {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.dict-delete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.dict-delete:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}

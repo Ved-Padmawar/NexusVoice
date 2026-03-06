@@ -14,6 +14,9 @@ use crate::database::repositories::{
 use crate::hardware::{detect_profile, SysinfoProvider};
 use crate::inference::{ExecutionProvider, MockInferenceEngine};
 use crate::models::{select_model, ModelSize};
+use crate::postprocess::module::dictionary_engine::{
+    DictionaryCorrectionConfig, DictionaryCorrectionEngine,
+};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize)]
@@ -271,6 +274,51 @@ pub async fn logout_token(
     Ok(())
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HardwareTierResponse {
+    pub tier: String,
+    pub execution_provider: String,
+    pub vram_gb: f32,
+}
+
+/// Returns the hardware tier (low/mid/high) derived from the detected profile.
+#[tauri::command]
+pub async fn get_hardware_tier() -> Result<HardwareTierResponse, ApiError> {
+    let provider = SysinfoProvider::new();
+    let profile = detect_profile(&provider);
+    let tier = match profile.execution_provider.as_str() {
+        "cuda" => "high",
+        "directml" | "metal" => "mid",
+        _ => "low",
+    }
+    .to_string();
+    Ok(HardwareTierResponse {
+        tier,
+        execution_provider: profile.execution_provider,
+        vram_gb: profile.vram_gb,
+    })
+}
+
+/// Persist the model size override and store it in app state.
+#[tauri::command]
+pub async fn set_model_override(state: State<'_, AppState>, size: String) -> Result<(), ApiError> {
+    let model_size = parse_model_size(&size)?;
+    let _ = state.save_model_override(&size);
+    let mut guard = state.model_override.lock().await;
+    *guard = Some(model_size);
+    Ok(())
+}
+
+/// Clear the model override — revert to auto-selection.
+#[tauri::command]
+pub async fn clear_model_override(state: State<'_, AppState>) -> Result<(), ApiError> {
+    state.delete_model_override();
+    let mut guard = state.model_override.lock().await;
+    *guard = None;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn get_hardware_profile() -> Result<HardwareProfileResponse, ApiError> {
     let provider = SysinfoProvider::new();
@@ -394,6 +442,25 @@ pub async fn update_dictionary(
     Ok(entry.into())
 }
 
+#[tauri::command]
+pub async fn delete_dictionary_entry(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<bool, ApiError> {
+    let repo = DictionaryRepository::new(state.pool.clone());
+    Ok(repo.delete_by_id(id).await?)
+}
+
+#[tauri::command]
+pub async fn apply_dictionary(
+    state: State<'_, AppState>,
+    text: String,
+) -> Result<String, ApiError> {
+    let repo = DictionaryRepository::new(state.pool.clone());
+    let engine = DictionaryCorrectionEngine::new(repo, DictionaryCorrectionConfig::default());
+    engine.apply_to_text(&text).await.map_err(ApiError::from)
+}
+
 fn parse_model_size(value: &str) -> Result<ModelSize, ApiError> {
     match value.to_lowercase().as_str() {
         "tiny" => Ok(ModelSize::Tiny),
@@ -480,28 +547,78 @@ pub async fn register_hotkey(
     use tauri::Emitter;
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-    // Unregister all existing shortcuts first
+    // Validate input
+    let hotkey = hotkey.trim().to_string();
+    if hotkey.is_empty() {
+        return Err(ApiError::new("hotkey_invalid", "hotkey cannot be empty"));
+    }
+    // Must contain at least one modifier + one non-modifier key
+    let parts: Vec<&str> = hotkey.split('+').collect();
+    let modifiers = ["Ctrl", "Alt", "Shift", "Super", "Win"];
+    let has_modifier = parts.iter().any(|p| modifiers.contains(p));
+    let has_key = parts.iter().any(|p| !modifiers.contains(p));
+    if !has_modifier || !has_key {
+        return Err(ApiError::new(
+            "hotkey_invalid",
+            "hotkey must include at least one modifier (Ctrl/Alt/Shift) and one key",
+        ));
+    }
+
+    // Unregister all existing shortcuts first to avoid duplicate registration
     app.global_shortcut()
         .unregister_all()
-        .map_err(|e| ApiError::new("hotkey_error", e.to_string()))?;
+        .map_err(|e| ApiError::new("hotkey_unregister_failed", e.to_string()))?;
 
-    // Register the new hotkey with handler (on_shortcut registers it implicitly)
+    // Register with press/release handler
     let app_clone = app.clone();
     app.global_shortcut()
         .on_shortcut(hotkey.as_str(), move |_app, _shortcut, event| {
-            if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+            use tauri_plugin_global_shortcut::ShortcutState;
+            if event.state == ShortcutState::Pressed {
                 let _ = app_clone.emit("hotkey-pressed", ());
             } else {
                 let _ = app_clone.emit("hotkey-released", ());
             }
         })
-        .map_err(|e| ApiError::new("hotkey_error", e.to_string()))?;
+        .map_err(|e| {
+            let msg = e.to_string();
+            // Map common OS errors to structured codes
+            if msg.contains("already registered") || msg.contains("already in use") {
+                ApiError::new(
+                    "hotkey_already_in_use",
+                    "this hotkey is already in use by another application",
+                )
+            } else if msg.contains("permission") || msg.contains("access") {
+                ApiError::new(
+                    "hotkey_permission_denied",
+                    "OS denied hotkey registration — try a different combination",
+                )
+            } else {
+                ApiError::new("hotkey_register_failed", msg)
+            }
+        })?;
 
-    // Store the hotkey in state
+    // Persist to disk and update in-memory state
+    let _ = state.save_hotkey(&hotkey);
     let mut current = state.current_hotkey.lock().await;
     *current = Some(hotkey);
 
     Ok(true)
+}
+
+#[tauri::command]
+pub async fn unregister_hotkey(app: AppHandle, state: State<'_, AppState>) -> Result<(), ApiError> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+    app.global_shortcut()
+        .unregister_all()
+        .map_err(|e| ApiError::new("hotkey_unregister_failed", e.to_string()))?;
+
+    state.delete_hotkey();
+    let mut current = state.current_hotkey.lock().await;
+    *current = None;
+
+    Ok(())
 }
 
 #[tauri::command]

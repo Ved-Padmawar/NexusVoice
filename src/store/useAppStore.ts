@@ -84,6 +84,7 @@ type AppState = {
   fetchStats: () => Promise<void>
   addTranscript: (content: string) => Promise<void>
   updateDictionary: (term: string, replacement: string) => Promise<void>
+  deleteDictionaryEntry: (id: number) => Promise<void>
 }
 
 export const useAppStore = create<AppState>()(
@@ -191,10 +192,8 @@ export const useAppStore = create<AppState>()(
       },
       fetchHardwareTier: async () => {
         try {
-          const profile = await invoke<{ executionProvider: string; vramGb: number }>('get_hardware_profile')
-          // Map execution provider to tier: CPU=low, DirectML=mid, CUDA=high
-          const ep = profile.executionProvider.toLowerCase()
-          const tier: HardwareTier = ep.includes('cuda') ? 'high' : ep.includes('directml') ? 'mid' : 'low'
+          const result = await invoke<{ tier: string; executionProvider: string; vramGb: number }>('get_hardware_tier')
+          const tier = result.tier as HardwareTier
           set({ hardwareTier: tier })
         } catch {
           set({ hardwareTier: null })
@@ -236,6 +235,15 @@ export const useAppStore = create<AppState>()(
           set({
             error: e instanceof Error ? e.message : 'Failed to update dictionary',
           })
+        }
+      },
+      deleteDictionaryEntry: async (id) => {
+        set({ error: null })
+        try {
+          await invoke('delete_dictionary_entry', { id })
+          set((state) => ({ dictionary: state.dictionary.filter((d) => d.id !== id) }))
+        } catch (e) {
+          set({ error: e instanceof Error ? e.message : 'Failed to delete entry' })
         }
       },
     }),

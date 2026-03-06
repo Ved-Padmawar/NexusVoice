@@ -48,6 +48,39 @@ impl DictionaryCorrectionEngine {
         }
     }
 
+    /// Apply dictionary corrections to a full text string word-by-word.
+    /// Words that match dictionary entries (exact or fuzzy) are replaced.
+    /// Punctuation attached to words is preserved.
+    pub async fn apply_to_text(&self, text: &str) -> Result<String, sqlx::Error> {
+        let mut result = Vec::new();
+        for token in text.split_whitespace() {
+            // Separate leading/trailing punctuation from the word core
+            let start = token
+                .find(|c: char| c.is_alphabetic())
+                .unwrap_or(token.len());
+            let end = token
+                .rfind(|c: char| c.is_alphabetic())
+                .map(|i| i + token[i..].chars().next().map_or(0, |ch| ch.len_utf8()))
+                .unwrap_or(0);
+
+            if start >= end {
+                result.push(token.to_string());
+                continue;
+            }
+
+            let prefix = &token[..start];
+            let word = &token[start..end];
+            let suffix = &token[end..];
+
+            let corrected = match self.correct(word).await? {
+                Some(c) => c.replacement,
+                None => word.to_string(),
+            };
+            result.push(format!("{prefix}{corrected}{suffix}"));
+        }
+        Ok(result.join(" "))
+    }
+
     pub async fn correct(&self, input: &str) -> Result<Option<CorrectionResult>, sqlx::Error> {
         if let Some(entry) = self.repository.get_by_term(input).await? {
             return Ok(Some(CorrectionResult {
@@ -186,6 +219,61 @@ mod tests {
 
         assert!(!result.exact);
         assert_eq!(result.replacement, "receive");
+    }
+
+    #[tokio::test]
+    async fn apply_to_text_corrects_words() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("pool");
+        init_database(&pool).await.expect("migrations");
+
+        let repo = DictionaryRepository::new(pool);
+        repo.create(CreateDictionaryEntry {
+            term: "teh".to_string(),
+            replacement: "the".to_string(),
+        })
+        .await
+        .expect("create");
+        repo.create(CreateDictionaryEntry {
+            term: "gonna".to_string(),
+            replacement: "going to".to_string(),
+        })
+        .await
+        .expect("create");
+
+        let engine = DictionaryCorrectionEngine::with_default_config(repo);
+        let result = engine
+            .apply_to_text("teh dog is gonna run")
+            .await
+            .expect("apply");
+
+        assert_eq!(result, "the dog is going to run");
+    }
+
+    #[tokio::test]
+    async fn apply_to_text_preserves_punctuation() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("pool");
+        init_database(&pool).await.expect("migrations");
+
+        let repo = DictionaryRepository::new(pool);
+        repo.create(CreateDictionaryEntry {
+            term: "teh".to_string(),
+            replacement: "the".to_string(),
+        })
+        .await
+        .expect("create");
+
+        let engine = DictionaryCorrectionEngine::with_default_config(repo);
+        let result = engine.apply_to_text("teh, dog.").await.expect("apply");
+
+        assert_eq!(result, "the, dog.");
     }
 
     #[tokio::test]

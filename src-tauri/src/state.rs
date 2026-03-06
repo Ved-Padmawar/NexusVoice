@@ -21,6 +21,8 @@ pub struct AppState {
     pub auth: AuthService,
     /// Path used to persist the refresh token across restarts.
     pub token_store_path: PathBuf,
+    /// Path used to persist the registered hotkey across restarts.
+    pub hotkey_store_path: PathBuf,
     /// Current authenticated session (populated after login or silent re-auth).
     pub auth_session: Mutex<AuthSession>,
     /// Shared so the transcription task can check when to stop.
@@ -30,11 +32,17 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(pool: SqlitePool, auth: AuthService, token_store_path: PathBuf) -> Self {
+    pub fn new(
+        pool: SqlitePool,
+        auth: AuthService,
+        token_store_path: PathBuf,
+        hotkey_store_path: PathBuf,
+    ) -> Self {
         Self {
             pool,
             auth,
             token_store_path,
+            hotkey_store_path,
             auth_session: Mutex::new(AuthSession::default()),
             transcription_running: Arc::new(AtomicBool::new(false)),
             model_override: Mutex::new(None),
@@ -77,6 +85,42 @@ impl AppState {
     /// Delete the persisted refresh token.
     pub fn delete_refresh_token(&self) {
         let _ = std::fs::remove_file(&self.token_store_path);
+    }
+
+    /// Persist the hotkey string to disk.
+    pub fn save_hotkey(&self, hotkey: &str) -> std::io::Result<()> {
+        std::fs::write(&self.hotkey_store_path, hotkey)
+    }
+
+    /// Read the persisted hotkey from disk, if any.
+    pub fn load_hotkey(&self) -> Option<String> {
+        std::fs::read_to_string(&self.hotkey_store_path)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Delete the persisted hotkey.
+    pub fn delete_hotkey(&self) {
+        let _ = std::fs::remove_file(&self.hotkey_store_path);
+    }
+
+    /// Persist the model override to disk.
+    pub fn save_model_override(&self, size: &str) -> std::io::Result<()> {
+        std::fs::write(self.token_store_path.with_file_name("model_override"), size)
+    }
+
+    /// Read the persisted model override from disk, if any.
+    pub fn load_model_override(&self) -> Option<String> {
+        std::fs::read_to_string(self.token_store_path.with_file_name("model_override"))
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Delete the persisted model override.
+    pub fn delete_model_override(&self) {
+        let _ = std::fs::remove_file(self.token_store_path.with_file_name("model_override"));
     }
 
     #[allow(dead_code)]

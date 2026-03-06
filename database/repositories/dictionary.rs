@@ -71,6 +71,14 @@ impl DictionaryRepository {
         .await
     }
 
+    pub async fn delete_by_id(&self, id: i64) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM dictionary WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn upsert(
         &self,
         input: CreateDictionaryEntry,

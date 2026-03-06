@@ -17,7 +17,7 @@
         "title": "NexusVoice",
         "width": 1200,
         "height": 800,
-        "visible": false,
+        "visible": true,
         "decorations": true,
         "resizable": true,
         "url": "index.html"
@@ -38,7 +38,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https://asset.localhost; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; base-uri 'self'"
     }
   },
   "bundle": {

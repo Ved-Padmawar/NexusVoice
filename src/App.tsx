@@ -9,6 +9,7 @@ import './App.css'
 const Auth = lazy(() => import('./pages/Auth').then(m => ({ default: m.Auth })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
+const Dictionary = lazy(() => import('./pages/Dictionary').then(m => ({ default: m.Dictionary })))
 
 function App() {
   const { theme, init, isLoading, user, authChecking, listenForAuthReady } = useAppStore()
@@ -68,6 +69,14 @@ function App() {
               element={
                 <AuthGuard>
                   <Settings />
+                </AuthGuard>
+              }
+            />
+            <Route
+              path="dictionary"
+              element={
+                <AuthGuard>
+                  <Dictionary />
                 </AuthGuard>
               }
             />
