@@ -1,9 +1,12 @@
-import { useState } from 'react'
-import { ArrowRight, Trash2, BookOpen, CheckCircle2, AlertCircle, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { ArrowRight, Trash2, BookOpen, CheckCircle2, AlertCircle, X, Sparkles, Check } from 'lucide-react'
+import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+
+type WordSuggestion = { word: string; count: number }
 
 export function Dictionary() {
   const { dictionary, updateDictionary, deleteDictionaryEntry, error, setError } = useAppStore()
@@ -11,6 +14,22 @@ export function Dictionary() {
   const [replacement, setReplacement] = useState('')
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [suggestions, setSuggestions] = useState<WordSuggestion[]>([])
+
+  useEffect(() => {
+    invoke<WordSuggestion[]>('get_word_suggestions').then(setSuggestions).catch(() => {})
+  }, [dictionary])
+
+  const handleAccept = async (word: string) => {
+    await invoke('accept_word_suggestion', { word })
+    await updateDictionary(word, word)
+    setSuggestions(s => s.filter(x => x.word !== word))
+  }
+
+  const handleDismiss = async (word: string) => {
+    await invoke('dismiss_word_suggestion', { word })
+    setSuggestions(s => s.filter(x => x.word !== word))
+  }
 
   const handleAdd = async () => {
     const t = term.trim(), r = replacement.trim()
@@ -102,6 +121,44 @@ export function Dictionary() {
           </div>
         </div>
       </div>
+
+      {/* Auto-learn suggestions */}
+      {suggestions.length > 0 && (
+        <div className="card" style={{ flexShrink: 0 }}>
+          <div className="card__header">
+            <div>
+              <h2 className="card__title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Sparkles size={13} strokeWidth={1.75} style={{ color: 'var(--accent)' }} />
+                Suggested Words
+              </h2>
+              <p className="card__desc">Words seen 3+ times in your transcriptions. Accept to add to dictionary.</p>
+            </div>
+          </div>
+          <div className="card__body">
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {suggestions.map((s) => (
+                <div key={s.word} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '4px',
+                  padding: '3px 8px', borderRadius: 'var(--r-full)',
+                  background: 'var(--surface)', border: '1px solid var(--border)',
+                  fontSize: '12px', color: 'var(--fg)',
+                }}>
+                  <span>{s.word}</span>
+                  <span style={{ fontSize: '10px', color: 'var(--muted)' }}>×{s.count}</span>
+                  <button type="button" onClick={() => handleAccept(s.word)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--success)', padding: '1px', display: 'flex' }}>
+                    <Check size={11} strokeWidth={2.5} />
+                  </button>
+                  <button type="button" onClick={() => handleDismiss(s.word)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '1px', display: 'flex' }}>
+                    <X size={11} strokeWidth={2} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* List */}
       <div className="card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>

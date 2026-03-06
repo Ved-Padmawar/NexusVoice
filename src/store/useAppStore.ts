@@ -38,11 +38,11 @@ export type ModelInfo = {
 export type HardwareTier = 'low' | 'mid' | 'high'
 
 export const MODEL_OPTIONS = [
-  { id: 'whisper-tiny',   label: 'Whisper Tiny',   tier: 'low'  as HardwareTier },
-  { id: 'whisper-base',   label: 'Whisper Base',   tier: 'low'  as HardwareTier },
-  { id: 'whisper-small',  label: 'Whisper Small',  tier: 'mid'  as HardwareTier },
-  { id: 'whisper-medium', label: 'Whisper Medium', tier: 'mid'  as HardwareTier },
-  { id: 'whisper-large',  label: 'Whisper Large',  tier: 'high' as HardwareTier },
+  { id: 'whisper-tiny',   label: 'Whisper Tiny',   tier: 'low'  as HardwareTier, desc: '~75MB  · Fastest, lowest accuracy' },
+  { id: 'whisper-base',   label: 'Whisper Base',   tier: 'low'  as HardwareTier, desc: '~142MB · Fast, good for most uses' },
+  { id: 'whisper-small',  label: 'Whisper Small',  tier: 'mid'  as HardwareTier, desc: '~466MB · Balanced accuracy/speed' },
+  { id: 'whisper-medium', label: 'Whisper Medium', tier: 'high' as HardwareTier, desc: '~1.5GB · High accuracy' },
+  { id: 'whisper-large',  label: 'Whisper Large',  tier: 'high' as HardwareTier, desc: '~2.9GB · Best accuracy, needs GPU' },
 ] as const
 
 export type ModelId = typeof MODEL_OPTIONS[number]['id']

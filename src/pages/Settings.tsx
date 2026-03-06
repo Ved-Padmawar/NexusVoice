@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import {
   Palette, Keyboard, Cpu,
-  Check, AlertCircle, CheckCircle2, X,
-
+  Check, AlertCircle, CheckCircle2, X, Download,
 } from 'lucide-react'
 import { useAppStore, type ThemeName, type ModelId, MODEL_OPTIONS } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
@@ -87,6 +87,9 @@ export function Settings() {
   const [isListening, setIsListening] = useState(false)
   const [saving, setSaving] = useState(false)
   const [hotkeySuccess, setHotkeySuccess] = useState(false)
+  const [downloadState, setDownloadState] = useState<'idle' | 'downloading' | 'done' | 'error'>('idle')
+  const [downloadPct, setDownloadPct] = useState(0)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
   const hotkeyRef = useRef<HTMLDivElement>(null)
   const keysRef = useRef<Set<string>>(new Set())
   const tierOrder: Record<string, number> = { low: 0, mid: 1, high: 2 }
@@ -94,6 +97,29 @@ export function Settings() {
   useEffect(() => {
     fetchModelInfo(); fetchHardwareTier(); loadHotkey()
   }, [fetchModelInfo, fetchHardwareTier])
+
+  // Listen for model download events from backend
+  useEffect(() => {
+    const unlisteners: (() => void)[] = []
+    const setup = async () => {
+      unlisteners.push(await listen('model-download-start', () => {
+        setDownloadState('downloading'); setDownloadPct(0); setDownloadError(null)
+      }))
+      unlisteners.push(await listen<number>('model-download-progress', (e) => {
+        setDownloadPct(e.payload)
+      }))
+      unlisteners.push(await listen('model-download-complete', () => {
+        setDownloadState('done'); setDownloadPct(100)
+        fetchModelInfo()
+        setTimeout(() => setDownloadState('idle'), 3000)
+      }))
+      unlisteners.push(await listen<string>('model-download-error', (e) => {
+        setDownloadState('error'); setDownloadError(e.payload)
+      }))
+    }
+    setup()
+    return () => unlisteners.forEach(fn => fn())
+  }, [])
 
   const loadHotkey = async () => {
     try {
@@ -398,23 +424,47 @@ export function Settings() {
                 )}
               </div>
               <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <Select value={selectedModel} onValueChange={(v) => handleModelChange(v as ModelId)}>
+                <Select value={selectedModel} onValueChange={(v) => handleModelChange(v as ModelId)} disabled={downloadState === 'downloading'}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select model…" />
                   </SelectTrigger>
                   <SelectContent>
                     {MODEL_OPTIONS.map((m) => (
                       <SelectItem key={m.id} value={m.id}>
-                        {m.label}
-                        <span style={{ marginLeft: '6px', fontSize: '10px', color: 'var(--muted)', fontWeight: 500 }}>
-                          {m.tier}
+                        <span style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                          <span>{m.label}</span>
+                          <span style={{ fontSize: '10px', color: 'var(--muted)' }}>{m.desc}</span>
                         </span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+
+                {/* Download progress */}
+                {downloadState === 'downloading' && (
+                  <div className="notice" style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent)' }}>
+                    <Download size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--accent)' }} />
+                    <span style={{ flex: 1, fontSize: '12px' }}>
+                      Downloading model{downloadPct > 0 ? ` — ${downloadPct}%` : '…'}
+                    </span>
+                  </div>
+                )}
+                {downloadState === 'done' && (
+                  <div className="notice notice--success">
+                    <CheckCircle2 size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--success)' }} />
+                    <span style={{ fontSize: '12px' }}>Model downloaded and ready.</span>
+                  </div>
+                )}
+                {downloadState === 'error' && (
+                  <div className="notice notice--error">
+                    <AlertCircle size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--danger)' }} />
+                    <span style={{ flex: 1, fontSize: '12px' }}>{downloadError ?? 'Download failed.'}</span>
+                    <button type="button" className="notice__close" onClick={() => setDownloadState('idle')}><X size={13} /></button>
+                  </div>
+                )}
+
                 <p className="field-hint">
-                  Larger models are more accurate but slower. Downloaded automatically on first use.
+                  Model downloads automatically when selected. Larger = more accurate but slower.
                 </p>
               </div>
             </div>

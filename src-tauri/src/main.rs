@@ -117,10 +117,11 @@ fn main() {
                 let state = app.state::<state::AppState>();
                 if let Some(size_str) = state.load_model_override() {
                     let parsed = match size_str.as_str() {
-                        "tiny" => Some(models::ModelSize::Tiny),
-                        "small" => Some(models::ModelSize::Small),
+                        "tiny"   => Some(models::ModelSize::Tiny),
+                        "base"   => Some(models::ModelSize::Base),
+                        "small"  => Some(models::ModelSize::Small),
                         "medium" => Some(models::ModelSize::Medium),
-                        "large" => Some(models::ModelSize::Large),
+                        "large"  => Some(models::ModelSize::Large),
                         _ => None,
                     };
                     if let Some(size) = parsed {
@@ -201,6 +202,9 @@ fn main() {
             commands::register_hotkey,
             commands::unregister_hotkey,
             commands::get_registered_hotkeys,
+            commands::get_word_suggestions,
+            commands::accept_word_suggestion,
+            commands::dismiss_word_suggestion,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

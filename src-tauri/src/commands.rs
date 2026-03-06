@@ -299,13 +299,35 @@ pub async fn get_hardware_tier() -> Result<HardwareTierResponse, ApiError> {
     })
 }
 
-/// Persist the model size override and store it in app state.
+/// Persist the model size override, update state, and pre-download the model if not cached.
 #[tauri::command]
-pub async fn set_model_override(state: State<'_, AppState>, size: String) -> Result<(), ApiError> {
+pub async fn set_model_override(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    size: String,
+) -> Result<(), ApiError> {
     let model_size = parse_model_size(&size)?;
     let _ = state.save_model_override(&size);
-    let mut guard = state.model_override.lock().await;
-    *guard = Some(model_size);
+    {
+        let mut guard = state.model_override.lock().await;
+        *guard = Some(model_size);
+    }
+
+    // Pre-download the model immediately so it's ready when the user records.
+    let model_filename = model_size_to_filename(model_size);
+    let model_path = state.models_dir.join(model_filename);
+
+    if !model_path.exists() {
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let _ = app_handle.emit("model-download-start", ());
+            match download_whisper_model(&model_path, &app_handle) {
+                Ok(_) => { let _ = app_handle.emit("model-download-complete", ()); }
+                Err(e) => { let _ = app_handle.emit("model-download-error", e); }
+            }
+        });
+    }
+
     Ok(())
 }
 
@@ -413,15 +435,27 @@ pub async fn stop_transcription(
         // Resample from native device rate to 16kHz mono (required by Whisper)
         let resampled = resample_to_16k(&samples, captured_rate);
 
-        match crate::inference::WhisperEngine::new(&model_path, ExecutionProvider::Cpu) {
+        let exec_provider = match profile.execution_provider.as_str() {
+            "cuda"     => ExecutionProvider::Cuda,
+            "directml" => ExecutionProvider::DirectML,
+            _          => ExecutionProvider::Cpu,
+        };
+
+        match crate::inference::WhisperEngine::new(&model_path, exec_provider) {
             Ok(engine) => match engine.transcribe(&resampled) {
                 Ok(text) if !text.is_empty() => {
                     let _ = app_handle.emit("transcription-complete", text.clone());
                     // Save transcript to DB
-                    let repo = crate::database::repositories::transcript::TranscriptRepository::new(pool);
+                    let repo = crate::database::repositories::transcript::TranscriptRepository::new(pool.clone());
                     let _ = tauri::async_runtime::block_on(
-                        repo.create(crate::database::dto::transcript::CreateTranscript { content: text })
+                        repo.create(crate::database::dto::transcript::CreateTranscript { content: text.clone() })
                     );
+                    // Auto-learn: record uncommon words from this transcription
+                    let freq_repo = crate::database::repositories::word_frequency::WordFrequencyRepository::new(pool);
+                    let unknown = extract_unknown_words(&text);
+                    if !unknown.is_empty() {
+                        let _ = tauri::async_runtime::block_on(freq_repo.record_words(&unknown));
+                    }
                 }
                 Ok(_) => {}
                 Err(e) => {
@@ -568,10 +602,11 @@ impl ToF32 for u16 {
 
 fn model_size_to_filename(size: ModelSize) -> &'static str {
     match size {
-        ModelSize::Tiny => "ggml-tiny.bin",
-        ModelSize::Small => "ggml-small.bin",
+        ModelSize::Tiny   => "ggml-tiny.bin",
+        ModelSize::Base   => "ggml-base.bin",
+        ModelSize::Small  => "ggml-small.bin",
         ModelSize::Medium => "ggml-medium.bin",
-        ModelSize::Large => "ggml-large-v3.bin",
+        ModelSize::Large  => "ggml-large-v3.bin",
     }
 }
 
@@ -727,21 +762,111 @@ pub async fn apply_dictionary(
 
 fn parse_model_size(value: &str) -> Result<ModelSize, ApiError> {
     match value.to_lowercase().as_str() {
-        "tiny" => Ok(ModelSize::Tiny),
-        "small" => Ok(ModelSize::Small),
+        "tiny"   => Ok(ModelSize::Tiny),
+        "base"   => Ok(ModelSize::Base),
+        "small"  => Ok(ModelSize::Small),
         "medium" => Ok(ModelSize::Medium),
-        "large" => Ok(ModelSize::Large),
+        "large"  => Ok(ModelSize::Large),
         _ => Err(ApiError::new("invalid_input", "invalid model size")),
     }
 }
 
 fn model_size_label(size: ModelSize) -> &'static str {
     match size {
-        ModelSize::Tiny => "tiny",
-        ModelSize::Small => "small",
+        ModelSize::Tiny   => "tiny",
+        ModelSize::Base   => "base",
+        ModelSize::Small  => "small",
         ModelSize::Medium => "medium",
-        ModelSize::Large => "large",
+        ModelSize::Large  => "large",
     }
+}
+
+/// Extract words from transcription text that are likely domain-specific/uncommon.
+/// Filters out: very short words, numbers, common English words.
+fn extract_unknown_words(text: &str) -> Vec<String> {
+    let words: Vec<String> = text
+        .split_whitespace()
+        .map(|w| w.trim_matches(|c: char| !c.is_alphabetic()).to_lowercase())
+        .filter(|w| {
+            w.len() >= 4
+                && w.chars().all(|c| c.is_alphabetic())
+                && !is_common_word(w)
+        })
+        .collect();
+
+    // Deduplicate within this transcription
+    let mut seen = std::collections::HashSet::new();
+    words.into_iter().filter(|w| seen.insert(w.clone())).collect()
+}
+
+/// Returns true if the word is a very common English word that should not be auto-learned.
+/// This is a curated top-~300 list — enough to avoid noise without being exhaustive.
+fn is_common_word(word: &str) -> bool {
+    const COMMON: &[&str] = &[
+        "that","this","with","from","have","been","were","they","their","them",
+        "will","would","could","should","shall","there","where","when","what",
+        "which","then","than","also","some","more","most","other","into","over",
+        "just","because","after","about","before","between","through","during",
+        "each","your","more","very","even","back","well","such","time","year",
+        "know","think","make","take","come","look","want","give","find","tell",
+        "work","call","need","feel","keep","last","long","much","many","down",
+        "does","doing","done","made","said","went","come","came","goes","going",
+        "here","only","same","again","still","around","every","right","small",
+        "large","under","never","place","point","world","always","state","often",
+        "those","these","thing","things","people","really","being","while","since",
+        "both","help","must","high","next","part","home","hand","play","move",
+        "live","hold","away","turn","show","open","seem","together","course",
+        "nothing","something","everything","anything","someone","everyone","anyone",
+        "actually","probably","already","without","however","because","whether",
+        "another","getting","started","having","using","going","being","doing",
+        "first","second","third","great","good","best","better","little","might",
+        "almost","though","until","along","while","above","below","left","right",
+    ];
+    COMMON.contains(&word)
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WordFrequencyResponse {
+    pub word: String,
+    pub count: i64,
+}
+
+/// Return words that appear frequently enough to be worth adding to the dictionary.
+#[tauri::command]
+pub async fn get_word_suggestions(
+    state: State<'_, AppState>,
+) -> Result<Vec<WordFrequencyResponse>, ApiError> {
+    let repo = crate::database::repositories::word_frequency::WordFrequencyRepository::new(state.pool.clone());
+    let entries = repo.unreviewed_above(3).await?;
+    Ok(entries.into_iter().map(|e| WordFrequencyResponse { word: e.word, count: e.count }).collect())
+}
+
+/// Accept a suggestion — adds it to the dictionary and marks it reviewed.
+#[tauri::command]
+pub async fn accept_word_suggestion(
+    state: State<'_, AppState>,
+    word: String,
+) -> Result<(), ApiError> {
+    let freq_repo = crate::database::repositories::word_frequency::WordFrequencyRepository::new(state.pool.clone());
+    let dict_repo = crate::database::repositories::dictionary::DictionaryRepository::new(state.pool.clone());
+    dict_repo.upsert(crate::database::dto::dictionary::CreateDictionaryEntry {
+        term: word.clone(),
+        replacement: word.clone(),
+    }).await?;
+    freq_repo.mark_reviewed(&word, true).await?;
+    Ok(())
+}
+
+/// Dismiss a suggestion — marks it reviewed without adding to dictionary.
+#[tauri::command]
+pub async fn dismiss_word_suggestion(
+    state: State<'_, AppState>,
+    word: String,
+) -> Result<(), ApiError> {
+    let repo = crate::database::repositories::word_frequency::WordFrequencyRepository::new(state.pool.clone());
+    repo.mark_reviewed(&word, false).await?;
+    Ok(())
 }
 
 fn map_db_error(error: &sqlx::Error) -> String {
@@ -902,8 +1027,9 @@ pub async fn unregister_hotkey(app: AppHandle, state: State<'_, AppState>) -> Re
 #[tauri::command]
 pub async fn get_registered_hotkeys(state: State<'_, AppState>) -> Result<Vec<String>, ApiError> {
     let current = state.current_hotkey.lock().await;
-    Ok(current
-        .as_ref()
-        .map(|h| vec![h.clone()])
-        .unwrap_or_default())
+    if let Some(h) = current.as_ref() {
+        return Ok(vec![h.clone()]);
+    }
+    // Fallback: read from disk in case in-memory state hasn't been populated yet
+    Ok(state.load_hotkey().map(|h| vec![h]).unwrap_or_default())
 }

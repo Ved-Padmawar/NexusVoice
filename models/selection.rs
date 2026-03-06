@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelSize {
     Tiny,
+    Base,
     Small,
     Medium,
     Large,
@@ -35,6 +36,8 @@ pub fn select_model(profile: &HardwareProfile, override_size: Option<ModelSize>)
         ModelSize::Medium
     } else if profile.vram_gb >= 4.0 {
         ModelSize::Small
+    } else if profile.vram_gb >= 2.0 {
+        ModelSize::Base
     } else {
         ModelSize::Tiny
     };
