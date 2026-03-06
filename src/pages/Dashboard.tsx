@@ -1,8 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Hash, Timer, Mic, Activity,
-  AlertCircle, Copy,
+  AlertCircle, Copy, Check,
   Settings2,
 } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
@@ -30,6 +30,27 @@ const STATS = [
   { key: 'totalSessions',      label: 'Sessions',      fmt: (v: number) => v.toLocaleString(),   Icon: Mic },
   { key: 'avgPaceWpm',         label: 'Avg Pace',      fmt: (v: number) => `${v} wpm`,           Icon: Activity },
 ]
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+  return (
+    <button
+      type="button"
+      className="activity-copy"
+      onClick={handleCopy}
+      title="Copy to clipboard"
+      style={{ color: copied ? 'var(--success)' : undefined, transition: 'color 0.15s' }}
+    >
+      {copied ? <Check size={11} strokeWidth={2.5} /> : <Copy size={11} strokeWidth={2} />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  )
+}
 
 export function Dashboard() {
   const { transcripts, stats, fetchStats, hasHotkey, error, setError } = useAppStore()
@@ -115,15 +136,7 @@ export function Dashboard() {
                   <p className="activity-text">{item.content}</p>
                   <div className="activity-meta">
                     <span className="activity-time">{fmtDate(item.createdAt)}</span>
-                    <button
-                      type="button"
-                      className="activity-copy"
-                      onClick={() => navigator.clipboard.writeText(item.content)}
-                      title="Copy to clipboard"
-                    >
-                      <Copy size={11} strokeWidth={2} />
-                      Copy
-                    </button>
+                    <CopyButton text={item.content} />
                   </div>
                 </article>
               ))}

@@ -1,7 +1,47 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap } from 'lucide-react'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../store/useAppStore'
+
+function TitleBar() {
+  const win = getCurrentWindow()
+  return (
+    <div className="titlebar">
+      {/* drag region — does NOT contain buttons so clicks are not swallowed */}
+      <div className="titlebar__drag" data-tauri-drag-region />
+      <div className="titlebar__controls">
+        <button
+          type="button"
+          className="titlebar__btn"
+          onClick={() => win.minimize()}
+          aria-label="Minimize"
+        >
+          <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor" /></svg>
+        </button>
+        <button
+          type="button"
+          className="titlebar__btn"
+          onClick={() => win.toggleMaximize()}
+          aria-label="Maximize"
+        >
+          <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><rect x="0.5" y="0.5" width="8" height="8" rx="0.5" stroke="currentColor" /></svg>
+        </button>
+        <button
+          type="button"
+          className="titlebar__btn titlebar__btn--close"
+          onClick={() => win.close()}
+          aria-label="Close"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  )
+}
 
 const NAV = [
   { path: '/',           label: 'Dashboard',  Icon: LayoutDashboard },
@@ -25,6 +65,8 @@ export function Layout() {
 
   return (
     <div className="app-shell">
+      <TitleBar />
+      <div className="app-body">
       <aside className="sidebar">
         {/* Brand */}
         <div className="sidebar__header">
@@ -34,7 +76,7 @@ export function Layout() {
             </div>
             <div>
               <div className="sidebar__name">NexusVoice</div>
-              <div className="sidebar__version">v0.1.0</div>
+              <div className="sidebar__version">v{__APP_VERSION__}</div>
             </div>
           </Link>
         </div>
@@ -87,6 +129,7 @@ export function Layout() {
         <main className="main-content">
           <Outlet />
         </main>
+      </div>
       </div>
     </div>
   )

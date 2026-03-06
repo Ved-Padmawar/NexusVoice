@@ -41,6 +41,14 @@ jobs:
       - name: Install npm deps
         run: npm ci
 
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/\"version\": \"0\.0\.0\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+          sed -i "s/^version = \"0\.0\.0\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+          sed -i "s/\"version\": \"0\.0\.0\"/\"version\": \"$VERSION\"/" package.json
+
       - name: Build
         env:
           LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin

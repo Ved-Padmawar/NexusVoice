@@ -137,7 +137,7 @@ fn main() {
                     let screen = monitor.size();
                     let scale = monitor.scale_factor();
                     // Physical pill size → logical pixels
-                    let pill_w = 176.0;
+                    let pill_w = 120.0;
                     let pill_h = 44.0;
                     let margin = 24.0;
                     let logical_w = screen.width as f64 / scale;
@@ -174,6 +174,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_auth_state,
+            commands::get_current_user,
             commands::store_refresh_token,
             commands::clear_stored_token,
             commands::register,

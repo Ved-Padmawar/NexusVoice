@@ -6,16 +6,76 @@
 /* ── App Shell ─────────────────────────────────────────────────── */
 .app-shell {
   display: flex;
+  flex-direction: column;
   height: 100dvh;
   overflow: hidden;
   background: var(--bg);
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Custom Titlebar ─────────────────────────────────────────────── */
+.titlebar {
+  display: flex;
+  align-items: stretch;
+  height: 32px;
+  flex-shrink: 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Drag region takes all available space — no interactive children inside */
+.titlebar__drag {
+  flex: 1;
+  height: 100%;
+  cursor: default;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+/* Controls are siblings of drag region, NOT children — clicks work normally */
+.titlebar__controls {
+  display: flex;
+  align-items: stretch;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.titlebar__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+
+.titlebar__btn:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.titlebar__btn--close:hover {
+  background: #c42b1c;
+  color: #fff;
 }
 
 /* ── Sidebar ────────────────────────────────────────────────────── */
 .sidebar {
   width: var(--sidebar-w);
   flex-shrink: 0;
-  height: 100dvh;
+  height: 100%;
   background: var(--panel);
   border-right: 1px solid var(--border);
   display: flex;
@@ -195,7 +255,7 @@
 .main-area {
   flex: 1;
   min-width: 0;
-  height: 100dvh;
+  height: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;

@@ -7,7 +7,7 @@
 }
 
 html, body {
-  width: 140px;
+  width: 120px;
   height: 30px;
   background: transparent !important;
   overflow: hidden;
@@ -34,16 +34,14 @@ body {
   border-radius: 999px;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   padding: 0 10px 0 5px;
   cursor: grab;
   user-select: none;
   position: relative;
 
-  /* No box-shadow — clipped by WebView on Windows. Use border for depth. */
   background: rgba(16, 16, 22, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.13);
-
   transition: border-color 0.25s ease;
 }
 
@@ -51,11 +49,8 @@ body {
   cursor: grabbing;
 }
 
-/* ===== Recording State ===== */
-.pill--recording {
-  border-color: rgba(239, 68, 68, 0.6);
-  background: rgba(20, 14, 14, 0.97);
-}
+/* ===== Recording State — no color change, same as idle ===== */
+.pill--recording {}
 
 /* ===== Processing State ===== */
 .pill--processing {
@@ -77,11 +72,7 @@ body {
   transition: background 0.3s ease, color 0.3s ease;
 }
 
-.pill--recording .pill__icon {
-  background: rgba(239, 68, 68, 0.18);
-  color: #f87171;
-  animation: iconPulse 1.8s ease-in-out infinite;
-}
+.pill--recording .pill__icon {}
 
 .pill--processing .pill__icon {
   background: rgba(124, 108, 239, 0.18);
@@ -108,49 +99,26 @@ body {
   color: rgba(255, 255, 255, 0.75);
   letter-spacing: 0.01em;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
-/* ===== Recording: waveform + timer ===== */
-.pill__waveform-wrap {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-}
-
+/* ===== Recording: waveform (matches brand text width) ===== */
 .pill__waveform {
   display: flex;
   align-items: center;
-  gap: 2px;
-  height: 14px;
+  gap: 2.5px;
+  height: 16px;
+  /* same visual width as "NexusVoice" text */
+  width: 68px;
+  flex-shrink: 0;
 }
 
 .pill__bar {
-  width: 2px;
+  flex: 1;
   border-radius: 999px;
-  background: #f87171;
-  animation: waveform 0.75s ease-in-out infinite alternate;
+  background: rgba(255, 255, 255, 0.75);
+  transition: height 0.07s ease;
   will-change: height;
-}
-
-.pill__bar:nth-child(1) { height: 4px;  animation-delay: 0.00s; }
-.pill__bar:nth-child(2) { height: 8px;  animation-delay: 0.10s; }
-.pill__bar:nth-child(3) { height: 14px; animation-delay: 0.20s; }
-.pill__bar:nth-child(4) { height: 8px;  animation-delay: 0.10s; }
-.pill__bar:nth-child(5) { height: 4px;  animation-delay: 0.00s; }
-
-@keyframes waveform {
-  0%   { transform: scaleY(0.35); opacity: 0.55; }
-  100% { transform: scaleY(1);    opacity: 1; }
-}
-
-.pill__timer {
-  font-size: 10px;
-  font-weight: 600;
-  color: rgba(248, 113, 113, 0.9);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.06em;
-  flex-shrink: 0;
 }
 
 /* ===== Processing: spinner + label ===== */

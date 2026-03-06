@@ -125,8 +125,12 @@ export const useAppStore = create<AppState>()(
       },
       listenForAuthReady: async () => {
         // Listen for auth:ready — backend emits this after successful silent re-auth
-        const unlistenReady = await listen<number>('auth:ready', (event) => {
+        const unlistenReady = await listen<number>('auth:ready', async (event) => {
           set({ authChecking: false, user: { id: event.payload, email: '' } })
+          try {
+            const u = await invoke<{ id: number; email: string } | null>('get_current_user')
+            if (u) set({ user: { id: u.id, email: u.email } })
+          } catch { /* ignore */ }
         })
         // Listen for auth:unauthenticated — no stored token or it expired
         const unlistenUnauth = await listen<AuthReadyPayload>('auth:unauthenticated', () => {
@@ -143,6 +147,9 @@ export const useAppStore = create<AppState>()(
             if (get().authChecking) {
               if (state.authenticated && state.userId != null) {
                 set({ authChecking: false, user: { id: state.userId, email: '' } })
+                invoke<{ id: number; email: string } | null>('get_current_user')
+                  .then(u => { if (u) set({ user: { id: u.id, email: u.email } }) })
+                  .catch(() => {})
               } else {
                 set({ authChecking: false, user: null })
               }

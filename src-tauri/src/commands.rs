@@ -169,6 +169,17 @@ pub struct AuthStateResponse {
     pub user_id: Option<i64>,
 }
 
+/// Returns the full User record for the currently authenticated user.
+#[tauri::command]
+pub async fn get_current_user(state: State<'_, AppState>) -> Result<Option<User>, ApiError> {
+    let Some(user_id) = state.current_user_id().await else {
+        return Ok(None);
+    };
+    let repo = crate::database::repositories::user::UserRepository::new(state.pool.clone());
+    let user = repo.get_by_id(user_id).await?;
+    Ok(user)
+}
+
 /// Returns the current auth state without requiring authentication.
 /// Used by the frontend to check session on startup.
 #[tauri::command]
@@ -450,14 +461,36 @@ pub async fn stop_transcription(
                     let _ = tauri::async_runtime::block_on(
                         repo.create(crate::database::dto::transcript::CreateTranscript { content: text.clone() })
                     );
-                    // Auto-learn: record uncommon words from this transcription
-                    let freq_repo = crate::database::repositories::word_frequency::WordFrequencyRepository::new(pool);
+                    // Auto-learn: record uncommon words, then auto-add any that hit the threshold
+                    let freq_repo = crate::database::repositories::word_frequency::WordFrequencyRepository::new(pool.clone());
+                    let dict_repo = crate::database::repositories::dictionary::DictionaryRepository::new(pool);
                     let unknown = extract_unknown_words(&text);
                     if !unknown.is_empty() {
-                        let _ = tauri::async_runtime::block_on(freq_repo.record_words(&unknown));
+                        if tauri::async_runtime::block_on(freq_repo.record_words(&unknown)).is_ok() {
+                            // Auto-add words that just reached 3+ occurrences and aren't in dictionary yet
+                            if let Ok(ready) = tauri::async_runtime::block_on(freq_repo.unreviewed_above(3)) {
+                                for entry in ready {
+                                    let already = tauri::async_runtime::block_on(
+                                        dict_repo.get_by_term(&entry.word)
+                                    ).unwrap_or(None);
+                                    if already.is_none() {
+                                        let _ = tauri::async_runtime::block_on(dict_repo.create(
+                                            crate::database::dto::dictionary::CreateDictionaryEntry {
+                                                term: entry.word.clone(),
+                                                replacement: entry.word.clone(),
+                                            }
+                                        ));
+                                    }
+                                    let _ = tauri::async_runtime::block_on(freq_repo.mark_reviewed(&entry.word, true));
+                                }
+                            }
+                        }
                     }
                 }
-                Ok(_) => {}
+                Ok(_) => {
+                    // Empty transcription — still signal complete so pill returns to idle
+                    let _ = app_handle.emit("transcription-complete", "");
+                }
                 Err(e) => {
                     let _ = app_handle.emit("transcription-error", e);
                 }
@@ -611,7 +644,7 @@ fn model_size_to_filename(size: ModelSize) -> &'static str {
 }
 
 fn download_whisper_model(dest: &std::path::Path, app: &AppHandle) -> Result<(), String> {
-    use std::io::Write;
+    use std::io::{Read, Write};
 
     let filename = dest
         .file_name()
@@ -621,7 +654,7 @@ fn download_whisper_model(dest: &std::path::Path, app: &AppHandle) -> Result<(),
         "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{filename}"
     );
 
-    let response = reqwest::blocking::get(&model_url)
+    let mut response = reqwest::blocking::get(&model_url)
         .map_err(|e| format!("download request failed: {e}"))?;
 
     if !response.status().is_success() {
@@ -629,16 +662,32 @@ fn download_whisper_model(dest: &std::path::Path, app: &AppHandle) -> Result<(),
     }
 
     let total = response.content_length().unwrap_or(0);
-    let bytes = response.bytes().map_err(|e| format!("read body failed: {e}"))?;
 
-    if total > 0 {
-        let _ = app.emit("model-download-progress", 100u8);
+    // Write a partial file first; rename to dest on success so a failed
+    // download never leaves a corrupt model file behind.
+    let tmp = dest.with_extension("tmp");
+    let mut file =
+        std::fs::File::create(&tmp).map_err(|e| format!("create model file failed: {e}"))?;
+
+    let mut downloaded: u64 = 0;
+    let mut last_pct: u8 = 0;
+    let mut buf = vec![0u8; 256 * 1024]; // 256 KB chunks
+    loop {
+        let n = response.read(&mut buf).map_err(|e| format!("read body failed: {e}"))?;
+        if n == 0 { break; }
+        file.write_all(&buf[..n]).map_err(|e| format!("write model file failed: {e}"))?;
+        downloaded += n as u64;
+        if total > 0 {
+            let pct = ((downloaded * 100) / total) as u8;
+            if pct != last_pct {
+                last_pct = pct;
+                let _ = app.emit("model-download-progress", pct);
+            }
+        }
     }
 
-    let mut file =
-        std::fs::File::create(dest).map_err(|e| format!("create model file failed: {e}"))?;
-    file.write_all(&bytes)
-        .map_err(|e| format!("write model file failed: {e}"))?;
+    drop(file);
+    std::fs::rename(&tmp, dest).map_err(|e| format!("rename model file failed: {e}"))?;
 
     Ok(())
 }

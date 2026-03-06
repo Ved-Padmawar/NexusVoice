@@ -244,7 +244,8 @@
   }
 
   body {
-    min-height: 100dvh;
+    height: 100dvh;
+    overflow: hidden;
     background: var(--bg);
     color: var(--fg);
     font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -255,7 +256,7 @@
     @apply bg-background text-foreground;
   }
 
-  #root { min-height: 100dvh; }
+  #root { height: 100dvh; overflow: hidden; }
 
   button, input, select, textarea { font-family: inherit; font-size: inherit; }
   a { color: var(--accent); text-decoration: none; }

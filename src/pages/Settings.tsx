@@ -426,7 +426,9 @@ export function Settings() {
               <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <Select value={selectedModel} onValueChange={(v) => handleModelChange(v as ModelId)} disabled={downloadState === 'downloading'}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select model…" />
+                    <SelectValue placeholder="Select model…">
+                      {MODEL_OPTIONS.find(m => m.id === selectedModel)?.label}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {MODEL_OPTIONS.map((m) => (
@@ -442,11 +444,23 @@ export function Settings() {
 
                 {/* Download progress */}
                 {downloadState === 'downloading' && (
-                  <div className="notice" style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent)' }}>
-                    <Download size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--accent)' }} />
-                    <span style={{ flex: 1, fontSize: '12px' }}>
-                      Downloading model{downloadPct > 0 ? ` — ${downloadPct}%` : '…'}
-                    </span>
+                  <div className="notice" style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent)', flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Download size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--accent)' }} />
+                      <span style={{ flex: 1, fontSize: '12px' }}>Downloading model…</span>
+                      <span style={{ fontSize: '11px', color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>
+                        {downloadPct}%
+                      </span>
+                    </div>
+                    <div style={{ height: '4px', borderRadius: '2px', background: 'var(--border)', overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${downloadPct}%`,
+                        background: 'var(--accent)',
+                        borderRadius: '2px',
+                        transition: 'width 0.3s ease',
+                      }} />
+                    </div>
                   </div>
                 )}
                 {downloadState === 'done' && (

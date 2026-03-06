@@ -4,15 +4,16 @@ import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import './PillApp.css'
 
-type PillState = 'idle' | 'recording' | 'processing' | 'error' | 'downloading'
+type PillState = 'idle' | 'recording' | 'processing' | 'error'
 
 export function PillApp() {
   const [state, setState] = useState<PillState>('idle')
-  const [elapsed, setElapsed] = useState(0)
   const [errorMsg, setErrorMsg] = useState('')
-  const [downloadPct, setDownloadPct] = useState(0)
-  const timerRef = useRef<number | null>(null)
-  const startTimeRef = useRef<number>(0)
+  const [barHeights, setBarHeights] = useState([3, 3, 3, 3, 3, 3, 3, 3])
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const rafRef = useRef<number | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
 
   // Start dragging the window on mousedown
   const handleDragStart = useCallback((e: React.MouseEvent) => {
@@ -24,27 +25,59 @@ export function PillApp() {
     void getCurrentWindow().startDragging()
   }, [])
 
-  // Timer for recording duration — derived from start time to avoid sync setState in effect
+  // Real mic amplitude → bar heights
   useEffect(() => {
-    if (state !== 'recording') return
-    startTimeRef.current = Date.now()
-    timerRef.current = window.setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000))
-    }, 1000)
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current)
-        timerRef.current = null
+    if (state !== 'recording') {
+      // Cleanup
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+      if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null }
+      if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null }
+      setTimeout(() => setBarHeights([3, 3, 3, 3, 3, 3, 3, 3]), 0)
+      return
+    }
+
+    const BAR_COUNT = 8
+    const MIN_H = 3
+    const MAX_H = 16
+    const weights = [0.5, 0.7, 0.85, 1.0, 1.0, 0.85, 0.7, 0.5]
+
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then(stream => {
+      streamRef.current = stream
+      const ctx = new AudioContext()
+      audioCtxRef.current = ctx
+      const source = ctx.createMediaStreamSource(stream)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 256
+      analyser.smoothingTimeConstant = 0.6
+      source.connect(analyser)
+      analyserRef.current = analyser
+
+      const data = new Uint8Array(analyser.frequencyBinCount)
+      const tick = () => {
+        analyser.getByteFrequencyData(data)
+        // RMS across lower frequency bins (voice range)
+        const bins = data.slice(0, 32)
+        const rms = Math.sqrt(bins.reduce((s, v) => s + v * v, 0) / bins.length)
+        const norm = Math.min(rms / 80, 1) // 0..1
+
+        const heights = Array.from({ length: BAR_COUNT }, (_, i) => {
+          const h = MIN_H + (MAX_H - MIN_H) * norm * weights[i]
+          return Math.max(MIN_H, Math.round(h))
+        })
+        setBarHeights(heights)
+        rafRef.current = requestAnimationFrame(tick)
       }
+      rafRef.current = requestAnimationFrame(tick)
+    }).catch(() => {
+      // No mic permission — fall back to idle heights
+    })
+
+    return () => {
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+      if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null }
+      if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null }
     }
   }, [state])
-
-  // Format seconds to mm:ss
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60).toString().padStart(2, '0')
-    const s = (seconds % 60).toString().padStart(2, '0')
-    return `${m}:${s}`
-  }
 
   // Ensure pill stays above the Windows taskbar at runtime
   useEffect(() => {
@@ -108,22 +141,6 @@ export function PillApp() {
       })
       unlisteners.push(u4)
 
-      const u5 = await listen('model-download-start', () => {
-        setState('downloading')
-        setDownloadPct(0)
-      })
-      unlisteners.push(u5)
-
-      const u6 = await listen<number>('model-download-progress', (event) => {
-        setDownloadPct(event.payload)
-      })
-      unlisteners.push(u6)
-
-      const u7 = await listen('model-download-complete', () => {
-        setState('processing')
-        setDownloadPct(0)
-      })
-      unlisteners.push(u7)
     }
 
     setup()
@@ -152,28 +169,18 @@ export function PillApp() {
           <span className="pill__brand">NexusVoice</span>
         )}
         {state === 'recording' && (
-          <div className="pill__waveform-wrap">
-            <div className="pill__waveform">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <span key={i} className="pill__bar" />
-              ))}
-            </div>
-            <span className="pill__timer">{formatTime(elapsed)}</span>
+          <div className="pill__waveform">
+            {barHeights.map((h, i) => (
+              <span key={i} className="pill__bar" style={{ height: `${h}px` }} />
+            ))}
           </div>
         )}
         {state === 'processing' && (
           <div className="pill__processing">
             <div className="pill__spinner" />
-            <span className="pill__proc-label">Processing…</span>
           </div>
         )}
-        {state === 'downloading' && (
-          <div className="pill__processing">
-            <div className="pill__spinner" />
-            <span className="pill__proc-label">Downloading model{downloadPct > 0 ? ` ${downloadPct}%` : '…'}</span>
-          </div>
-        )}
-        {state === 'error' && (
+{state === 'error' && (
           <span className="pill__error-label" title={errorMsg}>Error</span>
         )}
       </div>

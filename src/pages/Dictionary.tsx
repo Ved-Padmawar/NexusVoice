@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { ArrowRight, Trash2, BookOpen, CheckCircle2, AlertCircle, X, Sparkles, Check } from 'lucide-react'
+import { ArrowRight, Trash2, BookOpen, CheckCircle2, AlertCircle, X, Sparkles } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
@@ -19,12 +19,6 @@ export function Dictionary() {
   useEffect(() => {
     invoke<WordSuggestion[]>('get_word_suggestions').then(setSuggestions).catch(() => {})
   }, [dictionary])
-
-  const handleAccept = async (word: string) => {
-    await invoke('accept_word_suggestion', { word })
-    await updateDictionary(word, word)
-    setSuggestions(s => s.filter(x => x.word !== word))
-  }
 
   const handleDismiss = async (word: string) => {
     await invoke('dismiss_word_suggestion', { word })
@@ -131,7 +125,7 @@ export function Dictionary() {
                 <Sparkles size={13} strokeWidth={1.75} style={{ color: 'var(--accent)' }} />
                 Suggested Words
               </h2>
-              <p className="card__desc">Words seen 3+ times in your transcriptions. Accept to add to dictionary.</p>
+              <p className="card__desc">Words seen 3+ times — auto-added to dictionary. Dismiss to ignore.</p>
             </div>
           </div>
           <div className="card__body">
@@ -145,10 +139,6 @@ export function Dictionary() {
                 }}>
                   <span>{s.word}</span>
                   <span style={{ fontSize: '10px', color: 'var(--muted)' }}>×{s.count}</span>
-                  <button type="button" onClick={() => handleAccept(s.word)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--success)', padding: '1px', display: 'flex' }}>
-                    <Check size={11} strokeWidth={2.5} />
-                  </button>
                   <button type="button" onClick={() => handleDismiss(s.word)}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '1px', display: 'flex' }}>
                     <X size={11} strokeWidth={2} />
