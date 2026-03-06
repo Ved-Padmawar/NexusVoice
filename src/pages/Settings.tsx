@@ -119,7 +119,7 @@ export function Settings() {
     }
     setup()
     return () => unlisteners.forEach(fn => fn())
-  }, [])
+  }, [fetchModelInfo])
 
   const loadHotkey = async () => {
     try {
