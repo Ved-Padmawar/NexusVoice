@@ -443,8 +443,8 @@ pub async fn stop_transcription(
             let _ = app_handle.emit("model-download-complete", ());
         }
 
-        // Resample from native device rate to 16kHz mono (required by Whisper)
-        let resampled = resample_to_16k(&samples, captured_rate);
+        // Preprocess: noise suppression → resample to 16kHz → silence trim
+        let resampled = crate::preprocess::preprocess(&samples, captured_rate);
 
         let exec_provider = match profile.execution_provider.as_str() {
             "cuda"     => ExecutionProvider::Cuda,
@@ -504,24 +504,6 @@ pub async fn stop_transcription(
     Ok(true)
 }
 
-fn resample_to_16k(samples: &[f32], source_rate: u32) -> Vec<f32> {
-    const TARGET: u32 = 16_000;
-    if source_rate == TARGET || samples.is_empty() {
-        return samples.to_vec();
-    }
-    let ratio = TARGET as f64 / source_rate as f64;
-    let out_len = ((samples.len() as f64) * ratio).round().max(1.0) as usize;
-    let max_idx = samples.len() - 1;
-    let mut out = Vec::with_capacity(out_len);
-    for i in 0..out_len {
-        let src = (i as f64) / ratio;
-        let left = src.floor() as usize;
-        let right = (left + 1).min(max_idx);
-        let frac = (src - left as f64) as f32;
-        out.push(samples[left] * (1.0 - frac) + samples[right] * frac);
-    }
-    out
-}
 
 fn capture_microphone(
     running: Arc<std::sync::atomic::AtomicBool>,

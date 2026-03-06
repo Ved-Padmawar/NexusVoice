@@ -44,6 +44,8 @@ impl WhisperEngine {
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
+        // Suppress hallucinations on silence/noise
+        params.set_no_speech_thold(0.6);
 
         state
             .full(params, samples)

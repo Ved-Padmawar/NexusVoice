@@ -13,6 +13,7 @@ mod hardware;
 mod inference;
 mod models;
 mod postprocess;
+mod preprocess;
 mod state;
 
 fn main() {

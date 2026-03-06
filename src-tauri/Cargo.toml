@@ -26,6 +26,7 @@ hound = "3"
 whisper-rs = "0.15"
 reqwest = { version = "0.12", features = ["blocking", "stream"] }
 futures-util = "0.3"
+nnnoiseless = "0.5.2"
 
 [profile.release]
 panic = "abort"
