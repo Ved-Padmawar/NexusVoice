@@ -8,6 +8,9 @@ use tokio::sync::Mutex;
 use crate::auth::AuthService;
 use crate::models::ModelSize;
 
+/// Shared audio sample buffer filled by the cpal capture thread.
+pub type AudioBuffer = Arc<std::sync::Mutex<Vec<f32>>>;
+
 /// Holds the authenticated session for the current app run.
 /// Set after login or successful silent re-auth on startup.
 #[derive(Debug, Default)]
@@ -29,6 +32,10 @@ pub struct AppState {
     pub transcription_running: Arc<AtomicBool>,
     pub model_override: Mutex<Option<ModelSize>>,
     pub current_hotkey: Mutex<Option<String>>,
+    /// Audio samples collected during an active recording session.
+    pub audio_buffer: AudioBuffer,
+    /// Path to the directory where whisper model files are stored.
+    pub models_dir: PathBuf,
 }
 
 impl AppState {
@@ -37,6 +44,7 @@ impl AppState {
         auth: AuthService,
         token_store_path: PathBuf,
         hotkey_store_path: PathBuf,
+        models_dir: PathBuf,
     ) -> Self {
         Self {
             pool,
@@ -47,6 +55,8 @@ impl AppState {
             transcription_running: Arc::new(AtomicBool::new(false)),
             model_override: Mutex::new(None),
             current_hotkey: Mutex::new(None),
+            audio_buffer: Arc::new(std::sync::Mutex::new(Vec::new())),
+            models_dir,
         }
     }
 

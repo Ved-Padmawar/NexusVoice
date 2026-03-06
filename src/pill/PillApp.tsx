@@ -13,11 +13,13 @@ export function PillApp() {
   const startTimeRef = useRef<number>(0)
 
   // Start dragging the window on mousedown
-  const handleDragStart = useCallback(async (e: React.MouseEvent) => {
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
     // Only drag from the pill body, not buttons
     if ((e.target as HTMLElement).closest('button')) return
     e.preventDefault()
-    await getCurrentWindow().startDragging()
+    // startDragging must be called without await so it fires synchronously
+    // on the same mousedown event tick — awaiting it breaks drag on Windows
+    void getCurrentWindow().startDragging()
   }, [])
 
   // Timer for recording duration — derived from start time to avoid sync setState in effect
@@ -41,6 +43,11 @@ export function PillApp() {
     const s = (seconds % 60).toString().padStart(2, '0')
     return `${m}:${s}`
   }
+
+  // Ensure pill stays above the Windows taskbar at runtime
+  useEffect(() => {
+    void getCurrentWindow().setAlwaysOnTop(true)
+  }, [])
 
   useEffect(() => {
     const unlisteners: (() => void)[] = []
@@ -85,7 +92,6 @@ export function PillApp() {
   return (
     <div
       className={`pill pill--${state}`}
-      data-tauri-drag-region
       onMouseDown={handleDragStart}
       role="status"
       aria-label={`NexusVoice: ${state}`}

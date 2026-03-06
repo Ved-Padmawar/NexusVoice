@@ -121,15 +121,34 @@ export const useAppStore = create<AppState>()(
       listenForAuthReady: async () => {
         // Listen for auth:ready — backend emits this after successful silent re-auth
         const unlistenReady = await listen<number>('auth:ready', (event) => {
-          // event.payload is the user_id; we don't have full user object here,
-          // but the session is valid — mark as checking done with a stub user
           set({ authChecking: false, user: { id: event.payload, email: '' } })
         })
         // Listen for auth:unauthenticated — no stored token or it expired
         const unlistenUnauth = await listen<AuthReadyPayload>('auth:unauthenticated', () => {
           set({ authChecking: false, user: null })
         })
+
+        // Fallback: backend emits the event in a spawned task — if the frontend
+        // registers listeners after the event fires, it will never arrive.
+        // Poll get_auth_state after a short delay to catch that race.
+        const timeout = setTimeout(async () => {
+          if (!get().authChecking) return
+          try {
+            const state = await invoke<{ authenticated: boolean; userId: number | null }>('get_auth_state')
+            if (get().authChecking) {
+              if (state.authenticated && state.userId != null) {
+                set({ authChecking: false, user: { id: state.userId, email: '' } })
+              } else {
+                set({ authChecking: false, user: null })
+              }
+            }
+          } catch {
+            set({ authChecking: false, user: null })
+          }
+        }, 500)
+
         return () => {
+          clearTimeout(timeout)
           unlistenReady()
           unlistenUnauth()
         }

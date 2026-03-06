@@ -2,3 +2,6 @@
 # and Tauri builds share the same artifacts. No need to set CARGO_TARGET_DIR.
 [build]
 target-dir = ".cargo-target"
+
+[env]
+LIBCLANG_PATH = "C:\\Program Files\\LLVM\\bin"

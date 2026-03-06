@@ -2,9 +2,8 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::audio::{AudioInput, AudioPipeline, AudioPipelineConfig};
 use crate::auth::{AuthError, TokenPair};
 use crate::database::dto::{dictionary::CreateDictionaryEntry, transcript::CreateTranscript};
 use crate::database::models::{dictionary::DictionaryEntry, transcript::Transcript, user::User};
@@ -12,7 +11,7 @@ use crate::database::repositories::{
     dictionary::DictionaryRepository, transcript::TranscriptRepository,
 };
 use crate::hardware::{detect_profile, SysinfoProvider};
-use crate::inference::{ExecutionProvider, MockInferenceEngine};
+use crate::inference::ExecutionProvider;
 use crate::models::{select_model, ModelSize};
 use crate::postprocess::module::dictionary_engine::{
     DictionaryCorrectionConfig, DictionaryCorrectionEngine,
@@ -332,7 +331,10 @@ pub async fn get_hardware_profile() -> Result<HardwareProfileResponse, ApiError>
 }
 
 #[tauri::command]
-pub async fn start_transcription(state: State<'_, AppState>) -> Result<bool, ApiError> {
+pub async fn start_transcription(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, ApiError> {
     if !state.try_start_transcription() {
         return Err(ApiError::new(
             "transcription_already_running",
@@ -340,23 +342,20 @@ pub async fn start_transcription(state: State<'_, AppState>) -> Result<bool, Api
         ));
     }
 
+    // Clear old audio data
+    {
+        let mut buf = state.audio_buffer.lock().unwrap();
+        buf.clear();
+    }
+
     let running = Arc::clone(&state.transcription_running);
-    let _pool = state.pool.clone();
+    let audio_buffer = Arc::clone(&state.audio_buffer);
+    let app_handle = app.clone();
 
-    tauri::async_runtime::spawn(async move {
-        let config = AudioPipelineConfig::new(16_000, 1000);
-        let engine = MockInferenceEngine::new(ExecutionProvider::Cpu, |_| Ok(vec![]));
-        let mut pipeline = AudioPipeline::new(Box::new(engine), config);
-
-        while running.load(Ordering::SeqCst) {
-            let chunk_samples = (16_000 * 100 / 1000) as usize;
-            let input = AudioInput {
-                sample_rate: 16_000,
-                channels: 1,
-                samples: vec![0.0; chunk_samples],
-            };
-            let _ = pipeline.process_input(input);
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    std::thread::spawn(move || {
+        if let Err(e) = capture_microphone(running, audio_buffer) {
+            eprintln!("microphone capture error: {e}");
+            let _ = app_handle.emit("transcription-error", e);
         }
     });
 
@@ -364,15 +363,186 @@ pub async fn start_transcription(state: State<'_, AppState>) -> Result<bool, Api
 }
 
 #[tauri::command]
-pub async fn stop_transcription(state: State<'_, AppState>) -> Result<bool, ApiError> {
-    if state.try_stop_transcription() {
-        Ok(false)
-    } else {
-        Err(ApiError::new(
+pub async fn stop_transcription(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, ApiError> {
+    if !state.try_stop_transcription() {
+        return Err(ApiError::new(
             "transcription_not_running",
             "transcription not running",
-        ))
+        ));
     }
+
+    // Give cpal stream a moment to flush its last callback
+    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
+    let samples = {
+        let buf = state.audio_buffer.lock().unwrap();
+        buf.clone()
+    };
+
+    if samples.is_empty() {
+        return Ok(false);
+    }
+
+    let model_path = state.models_dir.join("ggml-tiny.bin");
+    let app_handle = app.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        // Download model if missing
+        if !model_path.exists() {
+            if let Err(e) = download_whisper_model(&model_path) {
+                let _ = app_handle.emit("transcription-error", format!("model download failed: {e}"));
+                return;
+            }
+        }
+
+        match crate::inference::WhisperEngine::new(&model_path, ExecutionProvider::Cpu) {
+            Ok(engine) => match engine.transcribe(&samples) {
+                Ok(text) if !text.is_empty() => {
+                    let _ = app_handle.emit("transcription-complete", text);
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    let _ = app_handle.emit("transcription-error", e);
+                }
+            },
+            Err(e) => {
+                let _ = app_handle.emit("transcription-error", e);
+            }
+        }
+    });
+
+    Ok(true)
+}
+
+fn capture_microphone(
+    running: Arc<std::sync::atomic::AtomicBool>,
+    buffer: Arc<std::sync::Mutex<Vec<f32>>>,
+) -> Result<(), String> {
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+    use cpal::SampleFormat;
+
+    let host = cpal::default_host();
+    let device = host
+        .default_input_device()
+        .ok_or_else(|| "no input device available".to_string())?;
+
+    let config = device
+        .default_input_config()
+        .map_err(|e| format!("failed to get input config: {e}"))?;
+
+    let channels = config.channels() as usize;
+    let sample_format = config.sample_format();
+    let stream_config: cpal::StreamConfig = config.into();
+
+    let buf_clone = Arc::clone(&buffer);
+    let running_clone = Arc::clone(&running);
+
+    // Build and run the stream; data_callback converts to f32 mono
+    let stream = match sample_format {
+        SampleFormat::F32 => build_input_stream::<f32>(&device, &stream_config, channels, buf_clone, running_clone)?,
+        SampleFormat::I16 => build_input_stream::<i16>(&device, &stream_config, channels, buf_clone, running_clone)?,
+        SampleFormat::U16 => build_input_stream::<u16>(&device, &stream_config, channels, buf_clone, running_clone)?,
+        _ => return Err(format!("unsupported sample format: {sample_format:?}")),
+    };
+
+    stream.play().map_err(|e| format!("failed to start stream: {e}"))?;
+
+    while running.load(Ordering::SeqCst) {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    drop(stream);
+    Ok(())
+}
+
+fn build_input_stream<T>(
+    device: &cpal::Device,
+    config: &cpal::StreamConfig,
+    channels: usize,
+    buffer: Arc<std::sync::Mutex<Vec<f32>>>,
+    running: Arc<std::sync::atomic::AtomicBool>,
+) -> Result<cpal::Stream, String>
+where
+    T: cpal::Sample + cpal::SizedSample + ToF32,
+{
+    use cpal::traits::DeviceTrait;
+
+    let stream = device
+        .build_input_stream(
+            config,
+            move |data: &[T], _| {
+                if !running.load(Ordering::SeqCst) {
+                    return;
+                }
+                // Convert to f32 mono
+                let mono: Vec<f32> = if channels == 1 {
+                    data.iter().map(|s| s.to_f32()).collect()
+                } else {
+                    data.chunks(channels)
+                        .map(|frame| {
+                            frame.iter().map(|s| s.to_f32()).sum::<f32>() / channels as f32
+                        })
+                        .collect()
+                };
+                if let Ok(mut buf) = buffer.lock() {
+                    buf.extend_from_slice(&mono);
+                }
+            },
+            |err| eprintln!("cpal stream error: {err}"),
+            None,
+        )
+        .map_err(|e| format!("failed to build input stream: {e}"))?;
+
+    Ok(stream)
+}
+
+/// Conversion helper for cpal sample types to f32.
+pub trait ToF32 {
+    fn to_f32(self) -> f32;
+}
+
+impl ToF32 for f32 {
+    fn to_f32(self) -> f32 {
+        self
+    }
+}
+
+impl ToF32 for i16 {
+    fn to_f32(self) -> f32 {
+        self as f32 / i16::MAX as f32
+    }
+}
+
+impl ToF32 for u16 {
+    fn to_f32(self) -> f32 {
+        (self as f32 / u16::MAX as f32) * 2.0 - 1.0
+    }
+}
+
+fn download_whisper_model(dest: &std::path::Path) -> Result<(), String> {
+    use std::io::Write;
+
+    const MODEL_URL: &str =
+        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin";
+
+    let response = reqwest::blocking::get(MODEL_URL)
+        .map_err(|e| format!("download request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!("download HTTP {}", response.status()));
+    }
+
+    let bytes = response.bytes().map_err(|e| format!("read body failed: {e}"))?;
+
+    let mut file =
+        std::fs::File::create(dest).map_err(|e| format!("create model file failed: {e}"))?;
+    file.write_all(&bytes)
+        .map_err(|e| format!("write model file failed: {e}"))?;
+
+    Ok(())
 }
 
 #[tauri::command]

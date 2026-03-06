@@ -6,7 +6,6 @@ use tauri::{
     Emitter, Manager,
 };
 
-mod audio;
 mod auth;
 mod commands;
 mod database;
@@ -38,7 +37,9 @@ fn main() {
             let auth = auth::AuthService::new(pool.clone());
             let token_store_path = app_data_dir.join("refresh_token");
             let hotkey_store_path = app_data_dir.join("hotkey");
-            let app_state = state::AppState::new(pool, auth, token_store_path, hotkey_store_path);
+            let models_dir = app_data_dir.join("models");
+            std::fs::create_dir_all(&models_dir)?;
+            let app_state = state::AppState::new(pool, auth, token_store_path, hotkey_store_path, models_dir);
             app.manage(app_state);
 
             // Silent re-auth on startup

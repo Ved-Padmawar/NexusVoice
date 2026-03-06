@@ -320,9 +320,9 @@ export function Settings() {
             </div>
             <div className="card__body">
               {currentHotkey && (
-                <div style={{ marginBottom: 16 }}>
+                <div className="mb-4">
                   <span className="field-label">Current hotkey</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                  <div className="flex items-center gap-2 mt-1">
                     <div className="hotkey-keys">
                       {currentHotkey.split('+').map((key, i) => (
                         <span key={i}>
@@ -346,7 +346,7 @@ export function Settings() {
 
               <div>
                 <span className="field-label">New hotkey</span>
-                <div className="hotkey-recorder" style={{ marginTop: 6 }}>
+                <div className="hotkey-recorder mt-1.5">
                   <div
                     ref={hotkeyRef}
                     className={`hotkey-display ${isListening ? 'hotkey-display--listening' : ''}`}
@@ -360,7 +360,7 @@ export function Settings() {
                       <span className="hotkey-placeholder">Click to record hotkey…</span>
                     )}
                     {isListening && pressedKeys.length === 0 && (
-                      <span className="hotkey-placeholder" style={{ color: 'var(--accent-color)' }}>
+                      <span className="hotkey-placeholder text-[var(--accent-color)]">
                         Press keys…
                       </span>
                     )}
@@ -386,17 +386,12 @@ export function Settings() {
                   </Button>
 
                   {pressedKeys.length > 0 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleClearHotkey}
-                    >
+                    <Button type="button" variant="ghost" size="sm" onClick={handleClearHotkey}>
                       Clear
                     </Button>
                   )}
                 </div>
-                <p className="field-hint" style={{ marginTop: 6 }}>
+                <p className="field-hint mt-1.5">
                   Recommended: Ctrl+Shift+Space, Alt+R, Ctrl+Alt+V
                 </p>
               </div>
@@ -429,7 +424,7 @@ export function Settings() {
           )}
 
           {/* Model selector */}
-          <div className="card settings-section" style={{ marginBottom: 16 }}>
+          <div className="card settings-section mb-4">
             <div className="card__header">
               <div>
                 <h2 className="card__title">Model Selection</h2>
