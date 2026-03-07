@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 
 use sqlx::SqlitePool;
@@ -20,6 +20,44 @@ pub type NativeSampleRate = Arc<std::sync::Mutex<u32>>;
 pub struct AuthSession {
     pub user_id: Option<i64>,
     pub access_token: Option<String>,
+}
+
+/// Model download state tracked in AppState so the frontend can poll via command.
+/// 0 = idle/unknown, 1 = downloading, 2 = complete, 3 = error
+pub struct ModelDownloadState {
+    pub status: AtomicU8,
+    pub progress: std::sync::Mutex<u8>,
+    pub error: std::sync::Mutex<Option<String>>,
+}
+
+impl ModelDownloadState {
+    pub fn new() -> Self {
+        Self {
+            status: AtomicU8::new(0),
+            progress: std::sync::Mutex::new(0),
+            error: std::sync::Mutex::new(None),
+        }
+    }
+
+    pub fn set_downloading(&self) {
+        self.status.store(1, Ordering::SeqCst);
+        *self.progress.lock().unwrap() = 0;
+        *self.error.lock().unwrap() = None;
+    }
+
+    pub fn set_progress(&self, pct: u8) {
+        *self.progress.lock().unwrap() = pct;
+    }
+
+    pub fn set_complete(&self) {
+        self.status.store(2, Ordering::SeqCst);
+        *self.progress.lock().unwrap() = 100;
+    }
+
+    pub fn set_error(&self, msg: String) {
+        self.status.store(3, Ordering::SeqCst);
+        *self.error.lock().unwrap() = Some(msg);
+    }
 }
 
 pub struct AppState {
@@ -44,6 +82,8 @@ pub struct AppState {
     pub whisper: Mutex<Option<Arc<WhisperEngine>>>,
     /// Execution provider detected at startup.
     pub exec_provider: ExecutionProvider,
+    /// Model download state — polled by frontend via get_model_info command.
+    pub model_download: Arc<ModelDownloadState>,
 }
 
 impl AppState {
@@ -68,6 +108,7 @@ impl AppState {
             models_dir,
             whisper: Mutex::new(None),
             exec_provider,
+            model_download: Arc::new(ModelDownloadState::new()),
         }
     }
 

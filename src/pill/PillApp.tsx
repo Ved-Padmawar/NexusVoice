@@ -102,14 +102,20 @@ export function PillApp() {
     const unlisteners: (() => void)[] = []
 
     const setup = async () => {
-      // Check if already downloaded
+      // Poll backend for current model state (command-based — survives Ctrl+R)
       try {
-        const info = await invoke<{ downloaded: boolean }>('get_model_info')
-        if (!cancelled && info.downloaded) {
+        const info = await invoke<{ downloaded: boolean; downloading: boolean; downloadProgress: number; downloadError: string | null }>('get_model_info')
+        if (cancelled) return
+        if (info.downloaded) {
           modelReadyRef.current = true
+        } else if (info.downloading) {
+          modelReadyRef.current = false
+          setState('downloading')
+          setDownloadPct(info.downloadProgress)
         }
       } catch { /* ignore */ }
 
+      // Events for ongoing progress updates
       const um1 = await listen('model-download-start', () => {
         if (cancelled) return
         modelReadyRef.current = false

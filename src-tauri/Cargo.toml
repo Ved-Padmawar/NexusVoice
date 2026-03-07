@@ -1,7 +1,12 @@
 [package]
 name = "nexusvoice"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
+
+[features]
+default = []
+cuda = ["whisper-rs/cuda"]
+vulkan = ["whisper-rs/vulkan"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

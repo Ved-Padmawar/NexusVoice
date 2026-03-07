@@ -510,7 +510,11 @@ impl ToF32 for u16 {
     }
 }
 
-pub fn download_whisper_model(dest: &std::path::Path, app: &AppHandle) -> Result<(), String> {
+pub fn download_whisper_model(
+    dest: &std::path::Path,
+    app: &AppHandle,
+    dl_state: &crate::state::ModelDownloadState,
+) -> Result<(), String> {
     use std::io::{Read, Write};
 
     let filename = dest
@@ -548,6 +552,7 @@ pub fn download_whisper_model(dest: &std::path::Path, app: &AppHandle) -> Result
             let pct = ((downloaded * 100) / total) as u8;
             if pct != last_pct {
                 last_pct = pct;
+                dl_state.set_progress(pct);
                 let _ = app.emit("model-download-progress", pct);
             }
         }
@@ -896,6 +901,9 @@ pub async fn get_registered_hotkeys(state: State<'_, AppState>) -> Result<Vec<St
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfoResponse {
     pub downloaded: bool,
+    pub downloading: bool,
+    pub download_progress: u8,
+    pub download_error: Option<String>,
     pub model_name: String,
 }
 
@@ -903,8 +911,55 @@ pub struct ModelInfoResponse {
 pub async fn get_model_info(state: State<'_, AppState>) -> Result<ModelInfoResponse, ApiError> {
     let model_name = "ggml-large-v3-turbo.bin".to_string();
     let path = state.models_dir.join(&model_name);
+    let dl = &state.model_download;
+    let status = dl.status.load(std::sync::atomic::Ordering::SeqCst);
+    let progress = *dl.progress.lock().unwrap();
+    let error = dl.error.lock().unwrap().clone();
+
     Ok(ModelInfoResponse {
-        downloaded: path.exists(),
+        downloaded: path.exists() || status == 2,
+        downloading: status == 1,
+        download_progress: progress,
+        download_error: error,
         model_name,
     })
+}
+
+#[tauri::command]
+pub async fn retry_model_download(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, ApiError> {
+    let dl = &state.model_download;
+    let status = dl.status.load(std::sync::atomic::Ordering::SeqCst);
+
+    // Only allow retry if not already downloading and model not present
+    if status == 1 {
+        return Err(ApiError::new("already_downloading", "model download already in progress"));
+    }
+
+    let model_path = state.models_dir.join("ggml-large-v3-turbo.bin");
+    if model_path.exists() {
+        dl.set_complete();
+        return Ok(true);
+    }
+
+    let dl_state = std::sync::Arc::clone(&state.model_download);
+    dl_state.set_downloading();
+    let _ = app.emit("model-download-start", ());
+
+    tauri::async_runtime::spawn_blocking(move || {
+        match download_whisper_model(&model_path, &app, &dl_state) {
+            Ok(_) => {
+                dl_state.set_complete();
+                let _ = app.emit("model-download-complete", ());
+            }
+            Err(e) => {
+                dl_state.set_error(e.clone());
+                let _ = app.emit("model-download-error", e);
+            }
+        }
+    });
+
+    Ok(true)
 }

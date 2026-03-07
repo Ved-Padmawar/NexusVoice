@@ -94,13 +94,28 @@ export const useAppStore = create<AppState>()(
       downloadError: null,
       updateAvailable: null,
       listenForModelEvents: async () => {
-        // Check if model is already present before listening
-        const { invoke: inv } = await import('@tauri-apps/api/core')
+        // Hotkeys are app-level (not user-specific) — fetch immediately on mount
         try {
-          const info = await inv<{ downloaded: boolean }>('get_model_info')
-          if (info.downloaded) { set({ modelReady: true, modelDownloading: false }); }
-        } catch { /* will rely on events */ }
+          const hotkeys = await invoke<string[]>('get_registered_hotkeys')
+          set({ hasHotkey: hotkeys.length > 0 })
+        } catch { /* ignore */ }
 
+        // Poll backend for current model state (command-based — no race condition)
+        const pollModelInfo = async () => {
+          try {
+            const info = await invoke<{ downloaded: boolean; downloading: boolean; downloadProgress: number; downloadError: string | null }>('get_model_info')
+            if (info.downloaded) {
+              set({ modelReady: true, modelDownloading: false, downloadProgress: 100, downloadError: null })
+            } else if (info.downloading) {
+              set({ modelDownloading: true, modelReady: false, downloadProgress: info.downloadProgress, downloadError: null })
+            } else if (info.downloadError) {
+              set({ modelDownloading: false, modelReady: false, downloadError: info.downloadError })
+            }
+          } catch { /* ignore */ }
+        }
+        await pollModelInfo()
+
+        // Events for ongoing progress updates (supplement the initial poll)
         const u1 = await listen('model-download-start', () => {
           set({ modelDownloading: true, modelReady: false, downloadProgress: 0, downloadError: null })
         })
@@ -133,45 +148,53 @@ export const useAppStore = create<AppState>()(
         }
       },
       listenForAuthReady: async () => {
-        // Listen for auth:ready — backend emits this after successful silent re-auth
+        // Primary: poll backend auth state via command (no race condition)
+        const pollAuth = async () => {
+          try {
+            const state = await invoke<{ authenticated: boolean; userId: number | null }>('get_auth_state')
+            if (state.authenticated && state.userId != null) {
+              set({ authChecking: false, user: { id: state.userId, email: '' } })
+              invoke<{ id: number; email: string } | null>('get_current_user')
+                .then(u => { if (u) set({ user: { id: u.id, email: u.email } }) })
+                .catch(() => {})
+              get().init()
+              return true
+            }
+          } catch { /* backend not ready yet */ }
+          return false
+        }
+
+        // Try immediately — backend may have finished auth already
+        const resolved = await pollAuth()
+
+        // If not resolved yet, poll again after a short delay (backend auth is async)
+        let pollTimeout: ReturnType<typeof setTimeout> | null = null
+        if (!resolved) {
+          pollTimeout = setTimeout(async () => {
+            if (!get().authChecking) return
+            const ok = await pollAuth()
+            if (!ok && get().authChecking) {
+              // Still not authenticated — mark as unauthenticated
+              set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null, error: null })
+            }
+          }, 800)
+        }
+
+        // Events as backup for login/logout during the session
         const unlistenReady = await listen<number>('auth:ready', async (event) => {
           set({ authChecking: false, user: { id: event.payload, email: '' } })
           try {
             const u = await invoke<{ id: number; email: string } | null>('get_current_user')
             if (u) set({ user: { id: u.id, email: u.email } })
           } catch { /* ignore */ }
-          // Load all data now that we know we're authenticated
           get().init()
         })
-        // Listen for auth:unauthenticated — no stored token or it expired
         const unlistenUnauth = await listen<AuthReadyPayload>('auth:unauthenticated', () => {
           set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null, error: null })
         })
 
-        // Fallback: backend emits the event in a spawned task — if the frontend
-        // registers listeners after the event fires, it will never arrive.
-        // Poll get_auth_state after a short delay to catch that race.
-        const timeout = setTimeout(async () => {
-          if (!get().authChecking) return
-          try {
-            const state = await invoke<{ authenticated: boolean; userId: number | null }>('get_auth_state')
-            if (get().authChecking) {
-              if (state.authenticated && state.userId != null) {
-                set({ authChecking: false, user: { id: state.userId, email: '' } })
-                invoke<{ id: number; email: string } | null>('get_current_user')
-                  .then(u => { if (u) set({ user: { id: u.id, email: u.email } }) })
-                  .catch(() => {})
-              } else {
-                set({ authChecking: false, user: null })
-              }
-            }
-          } catch {
-            set({ authChecking: false, user: null })
-          }
-        }, 500)
-
         return () => {
-          clearTimeout(timeout)
+          if (pollTimeout) clearTimeout(pollTimeout)
           unlistenReady()
           unlistenUnauth()
         }

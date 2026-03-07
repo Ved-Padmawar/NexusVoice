@@ -61,12 +61,22 @@ fn main() {
                 let app_handle = app.handle().clone();
                 let state = app.state::<state::AppState>();
                 let model_path = state.models_dir.join("ggml-large-v3-turbo.bin");
-                if !model_path.exists() {
+                let dl_state = std::sync::Arc::clone(&state.model_download);
+                if model_path.exists() {
+                    dl_state.set_complete();
+                } else {
+                    dl_state.set_downloading();
                     tauri::async_runtime::spawn_blocking(move || {
                         let _ = app_handle.emit("model-download-start", ());
-                        match commands::download_whisper_model(&model_path, &app_handle) {
-                            Ok(_) => { let _ = app_handle.emit("model-download-complete", ()); }
-                            Err(e) => { let _ = app_handle.emit("model-download-error", e); }
+                        match commands::download_whisper_model(&model_path, &app_handle, &dl_state) {
+                            Ok(_) => {
+                                dl_state.set_complete();
+                                let _ = app_handle.emit("model-download-complete", ());
+                            }
+                            Err(e) => {
+                                dl_state.set_error(e.clone());
+                                let _ = app_handle.emit("model-download-error", e);
+                            }
                         }
                     });
                 }
@@ -213,6 +223,7 @@ fn main() {
             commands::accept_word_suggestion,
             commands::dismiss_word_suggestion,
             commands::get_model_info,
+            commands::retry_model_download,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

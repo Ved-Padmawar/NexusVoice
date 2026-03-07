@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { invoke } from '@tauri-apps/api/core'
 import {
   Hash, Timer, Mic, Activity,
   AlertCircle, Copy, Check,
-  Settings2, Download,
+  Settings2, Download, RefreshCw,
 } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
@@ -89,14 +90,22 @@ export function Dashboard() {
       {!modelDownloading && !modelReady && !downloadError && (
         <div className="notice notice--warning">
           <AlertCircle size={14} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--warning)' }} />
-          <span style={{ flex: 1 }}>Whisper model not found. Restart the app to trigger download.</span>
+          <span style={{ flex: 1 }}>Whisper model not found. Waiting for download to start…</span>
         </div>
       )}
 
       {downloadError && (
         <div className="notice notice--error">
           <AlertCircle size={14} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--danger)' }} />
-          <span style={{ flex: 1 }}>Model download failed: {downloadError}. Restart the app to retry.</span>
+          <span style={{ flex: 1 }}>Model download failed: {downloadError}</span>
+          <Button
+            size="sm"
+            onClick={() => invoke('retry_model_download').catch(() => {})}
+            style={{ flexShrink: 0 }}
+          >
+            <RefreshCw size={12} strokeWidth={2} />
+            Retry
+          </Button>
         </div>
       )}
 
