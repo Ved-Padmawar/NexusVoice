@@ -1,7 +1,9 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap } from 'lucide-react'
+import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { listen } from '@tauri-apps/api/event'
 import { useAppStore } from '../store/useAppStore'
 
 function TitleBar() {
@@ -43,6 +45,65 @@ function TitleBar() {
   )
 }
 
+type BannerState = 'downloading' | 'done' | 'error' | null
+
+function ModelBanner() {
+  const [banner, setBanner] = useState<BannerState>(null)
+  const [pct, setPct] = useState(0)
+  const [errMsg, setErrMsg] = useState('')
+
+  useEffect(() => {
+    const unsubs: (() => void)[] = []
+    const setup = async () => {
+      unsubs.push(await listen('model-download-start', () => { setBanner('downloading'); setPct(0) }))
+      unsubs.push(await listen<number>('model-download-progress', e => setPct(e.payload)))
+      unsubs.push(await listen('model-download-complete', () => {
+        setBanner('done')
+        setTimeout(() => setBanner(null), 4000)
+      }))
+      unsubs.push(await listen<string>('model-download-error', e => {
+        setErrMsg(e.payload)
+        setBanner('error')
+      }))
+    }
+    setup()
+    return () => unsubs.forEach(fn => fn())
+  }, [])
+
+  if (!banner) return null
+
+  return (
+    <div className={`model-banner model-banner--${banner}`}>
+      <div className="model-banner__body">
+        {banner === 'downloading' && (
+          <>
+            <span className="model-banner__text">
+              Downloading Whisper Large v3 Turbo… {pct}%
+            </span>
+            <div className="model-banner__bar-track">
+              <div className="model-banner__bar-fill" style={{ width: `${pct}%` }} />
+            </div>
+          </>
+        )}
+        {banner === 'done' && (
+          <span className="model-banner__text">Model ready — NexusVoice is fully operational.</span>
+        )}
+        {banner === 'error' && (
+          <>
+            <AlertCircle size={13} strokeWidth={2} style={{ flexShrink: 0 }} />
+            <span className="model-banner__text">Download failed: {errMsg}</span>
+          </>
+        )}
+      </div>
+      {banner !== 'downloading' && (
+        <button type="button" className="model-banner__close" onClick={() => setBanner(null)}>
+          <X size={12} strokeWidth={2} />
+        </button>
+      )}
+    </div>
+  )
+}
+
 const NAV = [
   { path: '/',           label: 'Dashboard',  Icon: LayoutDashboard },
   { path: '/dictionary', label: 'Dictionary', Icon: BookOpen },
@@ -66,6 +127,7 @@ export function Layout() {
   return (
     <div className="app-shell">
       <TitleBar />
+      <ModelBanner />
       <div className="app-body">
       <aside className="sidebar">
         {/* Brand */}

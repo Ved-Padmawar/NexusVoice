@@ -87,11 +87,11 @@ export function PillApp() {
   const isRecordingRef = useRef(false)
 
   useEffect(() => {
+    let cancelled = false
     const unlisteners: (() => void)[] = []
 
     const setup = async () => {
       const u1 = await listen('hotkey-pressed', async () => {
-        // Guard against key-repeat: if already recording, ignore subsequent presses
         if (isRecordingRef.current) return
         isRecordingRef.current = true
         setState('recording')
@@ -99,13 +99,13 @@ export function PillApp() {
           await invoke('start_transcription')
         } catch (err: unknown) {
           const msg = err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : String(err)
-          console.error('Failed to start:', msg)
           setErrorMsg(msg)
           setState('error')
           isRecordingRef.current = false
           setTimeout(() => setState('idle'), 3000)
         }
       })
+      if (cancelled) { u1(); return }
       unlisteners.push(u1)
 
       const u2 = await listen('hotkey-released', async () => {
@@ -116,12 +116,12 @@ export function PillApp() {
           await invoke('stop_transcription')
         } catch (err: unknown) {
           const msg = err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : String(err)
-          console.error('Failed to stop:', msg)
           setErrorMsg(msg)
           setState('error')
           setTimeout(() => setState('idle'), 3000)
         }
       })
+      if (cancelled) { u2(); return }
       unlisteners.push(u2)
 
       const u3 = await listen<string>('transcription-complete', async (event) => {
@@ -131,20 +131,21 @@ export function PillApp() {
         }
         setState('idle')
       })
+      if (cancelled) { u3(); return }
       unlisteners.push(u3)
 
       const u4 = await listen<string>('transcription-error', (event) => {
-        console.error('Transcription error:', event.payload)
         setErrorMsg(event.payload ?? 'Transcription failed')
         setState('error')
         setTimeout(() => setState('idle'), 3000)
       })
+      if (cancelled) { u4(); return }
       unlisteners.push(u4)
-
     }
 
     setup()
     return () => {
+      cancelled = true
       unlisteners.forEach(fn => fn())
     }
   }, [])

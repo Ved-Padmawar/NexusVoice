@@ -6,7 +6,7 @@ use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 
 use crate::auth::AuthService;
-use crate::models::ModelSize;
+use crate::inference::{ExecutionProvider, WhisperEngine};
 
 /// Shared audio sample buffer filled by the cpal capture thread.
 pub type AudioBuffer = Arc<std::sync::Mutex<Vec<f32>>>;
@@ -33,7 +33,6 @@ pub struct AppState {
     pub auth_session: Mutex<AuthSession>,
     /// Shared so the transcription task can check when to stop.
     pub transcription_running: Arc<AtomicBool>,
-    pub model_override: Mutex<Option<ModelSize>>,
     pub current_hotkey: Mutex<Option<String>>,
     /// Audio samples collected during an active recording session.
     pub audio_buffer: AudioBuffer,
@@ -41,6 +40,10 @@ pub struct AppState {
     pub native_sample_rate: NativeSampleRate,
     /// Path to the directory where whisper model files are stored.
     pub models_dir: PathBuf,
+    /// Cached Whisper engine — loaded once, reused across recordings.
+    pub whisper: Mutex<Option<Arc<WhisperEngine>>>,
+    /// Execution provider detected at startup.
+    pub exec_provider: ExecutionProvider,
 }
 
 impl AppState {
@@ -50,6 +53,7 @@ impl AppState {
         token_store_path: PathBuf,
         hotkey_store_path: PathBuf,
         models_dir: PathBuf,
+        exec_provider: ExecutionProvider,
     ) -> Self {
         Self {
             pool,
@@ -58,12 +62,29 @@ impl AppState {
             hotkey_store_path,
             auth_session: Mutex::new(AuthSession::default()),
             transcription_running: Arc::new(AtomicBool::new(false)),
-            model_override: Mutex::new(None),
             current_hotkey: Mutex::new(None),
             audio_buffer: Arc::new(std::sync::Mutex::new(Vec::new())),
             native_sample_rate: Arc::new(std::sync::Mutex::new(44100)),
             models_dir,
+            whisper: Mutex::new(None),
+            exec_provider,
         }
+    }
+
+    /// Get or load the cached WhisperEngine. Returns Err if model file is missing.
+    pub async fn get_or_load_whisper(&self) -> Result<Arc<WhisperEngine>, String> {
+        let mut guard = self.whisper.lock().await;
+        if let Some(engine) = guard.as_ref() {
+            return Ok(Arc::clone(engine));
+        }
+        let model_path = self.models_dir.join("ggml-large-v3-turbo.bin");
+        if !model_path.exists() {
+            return Err("model not downloaded yet".to_string());
+        }
+        let engine = WhisperEngine::new(&model_path, self.exec_provider)?;
+        let arc = Arc::new(engine);
+        *guard = Some(Arc::clone(&arc));
+        Ok(arc)
     }
 
     /// Returns the current authenticated user_id, or None if not authenticated.
@@ -119,24 +140,6 @@ impl AppState {
     /// Delete the persisted hotkey.
     pub fn delete_hotkey(&self) {
         let _ = std::fs::remove_file(&self.hotkey_store_path);
-    }
-
-    /// Persist the model override to disk.
-    pub fn save_model_override(&self, size: &str) -> std::io::Result<()> {
-        std::fs::write(self.token_store_path.with_file_name("model_override"), size)
-    }
-
-    /// Read the persisted model override from disk, if any.
-    pub fn load_model_override(&self) -> Option<String> {
-        std::fs::read_to_string(self.token_store_path.with_file_name("model_override"))
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    }
-
-    /// Delete the persisted model override.
-    pub fn delete_model_override(&self) {
-        let _ = std::fs::remove_file(self.token_store_path.with_file_name("model_override"));
     }
 
     #[allow(dead_code)]

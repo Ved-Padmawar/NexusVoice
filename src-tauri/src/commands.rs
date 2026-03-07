@@ -10,9 +10,6 @@ use crate::database::models::{dictionary::DictionaryEntry, transcript::Transcrip
 use crate::database::repositories::{
     dictionary::DictionaryRepository, transcript::TranscriptRepository,
 };
-use crate::hardware::{detect_profile, SysinfoProvider};
-use crate::inference::ExecutionProvider;
-use crate::models::{select_model, ModelSize};
 use crate::postprocess::module::dictionary_engine::{
     DictionaryCorrectionConfig, DictionaryCorrectionEngine,
 };
@@ -135,22 +132,6 @@ impl From<TokenPair> for TokenPairResponse {
 pub struct AuthResponse {
     pub user: UserResponse,
     pub tokens: TokenPairResponse,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HardwareProfileResponse {
-    pub gpu_type: String,
-    pub vram_gb: f32,
-    pub execution_provider: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelInfoResponse {
-    pub size: String,
-    pub reason: String,
-    pub execution_provider: String,
 }
 
 /// Guard: returns the current user_id if authenticated, or an ApiError if not.
@@ -284,85 +265,6 @@ pub async fn logout_token(
     Ok(())
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HardwareTierResponse {
-    pub tier: String,
-    pub execution_provider: String,
-    pub vram_gb: f32,
-}
-
-/// Returns the hardware tier (low/mid/high) derived from the detected profile.
-#[tauri::command]
-pub async fn get_hardware_tier() -> Result<HardwareTierResponse, ApiError> {
-    let provider = SysinfoProvider::new();
-    let profile = detect_profile(&provider);
-    let tier = match profile.execution_provider.as_str() {
-        "cuda" => "high",
-        "directml" | "metal" => "mid",
-        _ => "low",
-    }
-    .to_string();
-    Ok(HardwareTierResponse {
-        tier,
-        execution_provider: profile.execution_provider,
-        vram_gb: profile.vram_gb,
-    })
-}
-
-/// Persist the model size override, update state, and pre-download the model if not cached.
-#[tauri::command]
-pub async fn set_model_override(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    size: String,
-) -> Result<(), ApiError> {
-    let model_size = parse_model_size(&size)?;
-    let _ = state.save_model_override(&size);
-    {
-        let mut guard = state.model_override.lock().await;
-        *guard = Some(model_size);
-    }
-
-    // Pre-download the model immediately so it's ready when the user records.
-    let model_filename = model_size_to_filename(model_size);
-    let model_path = state.models_dir.join(model_filename);
-
-    if !model_path.exists() {
-        let app_handle = app.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            let _ = app_handle.emit("model-download-start", ());
-            match download_whisper_model(&model_path, &app_handle) {
-                Ok(_) => { let _ = app_handle.emit("model-download-complete", ()); }
-                Err(e) => { let _ = app_handle.emit("model-download-error", e); }
-            }
-        });
-    }
-
-    Ok(())
-}
-
-/// Clear the model override — revert to auto-selection.
-#[tauri::command]
-pub async fn clear_model_override(state: State<'_, AppState>) -> Result<(), ApiError> {
-    state.delete_model_override();
-    let mut guard = state.model_override.lock().await;
-    *guard = None;
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn get_hardware_profile() -> Result<HardwareProfileResponse, ApiError> {
-    let provider = SysinfoProvider::new();
-    let profile = detect_profile(&provider);
-
-    Ok(HardwareProfileResponse {
-        gpu_type: profile.gpu_type,
-        vram_gb: profile.vram_gb,
-        execution_provider: profile.execution_provider,
-    })
-}
-
 #[tauri::command]
 pub async fn start_transcription(
     app: AppHandle,
@@ -420,83 +322,73 @@ pub async fn stop_transcription(
     };
 
     if samples.is_empty() {
+        let _ = app.emit("transcription-complete", "");
         return Ok(false);
     }
 
-    let provider = SysinfoProvider::new();
-    let profile = detect_profile(&provider);
-    let override_size = { *state.model_override.lock().await };
-    let selection = select_model(&profile, override_size);
-    let model_filename = model_size_to_filename(selection.size);
-    let model_path = state.models_dir.join(model_filename);
     let pool = state.pool.clone();
     let app_handle = app.clone();
 
-    tauri::async_runtime::spawn_blocking(move || {
-        // Download model if missing
-        if !model_path.exists() {
-            let _ = app_handle.emit("model-download-start", ());
-            if let Err(e) = download_whisper_model(&model_path, &app_handle) {
-                let _ = app_handle.emit("transcription-error", format!("model download failed: {e}"));
-                return;
-            }
-            let _ = app_handle.emit("model-download-complete", ());
+    // Get cached engine — if model not downloaded yet, signal idle and bail
+    let engine = match state.get_or_load_whisper().await {
+        Ok(e) => e,
+        Err(e) => {
+            let _ = app_handle.emit("transcription-error", format!("model not ready: {e}"));
+            return Ok(false);
         }
+    };
 
+    tauri::async_runtime::spawn_blocking(move || {
         // Preprocess: noise suppression → resample to 16kHz → silence trim
         let resampled = crate::preprocess::preprocess(&samples, captured_rate);
 
-        let exec_provider = match profile.execution_provider.as_str() {
-            "cuda"     => ExecutionProvider::Cuda,
-            "directml" => ExecutionProvider::DirectML,
-            _          => ExecutionProvider::Cpu,
-        };
+        // Run transcription in a thread with a 60s deadline
+        let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
+        std::thread::spawn(move || {
+            let _ = tx.send(engine.transcribe(&resampled));
+        });
 
-        match crate::inference::WhisperEngine::new(&model_path, exec_provider) {
-            Ok(engine) => match engine.transcribe(&resampled) {
-                Ok(text) if !text.is_empty() => {
-                    let _ = app_handle.emit("transcription-complete", text.clone());
-                    // Save transcript to DB
-                    let repo = crate::database::repositories::transcript::TranscriptRepository::new(pool.clone());
-                    let _ = tauri::async_runtime::block_on(
-                        repo.create(crate::database::dto::transcript::CreateTranscript { content: text.clone() })
-                    );
-                    // Auto-learn: record uncommon words, then auto-add any that hit the threshold
-                    let freq_repo = crate::database::repositories::word_frequency::WordFrequencyRepository::new(pool.clone());
-                    let dict_repo = crate::database::repositories::dictionary::DictionaryRepository::new(pool);
-                    let unknown = extract_unknown_words(&text);
-                    if !unknown.is_empty() {
-                        if tauri::async_runtime::block_on(freq_repo.record_words(&unknown)).is_ok() {
-                            // Auto-add words that just reached 3+ occurrences and aren't in dictionary yet
-                            if let Ok(ready) = tauri::async_runtime::block_on(freq_repo.unreviewed_above(3)) {
-                                for entry in ready {
-                                    let already = tauri::async_runtime::block_on(
-                                        dict_repo.get_by_term(&entry.word)
-                                    ).unwrap_or(None);
-                                    if already.is_none() {
-                                        let _ = tauri::async_runtime::block_on(dict_repo.create(
-                                            crate::database::dto::dictionary::CreateDictionaryEntry {
-                                                term: entry.word.clone(),
-                                                replacement: entry.word.clone(),
-                                            }
-                                        ));
-                                    }
-                                    let _ = tauri::async_runtime::block_on(freq_repo.mark_reviewed(&entry.word, true));
+        match rx.recv_timeout(std::time::Duration::from_secs(60)) {
+            Ok(Ok(text)) if !text.is_empty() => {
+                let _ = app_handle.emit("transcription-complete", text.clone());
+                let repo = crate::database::repositories::transcript::TranscriptRepository::new(pool.clone());
+                let _ = tauri::async_runtime::block_on(
+                    repo.create(crate::database::dto::transcript::CreateTranscript { content: text.clone() })
+                );
+                let freq_repo = crate::database::repositories::word_frequency::WordFrequencyRepository::new(pool.clone());
+                let dict_repo = crate::database::repositories::dictionary::DictionaryRepository::new(pool);
+                let unknown = extract_unknown_words(&text);
+                if !unknown.is_empty() {
+                    if tauri::async_runtime::block_on(freq_repo.record_words(&unknown)).is_ok() {
+                        if let Ok(ready) = tauri::async_runtime::block_on(freq_repo.unreviewed_above(3)) {
+                            for entry in ready {
+                                let already = tauri::async_runtime::block_on(
+                                    dict_repo.get_by_term(&entry.word)
+                                ).unwrap_or(None);
+                                if already.is_none() {
+                                    let _ = tauri::async_runtime::block_on(dict_repo.create(
+                                        crate::database::dto::dictionary::CreateDictionaryEntry {
+                                            term: entry.word.clone(),
+                                            replacement: entry.word.clone(),
+                                        }
+                                    ));
                                 }
+                                let _ = tauri::async_runtime::block_on(freq_repo.mark_reviewed(&entry.word, true));
                             }
                         }
                     }
                 }
-                Ok(_) => {
-                    // Empty transcription — still signal complete so pill returns to idle
-                    let _ = app_handle.emit("transcription-complete", "");
-                }
-                Err(e) => {
-                    let _ = app_handle.emit("transcription-error", e);
-                }
-            },
-            Err(e) => {
+            }
+            Ok(Ok(_)) => {
+                // Empty — no speech detected
+                let _ = app_handle.emit("transcription-complete", "");
+            }
+            Ok(Err(e)) => {
                 let _ = app_handle.emit("transcription-error", e);
+            }
+            Err(_) => {
+                // Timeout
+                let _ = app_handle.emit("transcription-error", "transcription timed out");
             }
         }
     });
@@ -615,17 +507,7 @@ impl ToF32 for u16 {
     }
 }
 
-fn model_size_to_filename(size: ModelSize) -> &'static str {
-    match size {
-        ModelSize::Tiny   => "ggml-tiny.bin",
-        ModelSize::Base   => "ggml-base.bin",
-        ModelSize::Small  => "ggml-small.bin",
-        ModelSize::Medium => "ggml-medium.bin",
-        ModelSize::Large  => "ggml-large-v3.bin",
-    }
-}
-
-fn download_whisper_model(dest: &std::path::Path, app: &AppHandle) -> Result<(), String> {
+pub fn download_whisper_model(dest: &std::path::Path, app: &AppHandle) -> Result<(), String> {
     use std::io::{Read, Write};
 
     let filename = dest
@@ -672,31 +554,6 @@ fn download_whisper_model(dest: &std::path::Path, app: &AppHandle) -> Result<(),
     std::fs::rename(&tmp, dest).map_err(|e| format!("rename model file failed: {e}"))?;
 
     Ok(())
-}
-
-#[tauri::command]
-pub async fn get_model_info(
-    state: State<'_, AppState>,
-    override_size: Option<String>,
-) -> Result<ModelInfoResponse, ApiError> {
-    let provider = SysinfoProvider::new();
-    let profile = detect_profile(&provider);
-
-    let override_size = match override_size {
-        Some(value) => Some(parse_model_size(&value)?),
-        None => {
-            let guard = state.model_override.lock().await;
-            *guard
-        }
-    };
-
-    let selection = select_model(&profile, override_size);
-
-    Ok(ModelInfoResponse {
-        size: model_size_label(selection.size).to_string(),
-        reason: selection.reason,
-        execution_provider: profile.execution_provider,
-    })
 }
 
 #[derive(Debug, Serialize)]
@@ -789,27 +646,6 @@ pub async fn apply_dictionary(
     let repo = DictionaryRepository::new(state.pool.clone());
     let engine = DictionaryCorrectionEngine::new(repo, DictionaryCorrectionConfig::default());
     engine.apply_to_text(&text).await.map_err(ApiError::from)
-}
-
-fn parse_model_size(value: &str) -> Result<ModelSize, ApiError> {
-    match value.to_lowercase().as_str() {
-        "tiny"   => Ok(ModelSize::Tiny),
-        "base"   => Ok(ModelSize::Base),
-        "small"  => Ok(ModelSize::Small),
-        "medium" => Ok(ModelSize::Medium),
-        "large"  => Ok(ModelSize::Large),
-        _ => Err(ApiError::new("invalid_input", "invalid model size")),
-    }
-}
-
-fn model_size_label(size: ModelSize) -> &'static str {
-    match size {
-        ModelSize::Tiny   => "tiny",
-        ModelSize::Base   => "base",
-        ModelSize::Small  => "small",
-        ModelSize::Medium => "medium",
-        ModelSize::Large  => "large",
-    }
 }
 
 /// Extract words from transcription text that are likely domain-specific/uncommon.
@@ -907,18 +743,6 @@ fn map_db_error(error: &sqlx::Error) -> String {
         sqlx::Error::PoolClosed => "database unavailable".to_string(),
         sqlx::Error::Io(_) => "database io error".to_string(),
         _ => "database error".to_string(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn model_size_parsing() {
-        assert_eq!(parse_model_size("tiny").unwrap(), ModelSize::Tiny);
-        assert_eq!(parse_model_size("SMALL").unwrap(), ModelSize::Small);
-        assert!(parse_model_size("mega").is_err());
     }
 }
 

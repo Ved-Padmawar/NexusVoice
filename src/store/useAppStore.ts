@@ -29,24 +29,6 @@ export type DictionaryEntry = {
   createdAt: string
 }
 
-export type ModelInfo = {
-  size: string
-  reason: string
-  executionProvider: string
-}
-
-export type HardwareTier = 'low' | 'mid' | 'high'
-
-export const MODEL_OPTIONS = [
-  { id: 'whisper-tiny',   label: 'Whisper Tiny',   tier: 'low'  as HardwareTier, desc: '~75MB  · Fastest, lowest accuracy' },
-  { id: 'whisper-base',   label: 'Whisper Base',   tier: 'low'  as HardwareTier, desc: '~142MB · Fast, good for most uses' },
-  { id: 'whisper-small',  label: 'Whisper Small',  tier: 'mid'  as HardwareTier, desc: '~466MB · Balanced accuracy/speed' },
-  { id: 'whisper-medium', label: 'Whisper Medium', tier: 'high' as HardwareTier, desc: '~1.5GB · High accuracy' },
-  { id: 'whisper-large',  label: 'Whisper Large',  tier: 'high' as HardwareTier, desc: '~2.9GB · Best accuracy, needs GPU' },
-] as const
-
-export type ModelId = typeof MODEL_OPTIONS[number]['id']
-
 export type UsageStats = {
   totalWords: number
   speakingTimeSeconds: number
@@ -61,11 +43,8 @@ type AppState = {
   /** Stored in memory only — never persisted to localStorage */
   refreshToken: string | null
   theme: ThemeName
-  selectedModel: ModelId
-  hardwareTier: HardwareTier | null
   transcripts: Transcript[]
   dictionary: DictionaryEntry[]
-  modelInfo: ModelInfo | null
   stats: UsageStats | null
   isLoading: boolean
   error: string | null
@@ -76,14 +55,11 @@ type AppState = {
   /** Subscribe to auth:ready and auth:unauthenticated events from the backend */
   listenForAuthReady: () => Promise<() => void>
   setTheme: (theme: ThemeName) => void
-  setSelectedModel: (model: ModelId) => void
   setUser: (user: User | null) => void
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   setError: (message: string | null) => void
-  fetchModelInfo: () => Promise<void>
-  fetchHardwareTier: () => Promise<void>
   fetchStats: () => Promise<void>
   addTranscript: (content: string) => Promise<void>
   updateDictionary: (term: string, replacement: string) => Promise<void>
@@ -96,11 +72,8 @@ export const useAppStore = create<AppState>()(
       user: null,
       refreshToken: null,
       theme: 'void',
-      selectedModel: 'whisper-base',
-      hardwareTier: null,
       transcripts: [],
       dictionary: [],
-      modelInfo: null,
       stats: null,
       isLoading: false,
       error: null,
@@ -166,7 +139,6 @@ export const useAppStore = create<AppState>()(
         }
       },
       setTheme: (theme) => set({ theme }),
-      setSelectedModel: (model) => set({ selectedModel: model }),
       setUser: (user) => set({ user }),
       login: async (email, password) => {
         set({ error: null })
@@ -213,23 +185,6 @@ export const useAppStore = create<AppState>()(
         set({ user: null, refreshToken: null, error: null, transcripts: [], dictionary: [], stats: null })
       },
       setError: (message) => set({ error: message }),
-      fetchModelInfo: async () => {
-        try {
-          const modelInfo = await invoke<ModelInfo>('get_model_info')
-          set({ modelInfo })
-        } catch {
-          set({ modelInfo: null })
-        }
-      },
-      fetchHardwareTier: async () => {
-        try {
-          const result = await invoke<{ tier: string; executionProvider: string; vramGb: number }>('get_hardware_tier')
-          const tier = result.tier as HardwareTier
-          set({ hardwareTier: tier })
-        } catch {
-          set({ hardwareTier: null })
-        }
-      },
       fetchStats: async () => {
         try {
           const stats = await invoke<UsageStats>('get_usage_stats')
@@ -281,7 +236,7 @@ export const useAppStore = create<AppState>()(
     {
       name: 'nexus-voice-storage',
       // Only persist UI prefs — tokens and user session are managed by the backend
-      partialize: (state) => ({ theme: state.theme, selectedModel: state.selectedModel }),
+      partialize: (state) => ({ theme: state.theme }),
     }
   )
 )

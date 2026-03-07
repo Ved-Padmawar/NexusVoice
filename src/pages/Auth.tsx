@@ -3,7 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Zap, Check, AlertCircle, X } from 'lucide-react'
+import { Zap, Check, AlertCircle, X, Minus, Square } from 'lucide-react'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -70,8 +71,19 @@ export function Auth() {
     reset({ email: '', password: '', rememberMe: false })
   }
 
+  const win = getCurrentWindow()
+
   return (
     <div className="auth-page">
+      <div className="titlebar">
+        <div className="titlebar__drag" data-tauri-drag-region />
+        <div className="titlebar__controls">
+          <button className="titlebar__btn" onClick={() => win.minimize()} aria-label="Minimize"><Minus size={10} strokeWidth={2} /></button>
+          <button className="titlebar__btn" onClick={() => win.toggleMaximize()} aria-label="Maximize"><Square size={9} strokeWidth={2} /></button>
+          <button className="titlebar__btn titlebar__btn--close" onClick={() => win.close()} aria-label="Close"><X size={10} strokeWidth={2} /></button>
+        </div>
+      </div>
+      <div className="auth-body">
       {/* Left panel */}
       <div className="auth-left">
         <div className="auth-brand">
@@ -200,6 +212,7 @@ export function Auth() {
             </button>
           </p>
         </div>
+      </div>
       </div>
     </div>
   )

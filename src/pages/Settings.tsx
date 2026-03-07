@@ -1,18 +1,13 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
 import {
-  Palette, Keyboard, Cpu,
-  Check, AlertCircle, CheckCircle2, X, Download,
+  Palette, Keyboard, Info,
+  Check, AlertCircle, CheckCircle2, X,
 } from 'lucide-react'
-import { useAppStore, type ThemeName, type ModelId, MODEL_OPTIONS } from '../store/useAppStore'
+import { useAppStore, type ThemeName } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
 
 /* ── Themes ────────────────────────────────────────────────────── */
 const THEMES: {
@@ -64,81 +59,36 @@ function buildShortcut(keys: string[]): string {
   return main ? [...mods, main].join('+') : mods.join('+')
 }
 
-const TAB_ICONS = { general: Palette, audio: Keyboard, models: Cpu }
+const TAB_ICONS = { general: Palette, audio: Keyboard, about: Info }
 
 /* ── Component ─────────────────────────────────────────────────── */
 export function Settings() {
   const {
     theme, setTheme,
-    modelInfo, fetchModelInfo,
-    selectedModel, setSelectedModel,
-    hardwareTier, fetchHardwareTier,
     error, setError,
   } = useAppStore()
 
   const location = useLocation()
   const initialTab = (location.state as { tab?: string } | null)?.tab ?? 'general'
-  const [tab, setTab] = useState<'general' | 'audio' | 'models'>(initialTab as 'general' | 'audio' | 'models')
+  const [tab, setTab] = useState<'general' | 'audio' | 'about'>(initialTab as 'general' | 'audio' | 'about')
 
-  const [pendingModel, setPendingModel] = useState<ModelId | null>(null)
-  const [showOverrideWarn, setShowOverrideWarn] = useState(false)
   const [currentHotkey, setCurrentHotkey] = useState<string | null>(null)
   const [pressedKeys, setPressedKeys] = useState<string[]>([])
   const [isListening, setIsListening] = useState(false)
   const [saving, setSaving] = useState(false)
   const [hotkeySuccess, setHotkeySuccess] = useState(false)
-  const [downloadState, setDownloadState] = useState<'idle' | 'downloading' | 'done' | 'error'>('idle')
-  const [downloadPct, setDownloadPct] = useState(0)
-  const [downloadError, setDownloadError] = useState<string | null>(null)
   const hotkeyRef = useRef<HTMLDivElement>(null)
   const keysRef = useRef<Set<string>>(new Set())
-  const tierOrder: Record<string, number> = { low: 0, mid: 1, high: 2 }
 
   useEffect(() => {
-    fetchModelInfo(); fetchHardwareTier(); loadHotkey()
-  }, [fetchModelInfo, fetchHardwareTier])
-
-  // Listen for model download events from backend
-  useEffect(() => {
-    const unlisteners: (() => void)[] = []
-    const setup = async () => {
-      unlisteners.push(await listen('model-download-start', () => {
-        setDownloadState('downloading'); setDownloadPct(0); setDownloadError(null)
-      }))
-      unlisteners.push(await listen<number>('model-download-progress', (e) => {
-        setDownloadPct(e.payload)
-      }))
-      unlisteners.push(await listen('model-download-complete', () => {
-        setDownloadState('done'); setDownloadPct(100)
-        fetchModelInfo()
-        setTimeout(() => setDownloadState('idle'), 3000)
-      }))
-      unlisteners.push(await listen<string>('model-download-error', (e) => {
-        setDownloadState('error'); setDownloadError(e.payload)
-      }))
-    }
-    setup()
-    return () => unlisteners.forEach(fn => fn())
-  }, [fetchModelInfo])
+    loadHotkey()
+  }, [])
 
   const loadHotkey = async () => {
     try {
       const hotkeys = await invoke<string[]>('get_registered_hotkeys')
       if (hotkeys.length > 0) setCurrentHotkey(hotkeys[0])
     } catch { /* ignore */ }
-  }
-
-  const applyModel = (id: ModelId) => {
-    setSelectedModel(id)
-    invoke('set_model_override', { size: id.replace('whisper-', '') }).catch(() => {})
-  }
-
-  const handleModelChange = (id: ModelId) => {
-    const m = MODEL_OPTIONS.find(o => o.id === id)
-    if (!m) return
-    if (hardwareTier && tierOrder[m.tier] > tierOrder[hardwareTier]) {
-      setPendingModel(id); setShowOverrideWarn(true)
-    } else applyModel(id)
   }
 
   const startListening = useCallback(() => {
@@ -209,13 +159,13 @@ export function Settings() {
     </div>
   )
 
-  const TABS = ['general', 'audio', 'models'] as const
+  const TABS = ['general', 'audio', 'about'] as const
 
   return (
     <div className="settings-page">
       <div className="page-header" style={{ marginBottom: '16px' }}>
         <h1 className="page-title">Settings</h1>
-        <p className="page-subtitle">Configure hotkeys, appearance, and model preferences.</p>
+        <p className="page-subtitle">Configure hotkeys and appearance.</p>
       </div>
 
       {/* Tab bar */}
@@ -383,127 +333,31 @@ export function Settings() {
           </>
         )}
 
-        {/* ── Models ── */}
-        {tab === 'models' && (
-          <>
-            {showOverrideWarn && pendingModel && (
-              <Alert variant="destructive" style={{ marginBottom: '12px' }}>
-                <AlertDescription>
-                  <p style={{ marginBottom: '10px', fontSize: '12px' }}>
-                    <strong>{MODEL_OPTIONS.find(m => m.id === pendingModel)?.label}</strong> requires
-                    a <strong>{MODEL_OPTIONS.find(m => m.id === pendingModel)?.tier}</strong>-tier system.
-                    Your hardware is <strong>{hardwareTier}</strong>. This may cause slowness or crashes.
-                  </p>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => {
-                        if (pendingModel) applyModel(pendingModel)
-                        setPendingModel(null); setShowOverrideWarn(false)
-                      }}
-                    >
-                      Use anyway
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => { setPendingModel(null); setShowOverrideWarn(false) }}>
-                      Cancel
-                    </Button>
-                  </div>
-                </AlertDescription>
-              </Alert>
-            )}
-
-            <div className="card" style={{ marginBottom: '12px' }}>
-              <div className="card__header">
-                <div>
-                  <h2 className="card__title">Model Selection</h2>
-                  <p className="card__desc">Choose the Whisper model for transcription.</p>
-                </div>
-                {hardwareTier && (
-                  <Badge variant="secondary">{hardwareTier} tier</Badge>
-                )}
+        {/* ── About ── */}
+        {tab === 'about' && (
+          <div className="card">
+            <div className="card__header">
+              <div>
+                <h2 className="card__title">NexusVoice</h2>
+                <p className="card__desc">Local-first voice-to-text for power users.</p>
               </div>
-              <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <Select value={selectedModel} onValueChange={(v) => handleModelChange(v as ModelId)} disabled={downloadState === 'downloading'}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select model…">
-                      {MODEL_OPTIONS.find(m => m.id === selectedModel)?.label}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MODEL_OPTIONS.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        <span style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                          <span>{m.label}</span>
-                          <span style={{ fontSize: '10px', color: 'var(--muted)' }}>{m.desc}</span>
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                {/* Download progress */}
-                {downloadState === 'downloading' && (
-                  <div className="notice" style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent)', flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Download size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--accent)' }} />
-                      <span style={{ flex: 1, fontSize: '12px' }}>Downloading model…</span>
-                      <span style={{ fontSize: '11px', color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>
-                        {downloadPct}%
-                      </span>
-                    </div>
-                    <div style={{ height: '4px', borderRadius: '2px', background: 'var(--border)', overflow: 'hidden' }}>
-                      <div style={{
-                        height: '100%',
-                        width: `${downloadPct}%`,
-                        background: 'var(--accent)',
-                        borderRadius: '2px',
-                        transition: 'width 0.3s ease',
-                      }} />
-                    </div>
-                  </div>
-                )}
-                {downloadState === 'done' && (
-                  <div className="notice notice--success">
-                    <CheckCircle2 size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--success)' }} />
-                    <span style={{ fontSize: '12px' }}>Model downloaded and ready.</span>
-                  </div>
-                )}
-                {downloadState === 'error' && (
-                  <div className="notice notice--error">
-                    <AlertCircle size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--danger)' }} />
-                    <span style={{ flex: 1, fontSize: '12px' }}>{downloadError ?? 'Download failed.'}</span>
-                    <button type="button" className="notice__close" onClick={() => setDownloadState('idle')}><X size={13} /></button>
-                  </div>
-                )}
-
-                <p className="field-hint">
-                  Model downloads automatically when selected. Larger = more accurate but slower.
-                </p>
+              <Badge variant="secondary">v{__APP_VERSION__}</Badge>
+            </div>
+            <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', color: 'var(--fg-2)' }}>Model</span>
+                <Badge variant="secondary">Whisper Large v3 Turbo</Badge>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', color: 'var(--fg-2)' }}>Engine</span>
+                <span style={{ fontSize: '12px', color: 'var(--fg)' }}>whisper.cpp (local)</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', color: 'var(--fg-2)' }}>Language</span>
+                <span style={{ fontSize: '12px', color: 'var(--fg)' }}>English</span>
               </div>
             </div>
-
-            {modelInfo && (
-              <div className="card">
-                <div className="card__header">
-                  <div>
-                    <h2 className="card__title">Active Model</h2>
-                    <p className="card__desc">Current runtime configuration.</p>
-                  </div>
-                </div>
-                <div className="card__body">
-                  <dl className="model-info-grid">
-                    <dt>Size</dt>
-                    <dd><Badge variant="secondary">{modelInfo.size}</Badge></dd>
-                    <dt>Selection</dt>
-                    <dd style={{ fontSize: '12px' }}>{modelInfo.reason}</dd>
-                    <dt>Provider</dt>
-                    <dd style={{ fontSize: '12px' }}>{modelInfo.executionProvider}</dd>
-                  </dl>
-                </div>
-              </div>
-            )}
-          </>
+          </div>
         )}
       </div>
     </div>

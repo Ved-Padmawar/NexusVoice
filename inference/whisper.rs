@@ -36,7 +36,10 @@ impl WhisperEngine {
             .create_state()
             .map_err(|e| format!("failed to create whisper state: {e}"))?;
 
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        let mut params = FullParams::new(SamplingStrategy::BeamSearch {
+            beam_size: 5,
+            patience: 1.0,
+        });
         params.set_n_threads(num_threads());
         params.set_translate(false);
         params.set_language(Some("en"));
@@ -44,6 +47,8 @@ impl WhisperEngine {
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
+        // Prevent hallucination loops — do not feed previous output as context
+        params.set_no_context(true);
         // Suppress hallucinations on silence/noise
         params.set_no_speech_thold(0.6);
 

@@ -19,6 +19,86 @@
   overflow: hidden;
 }
 
+/* ── Model Download Banner ───────────────────────────────────────── */
+.model-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  flex-shrink: 0;
+  font-size: 12px;
+  border-bottom: 1px solid transparent;
+}
+
+.model-banner--downloading {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+.model-banner--done {
+  background: color-mix(in srgb, var(--success, #3d9e6a) 12%, transparent);
+  border-color: color-mix(in srgb, var(--success, #3d9e6a) 40%, transparent);
+  color: var(--fg);
+}
+
+.model-banner--error {
+  background: color-mix(in srgb, var(--danger, #e05555) 12%, transparent);
+  border-color: color-mix(in srgb, var(--danger, #e05555) 40%, transparent);
+  color: var(--fg);
+}
+
+.model-banner__body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.model-banner__text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-2);
+}
+
+.model-banner__bar-track {
+  flex: 1;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+  min-width: 60px;
+}
+
+.model-banner__bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.model-banner__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+
+.model-banner__close:hover {
+  color: var(--fg);
+  background: var(--surface-hover);
+}
+
 /* ── Custom Titlebar ─────────────────────────────────────────────── */
 .titlebar {
   display: flex;
@@ -757,9 +837,16 @@
 /* ── Auth Page ──────────────────────────────────────────────────── */
 .auth-page {
   display: flex;
+  flex-direction: column;
   height: 100dvh;
   overflow: hidden;
   background: var(--bg);
+}
+
+.auth-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
 }
 
 .auth-left {

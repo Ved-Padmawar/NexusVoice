@@ -11,7 +11,6 @@ mod commands;
 mod database;
 mod hardware;
 mod inference;
-mod models;
 mod postprocess;
 mod preprocess;
 mod state;
@@ -40,8 +39,36 @@ fn main() {
             let hotkey_store_path = app_data_dir.join("hotkey");
             let models_dir = app_data_dir.join("models");
             std::fs::create_dir_all(&models_dir)?;
-            let app_state = state::AppState::new(pool, auth, token_store_path, hotkey_store_path, models_dir);
+
+            // Detect hardware provider once at startup
+            let hw_provider = {
+                let provider = hardware::SysinfoProvider::new();
+                let profile = hardware::detect_profile(&provider);
+                match profile.execution_provider.as_str() {
+                    "cuda"     => inference::ExecutionProvider::Cuda,
+                    "directml" => inference::ExecutionProvider::DirectML,
+                    _          => inference::ExecutionProvider::Cpu,
+                }
+            };
+
+            let app_state = state::AppState::new(pool, auth, token_store_path, hotkey_store_path, models_dir, hw_provider);
             app.manage(app_state);
+
+            // Download model on startup if missing
+            {
+                let app_handle = app.handle().clone();
+                let state = app.state::<state::AppState>();
+                let model_path = state.models_dir.join("ggml-large-v3-turbo.bin");
+                if !model_path.exists() {
+                    tauri::async_runtime::spawn_blocking(move || {
+                        let _ = app_handle.emit("model-download-start", ());
+                        match commands::download_whisper_model(&model_path, &app_handle) {
+                            Ok(_) => { let _ = app_handle.emit("model-download-complete", ()); }
+                            Err(e) => { let _ = app_handle.emit("model-download-error", e); }
+                        }
+                    });
+                }
+            }
 
             // Silent re-auth on startup
             let app_handle = app.handle().clone();
@@ -113,25 +140,6 @@ fn main() {
                 })
                 .build(app)?;
 
-            // Restore persisted model override
-            {
-                let state = app.state::<state::AppState>();
-                if let Some(size_str) = state.load_model_override() {
-                    let parsed = match size_str.as_str() {
-                        "tiny"   => Some(models::ModelSize::Tiny),
-                        "base"   => Some(models::ModelSize::Base),
-                        "small"  => Some(models::ModelSize::Small),
-                        "medium" => Some(models::ModelSize::Medium),
-                        "large"  => Some(models::ModelSize::Large),
-                        _ => None,
-                    };
-                    if let Some(size) = parsed {
-                        let mut guard = tauri::async_runtime::block_on(state.model_override.lock());
-                        *guard = Some(size);
-                    }
-                }
-            }
-
             // Position pill window: centered horizontally, near bottom of primary monitor
             if let Some(pill) = app.get_webview_window("pill") {
                 if let Some(monitor) = pill.primary_monitor().ok().flatten() {
@@ -184,13 +192,8 @@ fn main() {
             commands::register_with_tokens,
             commands::refresh_token,
             commands::logout_token,
-            commands::get_hardware_tier,
-            commands::get_hardware_profile,
-            commands::set_model_override,
-            commands::clear_model_override,
             commands::start_transcription,
             commands::stop_transcription,
-            commands::get_model_info,
             commands::get_usage_stats,
             commands::get_transcripts,
             commands::get_dictionary,
