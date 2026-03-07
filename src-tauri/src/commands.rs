@@ -358,23 +358,23 @@ pub async fn stop_transcription(
                 let freq_repo = crate::database::repositories::word_frequency::WordFrequencyRepository::new(pool.clone());
                 let dict_repo = crate::database::repositories::dictionary::DictionaryRepository::new(pool);
                 let unknown = extract_unknown_words(&text);
-                if !unknown.is_empty() {
-                    if tauri::async_runtime::block_on(freq_repo.record_words(&unknown)).is_ok() {
-                        if let Ok(ready) = tauri::async_runtime::block_on(freq_repo.unreviewed_above(3)) {
-                            for entry in ready {
-                                let already = tauri::async_runtime::block_on(
-                                    dict_repo.get_by_term(&entry.word)
-                                ).unwrap_or(None);
-                                if already.is_none() {
-                                    let _ = tauri::async_runtime::block_on(dict_repo.create(
-                                        crate::database::dto::dictionary::CreateDictionaryEntry {
-                                            term: entry.word.clone(),
-                                            replacement: entry.word.clone(),
-                                        }
-                                    ));
-                                }
-                                let _ = tauri::async_runtime::block_on(freq_repo.mark_reviewed(&entry.word, true));
+                if !unknown.is_empty()
+                    && tauri::async_runtime::block_on(freq_repo.record_words(&unknown)).is_ok()
+                {
+                    if let Ok(ready) = tauri::async_runtime::block_on(freq_repo.unreviewed_above(3)) {
+                        for entry in ready {
+                            let already = tauri::async_runtime::block_on(
+                                dict_repo.get_by_term(&entry.word)
+                            ).unwrap_or(None);
+                            if already.is_none() {
+                                let _ = tauri::async_runtime::block_on(dict_repo.create(
+                                    crate::database::dto::dictionary::CreateDictionaryEntry {
+                                        term: entry.word.clone(),
+                                        replacement: entry.word.clone(),
+                                    }
+                                ));
                             }
+                            let _ = tauri::async_runtime::block_on(freq_repo.mark_reviewed(&entry.word, true));
                         }
                     }
                 }

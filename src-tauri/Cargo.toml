@@ -27,6 +27,7 @@ whisper-rs = "0.15.1"
 reqwest = { version = "0.12", features = ["blocking", "stream"] }
 futures-util = "0.3"
 nnnoiseless = "0.5.2"
+voice_activity_detector = "0.2"
 
 [profile.release]
 panic = "abort"
