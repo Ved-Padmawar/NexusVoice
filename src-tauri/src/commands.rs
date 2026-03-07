@@ -71,7 +71,7 @@ impl From<User> for UserResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptResponse {
     pub id: i64,
@@ -352,9 +352,12 @@ pub async fn stop_transcription(
             Ok(Ok(text)) if !text.is_empty() => {
                 let _ = app_handle.emit("transcription-complete", text.clone());
                 let repo = crate::database::repositories::transcript::TranscriptRepository::new(pool.clone());
-                let _ = tauri::async_runtime::block_on(
+                if let Ok(saved) = tauri::async_runtime::block_on(
                     repo.create(crate::database::dto::transcript::CreateTranscript { content: text.clone() })
-                );
+                ) {
+                    // Notify dashboard to prepend new transcript without a full refresh
+                    let _ = app_handle.emit("transcript:new", TranscriptResponse::from(saved));
+                }
                 let freq_repo = crate::database::repositories::word_frequency::WordFrequencyRepository::new(pool.clone());
                 let dict_repo = crate::database::repositories::dictionary::DictionaryRepository::new(pool);
                 let unknown = extract_unknown_words(&text);
@@ -887,4 +890,21 @@ pub async fn get_registered_hotkeys(state: State<'_, AppState>) -> Result<Vec<St
     }
     // Fallback: read from disk in case in-memory state hasn't been populated yet
     Ok(state.load_hotkey().map(|h| vec![h]).unwrap_or_default())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelInfoResponse {
+    pub downloaded: bool,
+    pub model_name: String,
+}
+
+#[tauri::command]
+pub async fn get_model_info(state: State<'_, AppState>) -> Result<ModelInfoResponse, ApiError> {
+    let model_name = "ggml-large-v3-turbo.bin".to_string();
+    let path = state.models_dir.join(&model_name);
+    Ok(ModelInfoResponse {
+        downloaded: path.exists(),
+        model_name,
+    })
 }

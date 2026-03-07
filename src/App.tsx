@@ -1,6 +1,8 @@
 import { useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { listen } from '@tauri-apps/api/event'
+import { check } from '@tauri-apps/plugin-updater'
 import { useAppStore } from './store/useAppStore'
 import { Layout } from './components/Layout'
 import { AuthGuard } from './components/AuthGuard'
@@ -12,17 +14,58 @@ const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.S
 const Dictionary = lazy(() => import('./pages/Dictionary').then(m => ({ default: m.Dictionary })))
 
 function App() {
-  const { theme, init, isLoading, user, authChecking, listenForAuthReady } = useAppStore()
+  const { theme, isLoading, user, authChecking, listenForAuthReady, listenForModelEvents } = useAppStore()
 
   useEffect(() => {
     // Subscribe to auth:ready / auth:unauthenticated before anything else
+    // init() is called inside listenForAuthReady on auth:ready — not here
     const cleanup = listenForAuthReady()
     return () => { cleanup.then(fn => fn()) }
   }, [listenForAuthReady])
 
   useEffect(() => {
-    init()
-  }, [init])
+    const cleanup = listenForModelEvents()
+    return () => { cleanup.then(fn => fn()) }
+  }, [listenForModelEvents])
+
+  // Refresh all data when window regains focus (covers tray re-open, alt-tab back)
+  useEffect(() => {
+    const unlisten = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused && useAppStore.getState().user) {
+        useAppStore.getState().init()
+      }
+    })
+    return () => { unlisten.then(fn => fn()) }
+  }, [])
+
+  // Silent update check on startup — runs once after app loads
+  useEffect(() => {
+    const run = async () => {
+      try {
+        const update = await check()
+        if (update?.available) {
+          useAppStore.setState({ updateAvailable: update.version })
+        }
+      } catch { /* ignore — no network or no update endpoint yet */ }
+    }
+    // Delay slightly so app startup isn't blocked
+    const t = setTimeout(run, 3000)
+    return () => clearTimeout(t)
+  }, [])
+
+  // Real-time transcript updates — prepend without full refresh
+  useEffect(() => {
+    type NewTranscript = { id: number; content: string; createdAt: string }
+    const unlisten = listen<NewTranscript>('transcript:new', (e) => {
+      const t = e.payload
+      useAppStore.setState(s => ({
+        transcripts: [{ id: t.id, content: t.content, createdAt: t.createdAt }, ...s.transcripts],
+      }))
+      // Also refresh stats (word count etc changed)
+      useAppStore.getState().fetchStats()
+    })
+    return () => { unlisten.then(fn => fn()) }
+  }, [])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme

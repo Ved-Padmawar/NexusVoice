@@ -51,6 +51,15 @@ type AppState = {
   /** True while waiting for auth:ready / auth:unauthenticated on startup */
   authChecking: boolean
   hasHotkey: boolean
+  /** Model download state */
+  modelReady: boolean
+  modelDownloading: boolean
+  downloadProgress: number        // 0–100
+  downloadError: string | null
+  /** Update available banner */
+  updateAvailable: string | null  // version string or null
+  /** Subscribe to model download events from the backend */
+  listenForModelEvents: () => Promise<() => void>
   init: () => Promise<void>
   /** Subscribe to auth:ready and auth:unauthenticated events from the backend */
   listenForAuthReady: () => Promise<() => void>
@@ -79,7 +88,36 @@ export const useAppStore = create<AppState>()(
       error: null,
       authChecking: true,
       hasHotkey: false,
+      modelReady: false,
+      modelDownloading: false,
+      downloadProgress: 0,
+      downloadError: null,
+      updateAvailable: null,
+      listenForModelEvents: async () => {
+        // Check if model is already present before listening
+        const { invoke: inv } = await import('@tauri-apps/api/core')
+        try {
+          const info = await inv<{ downloaded: boolean }>('get_model_info')
+          if (info.downloaded) { set({ modelReady: true, modelDownloading: false }); }
+        } catch { /* will rely on events */ }
+
+        const u1 = await listen('model-download-start', () => {
+          set({ modelDownloading: true, modelReady: false, downloadProgress: 0, downloadError: null })
+        })
+        const u2 = await listen<number>('model-download-progress', (e) => {
+          set({ downloadProgress: e.payload, modelDownloading: true })
+        })
+        const u3 = await listen('model-download-complete', () => {
+          set({ modelReady: true, modelDownloading: false, downloadProgress: 100, downloadError: null })
+        })
+        const u4 = await listen<string>('model-download-error', (e) => {
+          set({ modelDownloading: false, downloadError: e.payload ?? 'Download failed' })
+        })
+        return () => { u1(); u2(); u3(); u4() }
+      },
       init: async () => {
+        // Do not load data if not authenticated
+        if (!useAppStore.getState().user) return
         set({ isLoading: true, error: null })
         try {
           const [transcripts, dictionary, hotkeys] = await Promise.all([
@@ -89,9 +127,7 @@ export const useAppStore = create<AppState>()(
           ])
           set({ transcripts, dictionary, hasHotkey: hotkeys.length > 0 })
         } catch (e) {
-          set({
-            error: e instanceof Error ? e.message : 'Failed to load data',
-          })
+          set({ error: e instanceof Error ? e.message : 'Failed to load data' })
         } finally {
           set({ isLoading: false })
         }
@@ -104,10 +140,12 @@ export const useAppStore = create<AppState>()(
             const u = await invoke<{ id: number; email: string } | null>('get_current_user')
             if (u) set({ user: { id: u.id, email: u.email } })
           } catch { /* ignore */ }
+          // Load all data now that we know we're authenticated
+          get().init()
         })
         // Listen for auth:unauthenticated — no stored token or it expired
         const unlistenUnauth = await listen<AuthReadyPayload>('auth:unauthenticated', () => {
-          set({ authChecking: false, user: null })
+          set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null, error: null })
         })
 
         // Fallback: backend emits the event in a spawned task — if the frontend

@@ -93,6 +93,8 @@ jobs:
       - name: Build
         env:
           LIBCLANG_PATH: C:\Program Files\LLVM\bin
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build
 
       - name: Upload GPU installer
@@ -100,7 +102,11 @@ jobs:
         with:
           files: |
             C:/b/release/bundle/nsis/*.exe
+            C:/b/release/bundle/nsis/*.nsis.zip
+            C:/b/release/bundle/nsis/*.nsis.zip.sig
             C:/b/release/bundle/msi/*.msi
+            C:/b/release/bundle/msi/*.msi.zip
+            C:/b/release/bundle/msi/*.msi.zip.sig
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -151,13 +157,16 @@ jobs:
       - name: Build
         env:
           LIBCLANG_PATH: C:\Program Files\LLVM\bin
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build
 
       - name: Upload CPU installer
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            C:/b/release/bundle/nsis/*.exe
             C:/b/release/bundle/msi/*.msi
+            C:/b/release/bundle/msi/*.msi.zip
+            C:/b/release/bundle/msi/*.msi.zip.sig
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

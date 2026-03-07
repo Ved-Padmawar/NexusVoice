@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Hash, Timer, Mic, Activity,
   AlertCircle, Copy, Check,
-  Settings2,
+  Settings2, Download,
 } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
@@ -53,7 +53,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export function Dashboard() {
-  const { transcripts, stats, fetchStats, hasHotkey, error, setError } = useAppStore()
+  const { transcripts, stats, fetchStats, hasHotkey, error, setError, modelReady, modelDownloading, downloadProgress, downloadError } = useAppStore()
   const navigate = useNavigate()
 
   useEffect(() => { fetchStats() }, [fetchStats])
@@ -65,6 +65,40 @@ export function Dashboard() {
         <h1 className="page-title">Dashboard</h1>
         <p className="page-subtitle">Your transcription activity at a glance.</p>
       </div>
+
+      {/* Model download banner */}
+      {modelDownloading && (
+        <div className="notice notice--warning" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Download size={14} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--warning)' }} />
+            <span style={{ flex: 1, fontWeight: 500 }}>Downloading Whisper model… {downloadProgress}%</span>
+          </div>
+          <div style={{ height: '4px', borderRadius: '999px', background: 'var(--border)', overflow: 'hidden' }}>
+            <div style={{
+              height: '100%',
+              width: `${downloadProgress}%`,
+              borderRadius: '999px',
+              background: 'var(--warning)',
+              transition: 'width 0.3s ease',
+            }} />
+          </div>
+          <span style={{ fontSize: '11px', color: 'var(--muted)' }}>Recording is disabled until the model finishes downloading.</span>
+        </div>
+      )}
+
+      {!modelDownloading && !modelReady && !downloadError && (
+        <div className="notice notice--warning">
+          <AlertCircle size={14} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--warning)' }} />
+          <span style={{ flex: 1 }}>Whisper model not found. Restart the app to trigger download.</span>
+        </div>
+      )}
+
+      {downloadError && (
+        <div className="notice notice--error">
+          <AlertCircle size={14} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--danger)' }} />
+          <span style={{ flex: 1 }}>Model download failed: {downloadError}. Restart the app to retry.</span>
+        </div>
+      )}
 
       {/* Banners */}
       {!hasHotkey && (

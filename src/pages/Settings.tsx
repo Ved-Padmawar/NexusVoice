@@ -4,7 +4,10 @@ import { invoke } from '@tauri-apps/api/core'
 import {
   Palette, Keyboard, Info,
   Check, AlertCircle, CheckCircle2, X,
+  RefreshCw, Download, ArrowUpCircle,
 } from 'lucide-react'
+import { check } from '@tauri-apps/plugin-updater'
+import { relaunch } from '@tauri-apps/plugin-process'
 import { useAppStore, type ThemeName } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -60,6 +63,167 @@ function buildShortcut(keys: string[]): string {
 }
 
 const TAB_ICONS = { general: Palette, audio: Keyboard, about: Info }
+
+/* ── Update states ─────────────────────────────────────────────── */
+type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
+
+function AboutTab() {
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null)
+  const [downloadProgress, setDownloadProgress] = useState(0)
+  const [updateError, setUpdateError] = useState<string | null>(null)
+  const updaterRef = useRef<Awaited<ReturnType<typeof check>> | null>(null)
+
+  const checkForUpdate = useCallback(async () => {
+    setUpdateStatus('checking')
+    setUpdateError(null)
+    try {
+      const update = await check()
+      if (update?.available) {
+        updaterRef.current = update
+        setUpdateVersion(update.version)
+        setUpdateStatus('available')
+      } else {
+        setUpdateStatus('up-to-date')
+      }
+    } catch (e) {
+      setUpdateError(e instanceof Error ? e.message : 'Update check failed')
+      setUpdateStatus('error')
+    }
+  }, [])
+
+  const downloadAndInstall = useCallback(async () => {
+    const update = updaterRef.current
+    if (!update) return
+    setUpdateStatus('downloading')
+    setDownloadProgress(0)
+    try {
+      let downloaded = 0
+      let total = 0
+      await update.downloadAndInstall((progress) => {
+        if (progress.event === 'Started') {
+          total = progress.data.contentLength ?? 0
+        } else if (progress.event === 'Progress') {
+          downloaded += progress.data.chunkLength
+          if (total > 0) setDownloadProgress(Math.round((downloaded / total) * 100))
+        } else if (progress.event === 'Finished') {
+          setDownloadProgress(100)
+          setUpdateStatus('ready')
+        }
+      })
+    } catch (e) {
+      setUpdateError(e instanceof Error ? e.message : 'Download failed')
+      setUpdateStatus('error')
+    }
+  }, [])
+
+  const INFO_ROWS = [
+    { label: 'Version',  value: <Badge variant="secondary">v{__APP_VERSION__}</Badge> },
+    { label: 'Model',    value: <Badge variant="secondary">Whisper Large v3 Turbo</Badge> },
+    { label: 'Engine',   value: <span style={{ fontSize: '12px', color: 'var(--fg)' }}>whisper.cpp (local)</span> },
+    { label: 'Language', value: <span style={{ fontSize: '12px', color: 'var(--fg)' }}>English</span> },
+    { label: 'Privacy',  value: <span style={{ fontSize: '12px', color: 'var(--fg)' }}>100% on-device · no telemetry</span> },
+  ]
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+
+      {/* App info card */}
+      <div className="card">
+        <div className="card__header">
+          <div>
+            <h2 className="card__title">NexusVoice</h2>
+            <p className="card__desc">Local-first voice-to-text for power users.</p>
+          </div>
+        </div>
+        <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {INFO_ROWS.map(({ label, value }) => (
+            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '12px', color: 'var(--fg-2)' }}>{label}</span>
+              {value}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Updater card */}
+      <div className="card">
+        <div className="card__header">
+          <div>
+            <h2 className="card__title">Updates</h2>
+            <p className="card__desc">
+              {updateStatus === 'up-to-date' && 'You are on the latest version.'}
+              {updateStatus === 'available' && `Version ${updateVersion} is available.`}
+              {updateStatus === 'downloading' && `Downloading update… ${downloadProgress}%`}
+              {updateStatus === 'ready' && 'Update downloaded. Restart to apply.'}
+              {updateStatus === 'error' && (updateError ?? 'Something went wrong.')}
+              {(updateStatus === 'idle' || updateStatus === 'checking') && 'Check for the latest release.'}
+            </p>
+          </div>
+          {updateStatus === 'up-to-date' && (
+            <CheckCircle2 size={16} strokeWidth={1.75} style={{ color: 'var(--success)', flexShrink: 0 }} />
+          )}
+          {updateStatus === 'error' && (
+            <AlertCircle size={16} strokeWidth={1.75} style={{ color: 'var(--danger)', flexShrink: 0 }} />
+          )}
+        </div>
+
+        {/* Progress bar — only during download */}
+        {updateStatus === 'downloading' && (
+          <div style={{ padding: '0 16px 12px' }}>
+            <div style={{ height: '4px', borderRadius: '999px', background: 'var(--border)', overflow: 'hidden' }}>
+              <div style={{
+                height: '100%',
+                width: `${downloadProgress}%`,
+                borderRadius: '999px',
+                background: 'var(--accent)',
+                transition: 'width 0.3s ease',
+              }} />
+            </div>
+          </div>
+        )}
+
+        <div className="card__body" style={{ display: 'flex', gap: '8px' }}>
+          {/* Check / re-check button */}
+          {(updateStatus === 'idle' || updateStatus === 'up-to-date' || updateStatus === 'error') && (
+            <Button size="sm" variant="outline" onClick={checkForUpdate}>
+              <RefreshCw size={12} strokeWidth={2} />
+              Check for updates
+            </Button>
+          )}
+
+          {updateStatus === 'checking' && (
+            <Button size="sm" variant="outline" disabled>
+              <RefreshCw size={12} strokeWidth={2} style={{ animation: 'spin 1s linear infinite' }} />
+              Checking…
+            </Button>
+          )}
+
+          {updateStatus === 'available' && (
+            <Button size="sm" onClick={downloadAndInstall}>
+              <Download size={12} strokeWidth={2} />
+              Download v{updateVersion}
+            </Button>
+          )}
+
+          {updateStatus === 'downloading' && (
+            <Button size="sm" disabled>
+              <Download size={12} strokeWidth={2} />
+              Downloading… {downloadProgress}%
+            </Button>
+          )}
+
+          {updateStatus === 'ready' && (
+            <Button size="sm" onClick={() => relaunch()}>
+              <ArrowUpCircle size={12} strokeWidth={2} />
+              Restart to update
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 /* ── Component ─────────────────────────────────────────────────── */
 export function Settings() {
@@ -334,31 +498,7 @@ export function Settings() {
         )}
 
         {/* ── About ── */}
-        {tab === 'about' && (
-          <div className="card">
-            <div className="card__header">
-              <div>
-                <h2 className="card__title">NexusVoice</h2>
-                <p className="card__desc">Local-first voice-to-text for power users.</p>
-              </div>
-              <Badge variant="secondary">v{__APP_VERSION__}</Badge>
-            </div>
-            <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', color: 'var(--fg-2)' }}>Model</span>
-                <Badge variant="secondary">Whisper Large v3 Turbo</Badge>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', color: 'var(--fg-2)' }}>Engine</span>
-                <span style={{ fontSize: '12px', color: 'var(--fg)' }}>whisper.cpp (local)</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', color: 'var(--fg-2)' }}>Language</span>
-                <span style={{ fontSize: '12px', color: 'var(--fg)' }}>English</span>
-              </div>
-            </div>
-          </div>
-        )}
+        {tab === 'about' && <AboutTab />}
       </div>
     </div>
   )

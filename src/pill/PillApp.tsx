@@ -4,11 +4,15 @@ import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import './PillApp.css'
 
-type PillState = 'idle' | 'recording' | 'processing' | 'error'
+type PillState = 'idle' | 'recording' | 'processing' | 'error' | 'downloading'
 
 export function PillApp() {
   const [state, setState] = useState<PillState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
+  const [downloadPct, setDownloadPct] = useState(0)
+  const modelReadyRef = useRef(false)
+  const [tooltip, setTooltip] = useState('')
+  const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [barHeights, setBarHeights] = useState([3, 3, 3, 3, 3, 3, 3, 3])
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
@@ -86,6 +90,63 @@ export function PillApp() {
 
   const isRecordingRef = useRef(false)
 
+  const showTooltip = useCallback((msg: string) => {
+    setTooltip(msg)
+    if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current)
+    tooltipTimerRef.current = setTimeout(() => setTooltip(''), 3000)
+  }, [])
+
+  // Check model status and listen for download events
+  useEffect(() => {
+    let cancelled = false
+    const unlisteners: (() => void)[] = []
+
+    const setup = async () => {
+      // Check if already downloaded
+      try {
+        const info = await invoke<{ downloaded: boolean }>('get_model_info')
+        if (!cancelled && info.downloaded) {
+          modelReadyRef.current = true
+        }
+      } catch { /* ignore */ }
+
+      const um1 = await listen('model-download-start', () => {
+        if (cancelled) return
+        modelReadyRef.current = false
+        setState(s => s === 'idle' ? 'downloading' : s)
+        setDownloadPct(0)
+      })
+      unlisteners.push(um1)
+
+      const um2 = await listen<number>('model-download-progress', (e) => {
+        if (cancelled) return
+        setDownloadPct(e.payload)
+        setState(s => s === 'idle' || s === 'downloading' ? 'downloading' : s)
+      })
+      unlisteners.push(um2)
+
+      const um3 = await listen('model-download-complete', () => {
+        if (cancelled) return
+        modelReadyRef.current = true
+        setDownloadPct(100)
+        setState('idle')
+      })
+      unlisteners.push(um3)
+
+      const um4 = await listen<string>('model-download-error', () => {
+        if (cancelled) return
+        setState('idle')
+      })
+      unlisteners.push(um4)
+    }
+
+    setup()
+    return () => {
+      cancelled = true
+      unlisteners.forEach(fn => fn())
+    }
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     const unlisteners: (() => void)[] = []
@@ -93,6 +154,11 @@ export function PillApp() {
     const setup = async () => {
       const u1 = await listen('hotkey-pressed', async () => {
         if (isRecordingRef.current) return
+        // Block recording if model not ready
+        if (!modelReadyRef.current) {
+          showTooltip('Model downloading… please wait')
+          return
+        }
         isRecordingRef.current = true
         setState('recording')
         try {
@@ -148,42 +214,73 @@ export function PillApp() {
       cancelled = true
       unlisteners.forEach(fn => fn())
     }
-  }, [])
+  }, [showTooltip])
 
   return (
-    <div
-      className={`pill pill--${state}`}
-      onMouseDown={handleDragStart}
-      role="status"
-      aria-label={`NexusVoice: ${state}`}
-    >
-      {/* Lightning bolt icon — always visible */}
-      <div className="pill__icon">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M13 2L4.5 13.5H11L10 22L19.5 10.5H13L13 2Z" />
-        </svg>
-      </div>
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      {/* Tooltip bubble — shown when recording blocked */}
+      {tooltip && (
+        <div style={{
+          position: 'absolute',
+          bottom: 'calc(100% + 8px)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(20, 18, 35, 0.96)',
+          border: '1px solid rgba(251,191,36,0.4)',
+          borderRadius: '8px',
+          padding: '5px 10px',
+          fontSize: '10px',
+          fontWeight: 500,
+          color: '#fbbf24',
+          whiteSpace: 'nowrap',
+          pointerEvents: 'none',
+          zIndex: 9999,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
+        }}>
+          {tooltip}
+        </div>
+      )}
 
-      {/* Center content */}
-      <div className="pill__center">
-        {state === 'idle' && (
-          <span className="pill__brand">NexusVoice</span>
-        )}
-        {state === 'recording' && (
-          <div className="pill__waveform">
-            {barHeights.map((h, i) => (
-              <span key={i} className="pill__bar" style={{ height: `${h}px` }} />
-            ))}
-          </div>
-        )}
-        {state === 'processing' && (
-          <div className="pill__processing">
-            <div className="pill__spinner" />
-          </div>
-        )}
-{state === 'error' && (
-          <span className="pill__error-label" title={errorMsg}>Error</span>
-        )}
+      <div
+        className={`pill pill--${state}`}
+        onMouseDown={handleDragStart}
+        role="status"
+        aria-label={`NexusVoice: ${state}`}
+      >
+        {/* Lightning bolt icon — always visible */}
+        <div className="pill__icon">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M13 2L4.5 13.5H11L10 22L19.5 10.5H13L13 2Z" />
+          </svg>
+        </div>
+
+        {/* Center content */}
+        <div className="pill__center">
+          {state === 'idle' && (
+            <span className="pill__brand">NexusVoice</span>
+          )}
+          {state === 'downloading' && (
+            <div className="pill__processing">
+              <div className="pill__spinner" />
+              <span className="pill__proc-label">{downloadPct}%</span>
+            </div>
+          )}
+          {state === 'recording' && (
+            <div className="pill__waveform">
+              {barHeights.map((h, i) => (
+                <span key={i} className="pill__bar" style={{ height: `${h}px` }} />
+              ))}
+            </div>
+          )}
+          {state === 'processing' && (
+            <div className="pill__processing">
+              <div className="pill__spinner" />
+            </div>
+          )}
+          {state === 'error' && (
+            <span className="pill__error-label" title={errorMsg}>Error</span>
+          )}
+        </div>
       </div>
     </div>
   )

@@ -1,7 +1,7 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle } from 'lucide-react'
+import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle, ArrowUpCircle } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen } from '@tauri-apps/api/event'
 import { useAppStore } from '../store/useAppStore'
@@ -104,6 +104,35 @@ function ModelBanner() {
   )
 }
 
+function UpdateBanner() {
+  const { updateAvailable } = useAppStore()
+  const navigate = useNavigate()
+  const [dismissed, setDismissed] = useState(false)
+
+  if (!updateAvailable || dismissed) return null
+
+  return (
+    <div className="model-banner model-banner--update">
+      <div className="model-banner__body">
+        <ArrowUpCircle size={13} strokeWidth={2} style={{ flexShrink: 0 }} />
+        <span className="model-banner__text">
+          Update available — v{updateAvailable}
+        </span>
+        <button
+          type="button"
+          className="model-banner__action"
+          onClick={() => navigate('/settings', { state: { tab: 'about' } })}
+        >
+          Install
+        </button>
+      </div>
+      <button type="button" className="model-banner__close" onClick={() => setDismissed(true)}>
+        <X size={12} strokeWidth={2} />
+      </button>
+    </div>
+  )
+}
+
 const NAV = [
   { path: '/',           label: 'Dashboard',  Icon: LayoutDashboard },
   { path: '/dictionary', label: 'Dictionary', Icon: BookOpen },
@@ -128,6 +157,7 @@ export function Layout() {
     <div className="app-shell">
       <TitleBar />
       <ModelBanner />
+      <UpdateBanner />
       <div className="app-body">
       <aside className="sidebar">
         {/* Brand */}

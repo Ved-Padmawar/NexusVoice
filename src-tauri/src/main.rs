@@ -17,6 +17,8 @@ mod state;
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
@@ -210,6 +212,7 @@ fn main() {
             commands::get_word_suggestions,
             commands::accept_word_suggestion,
             commands::dismiss_word_suggestion,
+            commands::get_model_info,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
