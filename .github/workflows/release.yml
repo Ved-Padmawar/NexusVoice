@@ -33,6 +33,19 @@ jobs:
         with:
           version: '17'
 
+      - name: Install CUDA Toolkit
+        uses: Jimver/cuda-toolkit@v0.2.26
+        with:
+          cuda: '12.9.1'
+          method: network
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev"]'
+
+      - name: Install Vulkan SDK
+        uses: humbletim/install-vulkan-sdk@v1.1.1
+        with:
+          version: latest
+          cache: true
+
       - name: Cache Rust deps
         uses: Swatinem/rust-cache@v2
         with:
@@ -48,6 +61,11 @@ jobs:
           sed -i "s/\"version\": \"0\.0\.0\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
           sed -i "s/^version = \"0\.0\.0\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
           sed -i "s/\"version\": \"0\.0\.0\"/\"version\": \"$VERSION\"/" package.json
+
+      - name: Enable GPU features for release build
+        shell: bash
+        run: |
+          sed -i 's/whisper-rs = "0\.15\.1"/whisper-rs = { version = "0.15.1", features = ["cuda", "vulkan"] }/' src-tauri/Cargo.toml
 
       - name: Build
         env:
