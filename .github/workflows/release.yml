@@ -27,7 +27,7 @@ jobs:
         run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
 
       - name: Install LLVM/Clang
-        run: choco install llvm --version=17.0.6 -y
+        run: choco install llvm -y --no-progress
 
       - name: Install CUDA Toolkit
         uses: Jimver/cuda-toolkit@v0.2.26
@@ -68,6 +68,7 @@ jobs:
       - name: Build
         env:
           LIBCLANG_PATH: C:\Program Files\LLVM\bin
+          LLVM_CONFIG_PATH: C:\Program Files\LLVM\bin\llvm-config.exe
         run: npm run tauri build
 
       - name: Upload installer
