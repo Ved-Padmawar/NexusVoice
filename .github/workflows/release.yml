@@ -82,7 +82,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            C:\b\release\bundle\nsis\*.exe
-            C:\b\release\bundle\msi\*.msi
+            C:/b/release/bundle/nsis/*.exe
+            C:/b/release/bundle/msi/*.msi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
