@@ -10,8 +10,7 @@ permissions:
 
 env:
   # Short target dir to avoid Windows MAX_PATH (260 char) limit.
-  # whisper-rs-sys → ggml vulkan-shaders-gen creates deeply nested CMake
-  # build trees that exceed 260 chars under the default checkout path.
+  # whisper-rs-sys vulkan-shaders-gen creates deeply nested CMake paths.
   CARGO_TARGET_DIR: C:\b
 
 jobs:
@@ -29,11 +28,8 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install CMake
-        run: choco install cmake --version=3.31.7 --installargs 'ADD_CMAKE_TO_PATH=System' -y --allow-downgrade
-
-      - name: Install LLVM/Clang
-        run: choco install llvm -y --no-progress
+      # CMake 3.31.x is pre-installed on windows-latest. No install needed.
+      # LLVM/Clang 20.x is pre-installed on windows-latest. No install needed.
 
       - name: Install CUDA Toolkit
         uses: Jimver/cuda-toolkit@v0.2.30
@@ -80,7 +76,6 @@ jobs:
       - name: Build
         env:
           LIBCLANG_PATH: C:\Program Files\LLVM\bin
-          LLVM_CONFIG_PATH: C:\Program Files\LLVM\bin\llvm-config.exe
         run: npm run tauri build
 
       - name: Upload installer
