@@ -26,6 +26,7 @@ dist-ssr
 # Rust / Cargo
 .cargo-target
 src-tauri/target
+src-tauri/cuda
 
 # Claude Code
 .claude/

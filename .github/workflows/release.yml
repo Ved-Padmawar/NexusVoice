@@ -51,12 +51,6 @@ jobs:
         run: |
           echo "$env:CUDA_PATH\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Cache Rust deps
-        uses: Swatinem/rust-cache@v2.8.2
-        with:
-          workspaces: src-tauri
-          cache-targets: false
-
       - name: Install npm deps
         run: npm ci
 
@@ -72,6 +66,29 @@ jobs:
         shell: bash
         run: |
           sed -i 's/whisper-rs = "0\.15\.1"/whisper-rs = { version = "0.15.1", features = ["cuda", "vulkan"] }/' src-tauri/Cargo.toml
+
+      # Cache AFTER modifying Cargo.toml so the lockfile key includes GPU features
+      - name: Cache Rust deps
+        uses: Swatinem/rust-cache@v2.8.2
+        with:
+          workspaces: src-tauri
+          cache-targets: false
+
+      - name: Bundle CUDA runtime DLLs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/cuda
+          $dlls = @("cublas64_12.dll", "cublasLt64_12.dll", "cudart64_12.dll")
+          foreach ($dll in $dlls) {
+            $src = "$env:CUDA_PATH\bin\$dll"
+            if (Test-Path $src) {
+              Copy-Item $src -Destination "src-tauri/cuda/$dll"
+              Write-Host "Copied $dll"
+            } else {
+              Write-Host "WARNING: $dll not found at $src"
+            }
+          }
+          Get-ChildItem src-tauri/cuda
 
       - name: Build
         env:
