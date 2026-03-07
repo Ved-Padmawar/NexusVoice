@@ -9,12 +9,11 @@ permissions:
   contents: write
 
 env:
-  # Short target dir to avoid Windows MAX_PATH (260 char) limit.
-  # whisper-rs-sys vulkan-shaders-gen creates deeply nested CMake paths.
   CARGO_TARGET_DIR: C:\b
 
 jobs:
-  build-windows:
+  build-gpu:
+    name: Build (GPU — CUDA + Vulkan)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,9 +26,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-
-      # CMake 3.31.x is pre-installed on windows-latest. No install needed.
-      # LLVM/Clang 20.x is pre-installed on windows-latest. No install needed.
 
       - name: Install CUDA Toolkit
         uses: Jimver/cuda-toolkit@v0.2.30
@@ -62,12 +58,17 @@ jobs:
           sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
           sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
 
-      - name: Enable GPU features for release build
+      - name: Enable GPU features
         shell: bash
         run: |
           sed -i 's/whisper-rs = "0\.15\.1"/whisper-rs = { version = "0.15.1", features = ["cuda", "vulkan"] }/' src-tauri/Cargo.toml
 
-      # Cache AFTER modifying Cargo.toml so the lockfile key includes GPU features
+      - name: Set GPU product name (for installer filename)
+        shell: bash
+        run: |
+          sed -i 's/"productName": "NexusVoice"/"productName": "NexusVoice-gpu"/' src-tauri/tauri.conf.json
+
+      # Cache AFTER modifying Cargo.toml so key includes GPU features
       - name: Cache Rust deps
         uses: Swatinem/rust-cache@v2.8.2
         with:
@@ -88,14 +89,74 @@ jobs:
               Write-Host "WARNING: $dll not found at $src"
             }
           }
-          Get-ChildItem src-tauri/cuda
 
       - name: Build
         env:
           LIBCLANG_PATH: C:\Program Files\LLVM\bin
         run: npm run tauri build
 
-      - name: Upload installer
+      - name: Upload GPU installer
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            C:/b/release/bundle/nsis/*.exe
+            C:/b/release/bundle/msi/*.msi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-cpu:
+    name: Build (CPU — no GPU deps)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install npm deps
+        run: npm ci
+
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+          sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
+
+      - name: Set CPU product name (for installer filename)
+        shell: bash
+        run: |
+          sed -i 's/"productName": "NexusVoice"/"productName": "NexusVoice-cpu"/' src-tauri/tauri.conf.json
+
+      - name: Remove CUDA resource map (not needed for CPU build)
+        shell: bash
+        run: |
+          node -e "
+            const fs = require('fs');
+            const cfg = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+            cfg.bundle.resources = {};
+            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(cfg, null, 2));
+          "
+
+      - name: Cache Rust deps
+        uses: Swatinem/rust-cache@v2.8.2
+        with:
+          workspaces: src-tauri
+          cache-targets: false
+
+      - name: Build
+        env:
+          LIBCLANG_PATH: C:\Program Files\LLVM\bin
+        run: npm run tauri build
+
+      - name: Upload CPU installer
         uses: softprops/action-gh-release@v2
         with:
           files: |
