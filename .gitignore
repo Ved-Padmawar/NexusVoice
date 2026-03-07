@@ -31,6 +31,9 @@ src-tauri/cuda
 # Claude Code
 .claude/
 
+# Local dev tools
+docs/
+
 # Scratch files
 1.txt
 image.png
