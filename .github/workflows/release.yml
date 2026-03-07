@@ -34,7 +34,7 @@ jobs:
         with:
           cuda: '12.9.1'
           method: network
-          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev"]'
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "visual_studio_integration"]'
 
       - name: Install Vulkan SDK
         run: |
@@ -43,6 +43,11 @@ jobs:
           Start-Process -FilePath vulkan-sdk.exe -ArgumentList "--accept-licenses --default-answer --confirm-command install" -Wait
           echo "VULKAN_SDK=C:\VulkanSDK\$(Get-ChildItem 'C:\VulkanSDK' | Sort-Object Name | Select-Object -Last 1 -ExpandProperty Name)" >> $env:GITHUB_ENV
         shell: pwsh
+
+      - name: Add CUDA to PATH
+        shell: pwsh
+        run: |
+          echo "$env:CUDA_PATH\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Cache Rust deps
         uses: Swatinem/rust-cache@v2.8.2
@@ -64,13 +69,6 @@ jobs:
         shell: bash
         run: |
           sed -i 's/whisper-rs = "0\.15\.1"/whisper-rs = { version = "0.15.1", features = ["cuda", "vulkan"] }/' src-tauri/Cargo.toml
-
-      - name: Add CUDA to PATH and set compiler
-        shell: pwsh
-        run: |
-          $cudaBin = "$env:CUDA_PATH\bin"
-          echo "$cudaBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          echo "CMAKE_CUDA_COMPILER=$cudaBin\nvcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build
         env:
