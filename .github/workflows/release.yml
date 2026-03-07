@@ -130,17 +130,14 @@ jobs:
           sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
           sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
 
-      - name: Set CPU product name (for installer filename)
-        shell: bash
-        run: |
-          sed -i 's/"productName": "NexusVoice"/"productName": "NexusVoice-cpu"/' src-tauri/tauri.conf.json
-
-      - name: Remove CUDA resource map (not needed for CPU build)
+      - name: Set CPU product name and MSI-only target
         shell: bash
         run: |
           node -e "
             const fs = require('fs');
             const cfg = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+            cfg.productName = 'NexusVoice-cpu';
+            cfg.bundle.targets = 'msi';
             cfg.bundle.resources = {};
             fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(cfg, null, 2));
           "
