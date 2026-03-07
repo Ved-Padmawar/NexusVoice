@@ -47,7 +47,7 @@ jobs:
           cache: true
 
       - name: Cache Rust deps
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.7.8
         with:
           workspaces: src-tauri
 
@@ -58,9 +58,9 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          sed -i "s/\"version\": \"0\.0\.0\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
-          sed -i "s/^version = \"0\.0\.0\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
-          sed -i "s/\"version\": \"0\.0\.0\"/\"version\": \"$VERSION\"/" package.json
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+          sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
 
       - name: Enable GPU features for release build
         shell: bash
