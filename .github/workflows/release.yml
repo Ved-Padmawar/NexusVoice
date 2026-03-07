@@ -24,14 +24,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install CMake
-        uses: jwlawson/actions-setup-cmake@v2
-        with:
-          cmake-version: '3.28'
+        run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
 
       - name: Install LLVM/Clang
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: '17'
+        run: choco install llvm --version=17.0.6 -y
 
       - name: Install CUDA Toolkit
         uses: Jimver/cuda-toolkit@v0.2.26
@@ -41,13 +37,15 @@ jobs:
           sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev"]'
 
       - name: Install Vulkan SDK
-        uses: humbletim/install-vulkan-sdk@v1.1.1
-        with:
-          version: latest
-          cache: true
+        run: |
+          $url = "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-sdk.exe"
+          Invoke-WebRequest -Uri $url -OutFile vulkan-sdk.exe
+          Start-Process -FilePath vulkan-sdk.exe -ArgumentList "--accept-licenses --default-answer --confirm-command install" -Wait
+          echo "VULKAN_SDK=C:\VulkanSDK\$(Get-ChildItem 'C:\VulkanSDK' | Sort-Object Name | Select-Object -Last 1 -ExpandProperty Name)" >> $env:GITHUB_ENV
+        shell: pwsh
 
       - name: Cache Rust deps
-        uses: Swatinem/rust-cache@v2.7.8
+        uses: Swatinem/rust-cache@v2.8.2
         with:
           workspaces: src-tauri
 
@@ -69,7 +67,7 @@ jobs:
 
       - name: Build
         env:
-          LIBCLANG_PATH: ${{ env.LLVM_PATH }}\bin
+          LIBCLANG_PATH: C:\Program Files\LLVM\bin
         run: npm run tauri build
 
       - name: Upload installer
