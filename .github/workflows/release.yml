@@ -49,6 +49,18 @@ jobs:
           sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
           sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
 
+      - name: Copy CUDA DLLs for bundling
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src-tauri/cuda
+          Copy-Item "$env:CUDA_PATH\bin\cublas64_12.dll" src-tauri/cuda/
+          Copy-Item "$env:CUDA_PATH\bin\cublasLt64_12.dll" src-tauri/cuda/
+          Copy-Item "$env:CUDA_PATH\bin\cudart64_12.dll" src-tauri/cuda/
+          $conf = Get-Content src-tauri/tauri.conf.json -Raw
+          $resources = '"resources": { "cuda/cublas64_12.dll": "cublas64_12.dll", "cuda/cublasLt64_12.dll": "cublasLt64_12.dll", "cuda/cudart64_12.dll": "cudart64_12.dll" },'
+          $conf = $conf -replace '"windows": \{', "$resources`n    `"windows`": {"
+          Set-Content src-tauri/tauri.conf.json $conf
+
       - name: Cache Rust deps
         uses: Swatinem/rust-cache@v2.8.2
         with:
