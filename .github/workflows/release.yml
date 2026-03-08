@@ -89,9 +89,7 @@ jobs:
         with:
           files: |
             C:/b/release/bundle/nsis/*.exe
-            C:/b/release/bundle/nsis/*.exe.sig
             C:/b/release/bundle/msi/*.msi
-            C:/b/release/bundle/msi/*.msi.sig
             latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
