@@ -2,9 +2,6 @@ use std::path::PathBuf;
 
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-use super::engine::InferenceEngine;
-use super::errors::InferenceError;
-
 pub struct WhisperEngine {
     context: WhisperContext,
 }
@@ -69,12 +66,6 @@ impl WhisperEngine {
         }
 
         Ok(text.trim().to_string())
-    }
-}
-
-impl InferenceEngine for WhisperEngine {
-    fn run(&self, _input: &[f32]) -> Result<Vec<f32>, InferenceError> {
-        Err(InferenceError::NotImplemented)
     }
 }
 
