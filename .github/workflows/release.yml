@@ -65,8 +65,8 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          NSIS_SIG=$(cat C:/b/release/bundle/nsis/*.nsis.zip.sig 2>/dev/null || echo "")
-          NSIS_ZIP=$(basename C:/b/release/bundle/nsis/*.nsis.zip 2>/dev/null || echo "")
+          NSIS_EXE=$(basename C:/b/release/bundle/nsis/*.exe)
+          NSIS_SIG=$(cat C:/b/release/bundle/nsis/*.exe.sig)
           REPO="Ved-Padmawar/NexusVoice"
           TAG="${GITHUB_REF_NAME}"
           BASE="https://github.com/${REPO}/releases/download/${TAG}"
@@ -78,7 +78,7 @@ jobs:
             "platforms": {
               "windows-x86_64": {
                 "signature": "${NSIS_SIG}",
-                "url": "${BASE}/${NSIS_ZIP}"
+                "url": "${BASE}/${NSIS_EXE}"
               }
             }
           }
@@ -89,11 +89,9 @@ jobs:
         with:
           files: |
             C:/b/release/bundle/nsis/*.exe
-            C:/b/release/bundle/nsis/*.nsis.zip
-            C:/b/release/bundle/nsis/*.nsis.zip.sig
+            C:/b/release/bundle/nsis/*.exe.sig
             C:/b/release/bundle/msi/*.msi
-            C:/b/release/bundle/msi/*.msi.zip
-            C:/b/release/bundle/msi/*.msi.zip.sig
+            C:/b/release/bundle/msi/*.msi.sig
             latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
