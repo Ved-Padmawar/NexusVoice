@@ -2,31 +2,35 @@ use std::path::PathBuf;
 
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-use super::engine::{ExecutionProvider, InferenceEngine};
+use super::engine::InferenceEngine;
 use super::errors::InferenceError;
 
-/// whisper-rs based transcription engine.
-/// `run()` is NOT used by the streaming pipeline — transcription is done via
-/// `transcribe()` which takes the full audio buffer and returns the decoded text.
 pub struct WhisperEngine {
     context: WhisperContext,
-    #[allow(dead_code)]
-    provider: ExecutionProvider,
 }
 
 impl WhisperEngine {
     /// Load a ggml model file from `model_path`.
-    pub fn new(model_path: impl Into<PathBuf>, provider: ExecutionProvider) -> Result<Self, String> {
+    /// Tries GPU first; falls back to CPU if GPU init fails.
+    pub fn new(model_path: impl Into<PathBuf>) -> Result<Self, String> {
         let path = model_path.into();
         let path_str = path
             .to_str()
             .ok_or_else(|| "model path is not valid UTF-8".to_string())?;
 
-        let ctx_params = WhisperContextParameters::default();
+        let mut ctx_params = WhisperContextParameters::default();
+        ctx_params.use_gpu(true);
+
         let context = WhisperContext::new_with_params(path_str, ctx_params)
+            .or_else(|_| {
+                eprintln!("[nexusvoice] GPU init failed, falling back to CPU");
+                let mut cpu_params = WhisperContextParameters::default();
+                cpu_params.use_gpu(false);
+                WhisperContext::new_with_params(path_str, cpu_params)
+            })
             .map_err(|e| format!("failed to load whisper model: {e}"))?;
 
-        Ok(Self { context, provider })
+        Ok(Self { context })
     }
 
     /// Run full transcription on `samples` (f32 mono, 16 kHz) and return the decoded text.
@@ -47,9 +51,7 @@ impl WhisperEngine {
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
-        // Prevent hallucination loops — do not feed previous output as context
         params.set_no_context(true);
-        // Suppress hallucinations on silence/noise
         params.set_no_speech_thold(0.6);
 
         state
@@ -57,7 +59,6 @@ impl WhisperEngine {
             .map_err(|e| format!("whisper inference failed: {e}"))?;
 
         let n = state.full_n_segments();
-
         let mut text = String::new();
         for i in 0..n {
             if let Some(segment) = state.get_segment(i) {
@@ -71,13 +72,7 @@ impl WhisperEngine {
     }
 }
 
-/// The `InferenceEngine` trait implementation is a no-op chunk runner —
-/// transcription uses `transcribe()` directly on the full buffer.
 impl InferenceEngine for WhisperEngine {
-    fn execution_provider(&self) -> ExecutionProvider {
-        self.provider
-    }
-
     fn run(&self, _input: &[f32]) -> Result<Vec<f32>, InferenceError> {
         Err(InferenceError::NotImplemented)
     }

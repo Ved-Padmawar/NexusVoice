@@ -6,7 +6,7 @@ use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 
 use crate::auth::AuthService;
-use crate::inference::{ExecutionProvider, WhisperEngine};
+use crate::inference::WhisperEngine;
 
 /// Shared audio sample buffer filled by the cpal capture thread.
 pub type AudioBuffer = Arc<std::sync::Mutex<Vec<f32>>>;
@@ -80,8 +80,6 @@ pub struct AppState {
     pub models_dir: PathBuf,
     /// Cached Whisper engine — loaded once, reused across recordings.
     pub whisper: Mutex<Option<Arc<WhisperEngine>>>,
-    /// Execution provider detected at startup.
-    pub exec_provider: ExecutionProvider,
     /// Model download state — polled by frontend via get_model_info command.
     pub model_download: Arc<ModelDownloadState>,
 }
@@ -93,7 +91,6 @@ impl AppState {
         token_store_path: PathBuf,
         hotkey_store_path: PathBuf,
         models_dir: PathBuf,
-        exec_provider: ExecutionProvider,
     ) -> Self {
         Self {
             pool,
@@ -107,7 +104,6 @@ impl AppState {
             native_sample_rate: Arc::new(std::sync::Mutex::new(44100)),
             models_dir,
             whisper: Mutex::new(None),
-            exec_provider,
             model_download: Arc::new(ModelDownloadState::new()),
         }
     }
@@ -122,7 +118,7 @@ impl AppState {
         if !model_path.exists() {
             return Err("model not downloaded yet".to_string());
         }
-        let engine = WhisperEngine::new(&model_path, self.exec_provider)?;
+        let engine = WhisperEngine::new(&model_path)?;
         let arc = Arc::new(engine);
         *guard = Some(Arc::clone(&arc));
         Ok(arc)

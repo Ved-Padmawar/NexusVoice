@@ -4,5 +4,4 @@ pub mod mock;
 pub mod onnx;
 pub mod whisper;
 
-pub use engine::ExecutionProvider;
 pub use whisper::WhisperEngine;

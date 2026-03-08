@@ -53,11 +53,6 @@
       "icons/icon.ico",
       "icons/icon.icns"
     ],
-    "resources": {
-      "cuda/cublas64_12.dll": "cublas64_12.dll",
-      "cuda/cublasLt64_12.dll": "cublasLt64_12.dll",
-      "cuda/cudart64_12.dll": "cudart64_12.dll"
-    },
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico"
@@ -71,7 +66,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhBOTlFRDAyRUNDQUVDRUEKUldUcTdNcnNBdTJaaWhydmo0cmIwRzRXNk1aUEdsRU04VjZzaXVKZG9peG8wU0cvRHlmQVhUUGcK",
       "endpoints": [
-        "https://github.com/Ved-Padmawar/NexusVoice/releases/latest/download/latest-gpu.json"
+        "https://github.com/Ved-Padmawar/NexusVoice/releases/latest/download/latest.json"
       ]
     }
   }

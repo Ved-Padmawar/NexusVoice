@@ -9,7 +9,6 @@ use tauri::{
 mod auth;
 mod commands;
 mod database;
-mod hardware;
 mod inference;
 mod postprocess;
 mod preprocess;
@@ -42,18 +41,7 @@ fn main() {
             let models_dir = app_data_dir.join("models");
             std::fs::create_dir_all(&models_dir)?;
 
-            // Detect hardware provider once at startup
-            let hw_provider = {
-                let provider = hardware::SysinfoProvider::new();
-                let profile = hardware::detect_profile(&provider);
-                match profile.execution_provider.as_str() {
-                    "cuda"     => inference::ExecutionProvider::Cuda,
-                    "directml" => inference::ExecutionProvider::DirectML,
-                    _          => inference::ExecutionProvider::Cpu,
-                }
-            };
-
-            let app_state = state::AppState::new(pool, auth, token_store_path, hotkey_store_path, models_dir, hw_provider);
+            let app_state = state::AppState::new(pool, auth, token_store_path, hotkey_store_path, models_dir);
             app.manage(app_state);
 
             // Download model on startup if missing

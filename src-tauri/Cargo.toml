@@ -6,7 +6,6 @@ edition = "2021"
 [features]
 default = []
 cuda = ["whisper-rs/cuda"]
-vulkan = ["whisper-rs/vulkan"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
