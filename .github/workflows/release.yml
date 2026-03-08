@@ -12,8 +12,8 @@ env:
   CARGO_TARGET_DIR: C:\b
 
 jobs:
-  build-gpu:
-    name: Build (GPU — CUDA + Vulkan)
+  build:
+    name: Build
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,18 +34,9 @@ jobs:
           method: network
           sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "visual_studio_integration"]'
 
-      - name: Install Vulkan SDK
-        run: |
-          $url = "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-sdk.exe"
-          Invoke-WebRequest -Uri $url -OutFile vulkan-sdk.exe
-          Start-Process -FilePath vulkan-sdk.exe -ArgumentList "--accept-licenses --default-answer --confirm-command install" -Wait
-          echo "VULKAN_SDK=C:\VulkanSDK\$(Get-ChildItem 'C:\VulkanSDK' | Sort-Object Name | Select-Object -Last 1 -ExpandProperty Name)" >> $env:GITHUB_ENV
-        shell: pwsh
-
       - name: Add CUDA to PATH
         shell: pwsh
-        run: |
-          echo "$env:CUDA_PATH\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        run: echo "$env:CUDA_PATH\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install npm deps
         run: npm ci
@@ -58,56 +49,31 @@ jobs:
           sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
           sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
 
-      - name: Set GPU product name and updater endpoint
-        shell: bash
-        run: |
-          sed -i 's/"productName": "NexusVoice"/"productName": "NexusVoice-gpu"/' src-tauri/tauri.conf.json
-          sed -i 's/latest-gpu\.json/latest-gpu.json/' src-tauri/tauri.conf.json
-
-      # Cache AFTER modifying Cargo.toml so key includes GPU features
       - name: Cache Rust deps
         uses: Swatinem/rust-cache@v2.8.2
         with:
           workspaces: src-tauri
           cache-targets: false
 
-      - name: Bundle CUDA runtime DLLs
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path src-tauri/cuda
-          $dlls = @("cublas64_12.dll", "cublasLt64_12.dll", "cudart64_12.dll")
-          foreach ($dll in $dlls) {
-            $src = "$env:CUDA_PATH\bin\$dll"
-            if (Test-Path $src) {
-              Copy-Item $src -Destination "src-tauri/cuda/$dll"
-              Write-Host "Copied $dll"
-            } else {
-              Write-Host "WARNING: $dll not found at $src"
-            }
-          }
-
       - name: Build
         env:
-          LIBCLANG_PATH: C:\Program Files\LLVM\bin
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build -- --features cuda,vulkan
+        run: npx tauri build -- --features cuda,directml
 
-      - name: Generate latest-gpu.json
+      - name: Generate latest.json
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           NSIS_SIG=$(cat C:/b/release/bundle/nsis/*.nsis.zip.sig 2>/dev/null || echo "")
           NSIS_ZIP=$(basename C:/b/release/bundle/nsis/*.nsis.zip 2>/dev/null || echo "")
-          MSI_SIG=$(cat C:/b/release/bundle/msi/*.msi.zip.sig 2>/dev/null || echo "")
-          MSI_ZIP=$(basename C:/b/release/bundle/msi/*.msi.zip 2>/dev/null || echo "")
           REPO="Ved-Padmawar/NexusVoice"
           TAG="${GITHUB_REF_NAME}"
           BASE="https://github.com/${REPO}/releases/download/${TAG}"
-          cat > latest-gpu.json <<ENDJSON
+          cat > latest.json <<ENDJSON
           {
             "version": "${VERSION}",
-            "notes": "NexusVoice ${VERSION} GPU release",
+            "notes": "NexusVoice ${VERSION}",
             "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "platforms": {
               "windows-x86_64": {
@@ -118,7 +84,7 @@ jobs:
           }
           ENDJSON
 
-      - name: Upload GPU installer
+      - name: Upload release artifacts
         uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -128,92 +94,6 @@ jobs:
             C:/b/release/bundle/msi/*.msi
             C:/b/release/bundle/msi/*.msi.zip
             C:/b/release/bundle/msi/*.msi.zip.sig
-            latest-gpu.json
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-cpu:
-    name: Build (CPU — no GPU deps)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install npm deps
-        run: npm ci
-
-      - name: Set version from tag
-        shell: bash
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
-          sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
-          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
-
-      - name: Set CPU product name, MSI-only target, and updater endpoint
-        shell: bash
-        run: |
-          node -e "
-            const fs = require('fs');
-            const cfg = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
-            cfg.productName = 'NexusVoice-cpu';
-            cfg.bundle.targets = 'msi';
-            cfg.bundle.resources = {};
-            cfg.plugins.updater.endpoints = ['https://github.com/Ved-Padmawar/NexusVoice/releases/latest/download/latest-cpu.json'];
-            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(cfg, null, 2));
-          "
-
-      - name: Cache Rust deps
-        uses: Swatinem/rust-cache@v2.8.2
-        with:
-          workspaces: src-tauri
-          cache-targets: false
-
-      - name: Build
-        env:
-          LIBCLANG_PATH: C:\Program Files\LLVM\bin
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri build
-
-      - name: Generate latest-cpu.json
-        shell: bash
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          MSI_SIG=$(cat C:/b/release/bundle/msi/*.msi.zip.sig 2>/dev/null || echo "")
-          MSI_ZIP=$(basename C:/b/release/bundle/msi/*.msi.zip 2>/dev/null || echo "")
-          REPO="Ved-Padmawar/NexusVoice"
-          TAG="${GITHUB_REF_NAME}"
-          BASE="https://github.com/${REPO}/releases/download/${TAG}"
-          cat > latest-cpu.json <<ENDJSON
-          {
-            "version": "${VERSION}",
-            "notes": "NexusVoice ${VERSION} CPU release",
-            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "platforms": {
-              "windows-x86_64": {
-                "signature": "${MSI_SIG}",
-                "url": "${BASE}/${MSI_ZIP}"
-              }
-            }
-          }
-          ENDJSON
-
-      - name: Upload CPU installer
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            C:/b/release/bundle/msi/*.msi
-            C:/b/release/bundle/msi/*.msi.zip
-            C:/b/release/bundle/msi/*.msi.zip.sig
-            latest-cpu.json
+            latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
