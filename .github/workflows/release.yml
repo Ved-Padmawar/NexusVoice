@@ -74,15 +74,18 @@ jobs:
           import json, pathlib
           conf_path = pathlib.Path("src-tauri/tauri.conf.json")
           conf = json.loads(conf_path.read_text(encoding="utf-8"))
-          cuda_entries = [
-              {"cuda/cublas64_12.dll": "cublas64_12.dll"},
-              {"cuda/cublasLt64_12.dll": "cublasLt64_12.dll"},
-              {"cuda/cudart64_12.dll": "cudart64_12.dll"},
-          ]
+          # Tauri 2 object syntax: { "src": "dest" }
+          cuda_entries = {
+              "cuda/cublas64_12.dll": "cublas64_12.dll",
+              "cuda/cublasLt64_12.dll": "cublasLt64_12.dll",
+              "cuda/cudart64_12.dll": "cudart64_12.dll",
+          }
+          # Convert array to object if needed, then merge
           resources = conf["bundle"]["resources"]
-          for entry in cuda_entries:
-              if entry not in resources:
-                  resources.append(entry)
+          if isinstance(resources, list):
+              resources = {}
+          resources.update(cuda_entries)
+          conf["bundle"]["resources"] = resources
           conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
           print("patched tauri.conf.json resources")
 
