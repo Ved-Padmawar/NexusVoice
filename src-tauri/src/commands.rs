@@ -10,10 +10,12 @@ use crate::database::models::{dictionary::DictionaryEntry, transcript::Transcrip
 use crate::database::repositories::{
     dictionary::DictionaryRepository, transcript::TranscriptRepository,
 };
-use crate::postprocess::module::dictionary_engine::{
-    DictionaryCorrectionConfig, DictionaryCorrectionEngine,
-};
+use crate::postprocess::{DictionaryCorrectionConfig, DictionaryCorrectionEngine};
 use crate::state::AppState;
+
+// ---------------------------------------------------------------------------
+// Error types
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
 pub struct ApiError {
@@ -52,6 +54,20 @@ impl From<AuthError> for ApiError {
         }
     }
 }
+
+fn map_db_error(error: &sqlx::Error) -> String {
+    match error {
+        sqlx::Error::Database(_) => "database error".to_string(),
+        sqlx::Error::RowNotFound => "record not found".to_string(),
+        sqlx::Error::PoolClosed => "database unavailable".to_string(),
+        sqlx::Error::Io(_) => "database io error".to_string(),
+        _ => "database error".to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Response types
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -134,15 +150,6 @@ pub struct AuthResponse {
     pub tokens: TokenPairResponse,
 }
 
-/// Guard: returns the current user_id if authenticated, or an ApiError if not.
-#[allow(dead_code)]
-pub async fn require_auth(state: &AppState) -> Result<i64, ApiError> {
-    state
-        .current_user_id()
-        .await
-        .ok_or_else(|| ApiError::new("unauthenticated", "authentication required"))
-}
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthStateResponse {
@@ -150,7 +157,19 @@ pub struct AuthStateResponse {
     pub user_id: Option<i64>,
 }
 
-/// Returns the full User record for the currently authenticated user.
+// ---------------------------------------------------------------------------
+// Auth commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn get_auth_state(state: State<'_, AppState>) -> Result<AuthStateResponse, ApiError> {
+    let user_id = state.current_user_id().await;
+    Ok(AuthStateResponse {
+        authenticated: user_id.is_some(),
+        user_id,
+    })
+}
+
 #[tauri::command]
 pub async fn get_current_user(state: State<'_, AppState>) -> Result<Option<User>, ApiError> {
     let Some(user_id) = state.current_user_id().await else {
@@ -161,18 +180,6 @@ pub async fn get_current_user(state: State<'_, AppState>) -> Result<Option<User>
     Ok(user)
 }
 
-/// Returns the current auth state without requiring authentication.
-/// Used by the frontend to check session on startup.
-#[tauri::command]
-pub async fn get_auth_state(state: State<'_, AppState>) -> Result<AuthStateResponse, ApiError> {
-    let user_id = state.current_user_id().await;
-    Ok(AuthStateResponse {
-        authenticated: user_id.is_some(),
-        user_id,
-    })
-}
-
-/// Called by frontend after a successful login to persist the refresh token for next startup.
 #[tauri::command]
 pub async fn store_refresh_token(
     state: State<'_, AppState>,
@@ -187,7 +194,6 @@ pub async fn store_refresh_token(
     Ok(())
 }
 
-/// Called by frontend on logout to clear the persisted token and session.
 #[tauri::command]
 pub async fn clear_stored_token(
     state: State<'_, AppState>,
@@ -265,6 +271,10 @@ pub async fn logout_token(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Transcription commands
+// ---------------------------------------------------------------------------
+
 #[tauri::command]
 pub async fn start_transcription(
     app: AppHandle,
@@ -277,7 +287,6 @@ pub async fn start_transcription(
         ));
     }
 
-    // Clear old audio data
     {
         let mut buf = state.audio_buffer.lock().unwrap();
         buf.clear();
@@ -289,9 +298,10 @@ pub async fn start_transcription(
     let app_handle = app.clone();
 
     std::thread::spawn(move || {
-        if let Err(e) = capture_microphone(Arc::clone(&running), audio_buffer, native_rate) {
+        if let Err(e) =
+            crate::audio::capture_microphone(Arc::clone(&running), audio_buffer, native_rate)
+        {
             eprintln!("microphone capture error: {e}");
-            // Reset flag so the next start_transcription attempt can proceed
             running.store(false, Ordering::SeqCst);
             let _ = app_handle.emit("transcription-error", e);
         }
@@ -312,7 +322,6 @@ pub async fn stop_transcription(
         ));
     }
 
-    // Give cpal stream a moment to flush its last callback
     tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
 
     let (samples, captured_rate) = {
@@ -329,68 +338,73 @@ pub async fn stop_transcription(
     let pool = state.pool.clone();
     let app_handle = app.clone();
 
-    // Get cached engine — if model not downloaded yet, signal idle and bail
-    let engine = match state.get_or_load_whisper().await {
+    let engine = match state.get_or_load_engine().await {
         Ok(e) => e,
         Err(e) => {
+            eprintln!("[nv] engine load failed: {e}");
             let _ = app_handle.emit("transcription-error", format!("model not ready: {e}"));
             return Ok(false);
         }
     };
 
-    tauri::async_runtime::spawn_blocking(move || {
-        // Preprocess: noise suppression → resample to 16kHz → silence trim
-        let resampled = crate::preprocess::preprocess(&samples, captured_rate);
+    // Build Whisper initial prompt from:
+    //   1. Tail of recent transcripts (last 5, joined) — gives personal vocab context
+    //   2. Dictionary replacement terms appended at the end — biases toward known spellings
+    // Combined and capped; the decoder will take the last 223 tokens if over the limit.
+    let prompt = {
+        let transcript_repo = TranscriptRepository::new(pool.clone());
+        let dict_repo = DictionaryRepository::new(pool.clone());
 
-        // Run transcription in a thread with a 60s deadline
+        let recent = transcript_repo.list_recent(5).await.unwrap_or_default();
+        let dict_entries = dict_repo.list_all().await.unwrap_or_default();
+
+        let mut parts: Vec<String> = recent
+            .into_iter()
+            .rev() // oldest first so context reads naturally
+            .map(|t| t.content)
+            .collect();
+
+        // Append dictionary replacements as a comma-separated hint at the end
+        if !dict_entries.is_empty() {
+            let terms: Vec<String> = dict_entries.into_iter().map(|e| e.replacement).collect();
+            parts.push(terms.join(", "));
+        }
+
+        parts.join(" ")
+    };
+
+    tauri::async_runtime::spawn_blocking(move || {
+        eprintln!("[nv] preprocessing {} samples at {}Hz", samples.len(), captured_rate);
+        let resampled = crate::preprocess::preprocess(&samples, captured_rate);
+        eprintln!("[nv] resampled to {} samples, starting inference", resampled.len());
+
         let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
         std::thread::spawn(move || {
-            let _ = tx.send(engine.transcribe(&resampled));
+            eprintln!("[nv] inference thread started");
+            let result = tauri::async_runtime::block_on(async {
+                engine.lock().await.transcribe(&resampled, &prompt)
+            });
+            eprintln!("[nv] inference result: {:?}", result.as_ref().map(|s| s.len()).map_err(|e| e.as_str()));
+            let _ = tx.send(result);
         });
 
         match rx.recv_timeout(std::time::Duration::from_secs(60)) {
             Ok(Ok(text)) if !text.is_empty() => {
                 let _ = app_handle.emit("transcription-complete", text.clone());
-                let repo = crate::database::repositories::transcript::TranscriptRepository::new(pool.clone());
-                if let Ok(saved) = tauri::async_runtime::block_on(
-                    repo.create(crate::database::dto::transcript::CreateTranscript { content: text.clone() })
-                ) {
-                    // Notify dashboard to prepend new transcript without a full refresh
+                let repo = TranscriptRepository::new(pool.clone());
+                if let Ok(saved) = tauri::async_runtime::block_on(repo.create(CreateTranscript {
+                    content: text.clone(),
+                })) {
                     let _ = app_handle.emit("transcript:new", TranscriptResponse::from(saved));
-                }
-                let freq_repo = crate::database::repositories::word_frequency::WordFrequencyRepository::new(pool.clone());
-                let dict_repo = crate::database::repositories::dictionary::DictionaryRepository::new(pool);
-                let unknown = extract_unknown_words(&text);
-                if !unknown.is_empty()
-                    && tauri::async_runtime::block_on(freq_repo.record_words(&unknown)).is_ok()
-                {
-                    if let Ok(ready) = tauri::async_runtime::block_on(freq_repo.unreviewed_above(3)) {
-                        for entry in ready {
-                            let already = tauri::async_runtime::block_on(
-                                dict_repo.get_by_term(&entry.word)
-                            ).unwrap_or(None);
-                            if already.is_none() {
-                                let _ = tauri::async_runtime::block_on(dict_repo.create(
-                                    crate::database::dto::dictionary::CreateDictionaryEntry {
-                                        term: entry.word.clone(),
-                                        replacement: entry.word.clone(),
-                                    }
-                                ));
-                            }
-                            let _ = tauri::async_runtime::block_on(freq_repo.mark_reviewed(&entry.word, true));
-                        }
-                    }
                 }
             }
             Ok(Ok(_)) => {
-                // Empty — no speech detected
                 let _ = app_handle.emit("transcription-complete", "");
             }
             Ok(Err(e)) => {
                 let _ = app_handle.emit("transcription-error", e);
             }
             Err(_) => {
-                // Timeout
                 let _ = app_handle.emit("transcription-error", "transcription timed out");
             }
         }
@@ -399,170 +413,34 @@ pub async fn stop_transcription(
     Ok(true)
 }
 
+// ---------------------------------------------------------------------------
+// Text injection
+// ---------------------------------------------------------------------------
 
-fn capture_microphone(
-    running: Arc<std::sync::atomic::AtomicBool>,
-    buffer: Arc<std::sync::Mutex<Vec<f32>>>,
-    native_rate: Arc<std::sync::Mutex<u32>>,
-) -> Result<(), String> {
-    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-    use cpal::SampleFormat;
+#[tauri::command]
+pub async fn type_text(app: AppHandle, text: String) -> Result<(), ApiError> {
+    use enigo::{Enigo, Key, Keyboard, Settings};
+    use tauri_plugin_clipboard_manager::ClipboardExt;
 
-    let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| "no input device available".to_string())?;
+    app.clipboard()
+        .write_text(text)
+        .map_err(|e| ApiError::new("clipboard_error", e.to_string()))?;
 
-    let config = device
-        .default_input_config()
-        .map_err(|e| format!("failed to get input config: {e}"))?;
-
-    let channels = config.channels() as usize;
-    let sample_rate = config.sample_rate();
-    let sample_format = config.sample_format();
-    let stream_config: cpal::StreamConfig = config.into();
-
-    // Store the native rate so stop_transcription can resample correctly
-    *native_rate.lock().unwrap() = sample_rate;
-
-    let buf_clone = Arc::clone(&buffer);
-    let running_clone = Arc::clone(&running);
-
-    // Build and run the stream; data_callback converts to f32 mono
-    let stream = match sample_format {
-        SampleFormat::F32 => build_input_stream::<f32>(&device, &stream_config, channels, buf_clone, running_clone)?,
-        SampleFormat::I16 => build_input_stream::<i16>(&device, &stream_config, channels, buf_clone, running_clone)?,
-        SampleFormat::U16 => build_input_stream::<u16>(&device, &stream_config, channels, buf_clone, running_clone)?,
-        _ => return Err(format!("unsupported sample format: {sample_format:?}")),
-    };
-
-    stream.play().map_err(|e| format!("failed to start stream: {e}"))?;
-
-    while running.load(Ordering::SeqCst) {
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-
-    drop(stream);
-    Ok(())
-}
-
-fn build_input_stream<T>(
-    device: &cpal::Device,
-    config: &cpal::StreamConfig,
-    channels: usize,
-    buffer: Arc<std::sync::Mutex<Vec<f32>>>,
-    running: Arc<std::sync::atomic::AtomicBool>,
-) -> Result<cpal::Stream, String>
-where
-    T: cpal::Sample + cpal::SizedSample + ToF32,
-{
-    use cpal::traits::DeviceTrait;
-
-    let stream = device
-        .build_input_stream(
-            config,
-            move |data: &[T], _| {
-                if !running.load(Ordering::SeqCst) {
-                    return;
-                }
-                // Convert to f32 mono
-                let mono: Vec<f32> = if channels == 1 {
-                    data.iter().map(|s| s.to_f32()).collect()
-                } else {
-                    data.chunks(channels)
-                        .map(|frame| {
-                            frame.iter().map(|s| s.to_f32()).sum::<f32>() / channels as f32
-                        })
-                        .collect()
-                };
-                if let Ok(mut buf) = buffer.lock() {
-                    buf.extend_from_slice(&mono);
-                }
-            },
-            |err| eprintln!("cpal stream error: {err}"),
-            None,
-        )
-        .map_err(|e| format!("failed to build input stream: {e}"))?;
-
-    Ok(stream)
-}
-
-/// Conversion helper for cpal sample types to f32.
-pub trait ToF32 {
-    fn to_f32(self) -> f32;
-}
-
-impl ToF32 for f32 {
-    fn to_f32(self) -> f32 {
-        self
-    }
-}
-
-impl ToF32 for i16 {
-    fn to_f32(self) -> f32 {
-        self as f32 / i16::MAX as f32
-    }
-}
-
-impl ToF32 for u16 {
-    fn to_f32(self) -> f32 {
-        (self as f32 / u16::MAX as f32) * 2.0 - 1.0
-    }
-}
-
-pub fn download_whisper_model(
-    dest: &std::path::Path,
-    app: &AppHandle,
-    dl_state: &crate::state::ModelDownloadState,
-) -> Result<(), String> {
-    use std::io::{Read, Write};
-
-    let filename = dest
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("ggml-tiny.bin");
-    let model_url = format!(
-        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{filename}"
-    );
-
-    let mut response = reqwest::blocking::get(&model_url)
-        .map_err(|e| format!("download request failed: {e}"))?;
-
-    if !response.status().is_success() {
-        return Err(format!("download HTTP {}", response.status()));
-    }
-
-    let total = response.content_length().unwrap_or(0);
-
-    // Write a partial file first; rename to dest on success so a failed
-    // download never leaves a corrupt model file behind.
-    let tmp = dest.with_extension("tmp");
-    let mut file =
-        std::fs::File::create(&tmp).map_err(|e| format!("create model file failed: {e}"))?;
-
-    let mut downloaded: u64 = 0;
-    let mut last_pct: u8 = 0;
-    let mut buf = vec![0u8; 256 * 1024]; // 256 KB chunks
-    loop {
-        let n = response.read(&mut buf).map_err(|e| format!("read body failed: {e}"))?;
-        if n == 0 { break; }
-        file.write_all(&buf[..n]).map_err(|e| format!("write model file failed: {e}"))?;
-        downloaded += n as u64;
-        if total > 0 {
-            let pct = ((downloaded * 100) / total) as u8;
-            if pct != last_pct {
-                last_pct = pct;
-                dl_state.set_progress(pct);
-                let _ = app.emit("model-download-progress", pct);
-            }
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
+            let _ = enigo.key(Key::Control, enigo::Direction::Press);
+            let _ = enigo.key(Key::Unicode('v'), enigo::Direction::Click);
+            let _ = enigo.key(Key::Control, enigo::Direction::Release);
         }
-    }
-
-    drop(file);
-    std::fs::rename(&tmp, dest).map_err(|e| format!("rename model file failed: {e}"))?;
+    });
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Data commands
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -583,9 +461,12 @@ pub async fn get_usage_stats(state: State<'_, AppState>) -> Result<UsageStatsRes
         .iter()
         .map(|t| t.content.split_whitespace().count() as i64)
         .sum();
-    // Rough estimate: average speaking pace ~130 wpm → words × (60/130) seconds
     let speaking_time_seconds = (total_words as f64 * 60.0 / 130.0).round() as i64;
-    let avg_pace_wpm = if total_sessions > 0 { total_words / total_sessions.max(1) } else { 0 };
+    let avg_pace_wpm = if total_sessions > 0 {
+        total_words / total_sessions.max(1)
+    } else {
+        0
+    };
 
     Ok(UsageStatsResponse {
         total_words,
@@ -656,103 +537,9 @@ pub async fn apply_dictionary(
     engine.apply_to_text(&text).await.map_err(ApiError::from)
 }
 
-/// Extract words from transcription text that are likely domain-specific/uncommon.
-/// Filters out: very short words, numbers, common English words.
-fn extract_unknown_words(text: &str) -> Vec<String> {
-    let words: Vec<String> = text
-        .split_whitespace()
-        .map(|w| w.trim_matches(|c: char| !c.is_alphabetic()).to_lowercase())
-        .filter(|w| {
-            w.len() >= 4
-                && w.chars().all(|c| c.is_alphabetic())
-                && !is_common_word(w)
-        })
-        .collect();
-
-    // Deduplicate within this transcription
-    let mut seen = std::collections::HashSet::new();
-    words.into_iter().filter(|w| seen.insert(w.clone())).collect()
-}
-
-/// Returns true if the word is a very common English word that should not be auto-learned.
-/// This is a curated top-~300 list — enough to avoid noise without being exhaustive.
-fn is_common_word(word: &str) -> bool {
-    const COMMON: &[&str] = &[
-        "that","this","with","from","have","been","were","they","their","them",
-        "will","would","could","should","shall","there","where","when","what",
-        "which","then","than","also","some","more","most","other","into","over",
-        "just","because","after","about","before","between","through","during",
-        "each","your","more","very","even","back","well","such","time","year",
-        "know","think","make","take","come","look","want","give","find","tell",
-        "work","call","need","feel","keep","last","long","much","many","down",
-        "does","doing","done","made","said","went","come","came","goes","going",
-        "here","only","same","again","still","around","every","right","small",
-        "large","under","never","place","point","world","always","state","often",
-        "those","these","thing","things","people","really","being","while","since",
-        "both","help","must","high","next","part","home","hand","play","move",
-        "live","hold","away","turn","show","open","seem","together","course",
-        "nothing","something","everything","anything","someone","everyone","anyone",
-        "actually","probably","already","without","however","because","whether",
-        "another","getting","started","having","using","going","being","doing",
-        "first","second","third","great","good","best","better","little","might",
-        "almost","though","until","along","while","above","below","left","right",
-    ];
-    COMMON.contains(&word)
-}
-
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WordFrequencyResponse {
-    pub word: String,
-    pub count: i64,
-}
-
-/// Return words that appear frequently enough to be worth adding to the dictionary.
-#[tauri::command]
-pub async fn get_word_suggestions(
-    state: State<'_, AppState>,
-) -> Result<Vec<WordFrequencyResponse>, ApiError> {
-    let repo = crate::database::repositories::word_frequency::WordFrequencyRepository::new(state.pool.clone());
-    let entries = repo.unreviewed_above(3).await?;
-    Ok(entries.into_iter().map(|e| WordFrequencyResponse { word: e.word, count: e.count }).collect())
-}
-
-/// Accept a suggestion — adds it to the dictionary and marks it reviewed.
-#[tauri::command]
-pub async fn accept_word_suggestion(
-    state: State<'_, AppState>,
-    word: String,
-) -> Result<(), ApiError> {
-    let freq_repo = crate::database::repositories::word_frequency::WordFrequencyRepository::new(state.pool.clone());
-    let dict_repo = crate::database::repositories::dictionary::DictionaryRepository::new(state.pool.clone());
-    dict_repo.upsert(crate::database::dto::dictionary::CreateDictionaryEntry {
-        term: word.clone(),
-        replacement: word.clone(),
-    }).await?;
-    freq_repo.mark_reviewed(&word, true).await?;
-    Ok(())
-}
-
-/// Dismiss a suggestion — marks it reviewed without adding to dictionary.
-#[tauri::command]
-pub async fn dismiss_word_suggestion(
-    state: State<'_, AppState>,
-    word: String,
-) -> Result<(), ApiError> {
-    let repo = crate::database::repositories::word_frequency::WordFrequencyRepository::new(state.pool.clone());
-    repo.mark_reviewed(&word, false).await?;
-    Ok(())
-}
-
-fn map_db_error(error: &sqlx::Error) -> String {
-    match error {
-        sqlx::Error::Database(_) => "database error".to_string(),
-        sqlx::Error::RowNotFound => "record not found".to_string(),
-        sqlx::Error::PoolClosed => "database unavailable".to_string(),
-        sqlx::Error::Io(_) => "database io error".to_string(),
-        _ => "database error".to_string(),
-    }
-}
+// ---------------------------------------------------------------------------
+// Window commands
+// ---------------------------------------------------------------------------
 
 #[tauri::command]
 pub async fn show_main_window(app: AppHandle) -> Result<(), ApiError> {
@@ -777,32 +564,9 @@ pub async fn hide_main_window(app: AppHandle) -> Result<(), ApiError> {
     Ok(())
 }
 
-#[tauri::command]
-pub async fn type_text(app: AppHandle, text: String) -> Result<(), ApiError> {
-    use enigo::{Enigo, Key, Keyboard, Settings};
-    use tauri_plugin_clipboard_manager::ClipboardExt;
-
-    // Best-practice for voice-to-text on Windows: write to clipboard then
-    // simulate Ctrl+V. Direct enigo.text() is unreliable — it synthesises
-    // individual keystrokes and frequently drops characters or stops after
-    // the first word due to Windows key-event rate limits.
-    app.clipboard()
-        .write_text(text)
-        .map_err(|e| ApiError::new("clipboard_error", e.to_string()))?;
-
-    std::thread::spawn(move || {
-        // Small delay so the target window can regain focus after the pill
-        // overlay releases its hold on input.
-        std::thread::sleep(std::time::Duration::from_millis(150));
-        if let Ok(mut enigo) = Enigo::new(&Settings::default()) {
-            let _ = enigo.key(Key::Control, enigo::Direction::Press);
-            let _ = enigo.key(Key::Unicode('v'), enigo::Direction::Click);
-            let _ = enigo.key(Key::Control, enigo::Direction::Release);
-        }
-    });
-
-    Ok(())
-}
+// ---------------------------------------------------------------------------
+// Hotkey commands
+// ---------------------------------------------------------------------------
 
 #[tauri::command]
 pub async fn register_hotkey(
@@ -810,15 +574,12 @@ pub async fn register_hotkey(
     state: State<'_, AppState>,
     hotkey: String,
 ) -> Result<bool, ApiError> {
-    use tauri::Emitter;
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-    // Validate input
     let hotkey = hotkey.trim().to_string();
     if hotkey.is_empty() {
         return Err(ApiError::new("hotkey_invalid", "hotkey cannot be empty"));
     }
-    // Must contain at least one modifier + one non-modifier key
     let parts: Vec<&str> = hotkey.split('+').collect();
     let modifiers = ["Ctrl", "Alt", "Shift", "Super", "Win"];
     let has_modifier = parts.iter().any(|p| modifiers.contains(p));
@@ -830,12 +591,10 @@ pub async fn register_hotkey(
         ));
     }
 
-    // Unregister all existing shortcuts first to avoid duplicate registration
     app.global_shortcut()
         .unregister_all()
         .map_err(|e| ApiError::new("hotkey_unregister_failed", e.to_string()))?;
 
-    // Register with press/release handler
     let app_clone = app.clone();
     app.global_shortcut()
         .on_shortcut(hotkey.as_str(), move |_app, _shortcut, event| {
@@ -848,7 +607,6 @@ pub async fn register_hotkey(
         })
         .map_err(|e| {
             let msg = e.to_string();
-            // Map common OS errors to structured codes
             if msg.contains("already registered") || msg.contains("already in use") {
                 ApiError::new(
                     "hotkey_already_in_use",
@@ -864,7 +622,6 @@ pub async fn register_hotkey(
             }
         })?;
 
-    // Persist to disk and update in-memory state
     let _ = state.save_hotkey(&hotkey);
     let mut current = state.current_hotkey.lock().await;
     *current = Some(hotkey);
@@ -881,8 +638,7 @@ pub async fn unregister_hotkey(app: AppHandle, state: State<'_, AppState>) -> Re
         .map_err(|e| ApiError::new("hotkey_unregister_failed", e.to_string()))?;
 
     state.delete_hotkey();
-    let mut current = state.current_hotkey.lock().await;
-    *current = None;
+    *state.current_hotkey.lock().await = None;
 
     Ok(())
 }
@@ -893,9 +649,75 @@ pub async fn get_registered_hotkeys(state: State<'_, AppState>) -> Result<Vec<St
     if let Some(h) = current.as_ref() {
         return Ok(vec![h.clone()]);
     }
-    // Fallback: read from disk in case in-memory state hasn't been populated yet
     Ok(state.load_hotkey().map(|h| vec![h]).unwrap_or_default())
 }
+
+// ---------------------------------------------------------------------------
+// Hardware commands
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HardwareProfileResponse {
+    pub gpu_name: String,
+    pub execution_provider: String,
+    pub vram_gb: f32,
+    pub recommended_model: String,
+}
+
+#[tauri::command]
+pub async fn get_hardware_profile() -> Result<HardwareProfileResponse, ApiError> {
+    use crate::hardware::detector::detect_profile;
+    use crate::hardware::sysinfo_provider::SysinfoProvider;
+    use crate::inference::provider::{detect_backend, select_model_size};
+
+    let hw = detect_profile(&SysinfoProvider);
+    let backend = detect_backend();
+    let model_size = select_model_size(backend, None);
+
+    Ok(HardwareProfileResponse {
+        gpu_name: hw.gpu_type,
+        execution_provider: hw.execution_provider,
+        vram_gb: hw.vram_gb,
+        recommended_model: model_size.display_name().to_string(),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Model override commands
+// ---------------------------------------------------------------------------
+
+/// Set model size override ("large" | "medium"). Clears the cached engine
+/// so the next transcription reloads with the chosen model.
+#[tauri::command]
+pub async fn set_model_override(
+    state: State<'_, AppState>,
+    variant: String,
+) -> Result<(), ApiError> {
+    if variant != "large" && variant != "medium" {
+        return Err(ApiError::new(
+            "invalid_variant",
+            "variant must be 'large' or 'medium'",
+        ));
+    }
+    state
+        .save_model_override(&variant)
+        .map_err(|e| ApiError::new("io_error", e.to_string()))?;
+    *state.engine.lock().await = None;
+    Ok(())
+}
+
+/// Clear the model size override, reverting to auto-selection based on hardware.
+#[tauri::command]
+pub async fn clear_model_override(state: State<'_, AppState>) -> Result<(), ApiError> {
+    state.delete_model_override();
+    *state.engine.lock().await = None;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Model commands
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -909,19 +731,24 @@ pub struct ModelInfoResponse {
 
 #[tauri::command]
 pub async fn get_model_info(state: State<'_, AppState>) -> Result<ModelInfoResponse, ApiError> {
-    let model_name = "ggml-large-v3-turbo.bin".to_string();
-    let path = state.models_dir.join(&model_name);
+    use crate::inference::provider::{detect_backend, select_model_size};
+
+    let override_size = state.load_model_override();
+    let backend = detect_backend();
+    let model_size = select_model_size(backend, override_size.as_deref());
+    let model_path = state.models_dir.join(model_size.filename());
+
     let dl = &state.model_download;
     let status = dl.status.load(std::sync::atomic::Ordering::SeqCst);
     let progress = *dl.progress.lock().unwrap();
     let error = dl.error.lock().unwrap().clone();
 
     Ok(ModelInfoResponse {
-        downloaded: path.exists() || status == 2,
+        downloaded: model_path.exists() || status == 2,
         downloading: status == 1,
         download_progress: progress,
         download_error: error,
-        model_name,
+        model_name: model_size.display_name().to_string(),
     })
 }
 
@@ -930,26 +757,35 @@ pub async fn retry_model_download(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<bool, ApiError> {
+    use crate::inference::provider::{detect_backend, select_model_size};
+
     let dl = &state.model_download;
     let status = dl.status.load(std::sync::atomic::Ordering::SeqCst);
 
-    // Only allow retry if not already downloading and model not present
     if status == 1 {
-        return Err(ApiError::new("already_downloading", "model download already in progress"));
+        return Err(ApiError::new(
+            "already_downloading",
+            "model download already in progress",
+        ));
     }
 
-    let model_path = state.models_dir.join("ggml-large-v3-turbo.bin");
+    let override_size = state.load_model_override();
+    let backend = detect_backend();
+    let model_size = select_model_size(backend, override_size.as_deref());
+    let model_path = state.models_dir.join(model_size.filename());
+
     if model_path.exists() {
         dl.set_complete();
         return Ok(true);
     }
 
-    let dl_state = std::sync::Arc::clone(&state.model_download);
+    let dl_state = Arc::clone(&state.model_download);
+    let models_dir = state.models_dir.clone();
     dl_state.set_downloading();
     let _ = app.emit("model-download-start", ());
 
     tauri::async_runtime::spawn_blocking(move || {
-        match download_whisper_model(&model_path, &app, &dl_state) {
+        match download_whisper_model(&models_dir, model_size, &app, &dl_state) {
             Ok(_) => {
                 dl_state.set_complete();
                 let _ = app.emit("model-download-complete", ());
@@ -962,4 +798,112 @@ pub async fn retry_model_download(
     });
 
     Ok(true)
+}
+
+/// Download the selected ggml model file. Reports progress via events.
+pub fn download_whisper_model(
+    models_dir: &std::path::Path,
+    model_size: crate::inference::provider::ModelSize,
+    app: &AppHandle,
+    dl_state: &crate::state::ModelDownloadState,
+) -> Result<(), String> {
+    let file_urls: &[(&str, &str)] = &[(model_size.filename(), model_size.url())];
+
+    // HEAD the URL to get real Content-Length
+    let client = reqwest::blocking::Client::new();
+    let mut file_sizes: Vec<u64> = Vec::new();
+    for (filename, url) in file_urls {
+        let dest = models_dir.join(filename);
+        if dest.exists() {
+            file_sizes.push(dest.metadata().map(|m| m.len()).unwrap_or(0));
+        } else {
+            let size = client
+                .head(*url)
+                .send()
+                .ok()
+                .and_then(|r| r.headers().get("content-length")?.to_str().ok()?.parse().ok())
+                .unwrap_or(0);
+            file_sizes.push(size);
+        }
+    }
+
+    // HEAD each URL to get real Content-Length, skip already-downloaded files
+    let client = reqwest::blocking::Client::new();
+    let mut file_sizes: Vec<u64> = Vec::new();
+    for (filename, url) in file_urls {
+        let dest = models_dir.join(filename);
+        if dest.exists() {
+            file_sizes.push(dest.metadata().map(|m| m.len()).unwrap_or(0));
+        } else {
+            let size = client
+                .head(*url)
+                .send()
+                .ok()
+                .and_then(|r| r.headers().get("content-length")?.to_str().ok()?.parse().ok())
+                .unwrap_or(0);
+            file_sizes.push(size);
+        }
+    }
+
+    let total_bytes: u64 = file_sizes.iter().sum();
+    let mut downloaded_total: u64 = 0;
+
+    for ((filename, url), &size) in file_urls.iter().zip(file_sizes.iter()) {
+        let dest = models_dir.join(filename);
+        if dest.exists() {
+            downloaded_total += size;
+            continue;
+        }
+        download_file(url, &dest, app, dl_state, &mut downloaded_total, total_bytes)?;
+    }
+
+    Ok(())
+}
+
+fn download_file(
+    url: &str,
+    dest: &std::path::Path,
+    app: &AppHandle,
+    dl_state: &crate::state::ModelDownloadState,
+    downloaded_total: &mut u64,
+    total_bytes: u64,
+) -> Result<(), String> {
+    use std::io::{Read, Write};
+
+    let mut response =
+        reqwest::blocking::get(url).map_err(|e| format!("download request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!("download HTTP {} for {}", response.status(), url));
+    }
+
+    let tmp = dest.with_extension("tmp");
+    let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create file failed: {e}"))?;
+
+    let mut last_pct: u8 = 0;
+    let mut buf = vec![0u8; 256 * 1024]; // 256 KB chunks
+    loop {
+        let n = response
+            .read(&mut buf)
+            .map_err(|e| format!("read body failed: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n])
+            .map_err(|e| format!("write file failed: {e}"))?;
+        *downloaded_total += n as u64;
+        if total_bytes > 0 {
+            let pct = ((*downloaded_total * 100) / total_bytes).min(100) as u8;
+            if pct != last_pct {
+                last_pct = pct;
+                dl_state.set_progress(pct);
+                let _ = app.emit("model-download-progress", pct);
+            }
+        }
+    }
+
+    drop(file);
+    std::fs::rename(&tmp, dest).map_err(|e| format!("rename file failed: {e}"))?;
+
+    Ok(())
 }

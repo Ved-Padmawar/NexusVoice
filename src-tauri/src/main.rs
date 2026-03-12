@@ -6,9 +6,11 @@ use tauri::{
     Emitter, Manager,
 };
 
+mod audio;
 mod auth;
 mod commands;
 mod database;
+mod hardware;
 mod inference;
 mod postprocess;
 mod preprocess;
@@ -38,36 +40,33 @@ fn main() {
             let auth = auth::AuthService::new(pool.clone());
             let token_store_path = app_data_dir.join("refresh_token");
             let hotkey_store_path = app_data_dir.join("hotkey");
+            let model_override_path = app_data_dir.join("model_override");
             let models_dir = app_data_dir.join("models");
             std::fs::create_dir_all(&models_dir)?;
 
-            let app_state = state::AppState::new(pool, auth, token_store_path, hotkey_store_path, models_dir);
+            let app_state =
+                state::AppState::new(pool, auth, token_store_path, hotkey_store_path, model_override_path, models_dir);
             app.manage(app_state);
 
-            // Download model on startup if missing
+
+            // Emit hardware profile event
             {
-                let app_handle = app.handle().clone();
-                let state = app.state::<state::AppState>();
-                let model_path = state.models_dir.join("ggml-large-v3-turbo.bin");
-                let dl_state = std::sync::Arc::clone(&state.model_download);
-                if model_path.exists() {
-                    dl_state.set_complete();
-                } else {
-                    dl_state.set_downloading();
-                    tauri::async_runtime::spawn_blocking(move || {
-                        let _ = app_handle.emit("model-download-start", ());
-                        match commands::download_whisper_model(&model_path, &app_handle, &dl_state) {
-                            Ok(_) => {
-                                dl_state.set_complete();
-                                let _ = app_handle.emit("model-download-complete", ());
-                            }
-                            Err(e) => {
-                                dl_state.set_error(e.clone());
-                                let _ = app_handle.emit("model-download-error", e);
-                            }
-                        }
-                    });
-                }
+                use hardware::detector::detect_profile;
+                use hardware::sysinfo_provider::SysinfoProvider;
+                use inference::provider::{detect_backend, select_model_size};
+
+                let hw = detect_profile(&SysinfoProvider);
+                let backend = detect_backend();
+                let model_size = select_model_size(backend, None);
+                let _ = app.emit(
+                    "hardware:profile",
+                    serde_json::json!({
+                        "gpuName": hw.gpu_type,
+                        "executionProvider": hw.execution_provider,
+                        "vramGb": hw.vram_gb,
+                        "recommendedModel": model_size.display_name(),
+                    }),
+                );
             }
 
             // Silent re-auth on startup
@@ -77,17 +76,14 @@ fn main() {
                 if let Some(raw_token) = state.load_refresh_token() {
                     match state.auth.refresh_tokens(&raw_token).await {
                         Ok(pair) => {
-                            // Parse user_id from the new access token
                             if let Ok(user_id) = state.auth.validate_token(&pair.access_token) {
                                 state.set_auth_session(user_id, pair.access_token).await;
-                                // Persist the new rotated refresh token
                                 let _ = state.save_refresh_token(&pair.refresh_token);
                                 let _ = app_handle.emit("auth:ready", user_id);
                                 return;
                             }
                         }
                         Err(_) => {
-                            // Token invalid/expired — clear it
                             state.delete_refresh_token();
                         }
                     }
@@ -95,7 +91,7 @@ fn main() {
                 let _ = app_handle.emit("auth:unauthenticated", ());
             });
 
-            // System tray setup
+            // System tray
             let show_item = MenuItem::with_id(app, "show", "Show Dashboard", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
@@ -111,14 +107,10 @@ fn main() {
                         }
                     }
                     "quit" => {
-                        // Stop any active mic capture before exiting —
-                        // app.exit() calls std::process::exit() which does NOT
-                        // trigger RunEvent::Exit, so we must clean up here.
                         let state = app.state::<state::AppState>();
-                        state.transcription_running.store(
-                            false,
-                            std::sync::atomic::Ordering::SeqCst,
-                        );
+                        state
+                            .transcription_running
+                            .store(false, std::sync::atomic::Ordering::SeqCst);
                         std::thread::sleep(std::time::Duration::from_millis(200));
                         app.exit(0);
                     }
@@ -145,10 +137,9 @@ fn main() {
                 if let Some(monitor) = pill.primary_monitor().ok().flatten() {
                     let screen = monitor.size();
                     let scale = monitor.scale_factor();
-                    // Physical pill size → logical pixels
                     let pill_w = 120.0;
                     let pill_h = 44.0;
-                    let margin = 24.0;
+                    let margin = 72.0; // 40px taskbar + 32px breathing room
                     let logical_w = screen.width as f64 / scale;
                     let logical_h = screen.height as f64 / scale;
                     let x = ((logical_w - pill_w) / 2.0) as i32;
@@ -207,11 +198,11 @@ fn main() {
             commands::register_hotkey,
             commands::unregister_hotkey,
             commands::get_registered_hotkeys,
-            commands::get_word_suggestions,
-            commands::accept_word_suggestion,
-            commands::dismiss_word_suggestion,
             commands::get_model_info,
             commands::retry_model_download,
+            commands::set_model_override,
+            commands::clear_model_override,
+            commands::get_hardware_profile,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -219,17 +210,17 @@ fn main() {
             use tauri::RunEvent;
             match event {
                 RunEvent::Exit => {
-                    // Ensure any active mic capture thread is stopped before the
-                    // process exits. Tauri does NOT call Drop on managed state,
-                    // so we must signal manually.
                     let state = app.state::<state::AppState>();
-                    state.transcription_running.store(false, std::sync::atomic::Ordering::SeqCst);
+                    state
+                        .transcription_running
+                        .store(false, std::sync::atomic::Ordering::SeqCst);
                     std::thread::sleep(std::time::Duration::from_millis(200));
                 }
                 RunEvent::ExitRequested { .. } => {
-                    // Also stop recording when the last window is closed
                     let state = app.state::<state::AppState>();
-                    state.transcription_running.store(false, std::sync::atomic::Ordering::SeqCst);
+                    state
+                        .transcription_running
+                        .store(false, std::sync::atomic::Ordering::SeqCst);
                 }
                 _ => {}
             }

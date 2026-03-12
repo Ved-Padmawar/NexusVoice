@@ -38,6 +38,17 @@ jobs:
         shell: pwsh
         run: echo "$env:CUDA_PATH\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
+      - name: Install Vulkan SDK
+        shell: pwsh
+        run: |
+          $url = "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-sdk.exe"
+          $installer = "$env:TEMP\vulkan-sdk.exe"
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          Start-Process -FilePath $installer -ArgumentList "--accept-licenses --default-answer --confirm-command install" -Wait
+          $sdkPath = (Get-ChildItem "C:\VulkanSDK" | Sort-Object Name -Descending | Select-Object -First 1).FullName
+          echo "VULKAN_SDK=$sdkPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "$sdkPath\Bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: Install npm deps
         run: npm ci
 
@@ -49,17 +60,45 @@ jobs:
           sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
           sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
 
-      - name: Copy CUDA DLLs for bundling
+      - name: Copy CUDA DLLs
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path src-tauri/cuda
-          Copy-Item "$env:CUDA_PATH\bin\cublas64_12.dll" src-tauri/cuda/
+          Copy-Item "$env:CUDA_PATH\bin\cublas64_12.dll"   src-tauri/cuda/
           Copy-Item "$env:CUDA_PATH\bin\cublasLt64_12.dll" src-tauri/cuda/
-          Copy-Item "$env:CUDA_PATH\bin\cudart64_12.dll" src-tauri/cuda/
-          $conf = Get-Content src-tauri/tauri.conf.json -Raw
-          $resources = '"resources": { "cuda/cublas64_12.dll": "cublas64_12.dll", "cuda/cublasLt64_12.dll": "cublasLt64_12.dll", "cuda/cudart64_12.dll": "cudart64_12.dll" },'
-          $conf = $conf -replace '"windows": \{', "$resources`n    `"windows`": {"
-          Set-Content src-tauri/tauri.conf.json $conf
+          Copy-Item "$env:CUDA_PATH\bin\cudart64_12.dll"   src-tauri/cuda/
+
+      - name: Patch tauri.conf.json resources with CUDA DLLs
+        shell: python
+        run: |
+          import json, pathlib
+          conf_path = pathlib.Path("src-tauri/tauri.conf.json")
+          conf = json.loads(conf_path.read_text(encoding="utf-8"))
+          cuda_entries = [
+              {"cuda/cublas64_12.dll": "cublas64_12.dll"},
+              {"cuda/cublasLt64_12.dll": "cublasLt64_12.dll"},
+              {"cuda/cudart64_12.dll": "cudart64_12.dll"},
+          ]
+          resources = conf["bundle"]["resources"]
+          for entry in cuda_entries:
+              if entry not in resources:
+                  resources.append(entry)
+          conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
+          print("patched tauri.conf.json resources")
+
+      - name: Enable whisper-rs GPU features in Cargo.toml
+        shell: python
+        run: |
+          import pathlib, re
+          cargo = pathlib.Path("src-tauri/Cargo.toml")
+          text = cargo.read_text(encoding="utf-8")
+          text = re.sub(
+              r'whisper-rs\s*=\s*"([^"]+)"',
+              r'whisper-rs = { version = "\1", features = ["cuda", "vulkan"] }',
+              text,
+          )
+          cargo.write_text(text, encoding="utf-8")
+          print("enabled cuda + vulkan features for whisper-rs")
 
       - name: Cache Rust deps
         uses: Swatinem/rust-cache@v2.8.2
@@ -71,7 +110,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build -- --features cuda
+        run: npx tauri build
 
       - name: Generate latest.json
         shell: bash
@@ -83,18 +122,18 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           BASE="https://github.com/${REPO}/releases/download/${TAG}"
           cat > latest.json <<ENDJSON
-          {
-            "version": "${VERSION}",
-            "notes": "NexusVoice ${VERSION}",
-            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "platforms": {
-              "windows-x86_64": {
-                "signature": "${NSIS_SIG}",
-                "url": "${BASE}/${NSIS_EXE}"
-              }
-            }
-          }
-          ENDJSON
+{
+  "version": "${VERSION}",
+  "notes": "NexusVoice ${VERSION}",
+  "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "${NSIS_SIG}",
+      "url": "${BASE}/${NSIS_EXE}"
+    }
+  }
+}
+ENDJSON
 
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v2

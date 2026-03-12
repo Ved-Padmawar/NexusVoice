@@ -1,10 +1,6 @@
-#[path = "../../database/connection.rs"]
 pub mod connection;
-#[path = "../../database/dto/mod.rs"]
 pub mod dto;
-#[path = "../../database/models/mod.rs"]
 pub mod models;
-#[path = "../../database/repositories/mod.rs"]
 pub mod repositories;
 
 #[cfg(test)]

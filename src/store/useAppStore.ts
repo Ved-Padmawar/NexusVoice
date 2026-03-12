@@ -187,6 +187,7 @@ export const useAppStore = create<AppState>()(
             const u = await invoke<{ id: number; email: string } | null>('get_current_user')
             if (u) set({ user: { id: u.id, email: u.email } })
           } catch { /* ignore */ }
+          invoke('retry_model_download').catch(() => {})
           get().init()
         })
         const unlistenUnauth = await listen<AuthReadyPayload>('auth:unauthenticated', () => {
@@ -206,12 +207,12 @@ export const useAppStore = create<AppState>()(
         try {
           const resp = await invoke<{ user: User; tokens: { accessToken: string; refreshToken: string; expiresInSeconds: number } }>('login_with_tokens', { email, password })
           set({ user: resp.user, refreshToken: resp.tokens.refreshToken })
-          // Persist to backend secure file store
           await invoke('store_refresh_token', {
             refreshToken: resp.tokens.refreshToken,
             userId: resp.user.id,
             accessToken: resp.tokens.accessToken,
           })
+          invoke('retry_model_download').catch(() => {})
         } catch (e) {
           const message =
             typeof e === 'object' && e !== null && 'message' in e
@@ -231,6 +232,7 @@ export const useAppStore = create<AppState>()(
             userId: resp.user.id,
             accessToken: resp.tokens.accessToken,
           })
+          invoke('retry_model_download').catch(() => {})
         } catch (e) {
           const message =
             typeof e === 'object' && e !== null && 'message' in e

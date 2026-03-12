@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import {
   Palette, Keyboard, Info,
   Check, AlertCircle, CheckCircle2, X,
-  RefreshCw, Download, ArrowUpCircle,
+  RefreshCw, Download, ArrowUpCircle, Cpu,
 } from 'lucide-react'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
@@ -64,6 +64,114 @@ function buildShortcut(keys: string[]): string {
 
 const TAB_ICONS = { general: Palette, audio: Keyboard, about: Info }
 
+/* ── Model selection ────────────────────────────────────────────── */
+type HardwareProfile = {
+  gpuName: string
+  executionProvider: string
+  vramGb: number
+  recommendedModel: string
+}
+
+type ModelOverride = 'auto' | 'large' | 'medium'
+
+const MODEL_LABELS: Record<ModelOverride, string> = {
+  auto: 'Auto (recommended)',
+  large: 'large-v3-turbo — best accuracy, GPU recommended',
+  medium: 'medium.en — faster, runs well on CPU',
+}
+
+function ModelCard() {
+  const [profile, setProfile] = useState<HardwareProfile | null>(null)
+  const [selected, setSelected] = useState<ModelOverride>('auto')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    invoke<HardwareProfile>('get_hardware_profile').then(setProfile).catch(() => {})
+  }, [])
+
+  const handleChange = async (v: ModelOverride) => {
+    setSelected(v)
+    setSaving(true)
+    setSaved(false)
+    try {
+      if (v === 'auto') {
+        await invoke('clear_model_override')
+      } else {
+        await invoke('set_model_override', { variant: v })
+      }
+      // Trigger download if the selected model isn't on disk yet
+      invoke('retry_model_download').catch(() => {})
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch { /* ignore */ }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="card">
+      <div className="card__header">
+        <div>
+          <h2 className="card__title">Model</h2>
+          <p className="card__desc">
+            {profile ? `Auto-selected: ${profile.recommendedModel}` : 'Detecting hardware…'}
+          </p>
+        </div>
+        {saved && <CheckCircle2 size={16} strokeWidth={1.75} style={{ color: 'var(--success)', flexShrink: 0 }} />}
+      </div>
+      <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+        {/* Hardware info row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <Cpu size={12} strokeWidth={1.75} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+          <span style={{ fontSize: '12px', color: 'var(--fg-2)' }}>
+            {profile ? profile.gpuName : 'Detecting…'}
+          </span>
+          {profile && (
+            <>
+              <Badge variant="secondary">{profile.executionProvider.toUpperCase()}</Badge>
+              {profile.vramGb > 0 && (
+                <Badge variant="secondary">{profile.vramGb} GB VRAM</Badge>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Model size selector */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <p className="field-label">Model size</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {(['auto', 'large', 'medium'] as ModelOverride[]).map(v => (
+              <label
+                key={v}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '6px 10px', borderRadius: 'var(--r-sm)',
+                  cursor: 'pointer',
+                  background: selected === v ? 'var(--accent-soft)' : 'transparent',
+                  border: `1px solid ${selected === v ? 'var(--accent)' : 'transparent'}`,
+                  transition: 'background var(--t-fast), border-color var(--t-fast)',
+                }}
+              >
+                <input
+                  type="radio"
+                  name="model-size"
+                  value={v}
+                  checked={selected === v}
+                  onChange={() => handleChange(v)}
+                  disabled={saving}
+                  style={{ accentColor: 'var(--accent)' }}
+                />
+                <span style={{ fontSize: '12px', color: 'var(--fg)' }}>{MODEL_LABELS[v]}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Update states ─────────────────────────────────────────────── */
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
 
@@ -120,7 +228,7 @@ function AboutTab() {
   const INFO_ROWS = [
     { label: 'Version',  value: <Badge variant="secondary">v{__APP_VERSION__}</Badge> },
     { label: 'Model',    value: <Badge variant="secondary">Whisper Large v3 Turbo</Badge> },
-    { label: 'Engine',   value: <span style={{ fontSize: '12px', color: 'var(--fg)' }}>whisper.cpp (local)</span> },
+    { label: 'Engine',   value: <span style={{ fontSize: '12px', color: 'var(--fg)' }}>ONNX Runtime (local)</span> },
     { label: 'Language', value: <span style={{ fontSize: '12px', color: 'var(--fg)' }}>English</span> },
     { label: 'Privacy',  value: <span style={{ fontSize: '12px', color: 'var(--fg)' }}>100% on-device · no telemetry</span> },
   ]
@@ -145,6 +253,9 @@ function AboutTab() {
           ))}
         </div>
       </div>
+
+      {/* Hardware + model selection */}
+      <ModelCard />
 
       {/* Updater card */}
       <div className="card">
