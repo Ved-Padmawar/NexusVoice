@@ -36,7 +36,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 
 - **Push-to-talk** — hold any custom hotkey to record, release to transcribe and paste
 - **100% local** — Whisper runs entirely on your machine, nothing is sent to the cloud
-- **GPU-accelerated** — auto-detects NVIDIA (CUDA), AMD/Intel (DirectML), falls back to CPU
+- **GPU-accelerated** — auto-detects NVIDIA (CUDA), AMD/Intel (Vulkan), falls back to CPU
 - **Smart model selection** — picks the best Whisper model for your hardware automatically
 - **Auto-download** — models download on first selection, cached locally
 - **Personal dictionary** — map spoken words to their correct form (e.g. "gonna" → "going to")
@@ -61,15 +61,12 @@ Hotkey released  →  audio resampled to 16kHz mono
 
 ## Models
 
-| Model | Size | VRAM Required | Notes |
-|-------|------|--------------|-------|
-| Whisper Tiny | ~75 MB | Any (CPU) | Fastest, lowest accuracy |
-| Whisper Base | ~142 MB | 2 GB+ | Good for everyday use |
-| Whisper Small | ~466 MB | 4 GB+ | Balanced accuracy/speed |
-| Whisper Medium | ~1.5 GB | 6 GB+ | High accuracy |
-| Whisper Large v3 | ~2.9 GB | 8 GB+ | Best accuracy |
+| Model | Size | Used When | Notes |
+|-------|------|-----------|-------|
+| ggml-large-v3-turbo | ~1.5 GB | GPU detected | Best accuracy, fast on GPU |
+| ggml-medium.en | ~750 MB | CPU only | Great accuracy, runs well on CPU |
 
-Models are downloaded from HuggingFace on first selection and cached in your app data directory.
+The app auto-selects the best model for your hardware. You can override in Settings → Models. Models are downloaded from HuggingFace on first login and cached locally.
 
 ---
 
@@ -81,7 +78,7 @@ Models are downloaded from HuggingFace on first selection and cached in your app
 | Backend | Rust |
 | Audio capture | cpal |
 | Transcription | whisper-rs (ggml) |
-| GPU inference | CUDA / DirectML |
+| GPU inference | CUDA (NVIDIA) / Vulkan (AMD, Intel) |
 | Database | SQLite via sqlx |
 | Frontend | React 19 + TypeScript |
 | Styling | Tailwind CSS v4 + shadcn/ui |
@@ -94,8 +91,12 @@ Models are downloaded from HuggingFace on first selection and cached in your app
 
 Download the latest installer from [Releases](../../releases/latest):
 
-- **`NexusVoice_x.x.x_x64-setup.exe`** — NSIS installer (recommended)
-- **`NexusVoice_x.x.x_x64_en-US.msi`** — MSI installer
+| Installer | Who it's for |
+|-----------|-------------|
+| `NexusVoice_x.x.x_x64-setup.exe` | Everyone — CPU + Vulkan (Intel, AMD, NVIDIA) |
+| `NexusVoice-CUDA_x.x.x_x64-setup.exe` | NVIDIA GPU users who want maximum performance |
+
+If you're unsure, download the standard installer — it works on all machines.
 
 **Requirements:** Windows 10 1803+ or Windows 11 (WebView2 is pre-installed).
 No Rust, Node, CMake, or any dev tools needed on the target machine.
