@@ -4,12 +4,14 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 
 export type ThemeName =
-  | 'void'
-  | 'obsidian'
-  | 'nord'
-  | 'sage'
-  | 'dusk'
-  | 'paper'
+  | 'abyss'
+  | 'midnight'
+  | 'nebula'
+  | 'pine'
+  | 'canvas'
+  | 'dawn'
+  | 'breeze'
+  | 'blossom'
 
 export type User = {
   id: number
@@ -44,6 +46,8 @@ type AppState = {
   theme: ThemeName
   /** Persisted active route so tab survives focus-loss / tray re-open */
   activeRoute: string
+  /** Persisted settings tab so it survives window focus-loss / snipping tool */
+  activeSettingsTab: 'general' | 'audio' | 'about'
   transcripts: Transcript[]
   dictionary: DictionaryEntry[]
   stats: UsageStats | null
@@ -61,6 +65,7 @@ type AppState = {
   listenForAuthReady: () => Promise<() => void>
   setTheme: (theme: ThemeName) => void
   setActiveRoute: (route: string) => void
+  setActiveSettingsTab: (tab: 'general' | 'audio' | 'about') => void
   setUser: (user: User | null) => void
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string) => Promise<void>
@@ -77,8 +82,9 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       user: null,
       refreshToken: null,
-      theme: 'void',
+      theme: 'abyss',
       activeRoute: '/',
+      activeSettingsTab: 'general',
       transcripts: [],
       dictionary: [],
       stats: null,
@@ -197,6 +203,7 @@ export const useAppStore = create<AppState>()(
 
       setTheme: (theme) => set({ theme }),
       setActiveRoute: (route) => set({ activeRoute: route }),
+      setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
       setUser: (user) => set({ user }),
 
       login: async (email, password) => {
@@ -299,7 +306,7 @@ export const useAppStore = create<AppState>()(
     {
       name: 'nexus-voice-storage',
       // Persist UI prefs + last active route so tab survives tray minimize
-      partialize: (state) => ({ theme: state.theme, activeRoute: state.activeRoute }),
+      partialize: (state) => ({ theme: state.theme, activeRoute: state.activeRoute, activeSettingsTab: state.activeSettingsTab }),
     }
   )
 )

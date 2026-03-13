@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -100,18 +101,13 @@ export function Auth() {
             Speak naturally. Paste instantly. Works everywhere on your desktop.
           </p>
 
-          <div style={{ marginTop: '28px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <div className="auth-features">
             {FEATURES.map((f) => (
-              <div key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                <div style={{
-                  width: '18px', height: '18px', borderRadius: 'var(--r-sm)',
-                  background: 'var(--accent-soft)', color: 'var(--accent)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  flexShrink: 0, marginTop: '1px',
-                }}>
+              <div key={f} className="auth-feature">
+                <div className="auth-feature__icon">
                   <Check size={10} strokeWidth={3} />
                 </div>
-                <span style={{ fontSize: '12px', color: 'var(--fg-2)', lineHeight: 1.5 }}>{f}</span>
+                <span className="auth-feature__text">{f}</span>
               </div>
             ))}
           </div>
@@ -123,23 +119,35 @@ export function Auth() {
       {/* Right panel — form */}
       <div className="auth-right">
         <div className="auth-box">
-          <div>
-            <h1 className="auth-title">
-              {mode === 'login' ? 'Welcome back' : 'Get started'}
-            </h1>
-            <p className="auth-subtitle">
-              {mode === 'login'
-                ? 'Sign in to your NexusVoice account'
-                : 'Create your free account'}
-            </p>
-          </div>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={mode}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18 }}
+            >
+              <h1 className="auth-title">
+                {mode === 'login' ? 'Welcome back' : 'Get started'}
+              </h1>
+              <p className="auth-subtitle">
+                {mode === 'login'
+                  ? 'Sign in to your NexusVoice account'
+                  : 'Create your free account'}
+              </p>
+            </motion.div>
+          </AnimatePresence>
 
-          {errors.root && (
-            <div className="notice notice--error">
-              <AlertCircle size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--danger)' }} />
-              <span style={{ flex: 1 }}>{errors.root.message}</span>
-            </div>
-          )}
+          <AnimatePresence>
+            {errors.root && (
+              <motion.div key="auth-error" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.18 }} style={{ overflow: 'hidden' }}>
+                <div className="notice notice--error">
+                  <AlertCircle size={13} strokeWidth={2} className="icon--shrink icon--danger" />
+                  <span className="text--flex">{errors.root.message}</span>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <form onSubmit={handleSubmit(onSubmit)} className="auth-form" noValidate>
             <div className="auth-field">
@@ -182,15 +190,12 @@ export function Auth() {
                 disabled={isSubmitting}
                 {...formRegister('rememberMe')}
               />
-              <Label
-                htmlFor="auth-remember"
-                style={{ textTransform: 'none', fontSize: '11px', letterSpacing: 0, fontWeight: 400, color: 'var(--fg-2)', cursor: 'pointer' }}
-              >
+              <Label htmlFor="auth-remember" className="auth-remember-label">
                 Remember me for 30 days
               </Label>
             </div>
 
-            <Button type="submit" className="w-full" disabled={isSubmitting} style={{ marginTop: '4px' }}>
+            <Button type="submit" className="w-full auth-submit" disabled={isSubmitting}>
               {isSubmitting
                 ? (mode === 'login' ? 'Signing in…' : 'Creating account…')
                 : (mode === 'login' ? 'Sign in' : 'Create account')}

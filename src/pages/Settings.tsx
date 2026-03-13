@@ -11,19 +11,68 @@ import { relaunch } from '@tauri-apps/plugin-process'
 import { useAppStore, type ThemeName } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
 /* ── Themes ────────────────────────────────────────────────────── */
 const THEMES: {
-  name: ThemeName; label: string; desc: string
-  bg: string; panel: string; accent: string
+  name: ThemeName; label: string; mode: 'dark' | 'light'
+  bg: string; panel: string; accent: string; border: string; surface: string; muted: string
 }[] = [
-  { name: 'void',     label: 'Void',     desc: 'True dark · Violet',   bg: '#0e0d1a', panel: '#131220', accent: '#8b7cf8' },
-  { name: 'obsidian', label: 'Obsidian', desc: 'Charcoal · Cyan',      bg: '#101214', panel: '#141618', accent: '#5fc8c8' },
-  { name: 'nord',     label: 'Nord',     desc: 'Blue-steel · Frost',   bg: '#2e3440', panel: '#3b4252', accent: '#88c0d0' },
-  { name: 'dusk',     label: 'Dusk',     desc: 'Warm dark · Rose',     bg: '#1a1110', panel: '#1f1614', accent: '#e07060' },
-  { name: 'sage',     label: 'Sage',     desc: 'Warm light · Emerald', bg: '#f7f6f1', panel: '#ffffff', accent: '#3d9e6a' },
-  { name: 'paper',    label: 'Paper',    desc: 'True light · Indigo',  bg: '#f8f8fc', panel: '#ffffff', accent: '#5b4de8' },
+  { name: 'abyss',    label: 'Abyss',    mode: 'dark',  bg: '#22232b', panel: '#2a2b35', accent: '#78a2f4', border: '#383a48', surface: '#2e303d', muted: '#6a6e88' },
+  { name: 'midnight', label: 'Midnight', mode: 'dark',  bg: '#0d101c', panel: '#131526', accent: '#8b5cf6', border: '#1e2240', surface: '#181b2e', muted: '#4a507a' },
+  { name: 'nebula',   label: 'Nebula',   mode: 'dark',  bg: '#231b2a', panel: '#2c2433', accent: '#9d38a8', border: '#3e3048', surface: '#332840', muted: '#6a5878' },
+  { name: 'pine',     label: 'Pine',     mode: 'dark',  bg: '#1b2420', panel: '#222d29', accent: '#58c596', border: '#304038', surface: '#283530', muted: '#507060' },
+  { name: 'canvas',   label: 'Canvas',   mode: 'light', bg: '#f8f9fc', panel: '#ffffff', accent: '#3a5bd9', border: '#d8dce8', surface: '#f0f2f8', muted: '#8890b0' },
+  { name: 'dawn',     label: 'Dawn',     mode: 'light', bg: '#faf4ee', panel: '#ede0d0', accent: '#d4610a', border: '#d8c8b4', surface: '#f5ede2', muted: '#9a8870' },
+  { name: 'breeze',   label: 'Breeze',   mode: 'light', bg: '#eef6f8', panel: '#d8eef0', accent: '#1a7a8a', border: '#c0d8dc', surface: '#e8f4f6', muted: '#6a9098' },
+  { name: 'blossom',  label: 'Blossom',  mode: 'light', bg: '#f8eef0', panel: '#e8d4d8', accent: '#c0304a', border: '#d8c0c4', surface: '#f2e4e8', muted: '#9a7078' },
 ]
+
+/* Mini UI preview — renders a fake app layout using theme raw colors */
+function ThemePreview({ bg, panel, accent, border, surface, muted }: {
+  bg: string; panel: string; accent: string; border: string; surface: string; muted: string
+}) {
+  return (
+    <svg viewBox="0 0 120 72" xmlns="http://www.w3.org/2000/svg" className="theme-preview">
+      {/* App background */}
+      <rect width="120" height="72" fill={bg} />
+      {/* Titlebar */}
+      <rect x="0" y="0" width="120" height="9" fill={panel} />
+      <circle cx="6" cy="4.5" r="1.8" fill={muted} opacity="0.6" />
+      <circle cx="11" cy="4.5" r="1.8" fill={muted} opacity="0.6" />
+      <circle cx="16" cy="4.5" r="1.8" fill={muted} opacity="0.6" />
+      <rect x="42" y="3" width="36" height="3" rx="1.5" fill={border} opacity="0.7" />
+      {/* Sidebar */}
+      <rect x="0" y="9" width="28" height="63" fill={panel} />
+      <rect x="0" y="9" width="28" height="63" fill="none" stroke={border} strokeWidth="0.5" />
+      {/* Sidebar nav items */}
+      <rect x="4" y="16" width="3" height="3" rx="1" fill={accent} opacity="0.9" />
+      <rect x="10" y="17" width="14" height="2" rx="1" fill={accent} opacity="0.5" />
+      <rect x="4" y="24" width="3" height="3" rx="1" fill={muted} opacity="0.5" />
+      <rect x="10" y="25" width="12" height="2" rx="1" fill={muted} opacity="0.3" />
+      <rect x="4" y="32" width="3" height="3" rx="1" fill={muted} opacity="0.5" />
+      <rect x="10" y="33" width="10" height="2" rx="1" fill={muted} opacity="0.3" />
+      {/* Main content */}
+      <rect x="32" y="14" width="22" height="3" rx="1.5" fill={muted} opacity="0.5" />
+      {/* Stat cards */}
+      <rect x="32" y="22" width="20" height="12" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
+      <rect x="55" y="22" width="20" height="12" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
+      <rect x="78" y="22" width="20" height="12" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
+      <rect x="101" y="22" width="15" height="12" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
+      {/* Accent bars in cards */}
+      <rect x="35" y="28" width="14" height="3" rx="1" fill={accent} opacity="0.85" />
+      <rect x="58" y="28" width="14" height="3" rx="1" fill={accent} opacity="0.6" />
+      <rect x="81" y="28" width="14" height="3" rx="1" fill={accent} opacity="0.4" />
+      <rect x="104" y="28" width="9" height="3" rx="1" fill={accent} opacity="0.25" />
+      {/* Activity card */}
+      <rect x="32" y="38" width="84" height="28" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
+      <rect x="36" y="43" width="40" height="2" rx="1" fill={muted} opacity="0.4" />
+      <rect x="36" y="48" width="60" height="2" rx="1" fill={muted} opacity="0.25" />
+      <rect x="36" y="53" width="50" height="2" rx="1" fill={muted} opacity="0.2" />
+      <rect x="36" y="58" width="30" height="2" rx="1" fill={accent} opacity="0.35" />
+    </svg>
+  )
+}
 
 /* ── Hotkey helpers ────────────────────────────────────────────── */
 function getKeyName(key: string, code: string): string {
@@ -74,113 +123,46 @@ type HardwareProfile = {
 
 type ModelOverride = 'auto' | 'large' | 'medium'
 
-const MODEL_LABELS: Record<ModelOverride, string> = {
-  auto: 'Auto (recommended)',
-  large: 'large-v3-turbo — best accuracy, GPU recommended',
-  medium: 'medium.en — faster, runs well on CPU',
-}
-
-function ModelCard() {
-  const [profile, setProfile] = useState<HardwareProfile | null>(null)
-  const [selected, setSelected] = useState<ModelOverride>('auto')
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-
-  useEffect(() => {
-    invoke<HardwareProfile>('get_hardware_profile').then(setProfile).catch(() => {})
-  }, [])
-
-  const handleChange = async (v: ModelOverride) => {
-    setSelected(v)
-    setSaving(true)
-    setSaved(false)
-    try {
-      if (v === 'auto') {
-        await invoke('clear_model_override')
-      } else {
-        await invoke('set_model_override', { variant: v })
-      }
-      // Trigger download if the selected model isn't on disk yet
-      invoke('retry_model_download').catch(() => {})
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-    } catch { /* ignore */ }
-    finally { setSaving(false) }
-  }
-
-  return (
-    <div className="card">
-      <div className="card__header">
-        <div>
-          <h2 className="card__title">Model</h2>
-          <p className="card__desc">
-            {profile ? `Auto-selected: ${profile.recommendedModel}` : 'Detecting hardware…'}
-          </p>
-        </div>
-        {saved && <CheckCircle2 size={16} strokeWidth={1.75} style={{ color: 'var(--success)', flexShrink: 0 }} />}
-      </div>
-      <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-
-        {/* Hardware info row */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          <Cpu size={12} strokeWidth={1.75} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-          <span style={{ fontSize: '12px', color: 'var(--fg-2)' }}>
-            {profile ? profile.gpuName : 'Detecting…'}
-          </span>
-          {profile && (
-            <>
-              <Badge variant="secondary">{profile.executionProvider.toUpperCase()}</Badge>
-              {profile.vramGb > 0 && (
-                <Badge variant="secondary">{profile.vramGb} GB VRAM</Badge>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Model size selector */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <p className="field-label">Model size</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {(['auto', 'large', 'medium'] as ModelOverride[]).map(v => (
-              <label
-                key={v}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '8px',
-                  padding: '6px 10px', borderRadius: 'var(--r-sm)',
-                  cursor: 'pointer',
-                  background: selected === v ? 'var(--accent-soft)' : 'transparent',
-                  border: `1px solid ${selected === v ? 'var(--accent)' : 'transparent'}`,
-                  transition: 'background var(--t-fast), border-color var(--t-fast)',
-                }}
-              >
-                <input
-                  type="radio"
-                  name="model-size"
-                  value={v}
-                  checked={selected === v}
-                  onChange={() => handleChange(v)}
-                  disabled={saving}
-                  style={{ accentColor: 'var(--accent)' }}
-                />
-                <span style={{ fontSize: '12px', color: 'var(--fg)' }}>{MODEL_LABELS[v]}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
+const MODEL_OPTIONS: { value: ModelOverride; label: string; sub: string }[] = [
+  { value: 'auto',   label: 'Auto',   sub: 'Recommended' },
+  { value: 'large',  label: 'Large',  sub: 'Best accuracy' },
+  { value: 'medium', label: 'Medium', sub: 'Faster / CPU' },
+]
 
 /* ── Update states ─────────────────────────────────────────────── */
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
 
 function AboutTab() {
+  /* model state */
+  const [profile, setProfile] = useState<HardwareProfile | null>(null)
+  const [selected, setSelected] = useState<ModelOverride>('auto')
+  const [modelSaving, setModelSaving] = useState(false)
+  const [modelSaved, setModelSaved] = useState(false)
+
+  /* update state */
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
   const [updateVersion, setUpdateVersion] = useState<string | null>(null)
   const [downloadProgress, setDownloadProgress] = useState(0)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const updaterRef = useRef<Awaited<ReturnType<typeof check>> | null>(null)
+
+  useEffect(() => {
+    invoke<HardwareProfile>('get_hardware_profile').then(setProfile).catch(() => {})
+  }, [])
+
+  const handleModelChange = async (v: ModelOverride) => {
+    setSelected(v)
+    setModelSaving(true)
+    setModelSaved(false)
+    try {
+      if (v === 'auto') await invoke('clear_model_override')
+      else await invoke('set_model_override', { variant: v })
+      invoke('retry_model_download').catch(() => {})
+      setModelSaved(true)
+      setTimeout(() => setModelSaved(false), 2000)
+    } catch { /* ignore */ }
+    finally { setModelSaving(false) }
+  }
 
   const checkForUpdate = useCallback(async () => {
     setUpdateStatus('checking')
@@ -225,88 +207,126 @@ function AboutTab() {
     }
   }, [])
 
-  const INFO_ROWS = [
-    { label: 'Version',  value: <Badge variant="secondary">v{__APP_VERSION__}</Badge> },
-    { label: 'Engine',   value: <Badge variant="secondary">whisper-rs (ggml)</Badge> },
-    { label: 'Language', value: <span style={{ fontSize: '12px', color: 'var(--fg)' }}>English</span> },
-    { label: 'Privacy',  value: <span style={{ fontSize: '12px', color: 'var(--fg)' }}>100% on-device · no telemetry</span> },
-  ]
+  const updateDesc = {
+    idle: 'Check for the latest release.',
+    checking: 'Checking…',
+    'up-to-date': 'You are on the latest version.',
+    available: `v${updateVersion} is available.`,
+    downloading: `Downloading… ${downloadProgress}%`,
+    ready: 'Update downloaded. Restart to apply.',
+    error: updateError ?? 'Something went wrong.',
+  }[updateStatus]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+    <div className="about-stack">
 
-      {/* App info card */}
+      {/* ── Single unified card ── */}
       <div className="card">
+
+        {/* App info */}
         <div className="card__header">
           <div>
             <h2 className="card__title">NexusVoice</h2>
             <p className="card__desc">Local-first voice-to-text for power users.</p>
           </div>
+          <Badge variant="secondary">v{__APP_VERSION__}</Badge>
         </div>
-        <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {INFO_ROWS.map(({ label, value }) => (
-            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '12px', color: 'var(--fg-2)' }}>{label}</span>
-              {value}
-            </div>
-          ))}
+        <div className="card__body about-info-grid">
+          <span className="about-info-label">Engine</span>
+          <Badge variant="secondary">whisper-rs (ggml)</Badge>
+          <span className="about-info-label">Language</span>
+          <span className="about-info-value">English</span>
+          <span className="about-info-label">Privacy</span>
+          <span className="about-info-value">100% on-device · no telemetry</span>
         </div>
-      </div>
 
-      {/* Hardware + model selection */}
-      <ModelCard />
+        <div className="card__divider" />
 
-      {/* Updater card */}
-      <div className="card">
-        <div className="card__header">
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <h2 className="card__title">Updates</h2>
-            {updateStatus === 'downloading' ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
-                <p className="card__desc">Downloading… {downloadProgress}%</p>
-                <div style={{ height: '3px', borderRadius: '999px', background: 'var(--border)', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${downloadProgress}%`, borderRadius: '999px', background: 'var(--accent)', transition: 'width 0.3s ease' }} />
-                </div>
-              </div>
-            ) : (
-              <p className="card__desc">
-                {updateStatus === 'up-to-date' && 'You are on the latest version.'}
-                {updateStatus === 'available' && `v${updateVersion} is available.`}
-                {updateStatus === 'ready' && 'Update downloaded. Restart to apply.'}
-                {updateStatus === 'error' && (updateError ?? 'Something went wrong.')}
-                {(updateStatus === 'idle' || updateStatus === 'checking') && 'Check for the latest release.'}
-              </p>
-            )}
+        {/* Hardware + model */}
+        <div className="card__header card__header--section">
+          <div>
+            <h2 className="card__title">Model</h2>
+            <p className="card__desc">
+              {profile
+                ? <><Cpu size={11} strokeWidth={1.75} className="icon--inline" />{profile.gpuName}</>
+                : 'Detecting hardware…'}
+            </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-            {updateStatus === 'up-to-date' && <CheckCircle2 size={16} strokeWidth={1.75} style={{ color: 'var(--success)' }} />}
-            {updateStatus === 'error' && <AlertCircle size={16} strokeWidth={1.75} style={{ color: 'var(--danger)' }} />}
+          <div className="about-badges">
+            {profile && <Badge variant="secondary">{profile.executionProvider.toUpperCase()}</Badge>}
+            {profile && profile.vramGb > 0 && <Badge variant="secondary">{profile.vramGb} GB VRAM</Badge>}
+            {modelSaved && <CheckCircle2 size={14} strokeWidth={2} className="icon--success" />}
+          </div>
+        </div>
+        <div className="card__body">
+          <div className="model-segment">
+            {MODEL_OPTIONS.map(({ value, label, sub }) => (
+              <button
+                key={value}
+                type="button"
+                className={`model-segment__btn${selected === value ? ' model-segment__btn--active' : ''}`}
+                onClick={() => handleModelChange(value)}
+                disabled={modelSaving}
+              >
+                <span className="model-segment__label">{label}</span>
+                <span className="model-segment__sub">{sub}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="card__divider" />
+
+        {/* Updater */}
+        <div className="card__header card__header--section">
+          <div className="about-update-left">
+            <h2 className="card__title">Updates</h2>
+            <p className="card__desc">{updateDesc}</p>
+            {/* Progress bar — always present, width animates */}
+            <div className="about-progress-track">
+              <div
+                className="about-progress-fill"
+                style={{ width: updateStatus === 'downloading' ? `${downloadProgress}%` : '0%' }}
+              />
+            </div>
+          </div>
+          <div className="about-update-actions">
+            {updateStatus === 'up-to-date' && <CheckCircle2 size={14} strokeWidth={2} className="icon--success" />}
+            {updateStatus === 'error' && <AlertCircle size={14} strokeWidth={2} className="icon--danger" />}
             {(updateStatus === 'idle' || updateStatus === 'up-to-date' || updateStatus === 'error') && (
               <Button size="sm" variant="outline" onClick={checkForUpdate}>
-                <RefreshCw size={12} strokeWidth={2} />
+                <RefreshCw size={11} strokeWidth={2} />
                 Check
               </Button>
             )}
             {updateStatus === 'checking' && (
               <Button size="sm" variant="outline" disabled>
-                <RefreshCw size={12} strokeWidth={2} style={{ animation: 'spin 1s linear infinite' }} />
+                <RefreshCw size={11} strokeWidth={2} className="icon--spin" />
                 Checking…
               </Button>
             )}
             {updateStatus === 'available' && (
               <Button size="sm" onClick={downloadAndInstall}>
-                <Download size={12} strokeWidth={2} />
-                Download v{updateVersion}
+                <Download size={11} strokeWidth={2} />
+                Download
+              </Button>
+            )}
+            {updateStatus === 'downloading' && (
+              <Button size="sm" disabled>
+                <Download size={11} strokeWidth={2} />
+                {downloadProgress}%
               </Button>
             )}
             {updateStatus === 'ready' && (
               <Button size="sm" onClick={() => relaunch()}>
-                <ArrowUpCircle size={12} strokeWidth={2} />
+                <ArrowUpCircle size={11} strokeWidth={2} />
                 Restart
               </Button>
             )}
           </div>
         </div>
+        {/* Spacer so card__body padding applies at bottom */}
+        <div className="card__body card__body--flush-top" />
       </div>
     </div>
   )
@@ -318,11 +338,22 @@ export function Settings() {
     theme, setTheme,
     error, setError,
     hasHotkey,
+    activeSettingsTab, setActiveSettingsTab,
   } = useAppStore()
 
   const location = useLocation()
-  const initialTab = (location.state as { tab?: string } | null)?.tab ?? 'general'
-  const [tab, setTab] = useState<'general' | 'audio' | 'about'>(initialTab as 'general' | 'audio' | 'about')
+
+  // If navigated here with a specific tab (e.g. from hotkey banner), honour it once
+  useEffect(() => {
+    const requested = (location.state as { tab?: string } | null)?.tab
+    if (requested && ['general', 'audio', 'about'].includes(requested)) {
+      setActiveSettingsTab(requested as 'general' | 'audio' | 'about')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const tab = activeSettingsTab
+  const setTab = setActiveSettingsTab
 
   // Load initial hotkey from store — if set, fetch the string value once
   const [currentHotkey, setCurrentHotkey] = useState<string | null>(null)
@@ -402,7 +433,7 @@ export function Settings() {
   const KeyBadges = memo(({ keys }: { keys: string[] }) => (
     <div className="hotkey-keys">
       {keys.map((k, i) => (
-        <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+        <span key={i} className="hotkey-key-item">
           {i > 0 && <span className="key-sep">+</span>}
           <span className="key-badge">{displayKey(k)}</span>
         </span>
@@ -410,37 +441,30 @@ export function Settings() {
     </div>
   ))
 
-  const TABS = ['general', 'audio', 'about'] as const
+  const TABS = (['general', 'audio', 'about'] as const)
 
   return (
     <div className="settings-page">
-      <div className="page-header" style={{ marginBottom: '16px' }}>
+      <div className="page-header">
         <h1 className="page-title">Settings</h1>
         <p className="page-subtitle">Configure hotkeys and appearance.</p>
       </div>
 
-      {/* Tab bar */}
-      <div className="nv-tabs">
-        {TABS.map((t) => {
-          const Icon = TAB_ICONS[t]
-          return (
-            <button
-              key={t}
-              type="button"
-              className={`nv-tab ${tab === t ? 'nv-tab--active' : ''}`}
-              onClick={() => setTab(t)}
-            >
-              <Icon size={12} strokeWidth={1.75} />
-              {t.charAt(0).toUpperCase() + t.slice(1)}
-            </button>
-          )
-        })}
-      </div>
-
-      <div className="settings-scroll">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="settings-tabs">
+        <TabsList className="settings-tabs__list">
+          {TABS.map((t) => {
+            const Icon = TAB_ICONS[t]
+            return (
+              <TabsTrigger key={t} value={t} className="settings-tabs__trigger">
+                <Icon size={12} strokeWidth={1.75} />
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </TabsTrigger>
+            )
+          })}
+        </TabsList>
 
         {/* ── General: Themes ── */}
-        {tab === 'general' && (
+        <TabsContent value="general" className="settings-scroll">
           <div className="card">
             <div className="card__header">
               <div>
@@ -449,144 +473,129 @@ export function Settings() {
               </div>
             </div>
             <div className="card__body">
-              <div className="theme-grid">
-                {THEMES.map((t) => {
-                  const active = theme === t.name
-                  return (
-                    <button
-                      key={t.name}
-                      type="button"
-                      className={`theme-card ${active ? 'theme-card--active' : ''}`}
-                      onClick={() => setTheme(t.name)}
-                    >
-                      <div
-                        className="theme-swatch"
-                        style={{
-                          background: `linear-gradient(135deg, ${t.bg} 0%, ${t.panel} 50%, ${t.accent} 100%)`,
-                        }}
-                      />
-                      <div className="theme-info">
-                        <div className="theme-name">{t.label}</div>
-                        <div className="theme-desc">{t.desc}</div>
-                      </div>
-                      {active && (
-                        <div className="theme-check">
-                          <Check size={9} strokeWidth={3.5} />
-                        </div>
-                      )}
+              {(['dark', 'light'] as const).map((mode) => {
+                const group = THEMES.filter(t => t.mode === mode)
+                return (
+                  <div key={mode} className="theme-group">
+                    <p className="theme-group__label">{mode === 'dark' ? 'Dark' : 'Light'}</p>
+                    <div className="theme-grid">
+                      {group.map((t) => {
+                        const active = theme === t.name
+                        return (
+                          <button
+                            key={t.name}
+                            type="button"
+                            className={`theme-card ${active ? 'theme-card--active' : ''}`}
+                            onClick={() => setTheme(t.name)}
+                          >
+                            <ThemePreview bg={t.bg} panel={t.panel} accent={t.accent} border={t.border} surface={t.surface} muted={t.muted} />
+                            <div className="theme-card__footer">
+                              <span className="theme-name">{t.label}</span>
+                              {active && <Check size={9} strokeWidth={3.5} className="theme-card__check" />}
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* ── Audio: Hotkey ── */}
+        <TabsContent value="audio" className="settings-scroll">
+          {error && (
+            <div className="notice notice--error">
+              <AlertCircle size={13} strokeWidth={2} className="icon--shrink icon--danger" />
+              <span className="text--flex">{error}</span>
+              <button type="button" className="notice__close" onClick={() => setError(null)}>
+                <X size={13} strokeWidth={2} />
+              </button>
+            </div>
+          )}
+          {hotkeySuccess && (
+            <div className="notice notice--success">
+              <CheckCircle2 size={13} strokeWidth={2} className="icon--shrink icon--success" />
+              <span>Hotkey registered successfully.</span>
+            </div>
+          )}
+
+          <div className="card">
+            <div className="card__header">
+              <div>
+                <h2 className="card__title">Recording Hotkey</h2>
+                <p className="card__desc">Hold to record · release to transcribe and paste.</p>
+              </div>
+            </div>
+            <div className="card__body card__body--stack">
+
+              {currentHotkey && (
+                <div>
+                  <p className="field-label field-label--mb">Active hotkey</p>
+                  <div className="hotkey-active-row">
+                    <KeyBadges keys={currentHotkey.split('+')} />
+                    <button type="button" className="hotkey-remove" onClick={handleRemoveHotkey}>
+                      <X size={11} strokeWidth={2} />
+                      Remove
                     </button>
-                  )
-                })}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <p className="field-label field-label--mb">
+                  {currentHotkey ? 'Change hotkey' : 'Set hotkey'}
+                </p>
+                <div className="hotkey-recorder">
+                  <div
+                    ref={hotkeyRef}
+                    className={`hotkey-display ${isListening ? 'hotkey-display--listening' : ''}`}
+                    onClick={startListening}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') startListening() }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Click to record hotkey"
+                  >
+                    {pressedKeys.length === 0 && !isListening && (
+                      <span className="hotkey-placeholder">
+                        <Keyboard size={11} strokeWidth={1.75} className="hotkey-placeholder__icon" />
+                        Click to record…
+                      </span>
+                    )}
+                    {isListening && pressedKeys.length === 0 && (
+                      <span className="hotkey-placeholder hotkey-placeholder--listening">
+                        Press keys…
+                      </span>
+                    )}
+                    {pressedKeys.length > 0 && <KeyBadges keys={pressedKeys} />}
+                  </div>
+
+                  <Button size="sm" onClick={handleSaveHotkey} disabled={saving || pressedKeys.length === 0}>
+                    {saving ? 'Saving…' : 'Save'}
+                  </Button>
+
+                  {pressedKeys.length > 0 && (
+                    <Button type="button" variant="ghost" size="sm"
+                      onClick={() => { setPressedKeys([]); keysRef.current.clear() }}>
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                <p className="field-hint field-hint--mt">
+                  Recommended: Ctrl+Shift+Space · Alt+R · Ctrl+Alt+V
+                </p>
               </div>
             </div>
           </div>
-        )}
-
-        {/* ── Audio: Hotkey ── */}
-        {tab === 'audio' && (
-          <>
-            {error && (
-              <div className="notice notice--error">
-                <AlertCircle size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--danger)' }} />
-                <span style={{ flex: 1 }}>{error}</span>
-                <button type="button" className="notice__close" onClick={() => setError(null)}>
-                  <X size={13} strokeWidth={2} />
-                </button>
-              </div>
-            )}
-            {hotkeySuccess && (
-              <div className="notice notice--success">
-                <CheckCircle2 size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--success)' }} />
-                <span>Hotkey registered successfully.</span>
-              </div>
-            )}
-
-            <div className="card">
-              <div className="card__header">
-                <div>
-                  <h2 className="card__title">Recording Hotkey</h2>
-                  <p className="card__desc">Hold to record · release to transcribe and paste.</p>
-                </div>
-              </div>
-              <div className="card__body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
-                {/* Current */}
-                {currentHotkey && (
-                  <div>
-                    <p className="field-label" style={{ marginBottom: '6px' }}>Active hotkey</p>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <KeyBadges keys={currentHotkey.split('+')} />
-                      <button
-                        type="button"
-                        className="activity-copy"
-                        onClick={handleRemoveHotkey}
-                        style={{ color: 'var(--muted)' }}
-                        onMouseEnter={e => (e.currentTarget.style.color = 'var(--danger)')}
-                        onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
-                      >
-                        <X size={11} strokeWidth={2} />
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Recorder */}
-                <div>
-                  <p className="field-label" style={{ marginBottom: '6px' }}>
-                    {currentHotkey ? 'Change hotkey' : 'Set hotkey'}
-                  </p>
-                  <div className="hotkey-recorder">
-                    <div
-                      ref={hotkeyRef}
-                      className={`hotkey-display ${isListening ? 'hotkey-display--listening' : ''}`}
-                      onClick={startListening}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') startListening() }}
-                      role="button"
-                      tabIndex={0}
-                      aria-label="Click to record hotkey"
-                    >
-                      {pressedKeys.length === 0 && !isListening && (
-                        <span className="hotkey-placeholder">
-                          <Keyboard size={11} strokeWidth={1.75} style={{ opacity: 0.5, flexShrink: 0 }} />
-                          Click to record…
-                        </span>
-                      )}
-                      {isListening && pressedKeys.length === 0 && (
-                        <span className="hotkey-placeholder" style={{ color: 'var(--accent)' }}>
-                          Press keys…
-                        </span>
-                      )}
-                      {pressedKeys.length > 0 && <KeyBadges keys={pressedKeys} />}
-                    </div>
-
-                    <Button size="sm" onClick={handleSaveHotkey} disabled={saving || pressedKeys.length === 0}>
-                      {saving ? 'Saving…' : 'Save'}
-                    </Button>
-
-                    {pressedKeys.length > 0 && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => { setPressedKeys([]); keysRef.current.clear() }}
-                      >
-                        Clear
-                      </Button>
-                    )}
-                  </div>
-                  <p className="field-hint" style={{ marginTop: '8px' }}>
-                    Recommended: Ctrl+Shift+Space · Alt+R · Ctrl+Alt+V
-                  </p>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
+        </TabsContent>
 
         {/* ── About ── */}
-        {tab === 'about' && <AboutTab />}
-      </div>
+        <TabsContent value="about" className="settings-scroll">
+          <AboutTab />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

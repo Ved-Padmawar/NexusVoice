@@ -63,166 +63,212 @@
 }
 
 /* ================================================================
-   THEME: Void — true dark, violet accent (default)
-   Inspired by: Linear, Vercel dark
+   THEME: Abyss — blue-grey dark, periwinkle accent (default)
    ================================================================ */
 :root,
-:root[data-theme='void'] {
+:root[data-theme='abyss'] {
   color-scheme: dark;
-  --bg:           oklch(0.11 0.014 270);
-  --bg-alt:       oklch(0.13 0.018 270);
-  --panel:        oklch(0.15 0.022 270);
-  --panel-border: oklch(0.22 0.030 270);
-  --surface:      oklch(0.19 0.026 270);
-  --surface-hover:oklch(0.23 0.032 270);
-  --border:       oklch(0.28 0.032 270);
-  --border-soft:  oklch(0.22 0.026 270);
-  --fg:           oklch(0.96 0.008 270);
-  --fg-2:         oklch(0.80 0.018 270);
-  --muted:        oklch(0.58 0.022 270);
-  --accent:       oklch(0.66 0.22 285);
-  --accent-hover: oklch(0.70 0.24 285);
-  --accent-soft:  oklch(0.66 0.22 285 / 0.18);
-  --accent-fg:    oklch(0.07 0.01 270);
-  --shadow-sm:    0 1px 3px oklch(0 0 0 / 0.40), 0 1px 2px oklch(0 0 0 / 0.28);
-  --shadow-md:    0 4px 12px oklch(0 0 0 / 0.45), 0 2px 4px oklch(0 0 0 / 0.30);
-  --shadow-lg:    0 12px 28px oklch(0 0 0 / 0.50), 0 4px 8px oklch(0 0 0 / 0.35);
-  --glow:         0 0 20px oklch(0.66 0.22 285 / 0.22);
+  --bg:            oklch(0.20 0.02 250);
+  --bg-alt:        oklch(0.18 0.02 250);
+  --panel:         oklch(0.24 0.02 250);
+  --panel-border:  oklch(0.30 0.02 250);
+  --surface:       oklch(0.27 0.02 250);
+  --surface-hover: oklch(0.32 0.02 250);
+  --border:        oklch(0.35 0.02 250);
+  --border-soft:   oklch(0.28 0.02 250);
+  --fg:            oklch(0.92 0.01 250);
+  --fg-2:          oklch(0.85 0.01 250);
+  --muted:         oklch(0.65 0.01 250);
+  --accent:        oklch(0.75 0.12 250);
+  --accent-hover:  oklch(0.80 0.12 250);
+  --accent-soft:   oklch(0.75 0.12 250 / 0.15);
+  --accent-fg:     oklch(0.15 0.02 250);
+  --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.30), 0 1px 2px oklch(0 0 0 / 0.20);
+  --shadow-md:     0 4px 12px oklch(0 0 0 / 0.40), 0 2px 4px oklch(0 0 0 / 0.25);
+  --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.60), 0 4px 8px oklch(0 0 0 / 0.35);
+  --glow:          0 0 20px oklch(0.75 0.12 250 / 0.25);
 }
 
 /* ================================================================
-   THEME: Obsidian — near-black charcoal, electric cyan accent
-   Inspired by: Raycast, Warp terminal
+   THEME: Midnight — deep navy, vivid violet accent
    ================================================================ */
-:root[data-theme='obsidian'] {
+:root[data-theme='midnight'] {
   color-scheme: dark;
-  --bg:           oklch(0.12 0.006 240);
-  --bg-alt:       oklch(0.14 0.008 240);
-  --panel:        oklch(0.16 0.010 240);
-  --panel-border: oklch(0.23 0.014 240);
-  --surface:      oklch(0.20 0.013 240);
-  --surface-hover:oklch(0.24 0.016 240);
-  --border:       oklch(0.29 0.016 240);
-  --border-soft:  oklch(0.22 0.013 240);
-  --fg:           oklch(0.96 0.006 240);
-  --fg-2:         oklch(0.80 0.012 240);
-  --muted:        oklch(0.58 0.014 240);
-  --accent:       oklch(0.78 0.16 192);
-  --accent-hover: oklch(0.82 0.18 192);
-  --accent-soft:  oklch(0.78 0.16 192 / 0.16);
-  --accent-fg:    oklch(0.10 0.005 240);
-  --shadow-sm:    0 1px 3px oklch(0 0 0 / 0.40), 0 1px 2px oklch(0 0 0 / 0.30);
-  --shadow-md:    0 4px 12px oklch(0 0 0 / 0.45), 0 2px 4px oklch(0 0 0 / 0.30);
-  --shadow-lg:    0 12px 28px oklch(0 0 0 / 0.50), 0 4px 8px oklch(0 0 0 / 0.35);
-  --glow:         0 0 20px oklch(0.78 0.16 192 / 0.20);
+  --bg:            oklch(0.12 0.03 260);
+  --bg-alt:        oklch(0.08 0.04 260);
+  --panel:         oklch(0.16 0.04 260);
+  --panel-border:  oklch(0.22 0.06 260);
+  --surface:       oklch(0.20 0.06 260);
+  --surface-hover: oklch(0.25 0.07 260);
+  --border:        oklch(0.28 0.08 260);
+  --border-soft:   oklch(0.18 0.05 260);
+  --fg:            oklch(0.98 0.01 260);
+  --fg-2:          oklch(0.85 0.03 260);
+  --muted:         oklch(0.55 0.06 260);
+  --accent:        oklch(0.65 0.28 290);
+  --accent-hover:  oklch(0.72 0.25 290);
+  --accent-soft:   oklch(0.65 0.28 290 / 0.20);
+  --accent-fg:     oklch(1.00 0.00 0);
+  --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.60), 0 1px 2px oklch(0 0 0 / 0.40);
+  --shadow-md:     0 4px 12px oklch(0 0 0 / 0.80), 0 2px 4px oklch(0 0 0 / 0.50);
+  --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.95), 0 4px 8px oklch(0 0 0 / 0.60);
+  --glow:          0 0 20px oklch(0.65 0.28 290 / 0.45);
 }
 
 /* ================================================================
-   THEME: Nord — blue-steel dark, frost blue accent
-   Inspired by: Nord palette, VS Code Nord
+   THEME: Nebula — dark purple, vivid magenta accent
    ================================================================ */
-:root[data-theme='nord'] {
+:root[data-theme='nebula'] {
   color-scheme: dark;
-  --bg:           oklch(0.23 0.032 240);
-  --bg-alt:       oklch(0.26 0.036 240);
-  --panel:        oklch(0.28 0.038 240);
-  --panel-border: oklch(0.34 0.042 238);
-  --surface:      oklch(0.32 0.040 240);
-  --surface-hover:oklch(0.36 0.044 240);
-  --border:       oklch(0.40 0.044 238);
-  --border-soft:  oklch(0.34 0.038 238);
-  --fg:           oklch(0.95 0.016 240);
-  --fg-2:         oklch(0.80 0.024 238);
-  --muted:        oklch(0.62 0.026 238);
-  --accent:       oklch(0.74 0.14 215);
-  --accent-hover: oklch(0.78 0.16 215);
-  --accent-soft:  oklch(0.74 0.14 215 / 0.18);
-  --accent-fg:    oklch(0.18 0.030 240);
-  --shadow-sm:    0 1px 3px oklch(0.12 0.02 240 / 0.45);
-  --shadow-md:    0 4px 12px oklch(0.10 0.02 240 / 0.45);
-  --shadow-lg:    0 12px 28px oklch(0.08 0.02 240 / 0.50);
-  --glow:         0 0 20px oklch(0.74 0.14 215 / 0.22);
+  --bg:            oklch(0.22 0.03 310);
+  --bg-alt:        oklch(0.19 0.03 310);
+  --panel:         oklch(0.26 0.03 310);
+  --panel-border:  oklch(0.32 0.03 310);
+  --surface:       oklch(0.30 0.03 310);
+  --surface-hover: oklch(0.36 0.04 310);
+  --border:        oklch(0.38 0.03 310);
+  --border-soft:   oklch(0.30 0.03 310);
+  --fg:            oklch(0.94 0.01 310);
+  --fg-2:          oklch(0.86 0.01 310);
+  --muted:         oklch(0.68 0.02 310);
+  --accent:        oklch(0.55 0.20 310);
+  --accent-hover:  oklch(0.62 0.20 310);
+  --accent-soft:   oklch(0.55 0.20 310 / 0.20);
+  --accent-fg:     oklch(0.98 0.01 310);
+  --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.35), 0 1px 2px oklch(0 0 0 / 0.22);
+  --shadow-md:     0 4px 12px oklch(0 0 0 / 0.50), 0 2px 4px oklch(0 0 0 / 0.30);
+  --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.70), 0 4px 8px oklch(0 0 0 / 0.40);
+  --glow:          0 0 20px oklch(0.55 0.20 310 / 0.30);
 }
 
 /* ================================================================
-   THEME: Sage — warm off-white light, emerald accent
-   Inspired by: Notion, Linear light, Arc browser
+   THEME: Pine — dark forest green, mint accent
    ================================================================ */
-:root[data-theme='sage'] {
+:root[data-theme='pine'] {
+  color-scheme: dark;
+  --bg:            oklch(0.22 0.02 150);
+  --bg-alt:        oklch(0.19 0.02 150);
+  --panel:         oklch(0.27 0.02 150);
+  --panel-border:  oklch(0.34 0.02 150);
+  --surface:       oklch(0.31 0.02 150);
+  --surface-hover: oklch(0.36 0.02 150);
+  --border:        oklch(0.39 0.02 150);
+  --border-soft:   oklch(0.31 0.02 150);
+  --fg:            oklch(0.92 0.01 150);
+  --fg-2:          oklch(0.84 0.01 150);
+  --muted:         oklch(0.66 0.02 150);
+  --accent:        oklch(0.72 0.14 150);
+  --accent-hover:  oklch(0.78 0.14 150);
+  --accent-soft:   oklch(0.72 0.14 150 / 0.15);
+  --accent-fg:     oklch(0.18 0.02 150);
+  --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.30), 0 1px 2px oklch(0 0 0 / 0.20);
+  --shadow-md:     0 4px 12px oklch(0 0 0 / 0.45), 0 2px 4px oklch(0 0 0 / 0.28);
+  --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.60), 0 4px 8px oklch(0 0 0 / 0.35);
+  --glow:          0 0 20px oklch(0.72 0.14 150 / 0.20);
+}
+
+/* ================================================================
+   THEME: Canvas — clean off-white light, cobalt accent
+   ================================================================ */
+:root[data-theme='canvas'] {
   color-scheme: light;
-  --bg:           oklch(0.975 0.006 100);
-  --bg-alt:       oklch(0.960 0.009 100);
-  --panel:        oklch(1.000 0.003 100);
-  --panel-border: oklch(0.930 0.010 100);
-  --surface:      oklch(0.950 0.008 100);
-  --surface-hover:oklch(0.935 0.012 100);
-  --border:       oklch(0.900 0.014 100);
-  --border-soft:  oklch(0.920 0.010 100);
-  --fg:           oklch(0.18 0.016 100);
-  --fg-2:         oklch(0.38 0.018 100);
-  --muted:        oklch(0.56 0.016 100);
-  --accent:       oklch(0.52 0.17 148);
-  --accent-hover: oklch(0.46 0.19 148);
-  --accent-soft:  oklch(0.52 0.17 148 / 0.10);
-  --accent-fg:    oklch(0.98 0.005 100);
-  --shadow-sm:    0 1px 3px oklch(0.2 0.01 100 / 0.08), 0 1px 2px oklch(0.2 0.01 100 / 0.05);
-  --shadow-md:    0 4px 12px oklch(0.2 0.01 100 / 0.10), 0 2px 4px oklch(0.2 0.01 100 / 0.06);
-  --shadow-lg:    0 12px 28px oklch(0.2 0.01 100 / 0.12), 0 4px 8px oklch(0.2 0.01 100 / 0.07);
-  --glow:         0 0 20px oklch(0.52 0.17 148 / 0.12);
+  --bg:            oklch(0.97 0.005 250);
+  --bg-alt:        oklch(0.94 0.005 250);
+  --panel:         oklch(1.00 0.000 0);
+  --panel-border:  oklch(0.91 0.005 250);
+  --surface:       oklch(0.95 0.005 250);
+  --surface-hover: oklch(0.92 0.008 250);
+  --border:        oklch(0.85 0.008 250);
+  --border-soft:   oklch(0.92 0.005 250);
+  --fg:            oklch(0.25 0.01 250);
+  --fg-2:          oklch(0.35 0.01 250);
+  --muted:         oklch(0.55 0.01 250);
+  --accent:        oklch(0.48 0.16 255);
+  --accent-hover:  oklch(0.42 0.16 255);
+  --accent-soft:   oklch(0.48 0.16 255 / 0.10);
+  --accent-fg:     oklch(0.98 0.01 250);
+  --shadow-sm:     0 1px 3px oklch(0.25 0.01 250 / 0.04), 0 1px 2px oklch(0.25 0.01 250 / 0.03);
+  --shadow-md:     0 4px 12px oklch(0.25 0.01 250 / 0.08), 0 2px 4px oklch(0.25 0.01 250 / 0.05);
+  --shadow-lg:     0 12px 28px oklch(0.25 0.01 250 / 0.12), 0 4px 8px oklch(0.25 0.01 250 / 0.07);
+  --glow:          0 0 20px oklch(0.48 0.16 255 / 0.15);
 }
 
 /* ================================================================
-   THEME: Dusk — muted rose-brown dark, rose gold accent
-   Inspired by: Bear app, iA Writer dark, Craft
+   THEME: Dawn — warm white light, orange accent
    ================================================================ */
-:root[data-theme='dusk'] {
-  color-scheme: dark;
-  --bg:           oklch(0.14 0.020 22);
-  --bg-alt:       oklch(0.16 0.024 22);
-  --panel:        oklch(0.18 0.026 22);
-  --panel-border: oklch(0.26 0.034 22);
-  --surface:      oklch(0.22 0.030 22);
-  --surface-hover:oklch(0.26 0.034 22);
-  --border:       oklch(0.32 0.036 22);
-  --border-soft:  oklch(0.24 0.030 22);
-  --fg:           oklch(0.95 0.012 40);
-  --fg-2:         oklch(0.80 0.020 35);
-  --muted:        oklch(0.60 0.022 30);
-  --accent:       oklch(0.74 0.17 20);
-  --accent-hover: oklch(0.78 0.19 20);
-  --accent-soft:  oklch(0.74 0.17 20 / 0.18);
-  --accent-fg:    oklch(0.10 0.012 22);
-  --shadow-sm:    0 1px 3px oklch(0 0 0 / 0.38), 0 1px 2px oklch(0 0 0 / 0.26);
-  --shadow-md:    0 4px 12px oklch(0 0 0 / 0.44), 0 2px 4px oklch(0 0 0 / 0.28);
-  --shadow-lg:    0 12px 28px oklch(0 0 0 / 0.50), 0 4px 8px oklch(0 0 0 / 0.33);
-  --glow:         0 0 20px oklch(0.74 0.17 20 / 0.20);
-}
-
-/* ================================================================
-   THEME: Paper — true white light, indigo accent
-   Inspired by: Linear light, Vercel dashboard
-   ================================================================ */
-:root[data-theme='paper'] {
+:root[data-theme='dawn'] {
   color-scheme: light;
-  --bg:           oklch(0.985 0.002 240);
-  --bg-alt:       oklch(0.970 0.005 240);
-  --panel:        oklch(1.000 0.000 0);
-  --panel-border: oklch(0.920 0.008 240);
-  --surface:      oklch(0.955 0.005 240);
-  --surface-hover:oklch(0.940 0.008 240);
-  --border:       oklch(0.905 0.010 240);
-  --border-soft:  oklch(0.928 0.007 240);
-  --fg:           oklch(0.14 0.012 270);
-  --fg-2:         oklch(0.35 0.015 270);
-  --muted:        oklch(0.54 0.014 270);
-  --accent:       oklch(0.52 0.22 270);
-  --accent-hover: oklch(0.46 0.24 270);
-  --accent-soft:  oklch(0.52 0.22 270 / 0.09);
-  --accent-fg:    oklch(0.99 0.002 270);
-  --shadow-sm:    0 1px 3px oklch(0.14 0.01 270 / 0.07), 0 1px 2px oklch(0.14 0.01 270 / 0.04);
-  --shadow-md:    0 4px 12px oklch(0.14 0.01 270 / 0.09), 0 2px 4px oklch(0.14 0.01 270 / 0.05);
-  --shadow-lg:    0 12px 28px oklch(0.14 0.01 270 / 0.11), 0 4px 8px oklch(0.14 0.01 270 / 0.06);
-  --glow:         0 0 20px oklch(0.52 0.22 270 / 0.10);
+  --bg:            oklch(0.98 0.010 32);
+  --bg-alt:        oklch(0.96 0.014 32);
+  --panel:         oklch(0.93 0.020 35);
+  --panel-border:  oklch(0.87 0.024 35);
+  --surface:       oklch(0.96 0.010 32);
+  --surface-hover: oklch(0.92 0.018 32);
+  --border:        oklch(0.84 0.024 32);
+  --border-soft:   oklch(0.89 0.016 32);
+  --fg:            oklch(0.22 0.024 30);
+  --fg-2:          oklch(0.38 0.020 32);
+  --muted:         oklch(0.56 0.016 35);
+  --accent:        oklch(0.60 0.22 40);
+  --accent-hover:  oklch(0.54 0.24 40);
+  --accent-soft:   oklch(0.60 0.22 40 / 0.12);
+  --accent-fg:     oklch(1.00 0.00 0);
+  --shadow-sm:     0 1px 3px oklch(0.22 0.02 30 / 0.07), 0 1px 2px oklch(0.22 0.02 30 / 0.04);
+  --shadow-md:     0 4px 12px oklch(0.22 0.02 30 / 0.12), 0 2px 4px oklch(0.22 0.02 30 / 0.07);
+  --shadow-lg:     0 12px 28px oklch(0.22 0.02 30 / 0.18), 0 4px 8px oklch(0.22 0.02 30 / 0.10);
+  --glow:          0 0 20px oklch(0.60 0.22 40 / 0.25);
+}
+
+/* ================================================================
+   THEME: Breeze — cool teal light, cyan-teal accent
+   ================================================================ */
+:root[data-theme='breeze'] {
+  color-scheme: light;
+  --bg:            oklch(0.97 0.016 200);
+  --bg-alt:        oklch(0.94 0.018 200);
+  --panel:         oklch(0.91 0.024 200);
+  --panel-border:  oklch(0.85 0.022 200);
+  --surface:       oklch(0.95 0.016 200);
+  --surface-hover: oklch(0.91 0.020 200);
+  --border:        oklch(0.82 0.020 200);
+  --border-soft:   oklch(0.88 0.018 200);
+  --fg:            oklch(0.20 0.016 200);
+  --fg-2:          oklch(0.34 0.014 200);
+  --muted:         oklch(0.52 0.016 200);
+  --accent:        oklch(0.50 0.14 200);
+  --accent-hover:  oklch(0.44 0.16 200);
+  --accent-soft:   oklch(0.50 0.14 200 / 0.12);
+  --accent-fg:     oklch(0.99 0.01 200);
+  --shadow-sm:     0 1px 3px oklch(0.20 0.01 200 / 0.06), 0 1px 2px oklch(0.20 0.01 200 / 0.04);
+  --shadow-md:     0 4px 12px oklch(0.20 0.01 200 / 0.10), 0 2px 4px oklch(0.20 0.01 200 / 0.06);
+  --shadow-lg:     0 12px 28px oklch(0.20 0.01 200 / 0.14), 0 4px 8px oklch(0.20 0.01 200 / 0.08);
+  --glow:          0 0 20px oklch(0.50 0.14 200 / 0.20);
+}
+
+/* ================================================================
+   THEME: Blossom — soft rose light, pink accent
+   ================================================================ */
+:root[data-theme='blossom'] {
+  color-scheme: light;
+  --bg:            oklch(0.97 0.014 355);
+  --bg-alt:        oklch(0.94 0.016 355);
+  --panel:         oklch(0.91 0.022 355);
+  --panel-border:  oklch(0.85 0.020 355);
+  --surface:       oklch(0.95 0.014 355);
+  --surface-hover: oklch(0.91 0.018 355);
+  --border:        oklch(0.83 0.018 355);
+  --border-soft:   oklch(0.89 0.016 355);
+  --fg:            oklch(0.22 0.016 355);
+  --fg-2:          oklch(0.36 0.014 355);
+  --muted:         oklch(0.54 0.016 355);
+  --accent:        oklch(0.50 0.18 355);
+  --accent-hover:  oklch(0.44 0.20 355);
+  --accent-soft:   oklch(0.50 0.18 355 / 0.10);
+  --accent-fg:     oklch(0.99 0.01 355);
+  --shadow-sm:     0 1px 3px oklch(0.22 0.01 355 / 0.06), 0 1px 2px oklch(0.22 0.01 355 / 0.04);
+  --shadow-md:     0 4px 12px oklch(0.22 0.01 355 / 0.09), 0 2px 4px oklch(0.22 0.01 355 / 0.05);
+  --shadow-lg:     0 12px 28px oklch(0.22 0.01 355 / 0.14), 0 4px 8px oklch(0.22 0.01 355 / 0.08);
+  --glow:          0 0 20px oklch(0.50 0.18 355 / 0.15);
 }
 
 /* ================================================================

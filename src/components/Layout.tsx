@@ -1,5 +1,6 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import clsx from 'clsx'
 import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle, ArrowUpCircle } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -43,76 +44,104 @@ function TitleBar() {
   )
 }
 
+/* Animated banner wrapper using Framer Motion */
+function SlideBanner({ visible, children }: { visible: boolean; children: ReactNode }) {
+  return (
+    <AnimatePresence initial={false}>
+      {visible && (
+        <motion.div
+          key="banner"
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.25, ease: 'easeInOut' }}
+          style={{ overflow: 'hidden' }}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
 // Uses store state — no separate event subscriptions, no re-subscription on render
 function ModelBanner() {
   const { modelDownloading, downloadProgress, downloadError, modelReady } = useAppStore()
+  const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  if (modelDownloading) {
-    return (
-      <div className="model-banner model-banner--downloading">
-        <div className="model-banner__body">
-          <span className="model-banner__text">Downloading Whisper model… {downloadProgress}%</span>
-          <div className="model-banner__bar-track">
-            <div className="model-banner__bar-fill" style={{ width: `${downloadProgress}%` }} />
+  const showReady = modelReady && downloadProgress === 100
+
+  useEffect(() => {
+    if (showReady) {
+      autoDismissRef.current = setTimeout(() => {
+        useAppStore.setState({ downloadProgress: 0 })
+      }, 3000)
+    }
+    return () => { if (autoDismissRef.current) clearTimeout(autoDismissRef.current) }
+  }, [showReady])
+
+  return (
+    <>
+      <SlideBanner visible={modelDownloading}>
+        <div className="model-banner model-banner--downloading">
+          <div className="model-banner__body">
+            <span className="model-banner__text">Downloading Whisper model… {downloadProgress}%</span>
+            <div className="model-banner__bar-track">
+              <div className="model-banner__bar-fill" style={{ width: `${downloadProgress}%` }} />
+            </div>
           </div>
         </div>
-      </div>
-    )
-  }
+      </SlideBanner>
 
-  if (downloadError) {
-    return (
-      <div className="model-banner model-banner--error">
-        <div className="model-banner__body">
-          <AlertCircle size={13} strokeWidth={2} style={{ flexShrink: 0 }} />
-          <span className="model-banner__text">Download failed: {downloadError}</span>
+      <SlideBanner visible={!!downloadError}>
+        <div className="model-banner model-banner--error">
+          <div className="model-banner__body">
+            <AlertCircle size={13} strokeWidth={2} className="icon--shrink" />
+            <span className="model-banner__text">Download failed: {downloadError}</span>
+          </div>
+          <button type="button" className="model-banner__close" onClick={() => useAppStore.setState({ downloadError: null })}>
+            <X size={12} strokeWidth={2} />
+          </button>
         </div>
-        <button type="button" className="model-banner__close" onClick={() => useAppStore.setState({ downloadError: null })}>
-          <X size={12} strokeWidth={2} />
-        </button>
-      </div>
-    )
-  }
+      </SlideBanner>
 
-  if (modelReady && downloadProgress === 100) {
-    return (
-      <div className="model-banner model-banner--done">
-        <div className="model-banner__body">
-          <span className="model-banner__text">Model ready — NexusVoice is fully operational.</span>
+      <SlideBanner visible={showReady}>
+        <div className="model-banner model-banner--done">
+          <div className="model-banner__body">
+            <span className="model-banner__text">Model ready — NexusVoice is fully operational.</span>
+          </div>
+          <button type="button" className="model-banner__close" onClick={() => useAppStore.setState({ downloadProgress: 0 })}>
+            <X size={12} strokeWidth={2} />
+          </button>
         </div>
-        <button type="button" className="model-banner__close" onClick={() => useAppStore.setState({ downloadProgress: 0 })}>
-          <X size={12} strokeWidth={2} />
-        </button>
-      </div>
-    )
-  }
-
-  return null
+      </SlideBanner>
+    </>
+  )
 }
 
 function UpdateBanner() {
   const { updateAvailable } = useAppStore()
   const navigate = useNavigate()
 
-  if (!updateAvailable) return null
-
   return (
-    <div className="model-banner model-banner--update">
-      <div className="model-banner__body">
-        <ArrowUpCircle size={13} strokeWidth={2} style={{ flexShrink: 0 }} />
-        <span className="model-banner__text">Update available — v{updateAvailable}</span>
-        <button
-          type="button"
-          className="model-banner__action"
-          onClick={() => navigate('/settings', { state: { tab: 'about' } })}
-        >
-          Install
+    <SlideBanner visible={!!updateAvailable}>
+      <div className="model-banner model-banner--update">
+        <div className="model-banner__body">
+          <ArrowUpCircle size={13} strokeWidth={2} className="icon--shrink" />
+          <span className="model-banner__text">Update available — v{updateAvailable}</span>
+          <button
+            type="button"
+            className="model-banner__action"
+            onClick={() => navigate('/settings', { state: { tab: 'about' } })}
+          >
+            Install
+          </button>
+        </div>
+        <button type="button" className="model-banner__close" onClick={() => useAppStore.setState({ updateAvailable: null })}>
+          <X size={12} strokeWidth={2} />
         </button>
       </div>
-      <button type="button" className="model-banner__close" onClick={() => useAppStore.setState({ updateAvailable: null })}>
-        <X size={12} strokeWidth={2} />
-      </button>
-    </div>
+    </SlideBanner>
   )
 }
 

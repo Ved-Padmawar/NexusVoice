@@ -1,5 +1,6 @@
 import { useEffect, lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen } from '@tauri-apps/api/event'
 import { check } from '@tauri-apps/plugin-updater'
@@ -87,41 +88,49 @@ function App() {
   return (
     <BrowserRouter>
       <Suspense fallback={<div className="app-loading" role="status"><div className="loading-spinner" /></div>}>
-        <Routes>
-          <Route path="/" element={<Layout />}>
-            <Route
-              index
-              element={
-                <AuthGuard>
-                  <Dashboard />
-                </AuthGuard>
-              }
-            />
-            <Route
-              path="settings"
-              element={
-                <AuthGuard>
-                  <Settings />
-                </AuthGuard>
-              }
-            />
-            <Route
-              path="dictionary"
-              element={
-                <AuthGuard>
-                  <Dictionary />
-                </AuthGuard>
-              }
-            />
-            <Route
-              path="auth"
-              element={user ? <Navigate to="/" replace /> : <Auth />}
-            />
-            <Route path="*" element={<Navigate to={initialRoute} replace />} />
-          </Route>
-        </Routes>
+        <AnimatedRoutes initialRoute={initialRoute} user={user} />
       </Suspense>
     </BrowserRouter>
+  )
+}
+
+const pageVariants = {
+  initial: { opacity: 0, y: 6 },
+  animate: { opacity: 1, y: 0 },
+  exit:    { opacity: 0, y: -6 },
+}
+const pageTransition = { duration: 0.18, ease: 'easeInOut' as const }
+
+function AnimatedRoutes({ initialRoute, user }: { initialRoute: string; user: { id: number; email: string } | null }) {
+  const location = useLocation()
+  return (
+    <Routes location={location}>
+      <Route path="/" element={<Layout />}>
+        <Route index element={
+          <AuthGuard>
+            <motion.div key="dashboard" className="page-motion" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}>
+              <Dashboard />
+            </motion.div>
+          </AuthGuard>
+        } />
+        <Route path="settings" element={
+          <AuthGuard>
+            <motion.div key="settings" className="page-motion" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}>
+              <Settings />
+            </motion.div>
+          </AuthGuard>
+        } />
+        <Route path="dictionary" element={
+          <AuthGuard>
+            <motion.div key="dictionary" className="page-motion" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}>
+              <Dictionary />
+            </motion.div>
+          </AuthGuard>
+        } />
+        <Route path="auth" element={user ? <Navigate to="/" replace /> : <Auth />} />
+        <Route path="*" element={<Navigate to={initialRoute} replace />} />
+      </Route>
+    </Routes>
   )
 }
 

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowRight, Trash2, BookOpen, CheckCircle2, AlertCircle, X, Sparkles } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../store/useAppStore'
@@ -37,34 +38,38 @@ export function Dictionary() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', gap: '14px' }}>
-      {/* Header */}
-      <div className="page-header" style={{ marginBottom: 0 }}>
+    <div className="dict-page">
+      <div className="page-header">
         <h1 className="page-title">Dictionary</h1>
         <p className="page-subtitle">
           Map spoken words to their correct form — applied automatically during transcription.
         </p>
       </div>
 
-      {/* Banners */}
-      {error && (
-        <div className="notice notice--error">
-          <AlertCircle size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--danger)' }} />
-          <span style={{ flex: 1 }}>{error}</span>
-          <button type="button" className="notice__close" onClick={() => setError(null)}>
-            <X size={13} strokeWidth={2} />
-          </button>
-        </div>
-      )}
-      {success && (
-        <div className="notice notice--success">
-          <CheckCircle2 size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--success)' }} />
-          <span>Entry saved successfully.</span>
-        </div>
-      )}
+      <AnimatePresence>
+        {error && (
+          <motion.div key="dict-error" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} style={{ overflow: 'hidden' }}>
+            <div className="notice notice--error">
+              <AlertCircle size={13} strokeWidth={2} className="icon--shrink icon--danger" />
+              <span className="text--flex">{error}</span>
+              <button type="button" className="notice__close" onClick={() => setError(null)}>
+                <X size={13} strokeWidth={2} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+        {success && (
+          <motion.div key="dict-success" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} style={{ overflow: 'hidden' }}>
+            <div className="notice notice--success">
+              <CheckCircle2 size={13} strokeWidth={2} className="icon--shrink icon--success" />
+              <span>Entry saved successfully.</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Add form */}
-      <div className="card" style={{ flexShrink: 0 }}>
+      <div className="card">
         <div className="card__header">
           <div>
             <h2 className="card__title">Add / Update Entry</h2>
@@ -72,8 +77,8 @@ export function Dictionary() {
           </div>
         </div>
         <div className="card__body">
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px' }}>
-            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '5px' }}>
+          <div className="dict-add-form">
+            <div className="dict-add-field">
               <Label htmlFor="dict-term">Spoken / misspelled</Label>
               <Input
                 id="dict-term"
@@ -83,16 +88,10 @@ export function Dictionary() {
                 disabled={saving}
               />
             </div>
-
-            <div style={{
-              width: '28px', height: '36px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'var(--muted)', flexShrink: 0,
-            }}>
+            <div className="dict-add-arrow">
               <ArrowRight size={14} strokeWidth={1.75} />
             </div>
-
-            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <div className="dict-add-field">
               <Label htmlFor="dict-replacement">Replace with</Label>
               <Input
                 id="dict-replacement"
@@ -103,13 +102,7 @@ export function Dictionary() {
                 onKeyDown={(e) => { if (e.key === 'Enter') handleAdd() }}
               />
             </div>
-
-            <Button
-              type="button"
-              onClick={handleAdd}
-              disabled={saving || !term.trim() || !replacement.trim()}
-              style={{ flexShrink: 0 }}
-            >
+            <Button type="button" onClick={handleAdd} disabled={saving || !term.trim() || !replacement.trim()}>
               {saving ? 'Saving…' : 'Add'}
             </Button>
           </div>
@@ -118,40 +111,43 @@ export function Dictionary() {
 
       {/* Auto-learn suggestions */}
       {suggestions.length > 0 && (
-        <div className="card" style={{ flexShrink: 0 }}>
+        <div className="card">
           <div className="card__header">
             <div>
-              <h2 className="card__title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Sparkles size={13} strokeWidth={1.75} style={{ color: 'var(--accent)' }} />
+              <h2 className="card__title dict-suggestions-title">
+                <Sparkles size={13} strokeWidth={1.75} className="icon--accent" />
                 Suggested Words
               </h2>
               <p className="card__desc">Words seen 3+ times — auto-added to dictionary. Dismiss to ignore.</p>
             </div>
           </div>
           <div className="card__body">
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-              {suggestions.map((s) => (
-                <div key={s.word} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: '4px',
-                  padding: '3px 8px', borderRadius: 'var(--r-full)',
-                  background: 'var(--surface)', border: '1px solid var(--border)',
-                  fontSize: '12px', color: 'var(--fg)',
-                }}>
-                  <span>{s.word}</span>
-                  <span style={{ fontSize: '10px', color: 'var(--muted)' }}>×{s.count}</span>
-                  <button type="button" onClick={() => handleDismiss(s.word)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '1px', display: 'flex' }}>
-                    <X size={11} strokeWidth={2} />
-                  </button>
-                </div>
-              ))}
+            <div className="dict-suggestions-chips">
+              <AnimatePresence>
+                {suggestions.map((s) => (
+                  <motion.div
+                    key={s.word}
+                    className="dict-chip"
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.85 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    <span>{s.word}</span>
+                    <span className="dict-chip__count">×{s.count}</span>
+                    <button type="button" className="dict-chip__dismiss" onClick={() => handleDismiss(s.word)}>
+                      <X size={11} strokeWidth={2} />
+                    </button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
           </div>
         </div>
       )}
 
       {/* List */}
-      <div className="card" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <div className="card dict-list-body">
         <div className="card__header">
           <div>
             <h2 className="card__title">Entries</h2>
@@ -162,31 +158,39 @@ export function Dictionary() {
             </p>
           </div>
         </div>
-        <div className="card__body" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <div className="card__body dict-list-scroll">
           {dictionary.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-icon">
-                <BookOpen size={16} strokeWidth={1.5} />
-              </div>
+              <div className="empty-icon"><BookOpen size={16} strokeWidth={1.5} /></div>
               <p className="empty-text">No entries yet. Add your first correction above.</p>
             </div>
           ) : (
             <div className="stack-sm">
-              {dictionary.map((entry) => (
-                <div key={entry.id} className="dict-row">
-                  <span className="dict-term">{entry.term}</span>
-                  <ArrowRight size={12} strokeWidth={1.75} style={{ flexShrink: 0, color: 'var(--muted)' }} />
-                  <span className="dict-replacement">{entry.replacement}</span>
-                  <button
-                    type="button"
-                    onClick={() => deleteDictionaryEntry(entry.id)}
-                    aria-label={`Delete ${entry.term}`}
-                    className="dict-delete"
+              <AnimatePresence initial={false}>
+                {dictionary.map((entry) => (
+                  <motion.div
+                    key={entry.id}
+                    className="dict-row"
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                    transition={{ duration: 0.18 }}
+                    layout
                   >
-                    <Trash2 size={12} strokeWidth={1.75} />
-                  </button>
-                </div>
-              ))}
+                    <span className="dict-term">{entry.term}</span>
+                    <ArrowRight size={12} strokeWidth={1.75} className="icon--shrink icon--muted" />
+                    <span className="dict-replacement">{entry.replacement}</span>
+                    <button
+                      type="button"
+                      onClick={() => deleteDictionaryEntry(entry.id)}
+                      aria-label={`Delete ${entry.term}`}
+                      className="dict-delete"
+                    >
+                      <Trash2 size={12} strokeWidth={1.75} />
+                    </button>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
           )}
         </div>
