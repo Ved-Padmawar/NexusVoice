@@ -168,6 +168,8 @@ jobs:
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: false
           files: |
             C:/b/release/bundle/nsis/*.exe
             C:/b/release/bundle/msi/*.msi
