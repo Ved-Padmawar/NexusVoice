@@ -38,7 +38,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **100% local** — Whisper runs entirely on your machine, nothing is sent to the cloud
 - **GPU-accelerated** — auto-detects NVIDIA (CUDA), AMD/Intel (Vulkan), falls back to CPU
 - **Smart model selection** — picks the best Whisper model for your hardware automatically
-- **Auto-download** — models download on first selection, cached locally
+- **Auto-download** — models download on first login, cached locally
 - **Personal dictionary** — map spoken words to their correct form (e.g. "gonna" → "going to")
 - **Auto-learn** — tracks uncommon words from your transcriptions and suggests additions to your dictionary
 - **6 themes** — Void, Obsidian, Nord, Dusk, Sage, Paper
@@ -131,7 +131,7 @@ npm run tauri dev
 
 1. Launch NexusVoice — it appears in the system tray
 2. Go to **Settings → Audio** and set your recording hotkey
-3. Go to **Settings → Models** and select a Whisper model (downloads automatically)
+3. Go to **Settings → About** to verify model status (downloads automatically on login)
 4. Click into any text field in any app
 5. Hold your hotkey → speak → release
 6. Your transcribed text is pasted automatically

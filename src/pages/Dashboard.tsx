@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
 import {
   Hash, Timer, Mic, Activity,
-  AlertCircle, Copy, Check,
+  AlertCircle, Copy, Check, X,
   Settings2, Download, RefreshCw,
 } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
@@ -54,10 +54,8 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export function Dashboard() {
-  const { transcripts, stats, fetchStats, hasHotkey, error, setError, modelReady, modelDownloading, downloadProgress, downloadError } = useAppStore()
+  const { transcripts, stats, hasHotkey, error, setError, modelReady, modelDownloading, downloadProgress, downloadError } = useAppStore()
   const navigate = useNavigate()
-
-  useEffect(() => { fetchStats() }, [fetchStats])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', gap: '16px' }}>
@@ -191,12 +189,3 @@ export function Dashboard() {
   )
 }
 
-// X icon inline (not re-exporting from lucide to avoid import clash)
-function X({ size, strokeWidth }: { size: number; strokeWidth: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
-      <line x1="18" y1="6" x2="6" y2="18"/>
-      <line x1="6" y1="6" x2="18" y2="18"/>
-    </svg>
-  )
-}

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect, memo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
 import {
@@ -227,8 +227,7 @@ function AboutTab() {
 
   const INFO_ROWS = [
     { label: 'Version',  value: <Badge variant="secondary">v{__APP_VERSION__}</Badge> },
-    { label: 'Model',    value: <Badge variant="secondary">Whisper Large v3 Turbo</Badge> },
-    { label: 'Engine',   value: <span style={{ fontSize: '12px', color: 'var(--fg)' }}>ONNX Runtime (local)</span> },
+    { label: 'Engine',   value: <Badge variant="secondary">whisper-rs (ggml)</Badge> },
     { label: 'Language', value: <span style={{ fontSize: '12px', color: 'var(--fg)' }}>English</span> },
     { label: 'Privacy',  value: <span style={{ fontSize: '12px', color: 'var(--fg)' }}>100% on-device · no telemetry</span> },
   ]
@@ -260,76 +259,53 @@ function AboutTab() {
       {/* Updater card */}
       <div className="card">
         <div className="card__header">
-          <div>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <h2 className="card__title">Updates</h2>
-            <p className="card__desc">
-              {updateStatus === 'up-to-date' && 'You are on the latest version.'}
-              {updateStatus === 'available' && `Version ${updateVersion} is available.`}
-              {updateStatus === 'downloading' && `Downloading update… ${downloadProgress}%`}
-              {updateStatus === 'ready' && 'Update downloaded. Restart to apply.'}
-              {updateStatus === 'error' && (updateError ?? 'Something went wrong.')}
-              {(updateStatus === 'idle' || updateStatus === 'checking') && 'Check for the latest release.'}
-            </p>
+            {updateStatus === 'downloading' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
+                <p className="card__desc">Downloading… {downloadProgress}%</p>
+                <div style={{ height: '3px', borderRadius: '999px', background: 'var(--border)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${downloadProgress}%`, borderRadius: '999px', background: 'var(--accent)', transition: 'width 0.3s ease' }} />
+                </div>
+              </div>
+            ) : (
+              <p className="card__desc">
+                {updateStatus === 'up-to-date' && 'You are on the latest version.'}
+                {updateStatus === 'available' && `v${updateVersion} is available.`}
+                {updateStatus === 'ready' && 'Update downloaded. Restart to apply.'}
+                {updateStatus === 'error' && (updateError ?? 'Something went wrong.')}
+                {(updateStatus === 'idle' || updateStatus === 'checking') && 'Check for the latest release.'}
+              </p>
+            )}
           </div>
-          {updateStatus === 'up-to-date' && (
-            <CheckCircle2 size={16} strokeWidth={1.75} style={{ color: 'var(--success)', flexShrink: 0 }} />
-          )}
-          {updateStatus === 'error' && (
-            <AlertCircle size={16} strokeWidth={1.75} style={{ color: 'var(--danger)', flexShrink: 0 }} />
-          )}
-        </div>
-
-        {/* Progress bar — only during download */}
-        {updateStatus === 'downloading' && (
-          <div style={{ padding: '0 16px 12px' }}>
-            <div style={{ height: '4px', borderRadius: '999px', background: 'var(--border)', overflow: 'hidden' }}>
-              <div style={{
-                height: '100%',
-                width: `${downloadProgress}%`,
-                borderRadius: '999px',
-                background: 'var(--accent)',
-                transition: 'width 0.3s ease',
-              }} />
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            {updateStatus === 'up-to-date' && <CheckCircle2 size={16} strokeWidth={1.75} style={{ color: 'var(--success)' }} />}
+            {updateStatus === 'error' && <AlertCircle size={16} strokeWidth={1.75} style={{ color: 'var(--danger)' }} />}
+            {(updateStatus === 'idle' || updateStatus === 'up-to-date' || updateStatus === 'error') && (
+              <Button size="sm" variant="outline" onClick={checkForUpdate}>
+                <RefreshCw size={12} strokeWidth={2} />
+                Check
+              </Button>
+            )}
+            {updateStatus === 'checking' && (
+              <Button size="sm" variant="outline" disabled>
+                <RefreshCw size={12} strokeWidth={2} style={{ animation: 'spin 1s linear infinite' }} />
+                Checking…
+              </Button>
+            )}
+            {updateStatus === 'available' && (
+              <Button size="sm" onClick={downloadAndInstall}>
+                <Download size={12} strokeWidth={2} />
+                Download v{updateVersion}
+              </Button>
+            )}
+            {updateStatus === 'ready' && (
+              <Button size="sm" onClick={() => relaunch()}>
+                <ArrowUpCircle size={12} strokeWidth={2} />
+                Restart
+              </Button>
+            )}
           </div>
-        )}
-
-        <div className="card__body" style={{ display: 'flex', gap: '8px' }}>
-          {/* Check / re-check button */}
-          {(updateStatus === 'idle' || updateStatus === 'up-to-date' || updateStatus === 'error') && (
-            <Button size="sm" variant="outline" onClick={checkForUpdate}>
-              <RefreshCw size={12} strokeWidth={2} />
-              Check for updates
-            </Button>
-          )}
-
-          {updateStatus === 'checking' && (
-            <Button size="sm" variant="outline" disabled>
-              <RefreshCw size={12} strokeWidth={2} style={{ animation: 'spin 1s linear infinite' }} />
-              Checking…
-            </Button>
-          )}
-
-          {updateStatus === 'available' && (
-            <Button size="sm" onClick={downloadAndInstall}>
-              <Download size={12} strokeWidth={2} />
-              Download v{updateVersion}
-            </Button>
-          )}
-
-          {updateStatus === 'downloading' && (
-            <Button size="sm" disabled>
-              <Download size={12} strokeWidth={2} />
-              Downloading… {downloadProgress}%
-            </Button>
-          )}
-
-          {updateStatus === 'ready' && (
-            <Button size="sm" onClick={() => relaunch()}>
-              <ArrowUpCircle size={12} strokeWidth={2} />
-              Restart to update
-            </Button>
-          )}
         </div>
       </div>
     </div>
@@ -341,12 +317,14 @@ export function Settings() {
   const {
     theme, setTheme,
     error, setError,
+    hasHotkey,
   } = useAppStore()
 
   const location = useLocation()
   const initialTab = (location.state as { tab?: string } | null)?.tab ?? 'general'
   const [tab, setTab] = useState<'general' | 'audio' | 'about'>(initialTab as 'general' | 'audio' | 'about')
 
+  // Load initial hotkey from store — if set, fetch the string value once
   const [currentHotkey, setCurrentHotkey] = useState<string | null>(null)
   const [pressedKeys, setPressedKeys] = useState<string[]>([])
   const [isListening, setIsListening] = useState(false)
@@ -355,16 +333,14 @@ export function Settings() {
   const hotkeyRef = useRef<HTMLDivElement>(null)
   const keysRef = useRef<Set<string>>(new Set())
 
+  // Sync currentHotkey from store on mount — single source of truth
   useEffect(() => {
-    loadHotkey()
-  }, [])
-
-  const loadHotkey = async () => {
-    try {
-      const hotkeys = await invoke<string[]>('get_registered_hotkeys')
-      if (hotkeys.length > 0) setCurrentHotkey(hotkeys[0])
-    } catch { /* ignore */ }
-  }
+    if (hasHotkey) {
+      invoke<string[]>('get_registered_hotkeys')
+        .then(hk => { if (hk.length > 0) setCurrentHotkey(hk[0]) })
+        .catch(() => {})
+    }
+  }, [hasHotkey])
 
   const startListening = useCallback(() => {
     setIsListening(true); setPressedKeys([]); keysRef.current.clear()
@@ -423,7 +399,7 @@ export function Settings() {
     }
   }
 
-  const KeyBadges = ({ keys }: { keys: string[] }) => (
+  const KeyBadges = memo(({ keys }: { keys: string[] }) => (
     <div className="hotkey-keys">
       {keys.map((k, i) => (
         <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
@@ -432,7 +408,7 @@ export function Settings() {
         </span>
       ))}
     </div>
-  )
+  ))
 
   const TABS = ['general', 'audio', 'about'] as const
 

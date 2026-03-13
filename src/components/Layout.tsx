@@ -1,16 +1,14 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import clsx from 'clsx'
 import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle, ArrowUpCircle } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { listen } from '@tauri-apps/api/event'
 import { useAppStore } from '../store/useAppStore'
 
 function TitleBar() {
   const win = getCurrentWindow()
   return (
     <div className="titlebar">
-      {/* drag region — does NOT contain buttons so clicks are not swallowed */}
       <div className="titlebar__drag" data-tauri-drag-region />
       <div className="titlebar__controls">
         <button
@@ -45,79 +43,64 @@ function TitleBar() {
   )
 }
 
-type BannerState = 'downloading' | 'done' | 'error' | null
-
+// Uses store state — no separate event subscriptions, no re-subscription on render
 function ModelBanner() {
-  const [banner, setBanner] = useState<BannerState>(null)
-  const [pct, setPct] = useState(0)
-  const [errMsg, setErrMsg] = useState('')
+  const { modelDownloading, downloadProgress, downloadError, modelReady } = useAppStore()
 
-  useEffect(() => {
-    const unsubs: (() => void)[] = []
-    const setup = async () => {
-      unsubs.push(await listen('model-download-start', () => { setBanner('downloading'); setPct(0) }))
-      unsubs.push(await listen<number>('model-download-progress', e => setPct(e.payload)))
-      unsubs.push(await listen('model-download-complete', () => {
-        setBanner('done')
-        setTimeout(() => setBanner(null), 4000)
-      }))
-      unsubs.push(await listen<string>('model-download-error', e => {
-        setErrMsg(e.payload)
-        setBanner('error')
-      }))
-    }
-    setup()
-    return () => unsubs.forEach(fn => fn())
-  }, [])
-
-  if (!banner) return null
-
-  return (
-    <div className={`model-banner model-banner--${banner}`}>
-      <div className="model-banner__body">
-        {banner === 'downloading' && (
-          <>
-            <span className="model-banner__text">
-              Downloading Whisper Large v3 Turbo… {pct}%
-            </span>
-            <div className="model-banner__bar-track">
-              <div className="model-banner__bar-fill" style={{ width: `${pct}%` }} />
-            </div>
-          </>
-        )}
-        {banner === 'done' && (
-          <span className="model-banner__text">Model ready — NexusVoice is fully operational.</span>
-        )}
-        {banner === 'error' && (
-          <>
-            <AlertCircle size={13} strokeWidth={2} style={{ flexShrink: 0 }} />
-            <span className="model-banner__text">Download failed: {errMsg}</span>
-          </>
-        )}
+  if (modelDownloading) {
+    return (
+      <div className="model-banner model-banner--downloading">
+        <div className="model-banner__body">
+          <span className="model-banner__text">Downloading Whisper model… {downloadProgress}%</span>
+          <div className="model-banner__bar-track">
+            <div className="model-banner__bar-fill" style={{ width: `${downloadProgress}%` }} />
+          </div>
+        </div>
       </div>
-      {banner !== 'downloading' && (
-        <button type="button" className="model-banner__close" onClick={() => setBanner(null)}>
+    )
+  }
+
+  if (downloadError) {
+    return (
+      <div className="model-banner model-banner--error">
+        <div className="model-banner__body">
+          <AlertCircle size={13} strokeWidth={2} style={{ flexShrink: 0 }} />
+          <span className="model-banner__text">Download failed: {downloadError}</span>
+        </div>
+        <button type="button" className="model-banner__close" onClick={() => useAppStore.setState({ downloadError: null })}>
           <X size={12} strokeWidth={2} />
         </button>
-      )}
-    </div>
-  )
+      </div>
+    )
+  }
+
+  if (modelReady && downloadProgress === 100) {
+    return (
+      <div className="model-banner model-banner--done">
+        <div className="model-banner__body">
+          <span className="model-banner__text">Model ready — NexusVoice is fully operational.</span>
+        </div>
+        <button type="button" className="model-banner__close" onClick={() => useAppStore.setState({ downloadProgress: 0 })}>
+          <X size={12} strokeWidth={2} />
+        </button>
+      </div>
+    )
+  }
+
+  return null
 }
 
 function UpdateBanner() {
   const { updateAvailable } = useAppStore()
   const navigate = useNavigate()
-  const [dismissed, setDismissed] = useState(false)
 
-  if (!updateAvailable || dismissed) return null
+  if (!updateAvailable) return null
 
   return (
     <div className="model-banner model-banner--update">
       <div className="model-banner__body">
         <ArrowUpCircle size={13} strokeWidth={2} style={{ flexShrink: 0 }} />
-        <span className="model-banner__text">
-          Update available — v{updateAvailable}
-        </span>
+        <span className="model-banner__text">Update available — v{updateAvailable}</span>
         <button
           type="button"
           className="model-banner__action"
@@ -126,7 +109,7 @@ function UpdateBanner() {
           Install
         </button>
       </div>
-      <button type="button" className="model-banner__close" onClick={() => setDismissed(true)}>
+      <button type="button" className="model-banner__close" onClick={() => useAppStore.setState({ updateAvailable: null })}>
         <X size={12} strokeWidth={2} />
       </button>
     </div>
@@ -140,9 +123,16 @@ const NAV = [
 ]
 
 export function Layout() {
-  const { user, logout } = useAppStore()
+  const { user, logout, setActiveRoute } = useAppStore()
   const location = useLocation()
   const navigate = useNavigate()
+
+  // Persist active route to store so it survives tray minimize / alt-tab
+  useEffect(() => {
+    if (location.pathname !== '/auth') {
+      setActiveRoute(location.pathname)
+    }
+  }, [location.pathname, setActiveRoute])
 
   if (location.pathname === '/auth') return <Outlet />
 
@@ -159,69 +149,66 @@ export function Layout() {
       <ModelBanner />
       <UpdateBanner />
       <div className="app-body">
-      <aside className="sidebar">
-        {/* Brand */}
-        <div className="sidebar__header">
-          <Link to="/" className="sidebar__brand">
-            <div className="sidebar__logo">
-              <Zap size={13} strokeWidth={2.5} />
-            </div>
-            <div>
-              <div className="sidebar__name">NexusVoice</div>
-              <div className="sidebar__version">v{__APP_VERSION__}</div>
-            </div>
-          </Link>
-        </div>
-
-        {/* Navigation */}
-        <nav className="sidebar__nav">
-          {NAV.map(({ path, label, Icon }) => (
-            <Link
-              key={path}
-              to={path}
-              className={clsx('sidebar__link', location.pathname === path && 'sidebar__link--active')}
-            >
-              <Icon size={15} strokeWidth={1.75} className="sidebar__link-icon" />
-              <span>{label}</span>
-            </Link>
-          ))}
-        </nav>
-
-        {/* User footer */}
-        <div className="sidebar__footer">
-          {user ? (
-            <div className="sidebar__user">
-              <div className="sidebar__avatar">{initials}</div>
-              <div className="sidebar__user-info">
-                <div className="sidebar__user-email">{user.email}</div>
-                <div className="sidebar__user-role">Free plan</div>
+        <aside className="sidebar">
+          <div className="sidebar__header">
+            <Link to="/" className="sidebar__brand">
+              <div className="sidebar__logo">
+                <Zap size={13} strokeWidth={2.5} />
               </div>
-              <button
-                type="button"
-                onClick={handleLogout}
-                title="Log out"
-                className="sidebar__logout-btn"
-              >
-                <LogOut size={13} strokeWidth={1.75} />
-              </button>
-            </div>
-          ) : (
-            <Link
-              to="/auth"
-              className={clsx('sidebar__link', location.pathname === '/auth' && 'sidebar__link--active')}
-            >
-              <Zap size={15} strokeWidth={1.75} className="sidebar__link-icon" />
-              <span>Log in</span>
+              <div>
+                <div className="sidebar__name">NexusVoice</div>
+                <div className="sidebar__version">v{__APP_VERSION__}</div>
+              </div>
             </Link>
-          )}
-        </div>
-      </aside>
+          </div>
 
-      <div className="main-area">
-        <main className="main-content">
-          <Outlet />
-        </main>
-      </div>
+          <nav className="sidebar__nav">
+            {NAV.map(({ path, label, Icon }) => (
+              <Link
+                key={path}
+                to={path}
+                className={clsx('sidebar__link', location.pathname === path && 'sidebar__link--active')}
+              >
+                <Icon size={15} strokeWidth={1.75} className="sidebar__link-icon" />
+                <span>{label}</span>
+              </Link>
+            ))}
+          </nav>
+
+          <div className="sidebar__footer">
+            {user ? (
+              <div className="sidebar__user">
+                <div className="sidebar__avatar">{initials}</div>
+                <div className="sidebar__user-info">
+                  <div className="sidebar__user-email">{user.email}</div>
+                  <div className="sidebar__user-role">Free plan</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  title="Log out"
+                  className="sidebar__logout-btn"
+                >
+                  <LogOut size={13} strokeWidth={1.75} />
+                </button>
+              </div>
+            ) : (
+              <Link
+                to="/auth"
+                className={clsx('sidebar__link', location.pathname === '/auth' && 'sidebar__link--active')}
+              >
+                <Zap size={15} strokeWidth={1.75} className="sidebar__link-icon" />
+                <span>Log in</span>
+              </Link>
+            )}
+          </div>
+        </aside>
+
+        <div className="main-area">
+          <main className="main-content">
+            <Outlet />
+          </main>
+        </div>
       </div>
     </div>
   )

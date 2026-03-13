@@ -38,7 +38,7 @@ const FEATURES = [
 
 export function Auth() {
   const [mode, setMode] = useState<Mode>('login')
-  const { login, register, error, setError } = useAppStore()
+  const { login, register } = useAppStore()
   const navigate = useNavigate()
   const location = useLocation()
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname ?? '/'
@@ -55,19 +55,18 @@ export function Auth() {
   })
 
   const onSubmit = async (data: FormValues) => {
-    setError(null)
     try {
       if (mode === 'login') await login(data.email, data.password)
       else await register(data.email, data.password)
       navigate(from, { replace: true })
-    } catch {
-      setFieldError('root', { message: 'Authentication failed. Please try again.' })
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Authentication failed. Please try again.'
+      setFieldError('root', { message })
     }
   }
 
   const switchMode = (next: Mode) => {
     setMode(next)
-    setError(null)
     reset({ email: '', password: '', rememberMe: false })
   }
 
@@ -135,13 +134,10 @@ export function Auth() {
             </p>
           </div>
 
-          {(error || errors.root) && (
+          {errors.root && (
             <div className="notice notice--error">
               <AlertCircle size={13} strokeWidth={2} style={{ flexShrink: 0, color: 'var(--danger)' }} />
-              <span style={{ flex: 1 }}>{error ?? errors.root?.message}</span>
-              <button type="button" className="notice__close" onClick={() => setError(null)}>
-                <X size={13} strokeWidth={2} />
-              </button>
+              <span style={{ flex: 1 }}>{errors.root.message}</span>
             </div>
           )}
 

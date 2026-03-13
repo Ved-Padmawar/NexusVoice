@@ -18,7 +18,7 @@ export function Dictionary() {
 
   useEffect(() => {
     invoke<WordSuggestion[]>('get_word_suggestions').then(setSuggestions).catch(() => {})
-  }, [dictionary])
+  }, [])
 
   const handleDismiss = async (word: string) => {
     await invoke('dismiss_word_suggestion', { word })

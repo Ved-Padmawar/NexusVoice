@@ -74,17 +74,19 @@ export function PillApp() {
   }, [])
 
   // Start/stop RAF loop based on recording state
+  const isRecording = state === 'recording'
   useEffect(() => {
-    if (state === 'recording') {
+    if (isRecording) {
       const analyser = analyserRef.current as (AnalyserNode & { _tick?: () => void }) | null
       if (analyser?._tick && !rafRef.current) {
         rafRef.current = requestAnimationFrame(analyser._tick)
       }
     } else {
       if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
-      setBarHeights([3, 3, 3, 3, 3, 3, 3, 3])
+      // Reset bars after cancelling RAF — scheduled so it doesn't fire synchronously
+      requestAnimationFrame(() => setBarHeights([3, 3, 3, 3, 3, 3, 3, 3]))
     }
-  }, [state])
+  }, [isRecording])
 
   // Ensure pill stays above the Windows taskbar at runtime
   useEffect(() => {
