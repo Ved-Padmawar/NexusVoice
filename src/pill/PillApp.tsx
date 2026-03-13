@@ -29,17 +29,8 @@ export function PillApp() {
     void getCurrentWindow().startDragging()
   }, [])
 
-  // Real mic amplitude → bar heights
+  // Initialize AudioContext + stream once on mount, keep alive
   useEffect(() => {
-    if (state !== 'recording') {
-      // Cleanup
-      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
-      if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null }
-      if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null }
-      setTimeout(() => setBarHeights([3, 3, 3, 3, 3, 3, 3, 3]), 0)
-      return
-    }
-
     const BAR_COUNT = 8
     const MIN_H = 3
     const MAX_H = 16
@@ -58,12 +49,11 @@ export function PillApp() {
 
       const data = new Uint8Array(analyser.frequencyBinCount)
       const tick = () => {
-        analyser.getByteFrequencyData(data)
-        // RMS across lower frequency bins (voice range)
+        if (!analyserRef.current) return
+        analyserRef.current.getByteFrequencyData(data)
         const bins = data.slice(0, 32)
         const rms = Math.sqrt(bins.reduce((s, v) => s + v * v, 0) / bins.length)
-        const norm = Math.min(rms / 80, 1) // 0..1
-
+        const norm = Math.min(rms / 80, 1)
         const heights = Array.from({ length: BAR_COUNT }, (_, i) => {
           const h = MIN_H + (MAX_H - MIN_H) * norm * weights[i]
           return Math.max(MIN_H, Math.round(h))
@@ -71,15 +61,28 @@ export function PillApp() {
         setBarHeights(heights)
         rafRef.current = requestAnimationFrame(tick)
       }
-      rafRef.current = requestAnimationFrame(tick)
-    }).catch(() => {
-      // No mic permission — fall back to idle heights
-    })
+
+      // Store tick so state effect can start/stop it
+      ;(analyserRef as React.MutableRefObject<AnalyserNode & { _tick?: () => void }>).current._tick = tick
+    }).catch(() => { /* no mic permission */ })
 
     return () => {
       if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
       if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null }
       if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null }
+    }
+  }, [])
+
+  // Start/stop RAF loop based on recording state
+  useEffect(() => {
+    if (state === 'recording') {
+      const analyser = analyserRef.current as (AnalyserNode & { _tick?: () => void }) | null
+      if (analyser?._tick && !rafRef.current) {
+        rafRef.current = requestAnimationFrame(analyser._tick)
+      }
+    } else {
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+      setBarHeights([3, 3, 3, 3, 3, 3, 3, 3])
     }
   }, [state])
 

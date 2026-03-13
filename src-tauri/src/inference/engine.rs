@@ -90,6 +90,10 @@ impl WhisperEngine {
         let mut text = String::new();
         for i in 0..n {
             if let Some(seg) = state.get_segment(i) {
+                // Drop segments whisper flagged as silence/noise
+                if seg.no_speech_probability() > 0.6 {
+                    continue;
+                }
                 if let Ok(s) = seg.to_str_lossy() {
                     text.push_str(&s);
                 }
