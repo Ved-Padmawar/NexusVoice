@@ -26,7 +26,7 @@ describe("App", () => {
     useAppStore.setState({
       transcripts: [],
       dictionary: [],
-      theme: "void",
+      theme: "abyss",
       isLoading: false,
     });
   });
