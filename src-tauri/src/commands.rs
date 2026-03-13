@@ -373,41 +373,43 @@ pub async fn stop_transcription(
         parts.join(" ")
     };
 
-    tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn(async move {
         eprintln!("[nv] preprocessing {} samples at {}Hz", samples.len(), captured_rate);
-        let resampled = crate::preprocess::preprocess(&samples, captured_rate);
+        let resampled = tauri::async_runtime::spawn_blocking(move || {
+            crate::preprocess::preprocess(&samples, captured_rate)
+        })
+        .await
+        .map_err(|e| format!("preprocess join error: {e}"))?;
+
         eprintln!("[nv] resampled to {} samples, starting inference", resampled.len());
 
-        let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
-        std::thread::spawn(move || {
-            eprintln!("[nv] inference thread started");
-            let result = tauri::async_runtime::block_on(async {
-                engine.lock().await.transcribe(&resampled, &prompt)
-            });
-            eprintln!("[nv] inference result: {:?}", result.as_ref().map(|s| s.len()).map_err(|e| e.as_str()));
-            let _ = tx.send(result);
-        });
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            let mut eng = engine.lock().unwrap_or_else(|e| e.into_inner());
+            eng.transcribe(&resampled, &prompt)
+        })
+        .await
+        .map_err(|e| format!("inference join error: {e}"))
+        .and_then(|r| r);
 
-        match rx.recv_timeout(std::time::Duration::from_secs(60)) {
-            Ok(Ok(text)) if !text.is_empty() => {
+        eprintln!("[nv] inference result: {:?}", result.as_ref().map(|s| s.len()));
+
+        match result {
+            Ok(text) if !text.is_empty() => {
                 let _ = app_handle.emit("transcription-complete", text.clone());
                 let repo = TranscriptRepository::new(pool.clone());
-                if let Ok(saved) = tauri::async_runtime::block_on(repo.create(CreateTranscript {
-                    content: text.clone(),
-                })) {
+                if let Ok(saved) = repo.create(CreateTranscript { content: text }).await {
                     let _ = app_handle.emit("transcript:new", TranscriptResponse::from(saved));
                 }
             }
-            Ok(Ok(_)) => {
+            Ok(_) => {
                 let _ = app_handle.emit("transcription-complete", "");
             }
-            Ok(Err(e)) => {
+            Err(e) => {
                 let _ = app_handle.emit("transcription-error", e);
             }
-            Err(_) => {
-                let _ = app_handle.emit("transcription-error", "transcription timed out");
-            }
         }
+
+        Ok::<(), String>(())
     });
 
     Ok(true)
@@ -809,25 +811,7 @@ pub fn download_whisper_model(
 ) -> Result<(), String> {
     let file_urls: &[(&str, &str)] = &[(model_size.filename(), model_size.url())];
 
-    // HEAD the URL to get real Content-Length
-    let client = reqwest::blocking::Client::new();
-    let mut file_sizes: Vec<u64> = Vec::new();
-    for (filename, url) in file_urls {
-        let dest = models_dir.join(filename);
-        if dest.exists() {
-            file_sizes.push(dest.metadata().map(|m| m.len()).unwrap_or(0));
-        } else {
-            let size = client
-                .head(*url)
-                .send()
-                .ok()
-                .and_then(|r| r.headers().get("content-length")?.to_str().ok()?.parse().ok())
-                .unwrap_or(0);
-            file_sizes.push(size);
-        }
-    }
-
-    // HEAD each URL to get real Content-Length, skip already-downloaded files
+    // HEAD each URL to get Content-Length; use on-disk size for already-downloaded files
     let client = reqwest::blocking::Client::new();
     let mut file_sizes: Vec<u64> = Vec::new();
     for (filename, url) in file_urls {

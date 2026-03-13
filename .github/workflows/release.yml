@@ -13,8 +13,17 @@ env:
 
 jobs:
   build:
-    name: Build
+    name: Build (${{ matrix.variant }})
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: standard
+            cuda: false
+          - variant: cuda
+            cuda: true
+
     steps:
       - uses: actions/checkout@v4
 
@@ -28,6 +37,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install CUDA Toolkit
+        if: matrix.cuda
         uses: Jimver/cuda-toolkit@v0.2.30
         with:
           cuda: '12.9.1'
@@ -35,6 +45,7 @@ jobs:
           sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "visual_studio_integration"]'
 
       - name: Add CUDA to PATH
+        if: matrix.cuda
         shell: pwsh
         run: echo "$env:CUDA_PATH\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
@@ -61,6 +72,7 @@ jobs:
           sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
 
       - name: Copy CUDA DLLs
+        if: matrix.cuda
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path src-tauri/cuda
@@ -69,18 +81,17 @@ jobs:
           Copy-Item "$env:CUDA_PATH\bin\cudart64_12.dll"   src-tauri/cuda/
 
       - name: Patch tauri.conf.json resources with CUDA DLLs
+        if: matrix.cuda
         shell: python
         run: |
           import json, pathlib
           conf_path = pathlib.Path("src-tauri/tauri.conf.json")
           conf = json.loads(conf_path.read_text(encoding="utf-8"))
-          # Tauri 2 object syntax: { "src": "dest" }
           cuda_entries = {
               "cuda/cublas64_12.dll": "cublas64_12.dll",
               "cuda/cublasLt64_12.dll": "cublasLt64_12.dll",
               "cuda/cudart64_12.dll": "cudart64_12.dll",
           }
-          # Convert array to object if needed, then merge
           resources = conf["bundle"]["resources"]
           if isinstance(resources, list):
               resources = {}
@@ -89,19 +100,32 @@ jobs:
           conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
           print("patched tauri.conf.json resources")
 
+      - name: Patch installer name for CUDA build
+        if: matrix.cuda
+        shell: python
+        run: |
+          import json, pathlib
+          conf_path = pathlib.Path("src-tauri/tauri.conf.json")
+          conf = json.loads(conf_path.read_text(encoding="utf-8"))
+          conf["productName"] = "NexusVoice-CUDA"
+          conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
+          print("patched productName to NexusVoice-CUDA")
+
       - name: Enable whisper-rs GPU features in Cargo.toml
         shell: python
         run: |
           import pathlib, re
+          cuda = "${{ matrix.cuda }}" == "true"
           cargo = pathlib.Path("src-tauri/Cargo.toml")
           text = cargo.read_text(encoding="utf-8")
+          features = '"cuda", "vulkan"' if cuda else '"vulkan"'
           text = re.sub(
               r'whisper-rs\s*=\s*"([^"]+)"',
-              r'whisper-rs = { version = "\1", features = ["cuda", "vulkan"] }',
+              f'whisper-rs = {{ version = "\\1", features = [{features}] }}',
               text,
           )
           cargo.write_text(text, encoding="utf-8")
-          print("enabled cuda + vulkan features for whisper-rs")
+          print(f"enabled features: {features}")
 
       - name: Cache Rust deps
         uses: Swatinem/rust-cache@v2.8.2
@@ -116,6 +140,7 @@ jobs:
         run: npx tauri build
 
       - name: Generate latest.json
+        if: matrix.variant == 'standard'
         shell: python
         run: |
           import json, os, glob, datetime, pathlib
@@ -145,6 +170,6 @@ jobs:
           files: |
             C:/b/release/bundle/nsis/*.exe
             C:/b/release/bundle/msi/*.msi
-            latest.json
+            ${{ matrix.variant == 'standard' && 'latest.json' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

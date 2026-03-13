@@ -59,7 +59,13 @@ impl WhisperEngine {
         } else {
             samples_16k
         };
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        let n_threads = (std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4) / 2)
+            .max(1) as i32;
+
+        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 0 });
+        params.set_n_threads(n_threads);
         params.set_language(Some("en"));
         params.set_translate(false);
         params.set_print_special(false);
@@ -79,14 +85,14 @@ impl WhisperEngine {
             .full(params, samples_16k)
             .map_err(|e| format!("whisper full: {e}"))?;
 
-        let n = state
-            .full_n_segments()
-            .map_err(|e| format!("whisper segments: {e}"))?;
+        let n = state.full_n_segments();
 
         let mut text = String::new();
         for i in 0..n {
-            if let Ok(seg) = state.full_get_segment_text(i) {
-                text.push_str(&seg);
+            if let Some(seg) = state.get_segment(i) {
+                if let Ok(s) = seg.to_str_lossy() {
+                    text.push_str(&s);
+                }
             }
         }
 

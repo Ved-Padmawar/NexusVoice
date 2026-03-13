@@ -70,7 +70,7 @@ pub struct AppState {
     pub native_sample_rate: NativeSampleRate,
     pub models_dir: PathBuf,
     /// Cached whisper engine — loaded once, reused across recordings.
-    pub engine: Mutex<Option<Arc<tokio::sync::Mutex<WhisperEngine>>>>,
+    pub engine: Mutex<Option<Arc<std::sync::Mutex<WhisperEngine>>>>,
     pub model_download: Arc<ModelDownloadState>,
 }
 
@@ -104,7 +104,7 @@ impl AppState {
     /// Returns Err if the model file is missing (not yet downloaded).
     pub async fn get_or_load_engine(
         &self,
-    ) -> Result<Arc<tokio::sync::Mutex<WhisperEngine>>, String> {
+    ) -> Result<Arc<std::sync::Mutex<WhisperEngine>>, String> {
         let mut guard = self.engine.lock().await;
         if let Some(engine) = guard.as_ref() {
             return Ok(Arc::clone(engine));
@@ -121,7 +121,7 @@ impl AppState {
             return Err("model not downloaded yet".to_string());
         }
         let engine = WhisperEngine::new(&self.models_dir, override_size.as_deref())?;
-        let arc = Arc::new(tokio::sync::Mutex::new(engine));
+        let arc = Arc::new(std::sync::Mutex::new(engine));
         *guard = Some(Arc::clone(&arc));
         Ok(arc)
     }
