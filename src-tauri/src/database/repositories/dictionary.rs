@@ -46,21 +46,6 @@ impl DictionaryRepository {
         .await
     }
 
-    #[cfg(test)]
-    pub async fn list_candidates(
-        &self,
-        prefix: &str,
-        limit: i64,
-    ) -> Result<Vec<DictionaryEntry>, sqlx::Error> {
-        let pattern = format!("{prefix}%");
-        sqlx::query_as::<_, DictionaryEntry>(
-            "SELECT id, term, replacement, created_at FROM dictionary WHERE term LIKE ? LIMIT ?",
-        )
-        .bind(pattern)
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await
-    }
 
     pub async fn delete_by_id(&self, id: i64) -> Result<bool, sqlx::Error> {
         let result = sqlx::query("DELETE FROM dictionary WHERE id = ?")

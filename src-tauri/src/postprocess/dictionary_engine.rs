@@ -133,14 +133,12 @@ fn levenshtein(a: &str, b: &str) -> usize {
 mod tests {
     use super::*;
     use crate::database::models::dictionary::DictionaryEntry;
-    use chrono::Utc;
-
     fn entry(id: i64, term: &str, replacement: &str) -> DictionaryEntry {
         DictionaryEntry {
             id,
             term: term.to_string(),
             replacement: replacement.to_string(),
-            created_at: Utc::now(),
+            created_at: chrono::NaiveDateTime::default(),
         }
     }
 

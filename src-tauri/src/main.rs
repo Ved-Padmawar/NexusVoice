@@ -74,14 +74,9 @@ fn main() {
             std::fs::create_dir_all(&app_data_dir)?;
 
             let db_path = app_data_dir.join("nexusvoice.db");
-            let db_url = format!("sqlite://{}", db_path.to_string_lossy().replace('\\', "/"));
-
             let pool =
-                tauri::async_runtime::block_on(database::connection::create_pool(&db_url))
-                    .map_err(|err| std::io::Error::other(format!("database init failed: {err}")))?;
-            tauri::async_runtime::block_on(database::connection::init_database(&pool)).map_err(
-                |err| std::io::Error::other(format!("database migrations failed: {err}")),
-            )?;
+                tauri::async_runtime::block_on(database::connection::open_database(&db_path))
+                    .map_err(std::io::Error::other)?;
 
             let jwt_secret_path = app_data_dir.join("jwt_secret");
             let jwt_secret = auth::load_or_create_jwt_secret(&jwt_secret_path)
@@ -269,8 +264,6 @@ fn main() {
             commands::set_model_override,
             commands::clear_model_override,
             commands::get_hardware_profile,
-            commands::get_word_suggestions,
-            commands::dismiss_word_suggestion,
             commands::open_logs_folder,
         ])
         .build(tauri::generate_context!())

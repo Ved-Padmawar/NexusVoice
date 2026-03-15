@@ -387,17 +387,46 @@ pub async fn stop_transcription(
         .await
         .map_err(|e| format!("preprocess join error: {e}"))?;
 
-        log::debug!("resampled to {} samples, starting inference", resampled.len());
+        log::debug!("resampled to {} samples, chunking for inference", resampled.len());
 
-        let result = tauri::async_runtime::spawn_blocking(move || {
-            let mut eng = engine.lock().unwrap_or_else(|e| e.into_inner());
-            eng.transcribe(&resampled, &prompt)
-        })
-        .await
-        .map_err(|e| format!("inference join error: {e}"))
-        .and_then(|r| r);
+        // Split into VAD-aware chunks (no-op for recordings ≤ 30 s)
+        let chunks = crate::preprocess::chunker::chunk_audio(&resampled);
+        log::debug!("audio split into {} chunk(s)", chunks.len());
 
-        log::debug!("inference result: {:?}", result.as_ref().map(|s| s.len()));
+        // Transcribe each chunk sequentially (engine holds the model in a Mutex)
+        let mut chunk_texts: Vec<String> = Vec::with_capacity(chunks.len());
+        for (i, chunk) in chunks.iter().enumerate() {
+            let chunk_samples = chunk.samples.clone();
+            let chunk_prompt = prompt.clone();
+            let eng = engine.clone();
+            let chunk_result = tauri::async_runtime::spawn_blocking(move || {
+                let mut eng = eng.lock().unwrap_or_else(|e| e.into_inner());
+                eng.transcribe(&chunk_samples, &chunk_prompt)
+            })
+            .await
+            .map_err(|e| format!("inference join error (chunk {i}): {e}"))
+            .and_then(|r| r);
+
+            match chunk_result {
+                Ok(text) => {
+                    log::debug!("chunk {i} → {} chars", text.len());
+                    chunk_texts.push(text);
+                }
+                Err(e) => {
+                    log::warn!("chunk {i} inference failed: {e}");
+                }
+            }
+        }
+
+        // Stitch all chunk transcripts into the final text
+        let raw_text = crate::preprocess::chunker::stitch_transcripts(&chunk_texts);
+        log::debug!("stitched result: {} chars", raw_text.len());
+
+        let result: Result<String, String> = if raw_text.is_empty() {
+            Ok(String::new())
+        } else {
+            Ok(raw_text)
+        };
 
         match result {
             Ok(raw_text) if !raw_text.is_empty() => {
@@ -414,13 +443,32 @@ pub async fn stop_transcription(
                     let _ = app_handle.emit("transcript:new", TranscriptResponse::from(saved));
                 }
 
-                // Track word frequencies for auto-suggestions (fire-and-forget)
-                // Use raw_text (pre-correction) so dictionary replacements don't pollute frequency counts
+                // Auto-learn words: track frequency and add to dictionary once threshold is hit.
+                // Use raw_text (pre-correction) so dictionary replacements don't pollute counts.
                 let words = extract_trackable_words(&raw_text);
                 if !words.is_empty() {
                     let freq_repo = WordFrequencyRepository::new(pool.clone());
-                    if let Err(e) = freq_repo.increment_batch(&words).await {
-                        log::warn!("word frequency update failed: {e}");
+                    match freq_repo.increment_batch(&words).await {
+                        Ok(newly_learned) if !newly_learned.is_empty() => {
+                            let dict_repo = DictionaryRepository::new(pool.clone());
+                            for word in &newly_learned {
+                                match dict_repo.upsert(CreateDictionaryEntry {
+                                    term: word.clone(),
+                                    replacement: word.clone(),
+                                }).await {
+                                    Ok(entry) => {
+                                        let mut cache = dict_cache.write().await;
+                                        if !cache.iter().any(|e| e.term == entry.term) {
+                                            cache.push(entry);
+                                        }
+                                        log::debug!("auto-learned word: {word}");
+                                    }
+                                    Err(e) => log::warn!("auto-learn dict upsert failed for {word}: {e}"),
+                                }
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(e) => log::warn!("word frequency update failed: {e}"),
                     }
                 }
             }
@@ -573,52 +621,6 @@ pub async fn apply_dictionary(
     let entries = state.dict_cache.read().await.clone();
     let engine = DictionaryCorrectionEngine::new(entries, DictionaryCorrectionConfig::default());
     Ok(engine.apply_to_text(&text))
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WordSuggestionResponse {
-    pub word: String,
-    pub count: i64,
-}
-
-/// Return words seen 3+ times that are not already in the dictionary and not dismissed.
-#[tauri::command]
-pub async fn get_word_suggestions(
-    state: State<'_, AppState>,
-) -> Result<Vec<WordSuggestionResponse>, ApiError> {
-    const MIN_COUNT: i64 = 3;
-
-    let freq_repo = WordFrequencyRepository::new(state.pool.clone());
-    let rows = freq_repo.get_suggestions(MIN_COUNT).await?;
-
-    // Exclude words already covered by a dictionary entry (exact term match)
-    let dict = state.dict_cache.read().await;
-    let in_dict: std::collections::HashSet<String> =
-        dict.iter().map(|e| e.term.to_lowercase()).collect();
-    drop(dict);
-
-    let suggestions = rows
-        .into_iter()
-        .filter(|r| !in_dict.contains(&r.word))
-        .map(|r| WordSuggestionResponse {
-            word: r.word,
-            count: r.count,
-        })
-        .collect();
-
-    Ok(suggestions)
-}
-
-/// Permanently dismiss a word so it never surfaces as a suggestion again.
-#[tauri::command]
-pub async fn dismiss_word_suggestion(
-    state: State<'_, AppState>,
-    word: String,
-) -> Result<(), ApiError> {
-    let freq_repo = WordFrequencyRepository::new(state.pool.clone());
-    freq_repo.dismiss(&word).await?;
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------

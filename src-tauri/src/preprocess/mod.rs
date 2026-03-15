@@ -1,3 +1,4 @@
+pub mod chunker;
 pub mod denoise;
 pub mod vad;
 

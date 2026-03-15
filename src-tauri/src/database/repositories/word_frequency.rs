@@ -1,11 +1,5 @@
 use sqlx::SqlitePool;
 
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct WordFrequencyRow {
-    pub word: String,
-    pub count: i64,
-}
-
 #[derive(Clone)]
 pub struct WordFrequencyRepository {
     pool: SqlitePool,
@@ -17,9 +11,12 @@ impl WordFrequencyRepository {
     }
 
     /// Increment frequency counters for a batch of words in one transaction.
-    pub async fn increment_batch(&self, words: &[String]) -> Result<(), sqlx::Error> {
+    /// Returns words that just crossed the auto-learn threshold (count == 3).
+    pub async fn increment_batch(&self, words: &[String]) -> Result<Vec<String>, sqlx::Error> {
+        const THRESHOLD: i64 = 3;
+
         if words.is_empty() {
-            return Ok(());
+            return Ok(vec![]);
         }
         let mut tx = self.pool.begin().await?;
         for word in words {
@@ -32,34 +29,23 @@ impl WordFrequencyRepository {
             .execute(&mut *tx)
             .await?;
         }
-        tx.commit().await
+        tx.commit().await?;
+
+        // Find words that exactly hit the threshold this batch (count == THRESHOLD)
+        let mut newly_learned = Vec::new();
+        for word in words {
+            let count: i64 = sqlx::query_scalar(
+                "SELECT count FROM word_frequency WHERE word = ? AND dismissed = 0",
+            )
+            .bind(word)
+            .fetch_optional(&self.pool)
+            .await?
+            .unwrap_or(0);
+            if count == THRESHOLD {
+                newly_learned.push(word.clone());
+            }
+        }
+        Ok(newly_learned)
     }
 
-    /// Return words with count >= min_count that are not dismissed.
-    pub async fn get_suggestions(
-        &self,
-        min_count: i64,
-    ) -> Result<Vec<WordFrequencyRow>, sqlx::Error> {
-        sqlx::query_as::<_, WordFrequencyRow>(
-            "SELECT word, count FROM word_frequency
-             WHERE count >= ? AND dismissed = 0
-             ORDER BY count DESC",
-        )
-        .bind(min_count)
-        .fetch_all(&self.pool)
-        .await
-    }
-
-    /// Mark a word as dismissed so it never surfaces again.
-    pub async fn dismiss(&self, word: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            "INSERT INTO word_frequency (word, count, dismissed)
-             VALUES (?, 0, 1)
-             ON CONFLICT(word) DO UPDATE SET dismissed = 1",
-        )
-        .bind(word)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
 }

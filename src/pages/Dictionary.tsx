@@ -1,13 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowRight, Trash2, BookOpen, CheckCircle2, AlertCircle, X, Sparkles } from 'lucide-react'
-import { invoke } from '@tauri-apps/api/core'
+import { ArrowRight, Trash2, BookOpen, CheckCircle2, AlertCircle, X } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-
-type WordSuggestion = { word: string; count: number }
 
 export function Dictionary() {
   const { dictionary, updateDictionary, deleteDictionaryEntry, error, setError } = useAppStore()
@@ -15,16 +12,6 @@ export function Dictionary() {
   const [replacement, setReplacement] = useState('')
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
-  const [suggestions, setSuggestions] = useState<WordSuggestion[]>([])
-
-  useEffect(() => {
-    invoke<WordSuggestion[]>('get_word_suggestions').then(setSuggestions).catch(() => {})
-  }, [])
-
-  const handleDismiss = async (word: string) => {
-    await invoke('dismiss_word_suggestion', { word })
-    setSuggestions(s => s.filter(x => x.word !== word))
-  }
 
   const handleAdd = async () => {
     const t = term.trim(), r = replacement.trim()
@@ -42,7 +29,7 @@ export function Dictionary() {
       <div className="page-header">
         <h1 className="page-title">Dictionary</h1>
         <p className="page-subtitle">
-          Map spoken words to their correct form — applied automatically during transcription.
+          Words you use 3+ times are learned automatically. Add manual corrections below.
         </p>
       </div>
 
@@ -108,43 +95,6 @@ export function Dictionary() {
           </div>
         </div>
       </div>
-
-      {/* Auto-learn suggestions */}
-      {suggestions.length > 0 && (
-        <div className="card">
-          <div className="card__header">
-            <div>
-              <h2 className="card__title dict-suggestions-title">
-                <Sparkles size={13} strokeWidth={1.75} className="icon--accent" />
-                Suggested Words
-              </h2>
-              <p className="card__desc">Words seen 3+ times — auto-added to dictionary. Dismiss to ignore.</p>
-            </div>
-          </div>
-          <div className="card__body">
-            <div className="dict-suggestions-chips">
-              <AnimatePresence>
-                {suggestions.map((s) => (
-                  <motion.div
-                    key={s.word}
-                    className="dict-chip"
-                    initial={{ opacity: 0, scale: 0.85 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.85 }}
-                    transition={{ duration: 0.15 }}
-                  >
-                    <span>{s.word}</span>
-                    <span className="dict-chip__count">×{s.count}</span>
-                    <button type="button" className="dict-chip__dismiss" onClick={() => handleDismiss(s.word)}>
-                      <X size={11} strokeWidth={2} />
-                    </button>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* List */}
       <div className="card dict-list-body">
