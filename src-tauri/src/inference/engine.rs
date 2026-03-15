@@ -19,11 +19,7 @@ impl WhisperEngine {
         let backend = detect_backend();
         let model_size = select_model_size(backend, override_size);
 
-        eprintln!(
-            "[nexusvoice] backend: {}, model: {}",
-            backend.as_str(),
-            model_size.display_name()
-        );
+        log::info!("backend: {}, model: {}", backend.as_str(), model_size.display_name());
 
         let model_path = models_dir.join(model_size.filename());
         if !model_path.exists() {

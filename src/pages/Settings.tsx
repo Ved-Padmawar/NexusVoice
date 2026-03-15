@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import {
   Palette, Keyboard, Info,
   Check, AlertCircle, CheckCircle2, X,
-  RefreshCw, Download, ArrowUpCircle, Cpu,
+  RefreshCw, Download, ArrowUpCircle, Cpu, FolderOpen,
 } from 'lucide-react'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
@@ -481,17 +481,30 @@ export function Settings() {
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="settings-tabs">
-        <TabsList className="settings-tabs__list">
-          {TABS.map((t) => {
-            const Icon = TAB_ICONS[t]
-            return (
-              <TabsTrigger key={t} value={t} className="settings-tabs__trigger">
-                <Icon size={12} strokeWidth={1.75} />
-                {t.charAt(0).toUpperCase() + t.slice(1)}
-              </TabsTrigger>
-            )
-          })}
-        </TabsList>
+        <div className="settings-tabs__bar">
+          <TabsList className="settings-tabs__list">
+            {TABS.map((t) => {
+              const Icon = TAB_ICONS[t]
+              return (
+                <TabsTrigger key={t} value={t} className="settings-tabs__trigger">
+                  <Icon size={12} strokeWidth={1.75} />
+                  {t.charAt(0).toUpperCase() + t.slice(1)}
+                </TabsTrigger>
+              )
+            })}
+          </TabsList>
+          {tab === 'about' && (
+            <button
+              type="button"
+              className="settings-tabs__action"
+              onClick={() => invoke('open_logs_folder')}
+              title="Open logs folder"
+            >
+              <FolderOpen size={12} strokeWidth={1.75} />
+              Logs
+            </button>
+          )}
+        </div>
 
         {/* ── General: Themes ── */}
         <TabsContent value="general" className="settings-scroll">

@@ -119,7 +119,7 @@ where
                     buf.extend_from_slice(&mono);
                 }
             },
-            |err| eprintln!("cpal stream error: {err}"),
+            |err| log::error!("cpal stream error: {err}"),
             None,
         )
         .map_err(|e| format!("failed to build input stream: {e}"))?;

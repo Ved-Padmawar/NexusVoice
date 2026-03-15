@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { motion } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen } from '@tauri-apps/api/event'
+
 import { check } from '@tauri-apps/plugin-updater'
 import { useAppStore } from './store/useAppStore'
 import { Layout } from './components/Layout'
@@ -26,15 +27,6 @@ function App() {
     const cleanup = listenForModelEvents()
     return () => { cleanup.then(fn => fn()) }
   }, [listenForModelEvents])
-
-  useEffect(() => {
-    const unlisten = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      if (focused && useAppStore.getState().user) {
-        useAppStore.getState().init()
-      }
-    })
-    return () => { unlisten.then(fn => fn()) }
-  }, [])
 
   useEffect(() => {
     const t = setTimeout(async () => {
@@ -75,7 +67,7 @@ function App() {
 
   if (authChecking || isLoading) {
     return (
-      <div className="app-loading" role="status" aria-live="polite">
+      <div className="app-loading" role="status" aria-live="polite" data-tauri-drag-region>
         <div className="loading-spinner" />
         <p className="loading-text">Loading…</p>
       </div>
@@ -87,7 +79,7 @@ function App() {
 
   return (
     <BrowserRouter>
-      <Suspense fallback={<div className="app-loading" role="status"><div className="loading-spinner" /></div>}>
+      <Suspense fallback={<div className="app-loading" role="status" data-tauri-drag-region><div className="loading-spinner" /></div>}>
         <AnimatedRoutes initialRoute={initialRoute} user={user} />
       </Suspense>
     </BrowserRouter>

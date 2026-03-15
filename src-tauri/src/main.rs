@@ -6,6 +6,9 @@ use tauri::{
     Emitter, Manager,
 };
 
+// 10 MB in bytes
+const LOG_MAX_SIZE: u128 = 10 * 1024 * 1024;
+
 mod audio;
 mod auth;
 mod commands;
@@ -17,7 +20,50 @@ mod preprocess;
 mod state;
 
 fn main() {
+    // Panic hook — writes panic info to log before crashing.
+    // Note: only active in debug builds since release profile uses panic = "abort".
+    #[cfg(debug_assertions)]
+    {
+        let default_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            log::error!("PANIC: {info}");
+            default_hook(info);
+        }));
+    }
+
+    // Build log targets conditionally
+    #[cfg(debug_assertions)]
+    let log_targets = vec![
+        tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+        tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+        tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: Some("nexusvoice".into()) }),
+    ];
+    #[cfg(not(debug_assertions))]
+    let log_targets = vec![
+        tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: Some("nexusvoice".into()) }),
+    ];
+
+    #[cfg(debug_assertions)]
+    let log_level = log::LevelFilter::Debug;
+    #[cfg(not(debug_assertions))]
+    let log_level = log::LevelFilter::Info;
+
     tauri::Builder::default()
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets(log_targets)
+                .level(log_level)
+                .max_file_size(LOG_MAX_SIZE)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                .build(),
+        )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -62,7 +108,7 @@ fn main() {
             app.manage(app_state);
 
 
-            // Emit hardware profile event
+            // Emit hardware profile event + log startup diagnostics
             {
                 use hardware::detector::detect_profile;
                 use hardware::sysinfo_provider::SysinfoProvider;
@@ -70,6 +116,13 @@ fn main() {
 
                 let hw = detect_profile(&SysinfoProvider);
                 let recommended = recommend_model_size();
+
+                log::info!("NexusVoice v{} starting", env!("CARGO_PKG_VERSION"));
+                log::info!("OS: {}", std::env::consts::OS);
+                log::info!("RAM: {:.1} GB", hw.ram_gb);
+                log::info!("GPU: {} ({}, {:.1} GB VRAM)", hw.gpu_type, hw.execution_provider, hw.vram_gb);
+                log::info!("Recommended model: {}", recommended.display_name());
+
                 let _ = app.emit(
                     "hardware:profile",
                     serde_json::json!({
@@ -218,6 +271,7 @@ fn main() {
             commands::get_hardware_profile,
             commands::get_word_suggestions,
             commands::dismiss_word_suggestion,
+            commands::open_logs_folder,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

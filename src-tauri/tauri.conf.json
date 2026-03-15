@@ -17,10 +17,10 @@
         "title": "NexusVoice",
         "width": 1200,
         "height": 800,
-        "visible": true,
+        "visible": false,
         "decorations": false,
         "resizable": true,
-        "backgroundColor": "#0e0d1a",
+        "backgroundColor": "#22232b",
         "url": "index.html"
       },
       {

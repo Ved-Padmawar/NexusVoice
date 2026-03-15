@@ -41,7 +41,7 @@ pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
         match resampler.process(&waves_in, None) {
             Ok(waves_out) => out.extend_from_slice(&waves_out[0]),
             Err(e) => {
-                eprintln!("resampler chunk error: {e}");
+                log::error!("resampler chunk error: {e}");
                 break;
             }
         }

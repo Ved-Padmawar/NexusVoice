@@ -17,6 +17,9 @@
     "core:event:allow-listen",
     "core:event:allow-emit",
     "updater:default",
-    "process:default"
+    "process:default",
+    "log:default",
+    "log:allow-log",
+    "window-state:default"
   ]
 }

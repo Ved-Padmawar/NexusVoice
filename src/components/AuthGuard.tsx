@@ -12,7 +12,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   if (authChecking) {
     return (
-      <div className="app-loading" role="status" aria-live="polite">
+      <div className="app-loading" role="status" aria-live="polite" data-tauri-drag-region>
         <div className="loading-spinner" />
       </div>
     )

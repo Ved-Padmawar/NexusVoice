@@ -1408,15 +1408,41 @@
   gap: 0 !important;
 }
 
+.settings-tabs__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
 .settings-tabs__list {
   flex-shrink: 0;
-  margin-bottom: 16px;
   width: fit-content !important;
 }
 
 .settings-tabs__trigger {
   gap: 5px !important;
   font-size: 12px !important;
+}
+
+.settings-tabs__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  height: 36px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  border: none;
+  color: var(--fg-2);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+
+.settings-tabs__action:hover {
+  color: var(--fg);
 }
 
 .settings-scroll {

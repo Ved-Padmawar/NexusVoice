@@ -281,6 +281,10 @@ pub async fn start_transcription(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<bool, ApiError> {
+    if state.current_user_id().await.is_none() {
+        return Err(ApiError::new("unauthenticated", "must be logged in to transcribe"));
+    }
+
     if !state.try_start_transcription() {
         return Err(ApiError::new(
             "transcription_already_running",
@@ -302,7 +306,7 @@ pub async fn start_transcription(
         if let Err(e) =
             crate::audio::capture_microphone(Arc::clone(&running), audio_buffer, native_rate)
         {
-            eprintln!("microphone capture error: {e}");
+            log::error!("microphone capture error: {e}");
             running.store(false, Ordering::SeqCst);
             let _ = app_handle.emit("transcription-error", e);
         }
@@ -343,7 +347,7 @@ pub async fn stop_transcription(
     let engine = match state.get_or_load_engine().await {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("[nv] engine load failed: {e}");
+            log::error!("engine load failed: {e}");
             let _ = app_handle.emit("transcription-error", format!("model not ready: {e}"));
             return Ok(false);
         }
@@ -376,14 +380,14 @@ pub async fn stop_transcription(
     };
 
     tauri::async_runtime::spawn(async move {
-        eprintln!("[nv] preprocessing {} samples at {}Hz", samples.len(), captured_rate);
+        log::debug!("preprocessing {} samples at {}Hz", samples.len(), captured_rate);
         let resampled = tauri::async_runtime::spawn_blocking(move || {
             crate::preprocess::preprocess(&samples, captured_rate)
         })
         .await
         .map_err(|e| format!("preprocess join error: {e}"))?;
 
-        eprintln!("[nv] resampled to {} samples, starting inference", resampled.len());
+        log::debug!("resampled to {} samples, starting inference", resampled.len());
 
         let result = tauri::async_runtime::spawn_blocking(move || {
             let mut eng = engine.lock().unwrap_or_else(|e| e.into_inner());
@@ -393,7 +397,7 @@ pub async fn stop_transcription(
         .map_err(|e| format!("inference join error: {e}"))
         .and_then(|r| r);
 
-        eprintln!("[nv] inference result: {:?}", result.as_ref().map(|s| s.len()));
+        log::debug!("inference result: {:?}", result.as_ref().map(|s| s.len()));
 
         match result {
             Ok(raw_text) if !raw_text.is_empty() => {
@@ -411,11 +415,12 @@ pub async fn stop_transcription(
                 }
 
                 // Track word frequencies for auto-suggestions (fire-and-forget)
-                let words = extract_trackable_words(&text);
+                // Use raw_text (pre-correction) so dictionary replacements don't pollute frequency counts
+                let words = extract_trackable_words(&raw_text);
                 if !words.is_empty() {
                     let freq_repo = WordFrequencyRepository::new(pool.clone());
                     if let Err(e) = freq_repo.increment_batch(&words).await {
-                        eprintln!("[nv] word frequency update failed: {e}");
+                        log::warn!("word frequency update failed: {e}");
                     }
                 }
             }
@@ -613,6 +618,23 @@ pub async fn dismiss_word_suggestion(
 ) -> Result<(), ApiError> {
     let freq_repo = WordFrequencyRepository::new(state.pool.clone());
     freq_repo.dismiss(&word).await?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Logs command
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn open_logs_folder(app: AppHandle) -> Result<(), ApiError> {
+    let logs_dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| ApiError::new("path_error", e.to_string()))?;
+    std::fs::create_dir_all(&logs_dir)
+        .map_err(|e| ApiError::new("io_error", e.to_string()))?;
+    opener::open(&logs_dir)
+        .map_err(|e| ApiError::new("open_error", e.to_string()))?;
     Ok(())
 }
 

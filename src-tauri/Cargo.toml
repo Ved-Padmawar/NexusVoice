@@ -10,8 +10,13 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-log = { version = "2", features = ["colored"] }
+log = "0.4"
+opener = "0.7"
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "chrono", "migrate"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
