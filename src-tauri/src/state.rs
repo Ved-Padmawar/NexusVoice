@@ -5,10 +5,13 @@ use std::sync::{
 };
 
 use sqlx::SqlitePool;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::auth::AuthService;
+use crate::database::models::dictionary::DictionaryEntry;
 use crate::inference::WhisperEngine;
+
+pub type DictCache = Arc<RwLock<Vec<DictionaryEntry>>>;
 
 pub type AudioBuffer = Arc<std::sync::Mutex<Vec<f32>>>;
 pub type NativeSampleRate = Arc<std::sync::Mutex<u32>>;
@@ -72,6 +75,8 @@ pub struct AppState {
     /// Cached whisper engine — loaded once, reused across recordings.
     pub engine: Mutex<Option<Arc<std::sync::Mutex<WhisperEngine>>>>,
     pub model_download: Arc<ModelDownloadState>,
+    /// In-memory dictionary cache — loaded at startup, mutated on add/delete.
+    pub dict_cache: DictCache,
 }
 
 impl AppState {
@@ -97,6 +102,7 @@ impl AppState {
             models_dir,
             engine: Mutex::new(None),
             model_download: Arc::new(ModelDownloadState::new()),
+            dict_cache: Arc::new(RwLock::new(Vec::new())),
         }
     }
 

@@ -10,6 +10,37 @@ pub use tokens::TokenPair;
 #[cfg(test)]
 pub use session::SessionState;
 
+/// Load the per-install JWT secret from `secret_path`, generating and persisting
+/// a new random 32-byte secret if none exists yet.
+///
+/// In development, `NEXUSVOICE_JWT_SECRET` env var takes precedence.
+pub fn load_or_create_jwt_secret(secret_path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    // Dev override
+    if let Ok(val) = std::env::var("NEXUSVOICE_JWT_SECRET") {
+        return Ok(val.into_bytes());
+    }
+
+    // Try loading existing secret
+    if let Ok(bytes) = std::fs::read(secret_path) {
+        if bytes.len() >= 32 {
+            return Ok(bytes);
+        }
+    }
+
+    // Generate new 32-byte random secret and persist it
+    use rand::RngCore;
+    let mut secret = vec![0u8; 32];
+    rand::thread_rng().fill_bytes(&mut secret);
+    std::fs::write(secret_path, &secret)?;
+    Ok(secret)
+}
+
+#[cfg(test)]
+/// Test helper: returns a fixed 32-byte secret so tests don't need filesystem access.
+pub fn test_jwt_secret() -> Vec<u8> {
+    b"nexusvoice-test-secret-32-bytes!".to_vec()
+}
+
 #[cfg(test)]
 mod tests {
     use sqlx::sqlite::SqlitePoolOptions;
@@ -18,7 +49,11 @@ mod tests {
     use crate::database::repositories::token::TokenRepository;
     use crate::database::repositories::user::UserRepository;
 
-    use super::{AuthError, AuthService, SessionState};
+    use super::{test_jwt_secret, AuthError, AuthService, SessionState};
+
+    fn make_secret() -> Vec<u8> {
+        test_jwt_secret()
+    }
 
     #[tokio::test]
     async fn register_and_login_flow() {
@@ -29,7 +64,7 @@ mod tests {
             .expect("pool");
         init_database(&pool).await.expect("migrations");
 
-        let service = AuthService::new(pool);
+        let service = AuthService::new(pool, make_secret());
 
         let user = service
             .register("person@example.com", "secret")
@@ -61,7 +96,7 @@ mod tests {
             .expect("pool");
         init_database(&pool).await.expect("migrations");
 
-        let service = AuthService::new(pool);
+        let service = AuthService::new(pool, make_secret());
 
         service
             .register("dup@example.com", "secret")
@@ -88,7 +123,7 @@ mod tests {
             .expect("pool");
         init_database(&pool).await.expect("migrations");
 
-        let service = AuthService::new(pool);
+        let service = AuthService::new(pool, make_secret());
 
         service
             .register("invalid@example.com", "secret")
@@ -118,7 +153,7 @@ mod tests {
         let users = UserRepository::new(pool.clone());
         let tokens = TokenRepository::new(pool);
         let session = SessionState::new();
-        let service = AuthService::with_dependencies(users, tokens, session);
+        let service = AuthService::with_dependencies(users, tokens, session, make_secret());
 
         let user = service
             .register("di@example.com", "secret")
@@ -134,7 +169,7 @@ mod tests {
             .await
             .expect("pool");
         init_database(&pool).await.expect("migrations");
-        AuthService::new(pool)
+        AuthService::new(pool, make_secret())
     }
 
     #[tokio::test]

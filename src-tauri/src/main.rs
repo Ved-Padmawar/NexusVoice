@@ -37,7 +37,10 @@ fn main() {
                 |err| std::io::Error::other(format!("database migrations failed: {err}")),
             )?;
 
-            let auth = auth::AuthService::new(pool.clone());
+            let jwt_secret_path = app_data_dir.join("jwt_secret");
+            let jwt_secret = auth::load_or_create_jwt_secret(&jwt_secret_path)
+                .map_err(|e| std::io::Error::other(format!("jwt secret init failed: {e}")))?;
+            let auth = auth::AuthService::new(pool.clone(), jwt_secret);
             let token_store_path = app_data_dir.join("refresh_token");
             let hotkey_store_path = app_data_dir.join("hotkey");
             let model_override_path = app_data_dir.join("model_override");
@@ -45,7 +48,17 @@ fn main() {
             std::fs::create_dir_all(&models_dir)?;
 
             let app_state =
-                state::AppState::new(pool, auth, token_store_path, hotkey_store_path, model_override_path, models_dir);
+                state::AppState::new(pool.clone(), auth, token_store_path, hotkey_store_path, model_override_path, models_dir);
+
+            // Pre-load dictionary into memory cache
+            {
+                use database::repositories::dictionary::DictionaryRepository;
+                let entries = tauri::async_runtime::block_on(
+                    DictionaryRepository::new(pool).list_all()
+                ).unwrap_or_default();
+                *tauri::async_runtime::block_on(app_state.dict_cache.write()) = entries;
+            }
+
             app.manage(app_state);
 
 
@@ -53,18 +66,18 @@ fn main() {
             {
                 use hardware::detector::detect_profile;
                 use hardware::sysinfo_provider::SysinfoProvider;
-                use inference::provider::{detect_backend, select_model_size};
+                use inference::provider::recommend_model_size;
 
                 let hw = detect_profile(&SysinfoProvider);
-                let backend = detect_backend();
-                let model_size = select_model_size(backend, None);
+                let recommended = recommend_model_size();
                 let _ = app.emit(
                     "hardware:profile",
                     serde_json::json!({
                         "gpuName": hw.gpu_type,
                         "executionProvider": hw.execution_provider,
                         "vramGb": hw.vram_gb,
-                        "recommendedModel": model_size.display_name(),
+                        "ramGb": hw.ram_gb,
+                        "recommendedModel": recommended.display_name(),
                     }),
                 );
             }
@@ -203,6 +216,8 @@ fn main() {
             commands::set_model_override,
             commands::clear_model_override,
             commands::get_hardware_profile,
+            commands::get_word_suggestions,
+            commands::dismiss_word_suggestion,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

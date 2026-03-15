@@ -27,7 +27,7 @@ pub async fn init_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query("PRAGMA synchronous = NORMAL;")
         .execute(pool)
         .await?;
-    sqlx::migrate!("../database/migrations")
+    sqlx::migrate!("src/database/migrations")
         .run(pool)
         .await
         .map_err(|err| sqlx::Error::Migrate(Box::new(err)))

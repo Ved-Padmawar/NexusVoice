@@ -17,27 +17,24 @@ use super::tokens::{
     validate_access_token, TokenPair, ACCESS_TOKEN_DAYS,
 };
 
-fn jwt_secret() -> Vec<u8> {
-    std::env::var("NEXUSVOICE_JWT_SECRET")
-        .unwrap_or_else(|_| "nexusvoice-dev-secret-change-in-production".to_string())
-        .into_bytes()
-}
-
 #[derive(Clone)]
 pub struct AuthService {
     pool: SqlitePool,
     users: UserRepository,
     tokens: TokenRepository,
     session: SessionState,
+    /// Per-install JWT secret. Injected at startup — never hardcoded.
+    jwt_secret: Vec<u8>,
 }
 
 impl AuthService {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: SqlitePool, jwt_secret: Vec<u8>) -> Self {
         Self {
             users: UserRepository::new(pool.clone()),
             tokens: TokenRepository::new(pool.clone()),
             session: SessionState::new(),
             pool,
+            jwt_secret,
         }
     }
 
@@ -46,12 +43,14 @@ impl AuthService {
         users: UserRepository,
         tokens: TokenRepository,
         session: SessionState,
+        jwt_secret: Vec<u8>,
     ) -> Self {
         Self {
             pool: users.pool().clone(),
             users,
             tokens,
             session,
+            jwt_secret,
         }
     }
 
@@ -99,7 +98,6 @@ impl AuthService {
             return Err(AuthError::EmailTaken);
         }
         let password_hash = hash_password(password)?;
-        let secret = jwt_secret();
         let raw_refresh = generate_refresh_token();
         let token_hash = hash_token(&raw_refresh);
         let expires_at = refresh_token_expires_at();
@@ -113,7 +111,7 @@ impl AuthService {
             },
         )
         .await?;
-        let access_token = generate_access_token(user.id, &secret)?;
+        let access_token = generate_access_token(user.id, &self.jwt_secret)?;
         insert_token_tx(
             &mut tx,
             CreateRefreshToken {
@@ -144,7 +142,6 @@ impl AuthService {
             .await?
             .ok_or(AuthError::TokenRevoked)?;
 
-        let secret = jwt_secret();
         let raw_refresh = generate_refresh_token();
         let new_hash = hash_token(&raw_refresh);
         let expires_at = refresh_token_expires_at();
@@ -165,7 +162,7 @@ impl AuthService {
         .await?;
         tx.commit().await?;
 
-        let access_token = generate_access_token(record.user_id, &secret)?;
+        let access_token = generate_access_token(record.user_id, &self.jwt_secret)?;
         Ok(TokenPair {
             access_token,
             refresh_token: raw_refresh,
@@ -188,7 +185,7 @@ impl AuthService {
     }
 
     pub fn validate_token(&self, access_token: &str) -> Result<i64, AuthError> {
-        let claims = validate_access_token(access_token, &jwt_secret())?;
+        let claims = validate_access_token(access_token, &self.jwt_secret)?;
         claims
             .sub
             .parse::<i64>()
@@ -196,8 +193,7 @@ impl AuthService {
     }
 
     async fn issue_token_pair(&self, user_id: i64) -> Result<TokenPair, AuthError> {
-        let secret = jwt_secret();
-        let access_token = generate_access_token(user_id, &secret)?;
+        let access_token = generate_access_token(user_id, &self.jwt_secret)?;
         let raw_refresh = generate_refresh_token();
         let hash = hash_token(&raw_refresh);
         self.tokens

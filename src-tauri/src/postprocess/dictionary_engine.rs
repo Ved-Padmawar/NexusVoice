@@ -1,20 +1,13 @@
 use crate::database::models::dictionary::DictionaryEntry;
-use crate::database::repositories::dictionary::DictionaryRepository;
 
 #[derive(Debug, Clone)]
 pub struct DictionaryCorrectionConfig {
     pub max_distance: usize,
-    pub candidate_limit: i64,
-    pub prefix_len: usize,
 }
 
 impl Default for DictionaryCorrectionConfig {
     fn default() -> Self {
-        Self {
-            max_distance: 2,
-            candidate_limit: 500,
-            prefix_len: 2,
-        }
+        Self { max_distance: 2 }
     }
 }
 
@@ -26,28 +19,33 @@ pub struct CorrectionResult {
     pub exact: bool,
 }
 
+/// In-memory dictionary correction engine.
+/// Constructed from a snapshot of dictionary entries — no DB access at correction time.
 #[derive(Clone)]
 pub struct DictionaryCorrectionEngine {
-    repository: DictionaryRepository,
+    entries: Vec<DictionaryEntry>,
     config: DictionaryCorrectionConfig,
 }
 
 impl DictionaryCorrectionEngine {
-    pub fn new(repository: DictionaryRepository, config: DictionaryCorrectionConfig) -> Self {
-        Self { repository, config }
+    pub fn new(entries: Vec<DictionaryEntry>, config: DictionaryCorrectionConfig) -> Self {
+        Self { entries, config }
     }
 
-    #[allow(dead_code)]
-    pub fn with_default_config(repository: DictionaryRepository) -> Self {
+    #[cfg(test)]
+    pub fn with_default_config(entries: Vec<DictionaryEntry>) -> Self {
         Self {
-            repository,
+            entries,
             config: DictionaryCorrectionConfig::default(),
         }
     }
 
     /// Apply dictionary corrections to a full text string word-by-word.
     /// Punctuation attached to words is preserved.
-    pub async fn apply_to_text(&self, text: &str) -> Result<String, sqlx::Error> {
+    pub fn apply_to_text(&self, text: &str) -> String {
+        if self.entries.is_empty() {
+            return text.to_string();
+        }
         let mut result = Vec::new();
         for token in text.split_whitespace() {
             let start = token
@@ -67,59 +65,45 @@ impl DictionaryCorrectionEngine {
             let word = &token[start..end];
             let suffix = &token[end..];
 
-            let corrected = match self.correct(word).await? {
+            let corrected = match self.correct(word) {
                 Some(c) => c.replacement,
                 None => word.to_string(),
             };
             result.push(format!("{prefix}{corrected}{suffix}"));
         }
-        Ok(result.join(" "))
+        result.join(" ")
     }
 
-    pub async fn correct(&self, input: &str) -> Result<Option<CorrectionResult>, sqlx::Error> {
-        if let Some(entry) = self.repository.get_by_term(input).await? {
-            return Ok(Some(CorrectionResult {
-                term: entry.term,
-                replacement: entry.replacement,
+    pub fn correct(&self, input: &str) -> Option<CorrectionResult> {
+        // Exact match first
+        if let Some(entry) = self.entries.iter().find(|e| e.term == input) {
+            return Some(CorrectionResult {
+                term: entry.term.clone(),
+                replacement: entry.replacement.clone(),
                 distance: 0,
                 exact: true,
-            }));
+            });
         }
 
-        let prefix_len = self.config.prefix_len.min(input.len());
-        let entries = if prefix_len == 0 {
-            self.repository.list_all().await?
-        } else {
-            let prefix = &input[..prefix_len];
-            let candidates = self
-                .repository
-                .list_candidates(prefix, self.config.candidate_limit)
-                .await?;
-            if candidates.is_empty() {
-                self.repository.list_all().await?
-            } else {
-                candidates
-            }
-        };
-
-        let mut best: Option<(DictionaryEntry, usize)> = None;
-        for entry in entries {
+        // Fuzzy match
+        let mut best: Option<(usize, &DictionaryEntry)> = None;
+        for entry in &self.entries {
             let distance = levenshtein(input, &entry.term);
             if distance > self.config.max_distance {
                 continue;
             }
-            match &best {
-                Some((_, best_distance)) if distance >= *best_distance => {}
-                _ => best = Some((entry, distance)),
+            match best {
+                Some((best_dist, _)) if distance >= best_dist => {}
+                _ => best = Some((distance, entry)),
             }
         }
 
-        Ok(best.map(|(entry, distance)| CorrectionResult {
-            term: entry.term,
-            replacement: entry.replacement,
+        best.map(|(distance, entry)| CorrectionResult {
+            term: entry.term.clone(),
+            replacement: entry.replacement.clone(),
             distance,
             exact: false,
-        }))
+        })
     }
 }
 
@@ -148,131 +132,71 @@ fn levenshtein(a: &str, b: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::sqlite::SqlitePoolOptions;
+    use crate::database::models::dictionary::DictionaryEntry;
+    use chrono::Utc;
 
-    use crate::database::connection::init_database;
-    use crate::database::dto::dictionary::CreateDictionaryEntry;
+    fn entry(id: i64, term: &str, replacement: &str) -> DictionaryEntry {
+        DictionaryEntry {
+            id,
+            term: term.to_string(),
+            replacement: replacement.to_string(),
+            created_at: Utc::now(),
+        }
+    }
 
-    #[tokio::test]
-    async fn exact_match_wins() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("pool");
-        init_database(&pool).await.expect("migrations");
-        let repo = DictionaryRepository::new(pool);
-        repo.create(CreateDictionaryEntry {
-            term: "teh".to_string(),
-            replacement: "the".to_string(),
-        })
-        .await
-        .expect("create");
-        let engine = DictionaryCorrectionEngine::with_default_config(repo);
-        let result = engine.correct("teh").await.expect("correct").expect("hit");
+    #[test]
+    fn exact_match_wins() {
+        let engine = DictionaryCorrectionEngine::with_default_config(vec![
+            entry(1, "teh", "the"),
+        ]);
+        let result = engine.correct("teh").expect("hit");
         assert!(result.exact);
         assert_eq!(result.replacement, "the");
         assert_eq!(result.distance, 0);
     }
 
-    #[tokio::test]
-    async fn fuzzy_match_returns_best() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("pool");
-        init_database(&pool).await.expect("migrations");
-        let repo = DictionaryRepository::new(pool);
-        repo.create(CreateDictionaryEntry {
-            term: "receive".to_string(),
-            replacement: "receive".to_string(),
-        })
-        .await
-        .expect("create");
-        repo.create(CreateDictionaryEntry {
-            term: "recieve".to_string(),
-            replacement: "receive".to_string(),
-        })
-        .await
-        .expect("create");
-        let engine = DictionaryCorrectionEngine::with_default_config(repo);
-        let result = engine
-            .correct("recive")
-            .await
-            .expect("correct")
-            .expect("hit");
+    #[test]
+    fn fuzzy_match_returns_best() {
+        let engine = DictionaryCorrectionEngine::with_default_config(vec![
+            entry(1, "receive", "receive"),
+            entry(2, "recieve", "receive"),
+        ]);
+        let result = engine.correct("recive").expect("hit");
         assert!(!result.exact);
         assert_eq!(result.replacement, "receive");
     }
 
-    #[tokio::test]
-    async fn apply_to_text_corrects_words() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("pool");
-        init_database(&pool).await.expect("migrations");
-        let repo = DictionaryRepository::new(pool);
-        repo.create(CreateDictionaryEntry {
-            term: "teh".to_string(),
-            replacement: "the".to_string(),
-        })
-        .await
-        .expect("create");
-        repo.create(CreateDictionaryEntry {
-            term: "gonna".to_string(),
-            replacement: "going to".to_string(),
-        })
-        .await
-        .expect("create");
-        let engine = DictionaryCorrectionEngine::with_default_config(repo);
-        let result = engine
-            .apply_to_text("teh dog is gonna run")
-            .await
-            .expect("apply");
+    #[test]
+    fn apply_to_text_corrects_words() {
+        let engine = DictionaryCorrectionEngine::with_default_config(vec![
+            entry(1, "teh", "the"),
+            entry(2, "gonna", "going to"),
+        ]);
+        let result = engine.apply_to_text("teh dog is gonna run");
         assert_eq!(result, "the dog is going to run");
     }
 
-    #[tokio::test]
-    async fn apply_to_text_preserves_punctuation() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("pool");
-        init_database(&pool).await.expect("migrations");
-        let repo = DictionaryRepository::new(pool);
-        repo.create(CreateDictionaryEntry {
-            term: "teh".to_string(),
-            replacement: "the".to_string(),
-        })
-        .await
-        .expect("create");
-        let engine = DictionaryCorrectionEngine::with_default_config(repo);
-        let result = engine.apply_to_text("teh, dog.").await.expect("apply");
+    #[test]
+    fn apply_to_text_preserves_punctuation() {
+        let engine = DictionaryCorrectionEngine::with_default_config(vec![
+            entry(1, "teh", "the"),
+        ]);
+        let result = engine.apply_to_text("teh, dog.");
         assert_eq!(result, "the, dog.");
     }
 
-    #[tokio::test]
-    async fn no_match_returns_none() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("pool");
-        init_database(&pool).await.expect("migrations");
-        let repo = DictionaryRepository::new(pool);
+    #[test]
+    fn no_match_returns_none() {
         let engine = DictionaryCorrectionEngine::new(
-            repo,
-            DictionaryCorrectionConfig {
-                max_distance: 1,
-                candidate_limit: 100,
-                prefix_len: 2,
-            },
+            vec![],
+            DictionaryCorrectionConfig { max_distance: 1 },
         );
-        let result = engine.correct("unknown").await.expect("correct");
-        assert!(result.is_none());
+        assert!(engine.correct("unknown").is_none());
+    }
+
+    #[test]
+    fn empty_dictionary_returns_text_unchanged() {
+        let engine = DictionaryCorrectionEngine::with_default_config(vec![]);
+        assert_eq!(engine.apply_to_text("hello world"), "hello world");
     }
 }

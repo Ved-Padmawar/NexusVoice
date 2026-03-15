@@ -26,10 +26,12 @@ impl Backend {
 /// Auto-selected based on hardware; user can override.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelSize {
-    /// ggml-large-v3-turbo — best accuracy, requires GPU (~1.5 GB)
+    /// ggml-large-v3-turbo — best accuracy, requires GPU ≥6 GB VRAM or ≥16 GB RAM
     Large,
-    /// ggml-medium.en — good accuracy, runs well on CPU (~750 MB)
+    /// ggml-medium.en — good accuracy, GPU ≥3 GB VRAM or ≥8 GB RAM
     Medium,
+    /// ggml-small.en — fastest, low-end CPU or <3 GB VRAM
+    Small,
 }
 
 impl ModelSize {
@@ -37,6 +39,7 @@ impl ModelSize {
         match self {
             ModelSize::Large => "ggml-large-v3-turbo.bin",
             ModelSize::Medium => "ggml-medium.en.bin",
+            ModelSize::Small => "ggml-small.en.bin",
         }
     }
 
@@ -44,6 +47,7 @@ impl ModelSize {
         match self {
             ModelSize::Large => "large-v3-turbo",
             ModelSize::Medium => "medium.en",
+            ModelSize::Small => "small.en",
         }
     }
 
@@ -51,6 +55,7 @@ impl ModelSize {
         match self {
             ModelSize::Large => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
             ModelSize::Medium => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
+            ModelSize::Small => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
         }
     }
 }
@@ -65,18 +70,86 @@ pub fn detect_backend() -> Backend {
     }
 }
 
-/// Select model size: GPU → Large, CPU → Medium.
-/// `override_size` ("large" | "medium") lets the user override.
+/// Select recommended model size based on hardware profile.
+///
+/// GPU path (VRAM reported correctly — discrete GPU):
+///   ≥6 GB → Large, ≥3 GB → Medium, <3 GB → Small
+///
+/// iGPU fallback (Vulkan but VRAM <1 GB — DXGI reports shared memory incorrectly):
+///   Use RAM thresholds: ≥16 GB → Large, else → Medium
+///
+/// CPU path:
+///   ≥16 GB → Large, ≥8 GB → Medium, <8 GB → Small
+pub fn recommend_model_size() -> ModelSize {
+    let profile = detect_profile(&SysinfoProvider);
+    select_model_size_from_profile(
+        profile.execution_provider.as_str(),
+        profile.vram_gb,
+        profile.ram_gb,
+    )
+}
+
+pub fn select_model_size_from_profile(
+    execution_provider: &str,
+    vram_gb: f32,
+    ram_gb: f32,
+) -> ModelSize {
+    match execution_provider {
+        "cuda" => {
+            if vram_gb >= 6.0 {
+                ModelSize::Large
+            } else if vram_gb >= 3.0 {
+                ModelSize::Medium
+            } else {
+                ModelSize::Small
+            }
+        }
+        "vulkan" => {
+            if vram_gb >= 1.0 {
+                // Discrete GPU with valid VRAM reading
+                if vram_gb >= 6.0 {
+                    ModelSize::Large
+                } else if vram_gb >= 3.0 {
+                    ModelSize::Medium
+                } else {
+                    ModelSize::Small
+                }
+            } else {
+                // iGPU — DXGI reports near-zero VRAM; fall back to RAM thresholds
+                if ram_gb >= 16.0 {
+                    ModelSize::Large
+                } else {
+                    ModelSize::Medium
+                }
+            }
+        }
+        _ => {
+            // CPU path
+            if ram_gb >= 16.0 {
+                ModelSize::Large
+            } else if ram_gb >= 8.0 {
+                ModelSize::Medium
+            } else {
+                ModelSize::Small
+            }
+        }
+    }
+}
+
+/// Resolve final model size: apply user override if set, else recommend from hardware.
+/// `override_size` accepts "large" | "medium" | "small".
 pub fn select_model_size(backend: Backend, override_size: Option<&str>) -> ModelSize {
     match override_size {
         Some("large") => ModelSize::Large,
         Some("medium") => ModelSize::Medium,
+        Some("small") => ModelSize::Small,
         _ => {
-            if backend.has_gpu() {
-                ModelSize::Large
-            } else {
-                ModelSize::Medium
-            }
+            let profile = detect_profile(&SysinfoProvider);
+            select_model_size_from_profile(
+                backend.as_str(),
+                profile.vram_gb,
+                profile.ram_gb,
+            )
         }
     }
 }

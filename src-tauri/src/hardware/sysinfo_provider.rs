@@ -7,6 +7,30 @@ impl HardwareInfoProvider for SysinfoProvider {
     fn gpus(&self) -> Vec<GpuDescriptor> {
         query_gpus_dxgi()
     }
+
+    fn total_ram_gb(&self) -> f32 {
+        query_total_ram_gb()
+    }
+}
+
+fn query_total_ram_gb() -> f32 {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+        let mut mem = MEMORYSTATUSEX {
+            dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
+            ..Default::default()
+        };
+        if unsafe { GlobalMemoryStatusEx(&mut mem) }.is_ok() {
+            let gb = mem.ullTotalPhys as f32 / 1_073_741_824.0;
+            return (gb * 10.0).round() / 10.0;
+        }
+        0.0
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        0.0
+    }
 }
 
 /// Query GPU adapters via DXGI — works on all Windows 10/11 versions.

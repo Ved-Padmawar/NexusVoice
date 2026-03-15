@@ -8,11 +8,13 @@ const APPLE_VENDOR_ID: u32 = 0x106B;
 
 pub fn detect_profile<P: HardwareInfoProvider>(provider: &P) -> HardwareProfile {
     let gpus = provider.gpus();
+    let ram_gb = provider.total_ram_gb();
 
     if gpus.is_empty() {
         return HardwareProfile {
             gpu_type: "cpu".to_string(),
             vram_gb: 0.0,
+            ram_gb,
             execution_provider: "cpu".to_string(),
         };
     }
@@ -24,6 +26,7 @@ pub fn detect_profile<P: HardwareInfoProvider>(provider: &P) -> HardwareProfile 
     HardwareProfile {
         gpu_type: best_gpu.name,
         vram_gb,
+        ram_gb,
         execution_provider,
     }
 }
@@ -62,21 +65,26 @@ mod tests {
 
     struct MockProvider {
         gpus: Vec<GpuDescriptor>,
+        ram_gb: f32,
     }
 
     impl HardwareInfoProvider for MockProvider {
         fn gpus(&self) -> Vec<GpuDescriptor> {
             self.gpus.clone()
         }
+        fn total_ram_gb(&self) -> f32 {
+            self.ram_gb
+        }
     }
 
     #[test]
     fn no_gpu_defaults_to_cpu() {
-        let provider = MockProvider { gpus: vec![] };
+        let provider = MockProvider { gpus: vec![], ram_gb: 16.0 };
         let profile = detect_profile(&provider);
         assert_eq!(profile.gpu_type, "cpu");
         assert_eq!(profile.execution_provider, "cpu");
         assert_eq!(profile.vram_gb, 0.0);
+        assert_eq!(profile.ram_gb, 16.0);
     }
 
     #[test]
@@ -94,6 +102,7 @@ mod tests {
                     vram_bytes: 8 * 1_073_741_824,
                 },
             ],
+            ram_gb: 32.0,
         };
         let profile = detect_profile(&provider);
         assert_eq!(profile.gpu_type, "High");
@@ -109,6 +118,7 @@ mod tests {
                 vendor_id: Some(INTEL_VENDOR_ID),
                 vram_bytes: 1_073_741_824,
             }],
+            ram_gb: 16.0,
         };
         let profile = detect_profile(&provider);
         assert_eq!(profile.execution_provider, "vulkan");

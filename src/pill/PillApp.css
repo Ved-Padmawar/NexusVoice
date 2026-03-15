@@ -176,3 +176,22 @@ body {
 .pill--downloading .pill__proc-label {
   color: rgba(251, 191, 36, 0.85);
 }
+
+/* ===== Tooltip Bubble ===== */
+.pill-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(20, 18, 35, 0.96);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #fbbf24;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}

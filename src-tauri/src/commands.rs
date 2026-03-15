@@ -10,8 +10,9 @@ use crate::database::models::{dictionary::DictionaryEntry, transcript::Transcrip
 use crate::database::repositories::{
     dictionary::DictionaryRepository, transcript::TranscriptRepository,
 };
-use crate::postprocess::{DictionaryCorrectionConfig, DictionaryCorrectionEngine};
-use crate::state::AppState;
+use crate::database::repositories::word_frequency::WordFrequencyRepository;
+use crate::postprocess::{extract_trackable_words, DictionaryCorrectionConfig, DictionaryCorrectionEngine};
+use crate::state::{AppState, DictCache};
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -337,6 +338,7 @@ pub async fn stop_transcription(
 
     let pool = state.pool.clone();
     let app_handle = app.clone();
+    let dict_cache: DictCache = Arc::clone(&state.dict_cache);
 
     let engine = match state.get_or_load_engine().await {
         Ok(e) => e,
@@ -347,16 +349,16 @@ pub async fn stop_transcription(
         }
     };
 
+    // Snapshot dictionary cache once — used for both prompt and post-processing
+    let dict_entries = dict_cache.read().await.clone();
+
     // Build Whisper initial prompt from:
     //   1. Tail of recent transcripts (last 5, joined) — gives personal vocab context
     //   2. Dictionary replacement terms appended at the end — biases toward known spellings
     // Combined and capped; the decoder will take the last 223 tokens if over the limit.
     let prompt = {
         let transcript_repo = TranscriptRepository::new(pool.clone());
-        let dict_repo = DictionaryRepository::new(pool.clone());
-
         let recent = transcript_repo.list_recent(5).await.unwrap_or_default();
-        let dict_entries = dict_repo.list_all().await.unwrap_or_default();
 
         let mut parts: Vec<String> = recent
             .into_iter()
@@ -366,7 +368,7 @@ pub async fn stop_transcription(
 
         // Append dictionary replacements as a comma-separated hint at the end
         if !dict_entries.is_empty() {
-            let terms: Vec<String> = dict_entries.into_iter().map(|e| e.replacement).collect();
+            let terms: Vec<String> = dict_entries.iter().map(|e| e.replacement.clone()).collect();
             parts.push(terms.join(", "));
         }
 
@@ -394,11 +396,27 @@ pub async fn stop_transcription(
         eprintln!("[nv] inference result: {:?}", result.as_ref().map(|s| s.len()));
 
         match result {
-            Ok(text) if !text.is_empty() => {
+            Ok(raw_text) if !raw_text.is_empty() => {
+                // Post-process: apply dictionary corrections to whisper output
+                let corrector = DictionaryCorrectionEngine::new(
+                    dict_entries,
+                    DictionaryCorrectionConfig::default(),
+                );
+                let text = corrector.apply_to_text(&raw_text);
+
                 let _ = app_handle.emit("transcription-complete", text.clone());
                 let repo = TranscriptRepository::new(pool.clone());
-                if let Ok(saved) = repo.create(CreateTranscript { content: text }).await {
+                if let Ok(saved) = repo.create(CreateTranscript { content: text.clone() }).await {
                     let _ = app_handle.emit("transcript:new", TranscriptResponse::from(saved));
+                }
+
+                // Track word frequencies for auto-suggestions (fire-and-forget)
+                let words = extract_trackable_words(&text);
+                if !words.is_empty() {
+                    let freq_repo = WordFrequencyRepository::new(pool.clone());
+                    if let Err(e) = freq_repo.increment_batch(&words).await {
+                        eprintln!("[nv] word frequency update failed: {e}");
+                    }
                 }
             }
             Ok(_) => {
@@ -502,9 +520,8 @@ pub async fn save_transcript(
 pub async fn get_dictionary(
     state: State<'_, AppState>,
 ) -> Result<Vec<DictionaryResponse>, ApiError> {
-    let repo = DictionaryRepository::new(state.pool.clone());
-    let items = repo.list_all().await?;
-    Ok(items.into_iter().map(DictionaryResponse::from).collect())
+    let cache = state.dict_cache.read().await;
+    Ok(cache.iter().cloned().map(DictionaryResponse::from).collect())
 }
 
 #[tauri::command]
@@ -515,8 +532,17 @@ pub async fn update_dictionary(
 ) -> Result<DictionaryResponse, ApiError> {
     let repo = DictionaryRepository::new(state.pool.clone());
     let entry = repo
-        .upsert(CreateDictionaryEntry { term, replacement })
+        .upsert(CreateDictionaryEntry { term: term.clone(), replacement })
         .await?;
+
+    // Update in-memory cache: replace existing entry or append
+    let mut cache = state.dict_cache.write().await;
+    if let Some(existing) = cache.iter_mut().find(|e| e.term == term) {
+        *existing = entry.clone();
+    } else {
+        cache.push(entry.clone());
+    }
+
     Ok(entry.into())
 }
 
@@ -526,7 +552,12 @@ pub async fn delete_dictionary_entry(
     id: i64,
 ) -> Result<bool, ApiError> {
     let repo = DictionaryRepository::new(state.pool.clone());
-    Ok(repo.delete_by_id(id).await?)
+    let deleted = repo.delete_by_id(id).await?;
+    if deleted {
+        let mut cache = state.dict_cache.write().await;
+        cache.retain(|e| e.id != id);
+    }
+    Ok(deleted)
 }
 
 #[tauri::command]
@@ -534,9 +565,55 @@ pub async fn apply_dictionary(
     state: State<'_, AppState>,
     text: String,
 ) -> Result<String, ApiError> {
-    let repo = DictionaryRepository::new(state.pool.clone());
-    let engine = DictionaryCorrectionEngine::new(repo, DictionaryCorrectionConfig::default());
-    engine.apply_to_text(&text).await.map_err(ApiError::from)
+    let entries = state.dict_cache.read().await.clone();
+    let engine = DictionaryCorrectionEngine::new(entries, DictionaryCorrectionConfig::default());
+    Ok(engine.apply_to_text(&text))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WordSuggestionResponse {
+    pub word: String,
+    pub count: i64,
+}
+
+/// Return words seen 3+ times that are not already in the dictionary and not dismissed.
+#[tauri::command]
+pub async fn get_word_suggestions(
+    state: State<'_, AppState>,
+) -> Result<Vec<WordSuggestionResponse>, ApiError> {
+    const MIN_COUNT: i64 = 3;
+
+    let freq_repo = WordFrequencyRepository::new(state.pool.clone());
+    let rows = freq_repo.get_suggestions(MIN_COUNT).await?;
+
+    // Exclude words already covered by a dictionary entry (exact term match)
+    let dict = state.dict_cache.read().await;
+    let in_dict: std::collections::HashSet<String> =
+        dict.iter().map(|e| e.term.to_lowercase()).collect();
+    drop(dict);
+
+    let suggestions = rows
+        .into_iter()
+        .filter(|r| !in_dict.contains(&r.word))
+        .map(|r| WordSuggestionResponse {
+            word: r.word,
+            count: r.count,
+        })
+        .collect();
+
+    Ok(suggestions)
+}
+
+/// Permanently dismiss a word so it never surfaces as a suggestion again.
+#[tauri::command]
+pub async fn dismiss_word_suggestion(
+    state: State<'_, AppState>,
+    word: String,
+) -> Result<(), ApiError> {
+    let freq_repo = WordFrequencyRepository::new(state.pool.clone());
+    freq_repo.dismiss(&word).await?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -664,6 +741,7 @@ pub struct HardwareProfileResponse {
     pub gpu_name: String,
     pub execution_provider: String,
     pub vram_gb: f32,
+    pub ram_gb: f32,
     pub recommended_model: String,
 }
 
@@ -671,17 +749,17 @@ pub struct HardwareProfileResponse {
 pub async fn get_hardware_profile() -> Result<HardwareProfileResponse, ApiError> {
     use crate::hardware::detector::detect_profile;
     use crate::hardware::sysinfo_provider::SysinfoProvider;
-    use crate::inference::provider::{detect_backend, select_model_size};
+    use crate::inference::provider::recommend_model_size;
 
     let hw = detect_profile(&SysinfoProvider);
-    let backend = detect_backend();
-    let model_size = select_model_size(backend, None);
+    let recommended = recommend_model_size();
 
     Ok(HardwareProfileResponse {
         gpu_name: hw.gpu_type,
         execution_provider: hw.execution_provider,
         vram_gb: hw.vram_gb,
-        recommended_model: model_size.display_name().to_string(),
+        ram_gb: hw.ram_gb,
+        recommended_model: recommended.display_name().to_string(),
     })
 }
 
@@ -696,10 +774,10 @@ pub async fn set_model_override(
     state: State<'_, AppState>,
     variant: String,
 ) -> Result<(), ApiError> {
-    if variant != "large" && variant != "medium" {
+    if variant != "large" && variant != "medium" && variant != "small" {
         return Err(ApiError::new(
             "invalid_variant",
-            "variant must be 'large' or 'medium'",
+            "variant must be 'large', 'medium', or 'small'",
         ));
     }
     state

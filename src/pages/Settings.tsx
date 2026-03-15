@@ -118,16 +118,23 @@ type HardwareProfile = {
   gpuName: string
   executionProvider: string
   vramGb: number
+  ramGb: number
   recommendedModel: string
 }
 
-type ModelOverride = 'auto' | 'large' | 'medium'
+type ModelOverride = 'large' | 'medium' | 'small'
 
 const MODEL_OPTIONS: { value: ModelOverride; label: string; sub: string }[] = [
-  { value: 'auto',   label: 'Auto',   sub: 'Recommended' },
-  { value: 'large',  label: 'Large',  sub: 'Best accuracy' },
-  { value: 'medium', label: 'Medium', sub: 'Faster / CPU' },
+  { value: 'small',  label: 'Small',  sub: 'Fastest · low-end CPU' },
+  { value: 'medium', label: 'Medium', sub: 'Balanced · CPU / iGPU' },
+  { value: 'large',  label: 'Large',  sub: 'Best accuracy · GPU' },
 ]
+
+const MODEL_DISPLAY_NAME: Record<string, string> = {
+  'small.en': 'small.en',
+  'medium.en': 'medium.en',
+  'large-v3-turbo': 'large-v3-turbo',
+}
 
 /* ── Update states ─────────────────────────────────────────────── */
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
@@ -135,7 +142,8 @@ type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' 
 function AboutTab() {
   /* model state */
   const [profile, setProfile] = useState<HardwareProfile | null>(null)
-  const [selected, setSelected] = useState<ModelOverride>('auto')
+  const [selected, setSelected] = useState<ModelOverride>('large')
+  const [activeModelName, setActiveModelName] = useState<string | null>(null)
   const [modelSaving, setModelSaving] = useState(false)
   const [modelSaved, setModelSaved] = useState(false)
 
@@ -148,6 +156,15 @@ function AboutTab() {
 
   useEffect(() => {
     invoke<HardwareProfile>('get_hardware_profile').then(setProfile).catch(() => {})
+
+    // Backend is source of truth — active model name drives the selector
+    invoke<{ modelName: string }>('get_model_info').then(info => {
+      setActiveModelName(info.modelName)
+      const name = info.modelName
+      if (name.startsWith('large')) setSelected('large')
+      else if (name.startsWith('medium')) setSelected('medium')
+      else setSelected('small')
+    }).catch(() => {})
   }, [])
 
   const handleModelChange = async (v: ModelOverride) => {
@@ -155,9 +172,10 @@ function AboutTab() {
     setModelSaving(true)
     setModelSaved(false)
     try {
-      if (v === 'auto') await invoke('clear_model_override')
-      else await invoke('set_model_override', { variant: v })
+      await invoke('set_model_override', { variant: v })
       invoke('retry_model_download').catch(() => {})
+      const info = await invoke<{ modelName: string }>('get_model_info')
+      setActiveModelName(info.modelName)
       setModelSaved(true)
       setTimeout(() => setModelSaved(false), 2000)
     } catch { /* ignore */ }
@@ -233,7 +251,7 @@ function AboutTab() {
         </div>
         <div className="card__body about-info-grid">
           <span className="about-info-label">Engine</span>
-          <Badge variant="secondary">whisper-rs (ggml)</Badge>
+          <span className="about-info-value">whisper-rs (ggml)</span>
           <span className="about-info-label">Language</span>
           <span className="about-info-value">English</span>
           <span className="about-info-label">Privacy</span>
@@ -253,25 +271,37 @@ function AboutTab() {
             </p>
           </div>
           <div className="about-badges">
+            {activeModelName && <Badge variant="outline">{MODEL_DISPLAY_NAME[activeModelName] ?? activeModelName}</Badge>}
             {profile && <Badge variant="secondary">{profile.executionProvider.toUpperCase()}</Badge>}
             {profile && profile.vramGb > 0 && <Badge variant="secondary">{profile.vramGb} GB VRAM</Badge>}
+            {profile && profile.ramGb > 0 && <Badge variant="secondary">{profile.ramGb} GB RAM</Badge>}
             {modelSaved && <CheckCircle2 size={14} strokeWidth={2} className="icon--success" />}
           </div>
         </div>
         <div className="card__body">
           <div className="model-segment">
-            {MODEL_OPTIONS.map(({ value, label, sub }) => (
-              <button
-                key={value}
-                type="button"
-                className={`model-segment__btn${selected === value ? ' model-segment__btn--active' : ''}`}
-                onClick={() => handleModelChange(value)}
-                disabled={modelSaving}
-              >
-                <span className="model-segment__label">{label}</span>
-                <span className="model-segment__sub">{sub}</span>
-              </button>
-            ))}
+            {MODEL_OPTIONS.map(({ value, label, sub }) => {
+              const isRecommended = profile && (
+                (value === 'large' && profile.recommendedModel.startsWith('large')) ||
+                (value === 'medium' && profile.recommendedModel.startsWith('medium')) ||
+                (value === 'small' && profile.recommendedModel.startsWith('small'))
+              )
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  className={`model-segment__btn${selected === value ? ' model-segment__btn--active' : ''}`}
+                  onClick={() => handleModelChange(value)}
+                  disabled={modelSaving}
+                >
+                  <span className="model-segment__label">
+                    {label}
+                    {isRecommended && <span className="model-segment__recommended">Recommended</span>}
+                  </span>
+                  <span className="model-segment__sub">{sub}</span>
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -344,13 +374,13 @@ export function Settings() {
   const location = useLocation()
 
   // If navigated here with a specific tab (e.g. from hotkey banner), honour it once
+  const initialLocationState = useRef(location.state)
   useEffect(() => {
-    const requested = (location.state as { tab?: string } | null)?.tab
+    const requested = (initialLocationState.current as { tab?: string } | null)?.tab
     if (requested && ['general', 'audio', 'about'].includes(requested)) {
       setActiveSettingsTab(requested as 'general' | 'audio' | 'about')
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [setActiveSettingsTab])
 
   const tab = activeSettingsTab
   const setTab = setActiveSettingsTab

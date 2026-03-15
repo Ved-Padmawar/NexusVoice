@@ -6,6 +6,11 @@ import './PillApp.css'
 
 type PillState = 'idle' | 'recording' | 'processing' | 'error' | 'downloading'
 
+const BAR_COUNT = 8
+const MIN_H = 3
+const MAX_H = 16
+const WEIGHTS = [0.5, 0.7, 0.85, 1.0, 1.0, 0.85, 0.7, 0.5]
+
 export function PillApp() {
   const [state, setState] = useState<PillState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
@@ -29,13 +34,8 @@ export function PillApp() {
     void getCurrentWindow().startDragging()
   }, [])
 
-  // Initialize AudioContext + stream once on mount, keep alive
-  useEffect(() => {
-    const BAR_COUNT = 8
-    const MIN_H = 3
-    const MAX_H = 16
-    const weights = [0.5, 0.7, 0.85, 1.0, 1.0, 0.85, 0.7, 0.5]
-
+  const startAudio = useCallback(() => {
+    if (audioCtxRef.current) return // already running
     navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then(stream => {
       streamRef.current = stream
       const ctx = new AudioContext()
@@ -55,38 +55,40 @@ export function PillApp() {
         const rms = Math.sqrt(bins.reduce((s, v) => s + v * v, 0) / bins.length)
         const norm = Math.min(rms / 80, 1)
         const heights = Array.from({ length: BAR_COUNT }, (_, i) => {
-          const h = MIN_H + (MAX_H - MIN_H) * norm * weights[i]
+          const h = MIN_H + (MAX_H - MIN_H) * norm * WEIGHTS[i]
           return Math.max(MIN_H, Math.round(h))
         })
         setBarHeights(heights)
         rafRef.current = requestAnimationFrame(tick)
       }
 
-      // Store tick so state effect can start/stop it
       ;(analyserRef as React.MutableRefObject<AnalyserNode & { _tick?: () => void }>).current._tick = tick
+      rafRef.current = requestAnimationFrame(tick)
     }).catch(() => { /* no mic permission */ })
-
-    return () => {
-      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
-      if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null }
-      if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null }
-    }
   }, [])
 
-  // Start/stop RAF loop based on recording state
+  const stopAudio = useCallback(() => {
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
+    if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null }
+    analyserRef.current = null
+    requestAnimationFrame(() => setBarHeights([3, 3, 3, 3, 3, 3, 3, 3]))
+  }, [])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => { stopAudio() }
+  }, [stopAudio])
+
+  // Start/stop audio based on recording state
   const isRecording = state === 'recording'
   useEffect(() => {
     if (isRecording) {
-      const analyser = analyserRef.current as (AnalyserNode & { _tick?: () => void }) | null
-      if (analyser?._tick && !rafRef.current) {
-        rafRef.current = requestAnimationFrame(analyser._tick)
-      }
+      startAudio()
     } else {
-      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
-      // Reset bars after cancelling RAF — scheduled so it doesn't fire synchronously
-      requestAnimationFrame(() => setBarHeights([3, 3, 3, 3, 3, 3, 3, 3]))
+      stopAudio()
     }
-  }, [isRecording])
+  }, [isRecording, startAudio, stopAudio])
 
   // Ensure pill stays above the Windows taskbar at runtime
   useEffect(() => {
@@ -231,25 +233,7 @@ export function PillApp() {
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       {/* Tooltip bubble — shown when recording blocked */}
       {tooltip && (
-        <div style={{
-          position: 'absolute',
-          bottom: 'calc(100% + 8px)',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: 'rgba(20, 18, 35, 0.96)',
-          border: '1px solid rgba(251,191,36,0.4)',
-          borderRadius: '8px',
-          padding: '5px 10px',
-          fontSize: '10px',
-          fontWeight: 500,
-          color: '#fbbf24',
-          whiteSpace: 'nowrap',
-          pointerEvents: 'none',
-          zIndex: 9999,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
-        }}>
-          {tooltip}
-        </div>
+        <div className="pill-tooltip">{tooltip}</div>
       )}
 
       <div

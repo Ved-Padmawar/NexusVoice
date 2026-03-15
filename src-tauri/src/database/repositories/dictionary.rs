@@ -13,7 +13,7 @@ impl DictionaryRepository {
         Self { pool }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub async fn create(
         &self,
         input: CreateDictionaryEntry,
@@ -28,16 +28,7 @@ impl DictionaryRepository {
         .await
     }
 
-    #[allow(dead_code)]
-    pub async fn get_by_id(&self, id: i64) -> Result<Option<DictionaryEntry>, sqlx::Error> {
-        sqlx::query_as::<_, DictionaryEntry>(
-            "SELECT id, term, replacement, created_at FROM dictionary WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-    }
-
+    #[cfg(test)]
     pub async fn get_by_term(&self, term: &str) -> Result<Option<DictionaryEntry>, sqlx::Error> {
         sqlx::query_as::<_, DictionaryEntry>(
             "SELECT id, term, replacement, created_at FROM dictionary WHERE term = ?",
@@ -55,6 +46,7 @@ impl DictionaryRepository {
         .await
     }
 
+    #[cfg(test)]
     pub async fn list_candidates(
         &self,
         prefix: &str,
