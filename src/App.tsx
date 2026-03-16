@@ -42,11 +42,11 @@ function App() {
 
   // Real-time transcript updates — prepend to store and refresh stats
   useEffect(() => {
-    type NewTranscript = { id: number; content: string; createdAt: string }
+    type NewTranscript = { id: number; content: string; createdAt: string; wordCount: number; durationSeconds: number | null }
     const unlisten = listen<NewTranscript>('transcript:new', (e) => {
       const t = e.payload
       useAppStore.setState(s => ({
-        transcripts: [{ id: t.id, content: t.content, createdAt: t.createdAt }, ...s.transcripts],
+        transcripts: [{ id: t.id, content: t.content, createdAt: t.createdAt, wordCount: t.wordCount, durationSeconds: t.durationSeconds }, ...s.transcripts],
       }))
       useAppStore.getState().fetchStats()
     })
