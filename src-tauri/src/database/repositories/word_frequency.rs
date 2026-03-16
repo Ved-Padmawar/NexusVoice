@@ -13,7 +13,7 @@ impl WordFrequencyRepository {
     /// Increment frequency counters for a batch of words in one transaction.
     /// Returns words that just crossed the auto-learn threshold (count == 3).
     pub async fn increment_batch(&self, words: &[String]) -> Result<Vec<String>, sqlx::Error> {
-        const THRESHOLD: i64 = 3;
+        const THRESHOLD: i64 = 5;
 
         if words.is_empty() {
             return Ok(vec![]);

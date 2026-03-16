@@ -288,7 +288,14 @@ fn main() {
                     state
                         .transcription_running
                         .store(false, std::sync::atomic::Ordering::SeqCst);
-                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    let pool = state.pool.clone();
+                    let app_handle = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let state = app_handle.state::<state::AppState>();
+                        *state.engine.lock().await = None;
+                        pool.close().await;
+                    });
+                    std::thread::sleep(std::time::Duration::from_millis(300));
                 }
                 RunEvent::ExitRequested { .. } => {
                     let state = app.state::<state::AppState>();

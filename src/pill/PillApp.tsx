@@ -103,12 +103,6 @@ export function PillApp() {
     tooltipTimerRef.current = setTimeout(() => setTooltip(''), 3000)
   }, [])
 
-  // Warm up the mic on mount so the first getUserMedia call doesn't block the WebView2 render thread
-  useEffect(() => {
-    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      .then(stream => { stream.getTracks().forEach(t => t.stop()) })
-      .catch(() => { /* no mic permission — will surface when recording starts */ })
-  }, [])
 
   // Check model status and listen for download events
   useEffect(() => {

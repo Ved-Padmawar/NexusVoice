@@ -153,35 +153,9 @@ export const useAppStore = create<AppState>()(
       },
 
       listenForAuthReady: async () => {
-        const pollAuth = async () => {
-          try {
-            const state = await invoke<{ authenticated: boolean; userId: number | null }>('get_auth_state')
-            if (state.authenticated && state.userId != null) {
-              set({ authChecking: false, user: { id: state.userId, email: '' } })
-              invoke<{ id: number; email: string } | null>('get_current_user')
-                .then(u => { if (u) set({ user: { id: u.id, email: u.email } }) })
-                .catch(() => {})
-              get().init()
-              return true
-            }
-          } catch { /* backend not ready yet */ }
-          return false
-        }
-
-        const resolved = await pollAuth()
-
-        let pollTimeout: ReturnType<typeof setTimeout> | null = null
-        if (!resolved) {
-          pollTimeout = setTimeout(async () => {
-            if (!get().authChecking) return
-            const ok = await pollAuth()
-            if (!ok && get().authChecking) {
-              set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null, error: null })
-            }
-          }, 800)
-        }
-
+        // Register event listeners FIRST before any invoke — events are for runtime changes only
         const unlistenReady = await listen<number>('auth:ready', async (event) => {
+          if (!get().authChecking) return // already resolved via poll
           set({ authChecking: false, user: { id: event.payload, email: '' } })
           try {
             const u = await invoke<{ id: number; email: string } | null>('get_current_user')
@@ -191,11 +165,41 @@ export const useAppStore = create<AppState>()(
           get().init()
         })
         const unlistenUnauth = await listen<AuthReadyPayload>('auth:unauthenticated', () => {
+          if (!get().authChecking) return // already resolved via poll
           set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null, error: null })
         })
 
+        // Pull initial auth state with retry backoff — never rely on startup events
+        const MAX_ATTEMPTS = 10
+        const BACKOFF_MS = 300
+        let resolved = false
+        for (let i = 0; i < MAX_ATTEMPTS; i++) {
+          try {
+            const state = await invoke<{ authenticated: boolean; userId: number | null }>('get_auth_state')
+            if (state.authenticated && state.userId != null) {
+              set({ authChecking: false, user: { id: state.userId, email: '' } })
+              invoke<{ id: number; email: string } | null>('get_current_user')
+                .then(u => { if (u) set({ user: { id: u.id, email: u.email } }) })
+                .catch(() => {})
+              invoke('retry_model_download').catch(() => {})
+              get().init()
+            } else {
+              set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null, error: null })
+            }
+            resolved = true
+            break
+          } catch {
+            // Backend not ready yet — wait and retry
+            await new Promise(r => setTimeout(r, BACKOFF_MS))
+          }
+        }
+
+        if (!resolved) {
+          // All retries exhausted — unblock the UI
+          set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null, error: null })
+        }
+
         return () => {
-          if (pollTimeout) clearTimeout(pollTimeout)
           unlistenReady()
           unlistenUnauth()
         }

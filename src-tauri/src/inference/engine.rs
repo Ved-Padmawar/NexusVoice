@@ -60,7 +60,7 @@ impl WhisperEngine {
             .unwrap_or(4) / 2)
             .max(1) as i32;
 
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 0 });
+        let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: 3, patience: 1.0 });
         params.set_n_threads(n_threads);
         params.set_language(Some("en"));
         params.set_translate(false);
@@ -87,7 +87,7 @@ impl WhisperEngine {
         for i in 0..n {
             if let Some(seg) = state.get_segment(i) {
                 // Drop segments whisper flagged as silence/noise
-                if seg.no_speech_probability() > 0.6 {
+                if seg.no_speech_probability() > 0.5 {
                     continue;
                 }
                 if let Ok(s) = seg.to_str_lossy() {

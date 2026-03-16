@@ -5,7 +5,7 @@ const VAD_SAMPLE_RATE: i64 = 16_000;
 // 512 samples = 32 ms at 16 kHz — only chunk size supported by Silero V5 at 16k
 const VAD_CHUNK: usize = 512;
 // Speech probability threshold — lower value reduces false negatives on quiet syllables.
-const VAD_THRESHOLD: f32 = 0.40;
+const VAD_THRESHOLD: f32 = 0.35;
 // Padding frames before/after each speech segment (12 × 32ms = 384ms).
 // Bridges natural inter-word pauses without cutting speech.
 const VAD_PAD_FRAMES: usize = 12;
