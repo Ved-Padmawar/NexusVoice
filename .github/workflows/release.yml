@@ -10,7 +10,6 @@ permissions:
 
 env:
   CARGO_TARGET_DIR: C:\b
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
