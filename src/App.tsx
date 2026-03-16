@@ -53,6 +53,21 @@ function App() {
     return () => { unlisten.then(fn => fn()) }
   }, [])
 
+  // Real-time dictionary updates — merge auto-learned words into store
+  useEffect(() => {
+    type DictEntry = { id: number; term: string; replacement: string; createdAt: string }
+    const unlisten = listen<DictEntry[]>('dictionary:updated', (e) => {
+      useAppStore.setState(s => {
+        const existing = new Set(s.dictionary.map(d => d.term))
+        const newEntries = e.payload.filter(d => !existing.has(d.term))
+        return newEntries.length > 0
+          ? { dictionary: [...s.dictionary, ...newEntries] }
+          : {}
+      })
+    })
+    return () => { unlisten.then(fn => fn()) }
+  }, [])
+
   useEffect(() => {
     document.documentElement.dataset.theme = theme
   }, [theme])

@@ -11,7 +11,7 @@ use crate::database::repositories::{
     dictionary::DictionaryRepository, transcript::TranscriptRepository,
 };
 use crate::database::repositories::word_frequency::WordFrequencyRepository;
-use crate::postprocess::{extract_trackable_words, DictionaryCorrectionConfig, DictionaryCorrectionEngine};
+use crate::postprocess::{extract_trackable_words, DictionaryCorrectionEngine};
 use crate::state::{AppState, DictCache};
 
 // ---------------------------------------------------------------------------
@@ -356,27 +356,19 @@ pub async fn stop_transcription(
     // Snapshot dictionary cache once — used for both prompt and post-processing
     let dict_entries = dict_cache.read().await.clone();
 
-    // Build Whisper initial prompt from:
-    //   1. Tail of recent transcripts (last 5, joined) — gives personal vocab context
-    //   2. Dictionary replacement terms appended at the end — biases toward known spellings
-    // Combined and capped; the decoder will take the last 223 tokens if over the limit.
+    // Build Whisper initial prompt from recent transcripts only.
+    // Dictionary terms are intentionally excluded — passing them as raw hints
+    // causes the decoder to hallucinate those words before post-processing runs.
+    // Corrections are applied cleanly in the post-processing step instead.
     let prompt = {
         let transcript_repo = TranscriptRepository::new(pool.clone());
         let recent = transcript_repo.list_recent(5).await.unwrap_or_default();
-
-        let mut parts: Vec<String> = recent
+        recent
             .into_iter()
             .rev() // oldest first so context reads naturally
             .map(|t| t.content)
-            .collect();
-
-        // Append dictionary replacements as a comma-separated hint at the end
-        if !dict_entries.is_empty() {
-            let terms: Vec<String> = dict_entries.iter().map(|e| e.replacement.clone()).collect();
-            parts.push(terms.join(", "));
-        }
-
-        parts.join(" ")
+            .collect::<Vec<_>>()
+            .join(" ")
     };
 
     tauri::async_runtime::spawn(async move {
@@ -431,10 +423,7 @@ pub async fn stop_transcription(
         match result {
             Ok(raw_text) if !raw_text.is_empty() => {
                 // Post-process: apply dictionary corrections to whisper output
-                let corrector = DictionaryCorrectionEngine::new(
-                    dict_entries,
-                    DictionaryCorrectionConfig::default(),
-                );
+                let corrector = DictionaryCorrectionEngine::new(dict_entries);
                 let text = corrector.apply_to_text(&raw_text);
 
                 let _ = app_handle.emit("transcription-complete", text.clone());
@@ -451,6 +440,7 @@ pub async fn stop_transcription(
                     match freq_repo.increment_batch(&words).await {
                         Ok(newly_learned) if !newly_learned.is_empty() => {
                             let dict_repo = DictionaryRepository::new(pool.clone());
+                            let mut added: Vec<DictionaryResponse> = Vec::new();
                             for word in &newly_learned {
                                 match dict_repo.upsert(CreateDictionaryEntry {
                                     term: word.clone(),
@@ -459,12 +449,16 @@ pub async fn stop_transcription(
                                     Ok(entry) => {
                                         let mut cache = dict_cache.write().await;
                                         if !cache.iter().any(|e| e.term == entry.term) {
-                                            cache.push(entry);
+                                            cache.push(entry.clone());
                                         }
+                                        added.push(DictionaryResponse::from(entry));
                                         log::debug!("auto-learned word: {word}");
                                     }
                                     Err(e) => log::warn!("auto-learn dict upsert failed for {word}: {e}"),
                                 }
+                            }
+                            if !added.is_empty() {
+                                let _ = app_handle.emit("dictionary:updated", &added);
                             }
                         }
                         Ok(_) => {}
@@ -619,7 +613,7 @@ pub async fn apply_dictionary(
     text: String,
 ) -> Result<String, ApiError> {
     let entries = state.dict_cache.read().await.clone();
-    let engine = DictionaryCorrectionEngine::new(entries, DictionaryCorrectionConfig::default());
+    let engine = DictionaryCorrectionEngine::new(entries);
     Ok(engine.apply_to_text(&text))
 }
 

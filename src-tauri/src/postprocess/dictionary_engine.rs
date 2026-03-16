@@ -1,15 +1,32 @@
 use crate::database::models::dictionary::DictionaryEntry;
 
-#[derive(Debug, Clone)]
-pub struct DictionaryCorrectionConfig {
-    pub max_distance: usize,
+// ---------------------------------------------------------------------------
+// Stop words — never fuzzy-correct common English words
+// ---------------------------------------------------------------------------
+const STOPWORDS: &[&str] = &[
+    "a","i","am","an","as","at","be","by","do","go","he","if","in","is","it",
+    "me","my","no","of","on","or","so","to","up","us","we","and","are","but",
+    "can","did","for","get","got","had","has","her","him","his","how","its",
+    "let","may","not","now","off","old","one","our","out","own","put","run",
+    "say","see","she","the","too","two","use","was","way","who","why","yet",
+    "you","your","they","them","then","than","that","this","with","have",
+    "from","been","will","were","when","what","said","just","also","into",
+    "over","more","some","time","very","here","even","know","back","only",
+    "come","like","make","most","much","need","same","such","take","well",
+    "went","which","would","could","should","there","their","about","after",
+    "where","these","those","being","doing","going","having","making","taking",
+    "every","other","right","might","shall","while","still","again","never",
+    "always","often","maybe","thing","think","great","small","large","first",
+    "last","next","many","each","both","few","already","before","between",
+];
+
+fn is_stopword(word: &str) -> bool {
+    STOPWORDS.contains(&word)
 }
 
-impl Default for DictionaryCorrectionConfig {
-    fn default() -> Self {
-        Self { max_distance: 2 }
-    }
-}
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CorrectionResult {
@@ -24,20 +41,11 @@ pub struct CorrectionResult {
 #[derive(Clone)]
 pub struct DictionaryCorrectionEngine {
     entries: Vec<DictionaryEntry>,
-    config: DictionaryCorrectionConfig,
 }
 
 impl DictionaryCorrectionEngine {
-    pub fn new(entries: Vec<DictionaryEntry>, config: DictionaryCorrectionConfig) -> Self {
-        Self { entries, config }
-    }
-
-    #[cfg(test)]
-    pub fn with_default_config(entries: Vec<DictionaryEntry>) -> Self {
-        Self {
-            entries,
-            config: DictionaryCorrectionConfig::default(),
-        }
+    pub fn new(entries: Vec<DictionaryEntry>) -> Self {
+        Self { entries }
     }
 
     /// Apply dictionary corrections to a full text string word-by-word.
@@ -75,8 +83,20 @@ impl DictionaryCorrectionEngine {
     }
 
     pub fn correct(&self, input: &str) -> Option<CorrectionResult> {
-        // Exact match first
-        if let Some(entry) = self.entries.iter().find(|e| e.term == input) {
+        let lower = input.to_lowercase();
+
+        // 1. Skip tokens with digits (e.g. "v2", "mp3", "gpt4")
+        if input.chars().any(|c| c.is_ascii_digit()) {
+            return None;
+        }
+
+        // 2. Skip all-uppercase tokens ≥2 chars — already an acronym
+        if input.len() >= 2 && input.chars().all(|c| c.is_uppercase()) {
+            return None;
+        }
+
+        // 3. Exact match (case-insensitive, any length)
+        if let Some(entry) = self.entries.iter().find(|e| e.term == lower) {
             return Some(CorrectionResult {
                 term: entry.term.clone(),
                 replacement: entry.replacement.clone(),
@@ -85,54 +105,71 @@ impl DictionaryCorrectionEngine {
             });
         }
 
-        // Fuzzy match
+        // 4. Skip stopwords — never fuzzy-correct common English words
+        if is_stopword(&lower) {
+            return None;
+        }
+
+        // 5. Min length guard — no fuzzy on very short words
+        if lower.len() < 4 {
+            return None;
+        }
+
+        // 6. Ratio-based max distance: min(2, floor(len * 0.35))
+        //    len4→1, len5→1, len6→2, len7→2, len8→2, ...
+        let max_dist = 2.min((lower.len() as f32 * 0.35) as usize);
+
         let mut best: Option<(usize, &DictionaryEntry)> = None;
+        let mut second_best_dist = usize::MAX;
+
         for entry in &self.entries {
-            let distance = levenshtein(input, &entry.term);
-            if distance > self.config.max_distance {
+            // 7. First-letter constraint
+            if entry.term.chars().next() != lower.chars().next() {
                 continue;
             }
+
+            let dist = strsim::levenshtein(&lower, &entry.term);
+            if dist > max_dist {
+                continue;
+            }
+
             match best {
-                Some((best_dist, _)) if distance >= best_dist => {}
-                _ => best = Some((distance, entry)),
+                Some((best_dist, _)) if dist < best_dist => {
+                    second_best_dist = best_dist;
+                    best = Some((dist, entry));
+                }
+                Some(_) if dist < second_best_dist => {
+                    second_best_dist = dist;
+                }
+                None => best = Some((dist, entry)),
+                _ => {}
             }
         }
 
-        best.map(|(distance, entry)| CorrectionResult {
-            term: entry.term.clone(),
-            replacement: entry.replacement.clone(),
-            distance,
-            exact: false,
-        })
-    }
-}
-
-fn levenshtein(a: &str, b: &str) -> usize {
-    let a_chars: Vec<char> = a.chars().collect();
-    let b_chars: Vec<char> = b.chars().collect();
-
-    let mut prev_row: Vec<usize> = (0..=b_chars.len()).collect();
-    let mut curr_row = vec![0; b_chars.len() + 1];
-
-    for (i, a_char) in a_chars.iter().enumerate() {
-        curr_row[0] = i + 1;
-        for (j, b_char) in b_chars.iter().enumerate() {
-            let cost = if a_char == b_char { 0 } else { 1 };
-            curr_row[j + 1] = std::cmp::min(
-                std::cmp::min(curr_row[j] + 1, prev_row[j + 1] + 1),
-                prev_row[j] + cost,
-            );
+        // 8. Ambiguity check — only apply if clear winner
+        if let Some((best_dist, entry)) = best {
+            if best_dist + 1 < second_best_dist {
+                return Some(CorrectionResult {
+                    term: entry.term.clone(),
+                    replacement: entry.replacement.clone(),
+                    distance: best_dist,
+                    exact: false,
+                });
+            }
         }
-        prev_row.clone_from_slice(&curr_row);
-    }
 
-    prev_row[b_chars.len()]
+        None
+    }
 }
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::database::models::dictionary::DictionaryEntry;
+
     fn entry(id: i64, term: &str, replacement: &str) -> DictionaryEntry {
         DictionaryEntry {
             id,
@@ -142,59 +179,123 @@ mod tests {
         }
     }
 
+    fn engine(entries: Vec<DictionaryEntry>) -> DictionaryCorrectionEngine {
+        DictionaryCorrectionEngine::new(entries)
+    }
+
+    // ── Exact matches ─────────────────────────────────────────────────────
     #[test]
     fn exact_match_wins() {
-        let engine = DictionaryCorrectionEngine::with_default_config(vec![
-            entry(1, "teh", "the"),
-        ]);
-        let result = engine.correct("teh").expect("hit");
-        assert!(result.exact);
-        assert_eq!(result.replacement, "the");
-        assert_eq!(result.distance, 0);
+        let e = engine(vec![entry(1, "teh", "the")]);
+        let r = e.correct("teh").expect("hit");
+        assert!(r.exact);
+        assert_eq!(r.replacement, "the");
     }
 
     #[test]
-    fn fuzzy_match_returns_best() {
-        let engine = DictionaryCorrectionEngine::with_default_config(vec![
-            entry(1, "receive", "receive"),
-            entry(2, "recieve", "receive"),
-        ]);
-        let result = engine.correct("recive").expect("hit");
-        assert!(!result.exact);
-        assert_eq!(result.replacement, "receive");
+    fn exact_short_match() {
+        let e = engine(vec![entry(1, "ui", "UI"), entry(2, "api", "API")]);
+        assert_eq!(e.correct("ui").unwrap().replacement, "UI");
+        assert_eq!(e.correct("api").unwrap().replacement, "API");
     }
 
+    #[test]
+    fn mixed_case_input_exact_matches() {
+        let e = engine(vec![entry(1, "api", "API"), entry(2, "python", "Python")]);
+        assert_eq!(e.correct("Api").unwrap().replacement, "API");
+        assert_eq!(e.correct("Python").unwrap().replacement, "Python");
+    }
+
+    // ── Fuzzy matches ──────────────────────────────────────────────────────
+    #[test]
+    fn fuzzy_one_edit_deletion() {
+        let e = engine(vec![entry(1, "recieve", "receive")]);
+        assert_eq!(e.correct("recive").unwrap().replacement, "receive");
+    }
+
+    #[test]
+    fn fuzzy_transposition() {
+        let e = engine(vec![entry(1, "docker", "Docker")]);
+        assert_eq!(e.correct("dcoker").unwrap().replacement, "Docker");
+    }
+
+    // ── Guards ────────────────────────────────────────────────────────────
+    #[test]
+    fn stopwords_never_corrected() {
+        let e = engine(vec![entry(1, "api", "API"), entry(2, "ui", "UI")]);
+        for word in &["am", "on", "my", "the", "and", "in", "us", "go"] {
+            assert!(e.correct(word).is_none(), "stopword \"{word}\" should not correct");
+        }
+    }
+
+    #[test]
+    fn short_words_no_fuzzy() {
+        let e = engine(vec![entry(1, "api", "API"), entry(2, "pdf", "PDF")]);
+        for word in &["py", "io", "pf"] {
+            assert!(e.correct(word).is_none(), "short \"{word}\" should not fuzzy");
+        }
+    }
+
+    #[test]
+    fn digit_tokens_skipped() {
+        let e = engine(vec![entry(1, "api", "API")]);
+        assert!(e.correct("v2").is_none());
+        assert!(e.correct("mp3").is_none());
+        assert!(e.correct("gpt4").is_none());
+    }
+
+    #[test]
+    fn all_uppercase_tokens_skipped() {
+        let e = engine(vec![entry(1, "python", "Python")]);
+        assert!(e.correct("PYTHON").is_none());
+    }
+
+    #[test]
+    fn ambiguous_match_skipped() {
+        let e = engine(vec![
+            entry(1, "docker", "Docker"),
+            entry(2, "dockex", "Dockex"),
+        ]);
+        // "docke" is distance 1 from both — ambiguous
+        assert!(e.correct("docke").is_none());
+    }
+
+    // ── apply_to_text ──────────────────────────────────────────────────────
     #[test]
     fn apply_to_text_corrects_words() {
-        let engine = DictionaryCorrectionEngine::with_default_config(vec![
-            entry(1, "teh", "the"),
-            entry(2, "gonna", "going to"),
-        ]);
-        let result = engine.apply_to_text("teh dog is gonna run");
-        assert_eq!(result, "the dog is going to run");
+        let e = engine(vec![entry(1, "teh", "the"), entry(2, "gonna", "going to")]);
+        assert_eq!(e.apply_to_text("teh dog is gonna run"), "the dog is going to run");
     }
 
     #[test]
     fn apply_to_text_preserves_punctuation() {
-        let engine = DictionaryCorrectionEngine::with_default_config(vec![
-            entry(1, "teh", "the"),
-        ]);
-        let result = engine.apply_to_text("teh, dog.");
-        assert_eq!(result, "the, dog.");
+        let e = engine(vec![entry(1, "teh", "the")]);
+        assert_eq!(e.apply_to_text("teh, dog."), "the, dog.");
     }
 
     #[test]
-    fn no_match_returns_none() {
-        let engine = DictionaryCorrectionEngine::new(
-            vec![],
-            DictionaryCorrectionConfig { max_distance: 1 },
+    fn apply_to_text_stopwords_unchanged() {
+        let e = engine(vec![entry(1, "api", "API"), entry(2, "ui", "UI")]);
+        assert_eq!(e.apply_to_text("i am on my way"), "i am on my way");
+    }
+
+    #[test]
+    fn apply_to_text_long_sentence() {
+        let e = engine(vec![
+            entry(1, "github", "GitHub"),
+            entry(2, "api", "API"),
+            entry(3, "json", "JSON"),
+            entry(4, "url", "URL"),
+        ]);
+        assert_eq!(
+            e.apply_to_text("so i was using the github api to fetch some json data from the url"),
+            "so i was using the GitHub API to fetch some JSON data from the URL"
         );
-        assert!(engine.correct("unknown").is_none());
     }
 
     #[test]
     fn empty_dictionary_returns_text_unchanged() {
-        let engine = DictionaryCorrectionEngine::with_default_config(vec![]);
-        assert_eq!(engine.apply_to_text("hello world"), "hello world");
+        let e = engine(vec![]);
+        assert_eq!(e.apply_to_text("hello world"), "hello world");
     }
 }

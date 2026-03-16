@@ -1,4 +1,4 @@
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct HardwareProfile {
     pub gpu_type: String,
     pub vram_gb: f32,

@@ -15,6 +15,8 @@ pub async fn create_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> 
 
     SqlitePoolOptions::new()
         .max_connections(5)
+        .min_connections(1)
+        .acquire_timeout(Duration::from_secs(10))
         .connect_with(options)
         .await
 }

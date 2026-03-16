@@ -91,46 +91,80 @@ fn main() {
             let app_state =
                 state::AppState::new(pool.clone(), auth, token_store_path, hotkey_store_path, model_override_path, models_dir);
 
-            // Pre-load dictionary into memory cache
-            {
-                use database::repositories::dictionary::DictionaryRepository;
-                let entries = tauri::async_runtime::block_on(
-                    DictionaryRepository::new(pool).list_all()
-                ).unwrap_or_default();
-                *tauri::async_runtime::block_on(app_state.dict_cache.write()) = entries;
-            }
-
             app.manage(app_state);
 
-
-            // Emit hardware profile event + log startup diagnostics
+            // Spawn: hardware detection (blocking syscalls — must not run on main thread)
             {
-                use hardware::detector::detect_profile;
-                use hardware::sysinfo_provider::SysinfoProvider;
-                use inference::provider::recommend_model_size;
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    use hardware::detector::detect_profile;
+                    use hardware::sysinfo_provider::SysinfoProvider;
+                    use inference::provider::recommend_model_size;
 
-                let hw = detect_profile(&SysinfoProvider);
-                let recommended = recommend_model_size();
+                    let hw = tokio::task::spawn_blocking(|| {
+                        detect_profile(&SysinfoProvider)
+                    }).await.unwrap_or_default();
+                    let recommended = recommend_model_size();
 
-                log::info!("NexusVoice v{} starting", env!("CARGO_PKG_VERSION"));
-                log::info!("OS: {}", std::env::consts::OS);
-                log::info!("RAM: {:.1} GB", hw.ram_gb);
-                log::info!("GPU: {} ({}, {:.1} GB VRAM)", hw.gpu_type, hw.execution_provider, hw.vram_gb);
-                log::info!("Recommended model: {}", recommended.display_name());
+                    log::info!("NexusVoice v{} starting", env!("CARGO_PKG_VERSION"));
+                    log::info!("OS: {}", std::env::consts::OS);
+                    log::info!("RAM: {:.1} GB", hw.ram_gb);
+                    log::info!("GPU: {} ({}, {:.1} GB VRAM)", hw.gpu_type, hw.execution_provider, hw.vram_gb);
+                    log::info!("Recommended model: {}", recommended.display_name());
 
-                let _ = app.emit(
-                    "hardware:profile",
-                    serde_json::json!({
-                        "gpuName": hw.gpu_type,
-                        "executionProvider": hw.execution_provider,
-                        "vramGb": hw.vram_gb,
-                        "ramGb": hw.ram_gb,
-                        "recommendedModel": recommended.display_name(),
-                    }),
-                );
+                    let _ = app_handle.emit(
+                        "hardware:profile",
+                        serde_json::json!({
+                            "gpuName": hw.gpu_type,
+                            "executionProvider": hw.execution_provider,
+                            "vramGb": hw.vram_gb,
+                            "ramGb": hw.ram_gb,
+                            "recommendedModel": recommended.display_name(),
+                        }),
+                    );
+                });
             }
 
-            // Silent re-auth on startup
+            // Spawn: dictionary cache preload
+            {
+                use database::repositories::dictionary::DictionaryRepository;
+                let app_handle = app.handle().clone();
+                let pool_clone = pool.clone();
+                tauri::async_runtime::spawn(async move {
+                    let entries = DictionaryRepository::new(pool_clone)
+                        .list_all()
+                        .await
+                        .unwrap_or_default();
+                    let state = app_handle.state::<state::AppState>();
+                    *state.dict_cache.write().await = entries;
+                });
+            }
+
+            // Spawn: hotkey restore
+            {
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = app_handle.state::<state::AppState>();
+                    if let Some(hotkey) = state.load_hotkey() {
+                        let inner_handle = app_handle.clone();
+                        let _ = app_handle.global_shortcut().on_shortcut(
+                            hotkey.as_str(),
+                            move |_app, _shortcut, event| {
+                                use tauri_plugin_global_shortcut::ShortcutState;
+                                if event.state == ShortcutState::Pressed {
+                                    let _ = inner_handle.emit("hotkey-pressed", ());
+                                } else {
+                                    let _ = inner_handle.emit("hotkey-released", ());
+                                }
+                            },
+                        );
+                        *state.current_hotkey.lock().await = Some(hotkey);
+                    }
+                });
+            }
+
+            // Spawn: silent re-auth
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = app_handle.state::<state::AppState>();
@@ -206,28 +240,6 @@ fn main() {
                     let x = ((logical_w - pill_w) / 2.0) as i32;
                     let y = (logical_h - pill_h - margin) as i32;
                     let _ = pill.set_position(tauri::LogicalPosition::new(x, y));
-                }
-            }
-
-            // Re-register persisted hotkey on startup
-            {
-                use tauri_plugin_global_shortcut::GlobalShortcutExt;
-                let state = app.state::<state::AppState>();
-                if let Some(hotkey) = state.load_hotkey() {
-                    let app_handle = app.handle().clone();
-                    let _ = app.global_shortcut().on_shortcut(
-                        hotkey.as_str(),
-                        move |_app, _shortcut, event| {
-                            use tauri_plugin_global_shortcut::ShortcutState;
-                            if event.state == ShortcutState::Pressed {
-                                let _ = app_handle.emit("hotkey-pressed", ());
-                            } else {
-                                let _ = app_handle.emit("hotkey-released", ());
-                            }
-                        },
-                    );
-                    let mut current = tauri::async_runtime::block_on(state.current_hotkey.lock());
-                    *current = Some(hotkey);
                 }
             }
 
