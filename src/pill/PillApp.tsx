@@ -103,15 +103,21 @@ export function PillApp() {
     tooltipTimerRef.current = setTimeout(() => setTooltip(''), 3000)
   }, [])
 
+  // Warm up the mic on mount so the first getUserMedia call doesn't block the WebView2 render thread
+  useEffect(() => {
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      .then(stream => { stream.getTracks().forEach(t => t.stop()) })
+      .catch(() => { /* no mic permission — will surface when recording starts */ })
+  }, [])
+
   // Check model status and listen for download events
   useEffect(() => {
     let cancelled = false
     const unlisteners: (() => void)[] = []
 
-    const setup = async () => {
-      // Poll backend for current model state (command-based — survives Ctrl+R)
-      try {
-        const info = await invoke<{ downloaded: boolean; downloading: boolean; downloadProgress: number; downloadError: string | null }>('get_model_info')
+    // Fire model info fetch independently — don't block listener registration
+    invoke<{ downloaded: boolean; downloading: boolean; downloadProgress: number; downloadError: string | null }>('get_model_info')
+      .then(info => {
         if (cancelled) return
         if (info.downloaded) {
           modelReadyRef.current = true
@@ -120,8 +126,10 @@ export function PillApp() {
           setState('downloading')
           setDownloadPct(info.downloadProgress)
         }
-      } catch { /* ignore */ }
+      })
+      .catch(() => { /* ignore */ })
 
+    const setup = async () => {
       // Events for ongoing progress updates
       const um1 = await listen('model-download-start', () => {
         if (cancelled) return

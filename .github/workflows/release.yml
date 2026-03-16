@@ -10,6 +10,7 @@ permissions:
 
 env:
   CARGO_TARGET_DIR: C:\b
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -25,14 +26,10 @@ jobs:
             cuda: true
 
     steps:
-      - uses: actions/checkout@v4
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      - uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+        uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
@@ -134,8 +131,6 @@ jobs:
 
       - name: Cache Rust deps
         uses: Swatinem/rust-cache@v2
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         with:
           workspaces: src-tauri
           cache-targets: false
