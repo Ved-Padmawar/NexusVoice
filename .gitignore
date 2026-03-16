@@ -40,7 +40,7 @@ image.png
 image1.png
 ROADMAP.md
 BACKEND_REWRITE_ROADMAP.md
-DECISIONS.md
+TODO.md
 src-tauri/onnxruntime*.dll
 src-tauri/DirectML.dll
 src-tauri/cublas*.dll
