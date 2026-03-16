@@ -30,7 +30,7 @@ pub fn load_or_create_jwt_secret(secret_path: &std::path::Path) -> std::io::Resu
     // Generate new 32-byte random secret and persist it
     use rand::RngCore;
     let mut secret = vec![0u8; 32];
-    rand::thread_rng().fill_bytes(&mut secret);
+    rand::rng().fill_bytes(&mut secret);
     std::fs::write(secret_path, &secret)?;
     Ok(secret)
 }

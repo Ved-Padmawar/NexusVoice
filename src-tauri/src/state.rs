@@ -7,11 +7,14 @@ use std::sync::{
 use sqlx::SqlitePool;
 use tokio::sync::{Mutex, RwLock};
 
+use std::collections::HashMap;
+
 use crate::auth::AuthService;
 use crate::database::models::dictionary::DictionaryEntry;
 use crate::inference::WhisperEngine;
 
-pub type DictCache = Arc<RwLock<Vec<DictionaryEntry>>>;
+/// Dictionary cache keyed by term for O(1) lookup and deduplication.
+pub type DictCache = Arc<RwLock<HashMap<String, DictionaryEntry>>>;
 
 pub type AudioBuffer = Arc<std::sync::Mutex<Vec<f32>>>;
 pub type NativeSampleRate = Arc<std::sync::Mutex<u32>>;
@@ -102,7 +105,7 @@ impl AppState {
             models_dir,
             engine: Mutex::new(None),
             model_download: Arc::new(ModelDownloadState::new()),
-            dict_cache: Arc::new(RwLock::new(Vec::new())),
+            dict_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 

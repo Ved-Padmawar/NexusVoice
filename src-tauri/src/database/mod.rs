@@ -47,6 +47,8 @@ mod tests {
         let transcript = transcripts
             .create(CreateTranscript {
                 content: "hello".to_string(),
+                word_count: 1,
+                duration_seconds: None,
             })
             .await
             .expect("create transcript");

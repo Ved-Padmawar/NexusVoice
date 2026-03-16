@@ -93,6 +93,8 @@ impl From<User> for UserResponse {
 pub struct TranscriptResponse {
     pub id: i64,
     pub content: String,
+    pub word_count: i64,
+    pub duration_seconds: Option<f64>,
     pub created_at: String,
 }
 
@@ -101,6 +103,8 @@ impl From<Transcript> for TranscriptResponse {
         Self {
             id: value.id,
             content: value.content,
+            word_count: value.word_count,
+            duration_seconds: value.duration_seconds,
             created_at: value.created_at.to_string(),
         }
     }
@@ -335,6 +339,13 @@ pub async fn stop_transcription(
         (buf.clone(), rate)
     };
 
+    // Compute real recording duration from raw samples before any processing
+    let duration_seconds: Option<f64> = if captured_rate > 0 && !samples.is_empty() {
+        Some(samples.len() as f64 / captured_rate as f64)
+    } else {
+        None
+    };
+
     if samples.is_empty() {
         let _ = app.emit("transcription-complete", "");
         return Ok(false);
@@ -354,7 +365,7 @@ pub async fn stop_transcription(
     };
 
     // Snapshot dictionary cache once — used for both prompt and post-processing
-    let dict_entries = dict_cache.read().await.clone();
+    let dict_entries: Vec<_> = dict_cache.read().await.values().cloned().collect();
 
     // Build Whisper initial prompt from recent transcripts only.
     // Dictionary terms are intentionally excluded — passing them as raw hints
@@ -372,6 +383,7 @@ pub async fn stop_transcription(
     };
 
     tauri::async_runtime::spawn(async move {
+        let duration_seconds = duration_seconds;
         log::debug!("preprocessing {} samples at {}Hz", samples.len(), captured_rate);
         let resampled = tauri::async_runtime::spawn_blocking(move || {
             crate::preprocess::preprocess(&samples, captured_rate)
@@ -428,7 +440,8 @@ pub async fn stop_transcription(
 
                 let _ = app_handle.emit("transcription-complete", text.clone());
                 let repo = TranscriptRepository::new(pool.clone());
-                if let Ok(saved) = repo.create(CreateTranscript { content: text.clone() }).await {
+                let word_count = text.split_whitespace().count() as i64;
+                if let Ok(saved) = repo.create(CreateTranscript { content: text.clone(), word_count, duration_seconds }).await {
                     let _ = app_handle.emit("transcript:new", TranscriptResponse::from(saved));
                 }
 
@@ -448,9 +461,7 @@ pub async fn stop_transcription(
                                 }).await {
                                     Ok(entry) => {
                                         let mut cache = dict_cache.write().await;
-                                        if !cache.iter().any(|e| e.term == entry.term) {
-                                            cache.push(entry.clone());
-                                        }
+                                        cache.entry(entry.term.clone()).or_insert_with(|| entry.clone());
                                         added.push(DictionaryResponse::from(entry));
                                         log::debug!("auto-learned word: {word}");
                                     }
@@ -521,15 +532,18 @@ pub struct UsageStatsResponse {
 #[tauri::command]
 pub async fn get_usage_stats(state: State<'_, AppState>) -> Result<UsageStatsResponse, ApiError> {
     let repo = TranscriptRepository::new(state.pool.clone());
-    let transcripts = repo.list_recent(10_000).await?;
+    let (total_sessions, total_words, total_duration_seconds) = repo.get_stats().await?;
 
-    let total_sessions = transcripts.len() as i64;
-    let total_words: i64 = transcripts
-        .iter()
-        .map(|t| t.content.split_whitespace().count() as i64)
-        .sum();
-    let speaking_time_seconds = (total_words as f64 * 60.0 / 130.0).round() as i64;
-    let avg_pace_wpm = if total_sessions > 0 {
+    // Use real recorded duration when available; fall back to word-count estimate (130 WPM) for legacy rows
+    let speaking_time_seconds = if total_duration_seconds > 0.0 {
+        total_duration_seconds.round() as i64
+    } else {
+        (total_words as f64 * 60.0 / 130.0).round() as i64
+    };
+
+    let avg_pace_wpm = if total_duration_seconds > 0.0 {
+        ((total_words as f64 / (total_duration_seconds / 60.0)).round()) as i64
+    } else if total_sessions > 0 {
         total_words / total_sessions.max(1)
     } else {
         0
@@ -559,7 +573,8 @@ pub async fn save_transcript(
     content: String,
 ) -> Result<TranscriptResponse, ApiError> {
     let repo = TranscriptRepository::new(state.pool.clone());
-    let transcript = repo.create(CreateTranscript { content }).await?;
+    let word_count = content.split_whitespace().count() as i64;
+    let transcript = repo.create(CreateTranscript { content, word_count, duration_seconds: None }).await?;
     Ok(transcript.into())
 }
 
@@ -568,7 +583,7 @@ pub async fn get_dictionary(
     state: State<'_, AppState>,
 ) -> Result<Vec<DictionaryResponse>, ApiError> {
     let cache = state.dict_cache.read().await;
-    Ok(cache.iter().cloned().map(DictionaryResponse::from).collect())
+    Ok(cache.values().cloned().map(DictionaryResponse::from).collect())
 }
 
 #[tauri::command]
@@ -582,13 +597,9 @@ pub async fn update_dictionary(
         .upsert(CreateDictionaryEntry { term: term.clone(), replacement })
         .await?;
 
-    // Update in-memory cache: replace existing entry or append
+    // Update in-memory cache: O(1) insert/replace via HashMap
     let mut cache = state.dict_cache.write().await;
-    if let Some(existing) = cache.iter_mut().find(|e| e.term == term) {
-        *existing = entry.clone();
-    } else {
-        cache.push(entry.clone());
-    }
+    cache.insert(entry.term.clone(), entry.clone());
 
     Ok(entry.into())
 }
@@ -602,7 +613,7 @@ pub async fn delete_dictionary_entry(
     let deleted = repo.delete_by_id(id).await?;
     if deleted {
         let mut cache = state.dict_cache.write().await;
-        cache.retain(|e| e.id != id);
+        cache.retain(|_, e| e.id != id);
     }
     Ok(deleted)
 }
@@ -612,7 +623,7 @@ pub async fn apply_dictionary(
     state: State<'_, AppState>,
     text: String,
 ) -> Result<String, ApiError> {
-    let entries = state.dict_cache.read().await.clone();
+    let entries: Vec<_> = state.dict_cache.read().await.values().cloned().collect();
     let engine = DictionaryCorrectionEngine::new(entries);
     Ok(engine.apply_to_text(&text))
 }

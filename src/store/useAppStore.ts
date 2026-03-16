@@ -21,6 +21,7 @@ export type User = {
 export type Transcript = {
   id: number
   content: string
+  durationSeconds: number | null
   createdAt: string
 }
 

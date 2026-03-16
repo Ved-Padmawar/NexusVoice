@@ -136,7 +136,7 @@ fn main() {
                         .await
                         .unwrap_or_default();
                     let state = app_handle.state::<state::AppState>();
-                    *state.dict_cache.write().await = entries;
+                    *state.dict_cache.write().await = entries.into_iter().map(|e| (e.term.clone(), e)).collect();
                 });
             }
 
