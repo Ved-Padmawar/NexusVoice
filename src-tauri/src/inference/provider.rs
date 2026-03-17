@@ -1,4 +1,3 @@
-use crate::hardware::{detect_profile, SysinfoProvider};
 
 /// Which whisper-rs backend to use for inference (auto-detected, not user-configurable).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,9 +59,9 @@ impl ModelSize {
     }
 }
 
-/// Detect backend from hardware. Called once on engine load.
+/// Detect backend from hardware.
 pub fn detect_backend() -> Backend {
-    let profile = detect_profile(&SysinfoProvider);
+    let profile = crate::hardware::cached_profile();
     match profile.execution_provider.as_str() {
         "cuda" => Backend::Cuda,
         "vulkan" => Backend::Vulkan,
@@ -81,7 +80,7 @@ pub fn detect_backend() -> Backend {
 /// CPU path:
 ///   ≥16 GB → Large, ≥8 GB → Medium, <8 GB → Small
 pub fn recommend_model_size() -> ModelSize {
-    let profile = detect_profile(&SysinfoProvider);
+    let profile = crate::hardware::cached_profile();
     select_model_size_from_profile(
         profile.execution_provider.as_str(),
         profile.vram_gb,
@@ -144,7 +143,7 @@ pub fn select_model_size(backend: Backend, override_size: Option<&str>) -> Model
         Some("medium") => ModelSize::Medium,
         Some("small") => ModelSize::Small,
         _ => {
-            let profile = detect_profile(&SysinfoProvider);
+            let profile = crate::hardware::cached_profile();
             select_model_size_from_profile(
                 backend.as_str(),
                 profile.vram_gb,

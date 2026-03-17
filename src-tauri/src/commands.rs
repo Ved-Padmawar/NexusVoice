@@ -776,16 +776,14 @@ pub struct HardwareProfileResponse {
 
 #[tauri::command]
 pub async fn get_hardware_profile() -> Result<HardwareProfileResponse, ApiError> {
-    use crate::hardware::detector::detect_profile;
-    use crate::hardware::sysinfo_provider::SysinfoProvider;
     use crate::inference::provider::recommend_model_size;
 
-    let hw = detect_profile(&SysinfoProvider);
+    let hw = crate::hardware::cached_profile();
     let recommended = recommend_model_size();
 
     Ok(HardwareProfileResponse {
-        gpu_name: hw.gpu_type,
-        execution_provider: hw.execution_provider,
+        gpu_name: hw.gpu_type.clone(),
+        execution_provider: hw.execution_provider.clone(),
         vram_gb: hw.vram_gb,
         ram_gb: hw.ram_gb,
         recommended_model: recommended.display_name().to_string(),

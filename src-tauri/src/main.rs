@@ -69,14 +69,21 @@ fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
-            // Database setup
             let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
             std::fs::create_dir_all(&app_data_dir)?;
 
+            // Run DB init on a dedicated OS thread with its own Tokio runtime.
+            // This keeps the Tauri main thread free — blocking it causes Windows
+            // "not responding" hangs when AV scans the DB + migrations run on cold start.
             let db_path = app_data_dir.join("nexusvoice.db");
-            let pool =
-                tauri::async_runtime::block_on(database::connection::open_database(&db_path))
-                    .map_err(std::io::Error::other)?;
+            let (tx, rx) = std::sync::mpsc::channel::<Result<sqlx::SqlitePool, String>>();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().expect("failed to create db runtime");
+                let _ = tx.send(rt.block_on(database::connection::open_database(&db_path)));
+            });
+            let pool = rx.recv()
+                .map_err(|e| std::io::Error::other(format!("db thread died: {e}")))?
+                .map_err(std::io::Error::other)?;
 
             let jwt_secret_path = app_data_dir.join("jwt_secret");
             let jwt_secret = auth::load_or_create_jwt_secret(&jwt_secret_path)
@@ -101,10 +108,11 @@ fn main() {
                     use hardware::sysinfo_provider::SysinfoProvider;
                     use inference::provider::recommend_model_size;
 
-                    let hw = tokio::task::spawn_blocking(|| {
-                        detect_profile(&SysinfoProvider)
-                    }).await.unwrap_or_default();
-                    let recommended = recommend_model_size();
+                    let (hw, recommended) = tokio::task::spawn_blocking(|| {
+                        let hw = detect_profile(&SysinfoProvider);
+                        let recommended = recommend_model_size();
+                        (hw, recommended)
+                    }).await.unwrap_or_else(|_| (Default::default(), inference::provider::ModelSize::Small));
 
                     log::info!("NexusVoice v{} starting", env!("CARGO_PKG_VERSION"));
                     log::info!("OS: {}", std::env::consts::OS);
