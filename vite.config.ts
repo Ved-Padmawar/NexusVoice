@@ -20,7 +20,7 @@ export default defineConfig({
     },
   },
   build: {
-    rolldownOptions: {
+    rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
         pill: resolve(__dirname, 'pill.html'),
