@@ -228,7 +228,7 @@ export const useAppStore = create<AppState>()(
               ? String((e as { message: unknown }).message)
               : 'Login failed'
           set({ error: message })
-          throw new Error(message)
+          throw new Error(message, { cause: e })
         }
       },
 
@@ -249,7 +249,7 @@ export const useAppStore = create<AppState>()(
               ? String((e as { message: unknown }).message)
               : 'Registration failed'
           set({ error: message })
-          throw new Error(message)
+          throw new Error(message, { cause: e })
         }
       },
 

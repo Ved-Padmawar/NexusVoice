@@ -15,6 +15,10 @@ vi.mock("@tauri-apps/api/window", () => ({
   })),
 }));
 
+vi.mock("@tauri-apps/plugin-updater", () => ({
+  check: vi.fn(() => Promise.resolve(null)),
+}));
+
 describe("App", () => {
   beforeEach(() => {
     vi.mocked(invoke).mockReset();
@@ -28,6 +32,7 @@ describe("App", () => {
       dictionary: [],
       theme: "abyss",
       isLoading: false,
+      authChecking: false,
     });
   });
 

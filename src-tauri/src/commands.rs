@@ -180,7 +180,7 @@ pub async fn get_current_user(state: State<'_, AppState>) -> Result<Option<User>
     let Some(user_id) = state.current_user_id().await else {
         return Ok(None);
     };
-    let repo = crate::database::repositories::user::UserRepository::new(state.pool.clone());
+    let repo = crate::database::repositories::user::UserRepository::new(state.db().await.clone());
     let user = repo.get_by_id(user_id).await?;
     Ok(user)
 }
@@ -205,7 +205,7 @@ pub async fn clear_stored_token(
     refresh_token: Option<String>,
 ) -> Result<(), ApiError> {
     if let Some(token) = refresh_token {
-        let _ = state.auth.revoke_token(&token).await;
+        let _ = state.auth().await.revoke_token(&token).await;
     }
     state.delete_refresh_token();
     state.clear_auth_session().await;
@@ -218,7 +218,7 @@ pub async fn register(
     email: String,
     password: String,
 ) -> Result<UserResponse, ApiError> {
-    let user = state.auth.register(&email, &password).await?;
+    let user = state.auth().await.register(&email, &password).await?;
     Ok(user.into())
 }
 
@@ -228,7 +228,7 @@ pub async fn login(
     email: String,
     password: String,
 ) -> Result<UserResponse, ApiError> {
-    let user = state.auth.login(&email, &password).await?;
+    let user = state.auth().await.login(&email, &password).await?;
     Ok(user.into())
 }
 
@@ -238,7 +238,7 @@ pub async fn login_with_tokens(
     email: String,
     password: String,
 ) -> Result<AuthResponse, ApiError> {
-    let (user, pair) = state.auth.login_with_tokens(&email, &password).await?;
+    let (user, pair) = state.auth().await.login_with_tokens(&email, &password).await?;
     Ok(AuthResponse {
         user: user.into(),
         tokens: pair.into(),
@@ -251,7 +251,7 @@ pub async fn register_with_tokens(
     email: String,
     password: String,
 ) -> Result<AuthResponse, ApiError> {
-    let (user, pair) = state.auth.register_with_tokens(&email, &password).await?;
+    let (user, pair) = state.auth().await.register_with_tokens(&email, &password).await?;
     Ok(AuthResponse {
         user: user.into(),
         tokens: pair.into(),
@@ -263,7 +263,7 @@ pub async fn refresh_token(
     state: State<'_, AppState>,
     refresh_token: String,
 ) -> Result<TokenPairResponse, ApiError> {
-    let pair = state.auth.refresh_tokens(&refresh_token).await?;
+    let pair = state.auth().await.refresh_tokens(&refresh_token).await?;
     Ok(pair.into())
 }
 
@@ -272,7 +272,7 @@ pub async fn logout_token(
     state: State<'_, AppState>,
     refresh_token: String,
 ) -> Result<(), ApiError> {
-    state.auth.revoke_token(&refresh_token).await?;
+    state.auth().await.revoke_token(&refresh_token).await?;
     Ok(())
 }
 
@@ -351,7 +351,7 @@ pub async fn stop_transcription(
         return Ok(false);
     }
 
-    let pool = state.pool.clone();
+    let pool = state.db().await.clone();
     let app_handle = app.clone();
     let dict_cache: DictCache = Arc::clone(&state.dict_cache);
 
@@ -531,7 +531,7 @@ pub struct UsageStatsResponse {
 
 #[tauri::command]
 pub async fn get_usage_stats(state: State<'_, AppState>) -> Result<UsageStatsResponse, ApiError> {
-    let repo = TranscriptRepository::new(state.pool.clone());
+    let repo = TranscriptRepository::new(state.db().await.clone());
     let (total_sessions, total_words, total_duration_seconds) = repo.get_stats().await?;
 
     // Use real recorded duration when available; fall back to word-count estimate (130 WPM) for legacy rows
@@ -562,7 +562,7 @@ pub async fn get_transcripts(
     state: State<'_, AppState>,
     limit: Option<i64>,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
-    let repo = TranscriptRepository::new(state.pool.clone());
+    let repo = TranscriptRepository::new(state.db().await.clone());
     let items = repo.list_recent(limit.unwrap_or(100)).await?;
     Ok(items.into_iter().map(TranscriptResponse::from).collect())
 }
@@ -572,7 +572,7 @@ pub async fn save_transcript(
     state: State<'_, AppState>,
     content: String,
 ) -> Result<TranscriptResponse, ApiError> {
-    let repo = TranscriptRepository::new(state.pool.clone());
+    let repo = TranscriptRepository::new(state.db().await.clone());
     let word_count = content.split_whitespace().count() as i64;
     let transcript = repo.create(CreateTranscript { content, word_count, duration_seconds: None }).await?;
     Ok(transcript.into())
@@ -592,7 +592,7 @@ pub async fn update_dictionary(
     term: String,
     replacement: String,
 ) -> Result<DictionaryResponse, ApiError> {
-    let repo = DictionaryRepository::new(state.pool.clone());
+    let repo = DictionaryRepository::new(state.db().await.clone());
     let entry = repo
         .upsert(CreateDictionaryEntry { term: term.clone(), replacement })
         .await?;
@@ -609,7 +609,7 @@ pub async fn delete_dictionary_entry(
     state: State<'_, AppState>,
     id: i64,
 ) -> Result<bool, ApiError> {
-    let repo = DictionaryRepository::new(state.pool.clone());
+    let repo = DictionaryRepository::new(state.db().await.clone());
     let deleted = repo.delete_by_id(id).await?;
     if deleted {
         let mut cache = state.dict_cache.write().await;

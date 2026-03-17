@@ -72,33 +72,86 @@ fn main() {
             let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
             std::fs::create_dir_all(&app_data_dir)?;
 
-            // Run DB init on a dedicated OS thread with its own Tokio runtime.
-            // This keeps the Tauri main thread free — blocking it causes Windows
-            // "not responding" hangs when AV scans the DB + migrations run on cold start.
-            let db_path = app_data_dir.join("nexusvoice.db");
-            let (tx, rx) = std::sync::mpsc::channel::<Result<sqlx::SqlitePool, String>>();
-            std::thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().expect("failed to create db runtime");
-                let _ = tx.send(rt.block_on(database::connection::open_database(&db_path)));
-            });
-            let pool = rx.recv()
-                .map_err(|e| std::io::Error::other(format!("db thread died: {e}")))?
-                .map_err(std::io::Error::other)?;
-
-            let jwt_secret_path = app_data_dir.join("jwt_secret");
-            let jwt_secret = auth::load_or_create_jwt_secret(&jwt_secret_path)
-                .map_err(|e| std::io::Error::other(format!("jwt secret init failed: {e}")))?;
-            let auth = auth::AuthService::new(pool.clone(), jwt_secret);
             let token_store_path = app_data_dir.join("refresh_token");
             let hotkey_store_path = app_data_dir.join("hotkey");
             let model_override_path = app_data_dir.join("model_override");
             let models_dir = app_data_dir.join("models");
             std::fs::create_dir_all(&models_dir)?;
 
-            let app_state =
-                state::AppState::new(pool.clone(), auth, token_store_path, hotkey_store_path, model_override_path, models_dir);
-
+            // Create state immediately with NO blocking I/O.
+            // DB + auth are initialized asynchronously after setup returns.
+            let app_state = state::AppState::new(
+                app_data_dir,
+                token_store_path,
+                hotkey_store_path,
+                model_override_path,
+                models_dir,
+            );
             app.manage(app_state);
+
+            // Spawn: DB init + auth + dict cache + re-auth — fully async, never blocks main thread
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = app_handle.state::<state::AppState>();
+                    let db_path = state.app_data_dir.join("nexusvoice.db");
+
+                    // Open database (may run migrations — this is the slow part)
+                    let pool = match database::connection::open_database(&db_path).await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            log::error!("database init failed: {e}");
+                            let _ = app_handle.emit("auth:unauthenticated", ());
+                            return;
+                        }
+                    };
+
+                    // Wire up pool + auth service
+                    let jwt_secret_path = state.app_data_dir.join("jwt_secret");
+                    let jwt_secret = match auth::load_or_create_jwt_secret(&jwt_secret_path) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            log::error!("jwt secret init failed: {e}");
+                            let _ = app_handle.emit("auth:unauthenticated", ());
+                            return;
+                        }
+                    };
+                    let auth_service = auth::AuthService::new(pool.clone(), jwt_secret);
+                    state.set_pool(pool.clone()).await;
+                    state.set_auth(auth_service).await;
+
+                    log::info!("database ready");
+
+                    // Preload dictionary cache
+                    {
+                        use database::repositories::dictionary::DictionaryRepository;
+                        let entries = DictionaryRepository::new(pool.clone())
+                            .list_all()
+                            .await
+                            .unwrap_or_default();
+                        *state.dict_cache.write().await =
+                            entries.into_iter().map(|e| (e.term.clone(), e)).collect();
+                    }
+
+                    // Silent re-auth
+                    if let Some(raw_token) = state.load_refresh_token() {
+                        match state.auth().await.refresh_tokens(&raw_token).await {
+                            Ok(pair) => {
+                                if let Ok(user_id) = state.auth().await.validate_token(&pair.access_token) {
+                                    state.set_auth_session(user_id, pair.access_token).await;
+                                    let _ = state.save_refresh_token(&pair.refresh_token);
+                                    let _ = app_handle.emit("auth:ready", user_id);
+                                    return;
+                                }
+                            }
+                            Err(_) => {
+                                state.delete_refresh_token();
+                            }
+                        }
+                    }
+                    let _ = app_handle.emit("auth:unauthenticated", ());
+                });
+            }
 
             // Spawn: hardware detection (blocking syscalls — must not run on main thread)
             {
@@ -133,21 +186,6 @@ fn main() {
                 });
             }
 
-            // Spawn: dictionary cache preload
-            {
-                use database::repositories::dictionary::DictionaryRepository;
-                let app_handle = app.handle().clone();
-                let pool_clone = pool.clone();
-                tauri::async_runtime::spawn(async move {
-                    let entries = DictionaryRepository::new(pool_clone)
-                        .list_all()
-                        .await
-                        .unwrap_or_default();
-                    let state = app_handle.state::<state::AppState>();
-                    *state.dict_cache.write().await = entries.into_iter().map(|e| (e.term.clone(), e)).collect();
-                });
-            }
-
             // Spawn: hotkey restore
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -171,28 +209,6 @@ fn main() {
                     }
                 });
             }
-
-            // Spawn: silent re-auth
-            let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let state = app_handle.state::<state::AppState>();
-                if let Some(raw_token) = state.load_refresh_token() {
-                    match state.auth.refresh_tokens(&raw_token).await {
-                        Ok(pair) => {
-                            if let Ok(user_id) = state.auth.validate_token(&pair.access_token) {
-                                state.set_auth_session(user_id, pair.access_token).await;
-                                let _ = state.save_refresh_token(&pair.refresh_token);
-                                let _ = app_handle.emit("auth:ready", user_id);
-                                return;
-                            }
-                        }
-                        Err(_) => {
-                            state.delete_refresh_token();
-                        }
-                    }
-                }
-                let _ = app_handle.emit("auth:unauthenticated", ());
-            });
 
             // System tray
             let show_item = MenuItem::with_id(app, "show", "Show Dashboard", true, None::<&str>)?;
@@ -296,12 +312,11 @@ fn main() {
                     state
                         .transcription_running
                         .store(false, std::sync::atomic::Ordering::SeqCst);
-                    let pool = state.pool.clone();
                     let app_handle = app.clone();
                     tauri::async_runtime::spawn(async move {
                         let state = app_handle.state::<state::AppState>();
                         *state.engine.lock().await = None;
-                        pool.close().await;
+                        state.db().await.close().await;
                     });
                     std::thread::sleep(std::time::Duration::from_millis(300));
                 }

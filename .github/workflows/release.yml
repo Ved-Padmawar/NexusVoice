@@ -101,7 +101,7 @@ jobs:
           conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
           print("patched tauri.conf.json resources")
 
-      - name: Patch installer name for CUDA build
+      - name: Patch installer name and updater target for CUDA build
         if: matrix.cuda
         shell: python
         run: |
@@ -109,8 +109,9 @@ jobs:
           conf_path = pathlib.Path("src-tauri/tauri.conf.json")
           conf = json.loads(conf_path.read_text(encoding="utf-8"))
           conf["productName"] = "NexusVoice-CUDA"
+          conf.setdefault("plugins", {}).setdefault("updater", {})["target"] = "windows-x86_64-cuda"
           conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
-          print("patched productName to NexusVoice-CUDA")
+          print("patched productName and updater target for CUDA")
 
       - name: Enable whisper-rs GPU features in Cargo.toml
         shell: python
@@ -140,30 +141,22 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build
 
-      - name: Generate latest.json
-        if: matrix.variant == 'standard'
+      - name: Save NSIS signature
         shell: python
         run: |
-          import json, os, glob, datetime, pathlib
-          version = os.environ["GITHUB_REF_NAME"].lstrip("v")
-          tag = os.environ["GITHUB_REF_NAME"]
-          repo = "Ved-Padmawar/NexusVoice"
-          base = f"https://github.com/{repo}/releases/download/{tag}"
-          exe = pathlib.Path(glob.glob("C:/b/release/bundle/nsis/*.exe")[0]).name
-          sig = pathlib.Path(glob.glob("C:/b/release/bundle/nsis/*.exe.sig")[0]).read_text().strip()
-          pub_date = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-          payload = {
-            "version": version,
-            "notes": f"NexusVoice {version}",
-            "pub_date": pub_date,
-            "platforms": {
-              "windows-x86_64": {
-                "signature": sig,
-                "url": f"{base}/{exe}"
-              }
-            }
-          }
-          pathlib.Path("latest.json").write_text(json.dumps(payload, indent=2))
+          import glob, pathlib
+          exe = pathlib.Path(glob.glob("C:/b/release/bundle/nsis/*.exe")[0])
+          sig = pathlib.Path(f"{exe}.sig").read_text().strip()
+          pathlib.Path("nsis-sig.txt").write_text(sig)
+          pathlib.Path("nsis-name.txt").write_text(exe.name)
+
+      - name: Upload NSIS signature
+        uses: actions/upload-artifact@v4
+        with:
+          name: sig-${{ matrix.variant }}
+          path: |
+            nsis-sig.txt
+            nsis-name.txt
 
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v2
@@ -173,6 +166,51 @@ jobs:
           files: |
             C:/b/release/bundle/nsis/*.exe
             C:/b/release/bundle/msi/*.msi
-            ${{ matrix.variant == 'standard' && 'latest.json' || '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-update:
+    name: Publish latest.json
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download signatures
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sig-*
+
+      - name: Generate latest.json
+        shell: python
+        run: |
+          import json, os, datetime, pathlib
+
+          version = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          tag = os.environ["GITHUB_REF_NAME"]
+          repo = "Ved-Padmawar/NexusVoice"
+          base = f"https://github.com/{repo}/releases/download/{tag}"
+          pub_date = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+          platforms = {}
+          for variant, target in [("standard", "windows-x86_64"), ("cuda", "windows-x86_64-cuda")]:
+            sig_dir = pathlib.Path(f"sig-{variant}")
+            if sig_dir.exists():
+              sig = (sig_dir / "nsis-sig.txt").read_text().strip()
+              exe = (sig_dir / "nsis-name.txt").read_text().strip()
+              platforms[target] = {"signature": sig, "url": f"{base}/{exe}"}
+
+          payload = {
+            "version": version,
+            "notes": f"NexusVoice {version}",
+            "pub_date": pub_date,
+            "platforms": platforms,
+          }
+          pathlib.Path("latest.json").write_text(json.dumps(payload, indent=2))
+          print(json.dumps(payload, indent=2))
+
+      - name: Upload latest.json to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

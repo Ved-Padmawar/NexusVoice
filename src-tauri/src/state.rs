@@ -5,7 +5,7 @@ use std::sync::{
 };
 
 use sqlx::SqlitePool;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, OnceCell, RwLock};
 
 use std::collections::HashMap;
 
@@ -64,8 +64,12 @@ impl ModelDownloadState {
 }
 
 pub struct AppState {
-    pub pool: SqlitePool,
-    pub auth: AuthService,
+    /// Database pool — initialized asynchronously after setup returns.
+    /// All commands that need the DB call `db()` which awaits readiness.
+    db: OnceCell<SqlitePool>,
+    /// Auth service — initialized after the DB is ready.
+    auth_cell: OnceCell<AuthService>,
+    pub app_data_dir: PathBuf,
     pub token_store_path: PathBuf,
     pub hotkey_store_path: PathBuf,
     pub model_override_path: PathBuf,
@@ -84,16 +88,16 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(
-        pool: SqlitePool,
-        auth: AuthService,
+        app_data_dir: PathBuf,
         token_store_path: PathBuf,
         hotkey_store_path: PathBuf,
         model_override_path: PathBuf,
         models_dir: PathBuf,
     ) -> Self {
         Self {
-            pool,
-            auth,
+            db: OnceCell::new(),
+            auth_cell: OnceCell::new(),
+            app_data_dir,
             token_store_path,
             hotkey_store_path,
             model_override_path,
@@ -109,6 +113,39 @@ impl AppState {
         }
     }
 
+    /// Set the database pool once it's ready (called from the background init task).
+    pub async fn set_pool(&self, pool: SqlitePool) {
+        let _ = self.db.set(pool);
+    }
+
+    /// Set the auth service once the pool is ready.
+    pub async fn set_auth(&self, auth: AuthService) {
+        let _ = self.auth_cell.set(auth);
+    }
+
+    /// Get the database pool, waiting if it's still initializing.
+    pub async fn db(&self) -> &SqlitePool {
+        self.db.get_or_init(|| async {
+            // This branch should never execute — the pool is always set by the init task.
+            // But if somehow it does, open the DB as a fallback.
+            let db_path = self.app_data_dir.join("nexusvoice.db");
+            crate::database::connection::open_database(&db_path)
+                .await
+                .expect("fallback database init failed")
+        }).await
+    }
+
+    /// Get the auth service, waiting if it's still initializing.
+    pub async fn auth(&self) -> &AuthService {
+        self.auth_cell.get_or_init(|| async {
+            let pool = self.db().await.clone();
+            let jwt_secret_path = self.app_data_dir.join("jwt_secret");
+            let jwt_secret = crate::auth::load_or_create_jwt_secret(&jwt_secret_path)
+                .expect("fallback jwt secret init failed");
+            AuthService::new(pool, jwt_secret)
+        }).await
+    }
+
     /// Get or load the cached WhisperEngine.
     /// Returns Err if the model file is missing (not yet downloaded).
     pub async fn get_or_load_engine(
@@ -119,7 +156,6 @@ impl AppState {
             return Ok(Arc::clone(engine));
         }
         let override_size = self.load_model_override();
-        // Determine which model file is needed before loading
         let backend = crate::inference::provider::detect_backend();
         let model_size = crate::inference::provider::select_model_size(
             backend,
