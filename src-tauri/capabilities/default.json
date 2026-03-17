@@ -19,7 +19,6 @@
     "updater:default",
     "process:default",
     "log:default",
-    "log:allow-log",
-    "window-state:default"
+    "log:allow-log"
   ]
 }

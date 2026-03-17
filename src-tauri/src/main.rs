@@ -49,8 +49,7 @@ fn main() {
     let log_level = log::LevelFilter::Info;
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::default().build())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -251,20 +250,38 @@ fn main() {
                 })
                 .build(app)?;
 
-            // Position pill window: centered horizontally, near bottom of primary monitor
-            if let Some(pill) = app.get_webview_window("pill") {
-                if let Some(monitor) = pill.primary_monitor().ok().flatten() {
-                    let screen = monitor.size();
-                    let scale = monitor.scale_factor();
-                    let pill_w = 120.0;
-                    let pill_h = 44.0;
-                    let margin = 72.0; // 40px taskbar + 32px breathing room
-                    let logical_w = screen.width as f64 / scale;
-                    let logical_h = screen.height as f64 / scale;
-                    let x = ((logical_w - pill_w) / 2.0) as i32;
-                    let y = (logical_h - pill_h - margin) as i32;
-                    let _ = pill.set_position(tauri::LogicalPosition::new(x, y));
-                }
+            // Create pill window deferred — avoids two simultaneous WebView2 initializations
+            // on first launch which causes "not responding" hang on Windows.
+            // main window's WebView2 is already alive at this point in setup().
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    // Find pill window config and build it manually
+                    let config = app_handle.config();
+                    if let Some(win_config) = config.app.windows.iter().find(|w| w.label == "pill") {
+                        match tauri::WebviewWindowBuilder::from_config(&app_handle, win_config)
+                            .and_then(|b| b.build())
+                        {
+                            Ok(pill) => {
+                                // Position: centered horizontally, near bottom of primary monitor
+                                if let Some(monitor) = pill.primary_monitor().ok().flatten() {
+                                    let screen = monitor.size();
+                                    let scale = monitor.scale_factor();
+                                    let pill_w = 120.0;
+                                    let pill_h = 44.0;
+                                    let margin = 72.0;
+                                    let logical_w = screen.width as f64 / scale;
+                                    let logical_h = screen.height as f64 / scale;
+                                    let x = ((logical_w - pill_w) / 2.0) as i32;
+                                    let y = (logical_h - pill_h - margin) as i32;
+                                    let _ = pill.set_position(tauri::LogicalPosition::new(x, y));
+                                }
+                                let _ = pill.show();
+                            }
+                            Err(e) => log::error!("failed to create pill window: {e}"),
+                        }
+                    }
+                });
             }
 
             Ok(())
