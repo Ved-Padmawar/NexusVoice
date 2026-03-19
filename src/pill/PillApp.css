@@ -1,190 +1,173 @@
-/* ===== Pill Overlay Styles ===== */
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+/* ===== Pill Overlay ===== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
-  width: 120px;
-  height: 30px;
+  width: 104px;
+  height: 32px;
   background: transparent !important;
   overflow: hidden;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  -webkit-font-smoothing: antialiased;
 }
 
 #root {
   width: 100%;
   height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: transparent !important;
 }
 
-/* ===== Pill Container ===== */
+/* ===== Pill ===== */
 .pill {
-  width: 100%;
-  height: 100%;
+  height: 32px;
+  width: 104px;
   border-radius: 999px;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 10px 0 5px;
+  padding: 0 10px 0 8px;
   cursor: grab;
   user-select: none;
   position: relative;
+  overflow: hidden;
 
-  background: rgba(16, 16, 22, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  transition: border-color 0.25s ease;
+  background: #0f0f18;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+
+  transition:
+    width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+    border-color 0.3s ease,
+    background 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
-.pill:active {
-  cursor: grabbing;
+.pill:active { cursor: grabbing; }
+
+/* ===== Recording ===== */
+.pill--recording {
+  border-color: rgba(255, 255, 255, 0.16);
 }
 
-/* ===== Recording State — no color change, same as idle ===== */
-.pill--recording {}
-
-/* ===== Processing State ===== */
+/* ===== Processing — morphs to circle ===== */
 .pill--processing {
-  border-color: rgba(124, 108, 239, 0.55);
-  background: rgba(14, 14, 22, 0.97);
+  width: 32px;
+  padding: 0;
+  border-color: rgba(120, 162, 244, 0.6);
+  background: #0c0c16;
 }
 
-/* ===== Icon Badge ===== */
-.pill__icon {
-  width: 16px;
-  height: 16px;
+.pill--processing::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
   border-radius: 50%;
+  border: 1.5px solid rgba(120, 162, 244, 0.15);
+  border-top-color: rgba(120, 162, 244, 0.9);
+  animation: pillSpin 1s linear infinite;
+}
+
+/* ===== Downloading — morphs to circle ===== */
+.pill--downloading {
+  width: 32px;
+  padding: 0;
+  border-color: rgba(245, 158, 11, 0.7);
+  background: #0f0e0c;
+}
+
+.pill--downloading::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(245, 158, 11, 0.15);
+  border-top-color: rgba(251, 191, 36, 0.9);
+  animation: pillSpin 1s linear infinite;
+}
+
+/* ===== Error ===== */
+.pill--error {
+  border-color: rgba(239, 68, 68, 0.55);
+  background: #130e0e;
+}
+
+@keyframes pillSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ===== Icon ===== */
+.pill__icon {
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.07);
-  color: rgba(255, 255, 255, 0.85);
-  transition: background 0.3s ease, color 0.3s ease;
+  color: #78a2f4;
+  position: relative;
+  z-index: 1;
 }
 
-.pill--recording .pill__icon {}
-
-.pill--processing .pill__icon {
-  background: rgba(124, 108, 239, 0.18);
-  color: #a78bfa;
-}
-
-@keyframes iconPulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.12); opacity: 0.8; }
-}
-
-/* ===== Center Content ===== */
-.pill__center {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-
-/* ===== Idle: brand name ===== */
+/* ===== Brand text ===== */
 .pill__brand {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.75);
+  color: rgba(255, 255, 255, 0.82);
   letter-spacing: 0.01em;
   white-space: nowrap;
   flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 
-/* ===== Recording: waveform (matches brand text width) ===== */
+/* ===== Waveform ===== */
 .pill__waveform {
   display: flex;
   align-items: center;
-  gap: 2.5px;
-  height: 16px;
-  /* same visual width as "NexusVoice" text */
-  width: 68px;
-  flex-shrink: 0;
+  justify-content: space-between;
+  gap: 2px;
+  height: 18px;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .pill__bar {
+  width: 3px;
   flex: 1;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.75);
-  transition: height 0.07s ease;
+  background: #78a2f4;
+  transition: height 0.08s ease;
   will-change: height;
+  min-height: 3px;
 }
 
-/* ===== Processing: spinner + label ===== */
-.pill__processing {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.pill__spinner {
-  width: 10px;
-  height: 10px;
-  border: 2px solid rgba(167, 139, 250, 0.2);
-  border-top-color: #a78bfa;
-  border-radius: 50%;
-  animation: spin 0.65s linear infinite;
-  flex-shrink: 0;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.pill__proc-label {
-  font-size: 11px;
-  font-weight: 500;
-  color: rgba(167, 139, 250, 0.85);
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-}
-
-/* ===== Error State ===== */
-.pill--error {
-  border-color: rgba(239, 68, 68, 0.6);
-  background: rgba(20, 14, 14, 0.97);
-}
-
+/* ===== Error label ===== */
 .pill__error-label {
   font-size: 11px;
   font-weight: 600;
   color: #f87171;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  position: relative;
+  z-index: 1;
 }
 
-/* ===== Downloading State ===== */
-.pill--downloading {
-  border-color: rgba(251, 191, 36, 0.5);
-}
-
-.pill--downloading .pill__spinner {
-  border-top-color: #fbbf24;
-}
-
-.pill--downloading .pill__proc-label {
-  color: rgba(251, 191, 36, 0.85);
-}
-
-/* ===== Tooltip Bubble ===== */
+/* ===== Tooltip ===== */
 .pill-tooltip {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(20, 18, 35, 0.96);
-  border: 1px solid rgba(251, 191, 36, 0.4);
+  background: rgba(15, 14, 28, 0.97);
+  border: 1px solid rgba(245, 158, 11, 0.4);
   border-radius: 8px;
   padding: 5px 10px;
   font-size: 10px;
@@ -193,5 +176,5 @@ body {
   white-space: nowrap;
   pointer-events: none;
   z-index: 9999;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }

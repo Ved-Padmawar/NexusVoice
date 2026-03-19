@@ -244,40 +244,33 @@ export function PillApp() {
         role="status"
         aria-label={`NexusVoice: ${state}`}
       >
-        {/* Lightning bolt icon — always visible */}
-        <div className="pill__icon">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M13 2L4.5 13.5H11L10 22L19.5 10.5H13L13 2Z" />
-          </svg>
-        </div>
+        {/* Icon — only shown when pill is full width */}
+        {(state === 'idle' || state === 'recording' || state === 'error') && (
+          <div className="pill__icon">
+            {/* Mic icon */}
+            <svg width="11" height="11" viewBox="0 0 24 22" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="2" width="6" height="12" rx="3" />
+              <path d="M5 10a7 7 0 0 0 14 0" />
+              <line x1="12" y1="19" x2="12" y2="22" />
+              <line x1="9" y1="22" x2="15" y2="22" />
+            </svg>
+          </div>
+        )}
 
-        {/* Center content */}
-        <div className="pill__center">
-          {state === 'idle' && (
-            <span className="pill__brand">NexusVoice</span>
-          )}
-          {state === 'downloading' && (
-            <div className="pill__processing">
-              <div className="pill__spinner" />
-              <span className="pill__proc-label">{downloadPct}%</span>
-            </div>
-          )}
-          {state === 'recording' && (
-            <div className="pill__waveform">
-              {barHeights.map((h, i) => (
-                <span key={i} className="pill__bar" style={{ height: `${h}px` }} />
-              ))}
-            </div>
-          )}
-          {state === 'processing' && (
-            <div className="pill__processing">
-              <div className="pill__spinner" />
-            </div>
-          )}
-          {state === 'error' && (
-            <span className="pill__error-label" title={errorMsg}>Error</span>
-          )}
-        </div>
+        {state === 'idle' && (
+          <span className="pill__brand">NexusVoice</span>
+        )}
+        {state === 'recording' && (
+          <div className="pill__waveform">
+            {barHeights.map((h, i) => (
+              <span key={i} className="pill__bar" style={{ height: `${h}px` }} />
+            ))}
+          </div>
+        )}
+        {state === 'error' && (
+          <span className="pill__error-label" title={errorMsg}>Error</span>
+        )}
+        {/* processing & downloading: CSS ::after handles the spinner arc */}
       </div>
     </div>
   )
