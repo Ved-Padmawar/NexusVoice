@@ -50,11 +50,13 @@ impl DictionaryCorrectionEngine {
 
     /// Apply dictionary corrections to a full text string word-by-word.
     /// Punctuation attached to words is preserved.
-    pub fn apply_to_text(&self, text: &str) -> String {
+    /// Returns the corrected text and the list of matched terms (for hit tracking).
+    pub fn apply_to_text(&self, text: &str) -> (String, Vec<String>) {
         if self.entries.is_empty() {
-            return text.to_string();
+            return (text.to_string(), vec![]);
         }
         let mut result = Vec::new();
+        let mut matched_terms: Vec<String> = Vec::new();
         for token in text.split_whitespace() {
             let start = token
                 .find(|c: char| c.is_alphabetic())
@@ -74,12 +76,15 @@ impl DictionaryCorrectionEngine {
             let suffix = &token[end..];
 
             let corrected = match self.correct(word) {
-                Some(c) => c.replacement,
+                Some(c) => {
+                    matched_terms.push(c.term.clone());
+                    c.replacement
+                }
                 None => word.to_string(),
             };
             result.push(format!("{prefix}{corrected}{suffix}"));
         }
-        result.join(" ")
+        (result.join(" "), matched_terms)
     }
 
     pub fn correct(&self, input: &str) -> Option<CorrectionResult> {
@@ -175,6 +180,7 @@ mod tests {
             id,
             term: term.to_string(),
             replacement: replacement.to_string(),
+            hits: 0,
             created_at: chrono::NaiveDateTime::default(),
         }
     }
@@ -264,19 +270,22 @@ mod tests {
     #[test]
     fn apply_to_text_corrects_words() {
         let e = engine(vec![entry(1, "teh", "the"), entry(2, "gonna", "going to")]);
-        assert_eq!(e.apply_to_text("teh dog is gonna run"), "the dog is going to run");
+        let (text, _) = e.apply_to_text("teh dog is gonna run");
+        assert_eq!(text, "the dog is going to run");
     }
 
     #[test]
     fn apply_to_text_preserves_punctuation() {
         let e = engine(vec![entry(1, "teh", "the")]);
-        assert_eq!(e.apply_to_text("teh, dog."), "the, dog.");
+        let (text, _) = e.apply_to_text("teh, dog.");
+        assert_eq!(text, "the, dog.");
     }
 
     #[test]
     fn apply_to_text_stopwords_unchanged() {
         let e = engine(vec![entry(1, "api", "API"), entry(2, "ui", "UI")]);
-        assert_eq!(e.apply_to_text("i am on my way"), "i am on my way");
+        let (text, _) = e.apply_to_text("i am on my way");
+        assert_eq!(text, "i am on my way");
     }
 
     #[test]
@@ -287,15 +296,21 @@ mod tests {
             entry(3, "json", "JSON"),
             entry(4, "url", "URL"),
         ]);
-        assert_eq!(
-            e.apply_to_text("so i was using the github api to fetch some json data from the url"),
-            "so i was using the GitHub API to fetch some JSON data from the URL"
-        );
+        let (text, _) = e.apply_to_text("so i was using the github api to fetch some json data from the url");
+        assert_eq!(text, "so i was using the GitHub API to fetch some JSON data from the URL");
     }
 
     #[test]
     fn empty_dictionary_returns_text_unchanged() {
         let e = engine(vec![]);
-        assert_eq!(e.apply_to_text("hello world"), "hello world");
+        let (text, _) = e.apply_to_text("hello world");
+        assert_eq!(text, "hello world");
+    }
+
+    #[test]
+    fn apply_to_text_returns_matched_terms() {
+        let e = engine(vec![entry(1, "teh", "the"), entry(2, "gonna", "going to")]);
+        let (_, terms) = e.apply_to_text("teh dog is gonna run");
+        assert_eq!(terms, vec!["teh", "gonna"]);
     }
 }

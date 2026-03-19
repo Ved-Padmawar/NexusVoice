@@ -116,6 +116,7 @@ pub struct DictionaryResponse {
     pub id: i64,
     pub term: String,
     pub replacement: String,
+    pub hits: i64,
     pub created_at: String,
 }
 
@@ -125,6 +126,7 @@ impl From<DictionaryEntry> for DictionaryResponse {
             id: value.id,
             term: value.term,
             replacement: value.replacement,
+            hits: value.hits,
             created_at: value.created_at.to_string(),
         }
     }
@@ -436,7 +438,16 @@ pub async fn stop_transcription(
             Ok(raw_text) if !raw_text.is_empty() => {
                 // Post-process: apply dictionary corrections to whisper output
                 let corrector = DictionaryCorrectionEngine::new(dict_entries);
-                let text = corrector.apply_to_text(&raw_text);
+                let (text, matched_terms) = corrector.apply_to_text(&raw_text);
+                if !matched_terms.is_empty() {
+                    let dict_repo = DictionaryRepository::new(pool.clone());
+                    let _ = dict_repo.increment_hits_batch(&matched_terms).await;
+                    // Refresh cache so hits are visible immediately
+                    if let Ok(entries) = dict_repo.list_all().await {
+                        let mut cache = dict_cache.write().await;
+                        *cache = entries.into_iter().map(|e| (e.term.clone(), e)).collect();
+                    }
+                }
 
                 let _ = app_handle.emit("transcription-complete", text.clone());
                 let repo = TranscriptRepository::new(pool.clone());
@@ -625,7 +636,7 @@ pub async fn apply_dictionary(
 ) -> Result<String, ApiError> {
     let entries: Vec<_> = state.dict_cache.read().await.values().cloned().collect();
     let engine = DictionaryCorrectionEngine::new(entries);
-    Ok(engine.apply_to_text(&text))
+    Ok(engine.apply_to_text(&text).0)
 }
 
 // ---------------------------------------------------------------------------

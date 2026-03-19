@@ -55,7 +55,7 @@ function App() {
 
   // Real-time dictionary updates — merge auto-learned words into store
   useEffect(() => {
-    type DictEntry = { id: number; term: string; replacement: string; createdAt: string }
+    type DictEntry = { id: number; term: string; replacement: string; hits: number; createdAt: string }
     const unlisten = listen<DictEntry[]>('dictionary:updated', (e) => {
       useAppStore.setState(s => {
         const existing = new Set(s.dictionary.map(d => d.term))

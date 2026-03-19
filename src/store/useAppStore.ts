@@ -29,6 +29,7 @@ export type DictionaryEntry = {
   id: number
   term: string
   replacement: string
+  hits: number
   createdAt: string
 }
 
