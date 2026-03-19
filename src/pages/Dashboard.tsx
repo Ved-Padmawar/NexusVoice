@@ -347,7 +347,7 @@ export function Dashboard() {
 
       {/* Activity feed */}
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-        <div className="flex items-center gap-[10px] mb-4">
+        <div className="flex items-center gap-[10px] mb-4 pr-[12px]">
           <h2 className="text-[13px] font-bold text-[var(--fg)] tracking-[-0.01em] m-0">Recent Activity</h2>
           {!isSearchMode && transcripts.length > 0 && (
             <span className="inline-flex items-center justify-center min-w-5 h-5 px-[6px] rounded-full bg-[var(--accent-soft)] text-[var(--accent)] text-[10px] font-bold tracking-[0.02em]">
