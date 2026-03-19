@@ -2,79 +2,16 @@ import { useState, useCallback, useRef, useEffect, memo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
 import {
-  Palette, Keyboard, Info,
-  Check, AlertCircle, CheckCircle2, X,
-  RefreshCw, Download, ArrowUpCircle, Cpu, FolderOpen,
+  Palette, Info, Keyboard, Settings2,
+  AlertCircle, CheckCircle2, X, FolderOpen,
 } from 'lucide-react'
-import { check } from '@tauri-apps/plugin-updater'
-import { relaunch } from '@tauri-apps/plugin-process'
-import { useAppStore, type ThemeName } from '../store/useAppStore'
+import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { GeneralTab } from './settings/GeneralTab'
+import { AboutTab } from './settings/AboutTab'
 
-/* ── Themes ────────────────────────────────────────────────────── */
-const THEMES: {
-  name: ThemeName; label: string; mode: 'dark' | 'light'
-  bg: string; panel: string; accent: string; border: string; surface: string; muted: string
-}[] = [
-  { name: 'abyss',    label: 'Abyss',    mode: 'dark',  bg: '#22232b', panel: '#2a2b35', accent: '#78a2f4', border: '#383a48', surface: '#2e303d', muted: '#6a6e88' },
-  { name: 'midnight', label: 'Midnight', mode: 'dark',  bg: '#0d101c', panel: '#131526', accent: '#8b5cf6', border: '#1e2240', surface: '#181b2e', muted: '#4a507a' },
-  { name: 'nebula',   label: 'Nebula',   mode: 'dark',  bg: '#231b2a', panel: '#2c2433', accent: '#9d38a8', border: '#3e3048', surface: '#332840', muted: '#6a5878' },
-  { name: 'pine',     label: 'Pine',     mode: 'dark',  bg: '#1b2420', panel: '#222d29', accent: '#58c596', border: '#304038', surface: '#283530', muted: '#507060' },
-  { name: 'canvas',   label: 'Canvas',   mode: 'light', bg: '#f8f9fc', panel: '#ffffff', accent: '#3a5bd9', border: '#d8dce8', surface: '#f0f2f8', muted: '#8890b0' },
-  { name: 'dawn',     label: 'Dawn',     mode: 'light', bg: '#faf4ee', panel: '#ede0d0', accent: '#d4610a', border: '#d8c8b4', surface: '#f5ede2', muted: '#9a8870' },
-  { name: 'breeze',   label: 'Breeze',   mode: 'light', bg: '#eef6f8', panel: '#d8eef0', accent: '#1a7a8a', border: '#c0d8dc', surface: '#e8f4f6', muted: '#6a9098' },
-  { name: 'blossom',  label: 'Blossom',  mode: 'light', bg: '#f8eef0', panel: '#e8d4d8', accent: '#c0304a', border: '#d8c0c4', surface: '#f2e4e8', muted: '#9a7078' },
-]
-
-/* Mini UI preview — renders a fake app layout using theme raw colors */
-function ThemePreview({ bg, panel, accent, border, surface, muted }: {
-  bg: string; panel: string; accent: string; border: string; surface: string; muted: string
-}) {
-  return (
-    <svg viewBox="0 0 120 72" xmlns="http://www.w3.org/2000/svg" className="theme-preview">
-      {/* App background */}
-      <rect width="120" height="72" fill={bg} />
-      {/* Titlebar */}
-      <rect x="0" y="0" width="120" height="9" fill={panel} />
-      <circle cx="6" cy="4.5" r="1.8" fill={muted} opacity="0.6" />
-      <circle cx="11" cy="4.5" r="1.8" fill={muted} opacity="0.6" />
-      <circle cx="16" cy="4.5" r="1.8" fill={muted} opacity="0.6" />
-      <rect x="42" y="3" width="36" height="3" rx="1.5" fill={border} opacity="0.7" />
-      {/* Sidebar */}
-      <rect x="0" y="9" width="28" height="63" fill={panel} />
-      <rect x="0" y="9" width="28" height="63" fill="none" stroke={border} strokeWidth="0.5" />
-      {/* Sidebar nav items */}
-      <rect x="4" y="16" width="3" height="3" rx="1" fill={accent} opacity="0.9" />
-      <rect x="10" y="17" width="14" height="2" rx="1" fill={accent} opacity="0.5" />
-      <rect x="4" y="24" width="3" height="3" rx="1" fill={muted} opacity="0.5" />
-      <rect x="10" y="25" width="12" height="2" rx="1" fill={muted} opacity="0.3" />
-      <rect x="4" y="32" width="3" height="3" rx="1" fill={muted} opacity="0.5" />
-      <rect x="10" y="33" width="10" height="2" rx="1" fill={muted} opacity="0.3" />
-      {/* Main content */}
-      <rect x="32" y="14" width="22" height="3" rx="1.5" fill={muted} opacity="0.5" />
-      {/* Stat cards */}
-      <rect x="32" y="22" width="20" height="12" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
-      <rect x="55" y="22" width="20" height="12" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
-      <rect x="78" y="22" width="20" height="12" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
-      <rect x="101" y="22" width="15" height="12" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
-      {/* Accent bars in cards */}
-      <rect x="35" y="28" width="14" height="3" rx="1" fill={accent} opacity="0.85" />
-      <rect x="58" y="28" width="14" height="3" rx="1" fill={accent} opacity="0.6" />
-      <rect x="81" y="28" width="14" height="3" rx="1" fill={accent} opacity="0.4" />
-      <rect x="104" y="28" width="9" height="3" rx="1" fill={accent} opacity="0.25" />
-      {/* Activity card */}
-      <rect x="32" y="38" width="84" height="28" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
-      <rect x="36" y="43" width="40" height="2" rx="1" fill={muted} opacity="0.4" />
-      <rect x="36" y="48" width="60" height="2" rx="1" fill={muted} opacity="0.25" />
-      <rect x="36" y="53" width="50" height="2" rx="1" fill={muted} opacity="0.2" />
-      <rect x="36" y="58" width="30" height="2" rx="1" fill={accent} opacity="0.35" />
-    </svg>
-  )
-}
-
-/* ── Hotkey helpers ────────────────────────────────────────────── */
+/* ── Hotkey helpers ─────────────────────────────────────────────── */
 function getKeyName(key: string, code: string): string {
   const map: Record<string, string> = {
     Control: 'Ctrl', Meta: 'Super', ' ': 'Space',
@@ -111,281 +48,25 @@ function buildShortcut(keys: string[]): string {
   return main ? [...mods, main].join('+') : mods.join('+')
 }
 
-const TAB_ICONS = { general: Palette, audio: Keyboard, about: Info }
-
-/* ── Model selection ────────────────────────────────────────────── */
-type HardwareProfile = {
-  gpuName: string
-  executionProvider: string
-  vramGb: number
-  ramGb: number
-  recommendedModel: string
-}
-
-type ModelOverride = 'large' | 'medium' | 'small'
-
-const MODEL_OPTIONS: { value: ModelOverride; label: string; sub: string }[] = [
-  { value: 'small',  label: 'Small',  sub: 'Fastest · low-end CPU' },
-  { value: 'medium', label: 'Medium', sub: 'Balanced · CPU / iGPU' },
-  { value: 'large',  label: 'Large',  sub: 'Best accuracy · GPU' },
-]
-
-const MODEL_DISPLAY_NAME: Record<string, string> = {
-  'small.en': 'small.en',
-  'medium.en': 'medium.en',
-  'large-v3-turbo': 'large-v3-turbo',
-}
-
-/* ── Update states ─────────────────────────────────────────────── */
-type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
-
-function AboutTab() {
-  /* model state */
-  const [profile, setProfile] = useState<HardwareProfile | null>(null)
-  const [selected, setSelected] = useState<ModelOverride>('large')
-  const [activeModelName, setActiveModelName] = useState<string | null>(null)
-  const [modelSaving, setModelSaving] = useState(false)
-  const [modelSaved, setModelSaved] = useState(false)
-
-  /* update state */
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
-  const [updateVersion, setUpdateVersion] = useState<string | null>(null)
-  const [downloadProgress, setDownloadProgress] = useState(0)
-  const [updateError, setUpdateError] = useState<string | null>(null)
-  const updaterRef = useRef<Awaited<ReturnType<typeof check>> | null>(null)
-
-  useEffect(() => {
-    invoke<HardwareProfile>('get_hardware_profile').then(setProfile).catch(() => {})
-
-    // Backend is source of truth — active model name drives the selector
-    invoke<{ modelName: string }>('get_model_info').then(info => {
-      setActiveModelName(info.modelName)
-      const name = info.modelName
-      if (name.startsWith('large')) setSelected('large')
-      else if (name.startsWith('medium')) setSelected('medium')
-      else setSelected('small')
-    }).catch(() => {})
-  }, [])
-
-  const handleModelChange = async (v: ModelOverride) => {
-    setSelected(v)
-    setModelSaving(true)
-    setModelSaved(false)
-    try {
-      await invoke('set_model_override', { variant: v })
-      invoke('retry_model_download').catch(() => {})
-      const info = await invoke<{ modelName: string }>('get_model_info')
-      setActiveModelName(info.modelName)
-      setModelSaved(true)
-      setTimeout(() => setModelSaved(false), 2000)
-    } catch { /* ignore */ }
-    finally { setModelSaving(false) }
-  }
-
-  const checkForUpdate = useCallback(async () => {
-    setUpdateStatus('checking')
-    setUpdateError(null)
-    try {
-      const update = await check()
-      if (update?.available) {
-        updaterRef.current = update
-        setUpdateVersion(update.version)
-        setUpdateStatus('available')
-      } else {
-        setUpdateStatus('up-to-date')
-      }
-    } catch (e) {
-      setUpdateError(e instanceof Error ? e.message : 'Update check failed')
-      setUpdateStatus('error')
-    }
-  }, [])
-
-  const downloadAndInstall = useCallback(async () => {
-    const update = updaterRef.current
-    if (!update) return
-    setUpdateStatus('downloading')
-    setDownloadProgress(0)
-    try {
-      let downloaded = 0
-      let total = 0
-      await update.downloadAndInstall((progress) => {
-        if (progress.event === 'Started') {
-          total = progress.data.contentLength ?? 0
-        } else if (progress.event === 'Progress') {
-          downloaded += progress.data.chunkLength
-          if (total > 0) setDownloadProgress(Math.round((downloaded / total) * 100))
-        } else if (progress.event === 'Finished') {
-          setDownloadProgress(100)
-          setUpdateStatus('ready')
-        }
-      })
-    } catch (e) {
-      setUpdateError(e instanceof Error ? e.message : 'Download failed')
-      setUpdateStatus('error')
-    }
-  }, [])
-
-  const updateDesc = {
-    idle: 'Check for the latest release.',
-    checking: 'Checking…',
-    'up-to-date': 'You are on the latest version.',
-    available: `v${updateVersion} is available.`,
-    downloading: `Downloading… ${downloadProgress}%`,
-    ready: 'Update downloaded. Restart to apply.',
-    error: updateError ?? 'Something went wrong.',
-  }[updateStatus]
-
+const KeyBadges = memo(function KeyBadges({ keys }: { keys: string[] }) {
   return (
-    <div className="about-stack">
-
-      {/* ── Single unified card ── */}
-      <div className="card">
-
-        {/* App info */}
-        <div className="card__header">
-          <div>
-            <h2 className="card__title">NexusVoice</h2>
-            <p className="card__desc">Local-first voice-to-text for power users.</p>
-          </div>
-          <Badge variant="secondary">v{__APP_VERSION__}</Badge>
-        </div>
-        <div className="card__body about-info-grid">
-          <span className="about-info-label">Engine</span>
-          <span className="about-info-value">whisper-rs (ggml)</span>
-          <span className="about-info-label">Language</span>
-          <span className="about-info-value">English</span>
-          <span className="about-info-label">Privacy</span>
-          <span className="about-info-value">100% on-device · no telemetry</span>
-        </div>
-
-        <div className="card__divider" />
-
-        {/* Hardware + model */}
-        <div className="card__header card__header--section">
-          <div>
-            <h2 className="card__title">Model</h2>
-            <p className="card__desc">
-              {profile
-                ? <><Cpu size={11} strokeWidth={1.75} className="icon--inline" />{profile.gpuName}</>
-                : 'Detecting hardware…'}
-            </p>
-          </div>
-          <div className="about-badges">
-            {activeModelName && <Badge variant="outline">{MODEL_DISPLAY_NAME[activeModelName] ?? activeModelName}</Badge>}
-            {profile && <Badge variant="secondary">{profile.executionProvider.toUpperCase()}</Badge>}
-            {profile && profile.vramGb > 0 && <Badge variant="secondary">{profile.vramGb} GB VRAM</Badge>}
-            {profile && profile.ramGb > 0 && <Badge variant="secondary">{profile.ramGb} GB RAM</Badge>}
-            {modelSaved && <CheckCircle2 size={14} strokeWidth={2} className="icon--success" />}
-          </div>
-        </div>
-        <div className="card__body">
-          <div className="model-segment">
-            {MODEL_OPTIONS.map(({ value, label, sub }) => {
-              const isRecommended = profile && (
-                (value === 'large' && profile.recommendedModel.startsWith('large')) ||
-                (value === 'medium' && profile.recommendedModel.startsWith('medium')) ||
-                (value === 'small' && profile.recommendedModel.startsWith('small'))
-              )
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  className={`model-segment__btn${selected === value ? ' model-segment__btn--active' : ''}`}
-                  onClick={() => handleModelChange(value)}
-                  disabled={modelSaving}
-                >
-                  <span className="model-segment__label">
-                    {label}
-                    {isRecommended && <span className="model-segment__recommended">Recommended</span>}
-                  </span>
-                  <span className="model-segment__sub">{sub}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="card__divider" />
-
-        {/* Updater */}
-        <div className="card__header card__header--section">
-          <div className="about-update-left">
-            <h2 className="card__title">Updates</h2>
-            <p className="card__desc">{updateDesc}</p>
-            {/* Progress bar — always present, width animates */}
-            <div className="about-progress-track">
-              <div
-                className="about-progress-fill"
-                style={{ width: updateStatus === 'downloading' ? `${downloadProgress}%` : '0%' }}
-              />
-            </div>
-          </div>
-          <div className="about-update-actions">
-            {updateStatus === 'up-to-date' && <CheckCircle2 size={14} strokeWidth={2} className="icon--success" />}
-            {updateStatus === 'error' && <AlertCircle size={14} strokeWidth={2} className="icon--danger" />}
-            {(updateStatus === 'idle' || updateStatus === 'up-to-date' || updateStatus === 'error') && (
-              <Button size="sm" variant="outline" onClick={checkForUpdate}>
-                <RefreshCw size={11} strokeWidth={2} />
-                Check
-              </Button>
-            )}
-            {updateStatus === 'checking' && (
-              <Button size="sm" variant="outline" disabled>
-                <RefreshCw size={11} strokeWidth={2} className="icon--spin" />
-                Checking…
-              </Button>
-            )}
-            {updateStatus === 'available' && (
-              <Button size="sm" onClick={downloadAndInstall}>
-                <Download size={11} strokeWidth={2} />
-                Download
-              </Button>
-            )}
-            {updateStatus === 'downloading' && (
-              <Button size="sm" disabled>
-                <Download size={11} strokeWidth={2} />
-                {downloadProgress}%
-              </Button>
-            )}
-            {updateStatus === 'ready' && (
-              <Button size="sm" onClick={() => relaunch()}>
-                <ArrowUpCircle size={11} strokeWidth={2} />
-                Restart
-              </Button>
-            )}
-          </div>
-        </div>
-        {/* Spacer so card__body padding applies at bottom */}
-        <div className="card__body card__body--flush-top" />
-      </div>
+    <div className="flex items-center gap-[3px]">
+      {keys.map((k, i) => (
+        <span key={i} className="flex items-center gap-[3px]">
+          {i > 0 && <span className="text-[9px] text-[var(--muted)] font-semibold px-px">+</span>}
+          <span className="inline-flex items-center justify-center px-[6px] py-[2px] min-w-6 rounded-[var(--r-sm)] bg-[var(--bg-alt)] border border-[var(--border)] shadow-[0_1px_0_var(--border)] text-[10px] font-semibold text-[var(--fg)] leading-[1.4] capitalize font-mono">
+            {displayKey(k)}
+          </span>
+        </span>
+      ))}
     </div>
   )
-}
+})
 
-/* ── Component ─────────────────────────────────────────────────── */
-export function Settings() {
-  const {
-    theme, setTheme,
-    error, setError,
-    hasHotkey,
-    activeSettingsTab, setActiveSettingsTab,
-  } = useAppStore()
+/* ── Hotkey section ─────────────────────────────────────────────── */
+function HotkeySection() {
+  const { error, setError, hasHotkey } = useAppStore()
 
-  const location = useLocation()
-
-  // If navigated here with a specific tab (e.g. from hotkey banner), honour it once
-  const initialLocationState = useRef(location.state)
-  useEffect(() => {
-    const requested = (initialLocationState.current as { tab?: string } | null)?.tab
-    if (requested && ['general', 'audio', 'about'].includes(requested)) {
-      setActiveSettingsTab(requested as 'general' | 'audio' | 'about')
-    }
-  }, [setActiveSettingsTab])
-
-  const tab = activeSettingsTab
-  const setTab = setActiveSettingsTab
-
-  // Load initial hotkey from store — if set, fetch the string value once
   const [currentHotkey, setCurrentHotkey] = useState<string | null>(null)
   const [pressedKeys, setPressedKeys] = useState<string[]>([])
   const [isListening, setIsListening] = useState(false)
@@ -394,7 +75,6 @@ export function Settings() {
   const hotkeyRef = useRef<HTMLDivElement>(null)
   const keysRef = useRef<Set<string>>(new Set())
 
-  // Sync currentHotkey from store on mount — single source of truth
   useEffect(() => {
     if (hasHotkey) {
       invoke<string[]>('get_registered_hotkeys')
@@ -460,43 +140,136 @@ export function Settings() {
     }
   }
 
-  const KeyBadges = memo(({ keys }: { keys: string[] }) => (
-    <div className="hotkey-keys">
-      {keys.map((k, i) => (
-        <span key={i} className="hotkey-key-item">
-          {i > 0 && <span className="key-sep">+</span>}
-          <span className="key-badge">{displayKey(k)}</span>
-        </span>
-      ))}
-    </div>
-  ))
+  return (
+    <div className="flex flex-col gap-4">
+      {error && (
+        <div className="flex items-center gap-[10px] px-[14px] py-[10px] rounded-[var(--r-lg)] text-[12px] leading-[1.4] text-[var(--fg-2)]" style={{ background: 'var(--danger-soft)', border: '1px solid oklch(from var(--danger) l c h / 0.30)' }}>
+          <AlertCircle size={13} strokeWidth={2} className="flex-shrink-0 text-[var(--danger)]" />
+          <span className="flex-1">{error}</span>
+          <button type="button" className="ml-auto text-[var(--muted)] bg-transparent border-none cursor-pointer px-[2px] leading-none rounded-[var(--r-xs)] flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity" onClick={() => setError(null)}>
+            <X size={13} strokeWidth={2} />
+          </button>
+        </div>
+      )}
+      {hotkeySuccess && (
+        <div className="flex items-center gap-[10px] px-[14px] py-[10px] rounded-[var(--r-lg)] text-[12px] leading-[1.4] text-[var(--fg-2)]" style={{ background: 'var(--success-soft)', border: '1px solid oklch(from var(--success) l c h / 0.25)' }}>
+          <CheckCircle2 size={13} strokeWidth={2} className="flex-shrink-0 text-[var(--success)]" />
+          <span>Hotkey registered successfully.</span>
+        </div>
+      )}
 
-  const TABS = (['general', 'audio', 'about'] as const)
+      <div>
+        <p className="text-[11px] font-semibold text-[var(--fg-2)] uppercase tracking-[0.03em] mb-3">Recording Hotkey</p>
+        <p className="text-[12px] text-[var(--muted)] mb-4">Hold to record · release to transcribe and paste.</p>
+
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            {/* Unified box — shows current hotkey, pressed keys, or placeholder */}
+            <div
+              ref={hotkeyRef}
+              className={`flex items-center gap-[6px] px-3 h-9 rounded-[var(--r-md)] bg-[var(--surface)] border-[1.5px] cursor-pointer text-[12px] transition-[border-color,box-shadow] duration-[var(--t-fast)] max-w-[240px] flex-1 hover:border-[var(--accent)] ${isListening ? 'border-[var(--accent)] shadow-[0_0_0_3px_var(--accent-soft)] hotkey-listening' : 'border-[var(--border)]'}`}
+              onClick={startListening}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') startListening() }}
+              role="button"
+              tabIndex={0}
+              aria-label="Click to record hotkey"
+            >
+              {isListening && pressedKeys.length === 0 && (
+                <span className="text-[11px] text-[var(--accent)] italic">Press keys…</span>
+              )}
+              {pressedKeys.length > 0 && <KeyBadges keys={pressedKeys} />}
+              {!isListening && pressedKeys.length === 0 && currentHotkey && (
+                <KeyBadges keys={currentHotkey.split('+')} />
+              )}
+              {!isListening && pressedKeys.length === 0 && !currentHotkey && (
+                <span className="inline-flex items-center gap-[5px] text-[11px] text-[var(--muted)] italic">
+                  <Keyboard size={11} strokeWidth={1.75} className="opacity-50 flex-shrink-0" />
+                  Click to record…
+                </span>
+              )}
+            </div>
+
+            {/* Button transforms based on state */}
+            {isListening || pressedKeys.length > 0 ? (
+              <>
+                <Button size="sm" onClick={handleSaveHotkey} disabled={saving || pressedKeys.length === 0}>
+                  {saving ? 'Saving…' : 'Save'}
+                </Button>
+                <Button type="button" variant="ghost" size="sm"
+                  onClick={() => { setIsListening(false); setPressedKeys([]); keysRef.current.clear() }}>
+                  Cancel
+                </Button>
+              </>
+            ) : currentHotkey ? (
+              <button
+                type="button"
+                className="inline-flex items-center gap-[5px] h-9 px-3 rounded-[var(--r-md)] border border-[var(--border)] bg-transparent cursor-pointer text-[11px] font-medium text-[var(--muted)] transition-[color,border-color,background] duration-[var(--t-fast)] hover:text-[var(--danger)] hover:border-[var(--danger)] hover:bg-[var(--danger-soft)]"
+                onClick={handleRemoveHotkey}
+              >
+                <X size={11} strokeWidth={2} />
+                Remove
+              </button>
+            ) : null}
+          </div>
+
+          <p className="text-[11px] text-[var(--muted)] leading-[1.4]">
+            Recommended: Ctrl+Shift+Space · Alt+R · Ctrl+Alt+V
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ── Settings shell ─────────────────────────────────────────────── */
+export function Settings() {
+  const { activeSettingsTab, setActiveSettingsTab } = useAppStore()
+  const location = useLocation()
+
+  const initialLocationState = useRef(location.state)
+  useEffect(() => {
+    const requested = (initialLocationState.current as { tab?: string } | null)?.tab
+    if (requested && ['general', 'about'].includes(requested)) {
+      setActiveSettingsTab(requested as 'general' | 'audio' | 'about')
+    }
+  }, [setActiveSettingsTab])
+
+  const tab = activeSettingsTab === 'audio' ? 'general' : activeSettingsTab
+  const setTab = (v: string) => setActiveSettingsTab(v as 'general' | 'audio' | 'about')
 
   return (
-    <div className="settings-page">
-      <div className="page-header">
-        <h1 className="page-title">Settings</h1>
-        <p className="page-subtitle">Configure hotkeys and appearance.</p>
+    <div className="flex flex-col h-full overflow-hidden px-7 py-6">
+      <div className="flex items-center justify-between gap-4 pb-5 mb-4 border-b border-[var(--border-soft)] flex-shrink-0">
+        <div className="flex items-center gap-[14px]">
+          <div className="w-9 h-9 rounded-[var(--r-lg)] bg-[var(--accent-soft)] text-[var(--accent)] flex items-center justify-center flex-shrink-0">
+            <Settings2 size={18} strokeWidth={2} />
+          </div>
+          <div>
+            <h1 className="text-[18px] font-bold tracking-[-0.025em] text-[var(--fg)] leading-[1.1] m-0">Settings</h1>
+            <p className="text-[12px] text-[var(--muted)] mt-[3px] m-0">Configure hotkeys and appearance.</p>
+          </div>
+        </div>
+        <span className="text-[11px] font-semibold text-[var(--muted)] bg-[var(--surface)] border border-[var(--border-soft)] px-[8px] py-[3px] rounded-[var(--r-sm)] flex-shrink-0">
+          v{__APP_VERSION__}
+        </span>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="settings-tabs">
-        <div className="settings-tabs__bar">
-          <TabsList className="settings-tabs__list">
-            {TABS.map((t) => {
-              const Icon = TAB_ICONS[t]
-              return (
-                <TabsTrigger key={t} value={t} className="settings-tabs__trigger">
-                  <Icon size={12} strokeWidth={1.75} />
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
-                </TabsTrigger>
-              )
-            })}
+      <Tabs value={tab} onValueChange={setTab} className="flex flex-col flex-1 min-h-0 gap-0!">
+        <div className="flex items-center justify-between mb-4 flex-shrink-0">
+          <TabsList className="w-fit!">
+            <TabsTrigger value="general" className="gap-[5px]! text-[12px]!">
+              <Palette size={12} strokeWidth={1.75} />
+              General
+            </TabsTrigger>
+            <TabsTrigger value="about" className="gap-[5px]! text-[12px]!">
+              <Info size={12} strokeWidth={1.75} />
+              About
+            </TabsTrigger>
           </TabsList>
           {tab === 'about' && (
             <button
               type="button"
-              className="settings-tabs__action"
+              className="inline-flex items-center gap-[5px] px-[10px] h-9 rounded-[var(--r-lg)] bg-[var(--surface)] border-none text-[var(--fg-2)] text-[12px] font-medium cursor-pointer transition-[background,color] duration-[var(--t-fast)] hover:text-[var(--fg)]"
               onClick={() => invoke('open_logs_folder')}
               title="Open logs folder"
             >
@@ -506,136 +279,13 @@ export function Settings() {
           )}
         </div>
 
-        {/* ── General: Themes ── */}
-        <TabsContent value="general" className="settings-scroll">
-          <div className="card">
-            <div className="card__header">
-              <div>
-                <h2 className="card__title">Appearance</h2>
-                <p className="card__desc">Choose a color scheme for your workspace.</p>
-              </div>
-            </div>
-            <div className="card__body">
-              {(['dark', 'light'] as const).map((mode) => {
-                const group = THEMES.filter(t => t.mode === mode)
-                return (
-                  <div key={mode} className="theme-group">
-                    <p className="theme-group__label">{mode === 'dark' ? 'Dark' : 'Light'}</p>
-                    <div className="theme-grid">
-                      {group.map((t) => {
-                        const active = theme === t.name
-                        return (
-                          <button
-                            key={t.name}
-                            type="button"
-                            className={`theme-card ${active ? 'theme-card--active' : ''}`}
-                            onClick={() => setTheme(t.name)}
-                          >
-                            <ThemePreview bg={t.bg} panel={t.panel} accent={t.accent} border={t.border} surface={t.surface} muted={t.muted} />
-                            <div className="theme-card__footer">
-                              <span className="theme-name">{t.label}</span>
-                              {active && <Check size={9} strokeWidth={3.5} className="theme-card__check" />}
-                            </div>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+        <TabsContent value="general" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-6 mt-0!">
+          <GeneralTab />
+          <div className="h-px bg-[var(--border-soft)]" />
+          <HotkeySection />
         </TabsContent>
 
-        {/* ── Audio: Hotkey ── */}
-        <TabsContent value="audio" className="settings-scroll">
-          {error && (
-            <div className="notice notice--error">
-              <AlertCircle size={13} strokeWidth={2} className="icon--shrink icon--danger" />
-              <span className="text--flex">{error}</span>
-              <button type="button" className="notice__close" onClick={() => setError(null)}>
-                <X size={13} strokeWidth={2} />
-              </button>
-            </div>
-          )}
-          {hotkeySuccess && (
-            <div className="notice notice--success">
-              <CheckCircle2 size={13} strokeWidth={2} className="icon--shrink icon--success" />
-              <span>Hotkey registered successfully.</span>
-            </div>
-          )}
-
-          <div className="card">
-            <div className="card__header">
-              <div>
-                <h2 className="card__title">Recording Hotkey</h2>
-                <p className="card__desc">Hold to record · release to transcribe and paste.</p>
-              </div>
-            </div>
-            <div className="card__body card__body--stack">
-
-              {currentHotkey && (
-                <div>
-                  <p className="field-label field-label--mb">Active hotkey</p>
-                  <div className="hotkey-active-row">
-                    <KeyBadges keys={currentHotkey.split('+')} />
-                    <button type="button" className="hotkey-remove" onClick={handleRemoveHotkey}>
-                      <X size={11} strokeWidth={2} />
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <p className="field-label field-label--mb">
-                  {currentHotkey ? 'Change hotkey' : 'Set hotkey'}
-                </p>
-                <div className="hotkey-recorder">
-                  <div
-                    ref={hotkeyRef}
-                    className={`hotkey-display ${isListening ? 'hotkey-display--listening' : ''}`}
-                    onClick={startListening}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') startListening() }}
-                    role="button"
-                    tabIndex={0}
-                    aria-label="Click to record hotkey"
-                  >
-                    {pressedKeys.length === 0 && !isListening && (
-                      <span className="hotkey-placeholder">
-                        <Keyboard size={11} strokeWidth={1.75} className="hotkey-placeholder__icon" />
-                        Click to record…
-                      </span>
-                    )}
-                    {isListening && pressedKeys.length === 0 && (
-                      <span className="hotkey-placeholder hotkey-placeholder--listening">
-                        Press keys…
-                      </span>
-                    )}
-                    {pressedKeys.length > 0 && <KeyBadges keys={pressedKeys} />}
-                  </div>
-
-                  <Button size="sm" onClick={handleSaveHotkey} disabled={saving || pressedKeys.length === 0}>
-                    {saving ? 'Saving…' : 'Save'}
-                  </Button>
-
-                  {pressedKeys.length > 0 && (
-                    <Button type="button" variant="ghost" size="sm"
-                      onClick={() => { setPressedKeys([]); keysRef.current.clear() }}>
-                      Clear
-                    </Button>
-                  )}
-                </div>
-                <p className="field-hint field-hint--mt">
-                  Recommended: Ctrl+Shift+Space · Alt+R · Ctrl+Alt+V
-                </p>
-              </div>
-            </div>
-          </div>
-        </TabsContent>
-
-        {/* ── About ── */}
-        <TabsContent value="about" className="settings-scroll">
+        <TabsContent value="about" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 mt-0!">
           <AboutTab />
         </TabsContent>
       </Tabs>

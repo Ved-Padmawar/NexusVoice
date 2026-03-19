@@ -223,6 +223,7 @@ export const useAppStore = create<AppState>()(
             accessToken: resp.tokens.accessToken,
           })
           invoke('retry_model_download').catch(() => {})
+          get().init()
         } catch (e) {
           const message =
             typeof e === 'object' && e !== null && 'message' in e
@@ -244,6 +245,7 @@ export const useAppStore = create<AppState>()(
             accessToken: resp.tokens.accessToken,
           })
           invoke('retry_model_download').catch(() => {})
+          get().init()
         } catch (e) {
           const message =
             typeof e === 'object' && e !== null && 'message' in e

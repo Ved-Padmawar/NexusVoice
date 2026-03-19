@@ -8,7 +8,6 @@ import { check } from '@tauri-apps/plugin-updater'
 import { useAppStore } from './store/useAppStore'
 import { Layout } from './components/Layout'
 import { AuthGuard } from './components/AuthGuard'
-import './App.css'
 
 const Auth = lazy(() => import('./pages/Auth').then(m => ({ default: m.Auth })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
@@ -82,19 +81,18 @@ function App() {
 
   if (authChecking || isLoading) {
     return (
-      <div className="app-loading" role="status" aria-live="polite" data-tauri-drag-region>
-        <div className="loading-spinner" />
-        <p className="loading-text">Loading…</p>
+      <div className="flex flex-col items-center justify-center min-h-dvh gap-[14px] bg-[var(--bg)]" role="status" aria-live="polite" data-tauri-drag-region>
+        <div className="w-7 h-7 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-[spin_0.65s_linear_infinite]" />
+        <p className="text-[12px] text-[var(--muted)]">Loading…</p>
       </div>
     )
   }
 
-  // Restore last active route; fall back to '/' if user is not logged in
   const initialRoute = user ? activeRoute : '/'
 
   return (
     <BrowserRouter>
-      <Suspense fallback={<div className="app-loading" role="status" data-tauri-drag-region><div className="loading-spinner" /></div>}>
+      <Suspense fallback={<div className="flex items-center justify-center min-h-dvh bg-[var(--bg)]" role="status" data-tauri-drag-region><div className="w-7 h-7 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-[spin_0.65s_linear_infinite]" /></div>}>
         <AnimatedRoutes initialRoute={initialRoute} user={user} />
       </Suspense>
     </BrowserRouter>
@@ -115,21 +113,21 @@ function AnimatedRoutes({ initialRoute, user }: { initialRoute: string; user: { 
       <Route path="/" element={<Layout />}>
         <Route index element={
           <AuthGuard>
-            <motion.div key="dashboard" className="page-motion" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}>
+            <motion.div key="dashboard" className="contents" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}>
               <Dashboard />
             </motion.div>
           </AuthGuard>
         } />
         <Route path="settings" element={
           <AuthGuard>
-            <motion.div key="settings" className="page-motion" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}>
+            <motion.div key="settings" className="contents" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}>
               <Settings />
             </motion.div>
           </AuthGuard>
         } />
         <Route path="dictionary" element={
           <AuthGuard>
-            <motion.div key="dictionary" className="page-motion" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}>
+            <motion.div key="dictionary" className="contents" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}>
               <Dictionary />
             </motion.div>
           </AuthGuard>

@@ -322,4 +322,157 @@
     border-radius: var(--r-full);
   }
   ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* Tauri drag regions — cannot be expressed as Tailwind utilities */
+  [data-tauri-drag-region] { -webkit-app-region: drag; app-region: drag; cursor: default; }
+  .no-drag { -webkit-app-region: no-drag; app-region: no-drag; }
+
+  /* Hotkey listening pulse — keyframe animation applied as a class */
+  .hotkey-listening { animation: hotkey-pulse 1.5s ease-in-out infinite; }
+}
+
+/* ── Component classes (shadcn slot overrides) ───────────────────── */
+@layer components {
+  /* Input */
+  .nv-input {
+    height: 34px;
+    padding: 0 10px;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 34px;
+    letter-spacing: 0;
+    font-family: inherit;
+    border-radius: var(--r-md);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    outline: none;
+    width: 100%;
+    transition: border-color var(--t-fast), box-shadow var(--t-fast);
+    box-shadow: none;
+  }
+  .nv-input::placeholder { color: var(--muted); font-weight: 400; font-size: 13px; }
+  .nv-input:hover:not(:focus):not(:disabled) { border-color: var(--accent); }
+  .nv-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .nv-input:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* shadcn Button — compact sizing, brand radius */
+  [data-slot="button"] {
+    border-radius: var(--r-md);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    transition: all var(--t-fast);
+  }
+
+  /* shadcn Label */
+  [data-slot="label"] {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--fg-2);
+    letter-spacing: 0.01em;
+    text-transform: none;
+  }
+
+  /* shadcn Badge */
+  [data-slot="badge"] {
+    border-radius: var(--r-sm);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    letter-spacing: 0.02em;
+  }
+
+  /* shadcn Select */
+  [data-slot="select-trigger"] {
+    height: 36px;
+    font-size: 12px;
+    border-radius: var(--r-md);
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    color: var(--fg);
+    padding: 0 10px;
+    gap: 6px;
+    transition: border-color var(--t-fast), box-shadow var(--t-fast);
+    width: 100%;
+  }
+  [data-slot="select-trigger"]:hover { border-color: var(--accent); }
+  [data-slot="select-trigger"]:focus-visible,
+  [data-slot="select-trigger"][data-state="open"] {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+    outline: none;
+  }
+  [data-slot="select-content"] {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-lg);
+    padding: 4px;
+    min-width: 180px;
+    z-index: 9999;
+  }
+  [data-slot="select-item"] {
+    font-size: 12px;
+    color: var(--fg-2);
+    border-radius: var(--r-md);
+    padding: 7px 10px;
+    cursor: pointer;
+    transition: background var(--t-fast), color var(--t-fast);
+    gap: 8px;
+  }
+  [data-slot="select-item"]:hover,
+  [data-slot="select-item"][data-highlighted] {
+    background: var(--surface-hover);
+    color: var(--fg);
+    outline: none;
+  }
+  [data-slot="select-item"][data-state="checked"] { color: var(--accent); font-weight: 600; }
+  [data-slot="select-item-indicator"] { right: 8px; }
+
+  /* shadcn Tabs */
+  [role="tablist"] {
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--r-lg);
+    padding: 3px;
+    gap: 2px;
+    height: auto;
+  }
+  [role="tab"] {
+    border-radius: var(--r-md);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    padding: 5px 14px;
+    height: auto;
+    transition: all var(--t-fast);
+  }
+  [role="tab"]:hover { color: var(--fg); }
+  [role="tab"][data-state="active"] {
+    background: var(--panel);
+    color: var(--fg);
+    font-weight: 600;
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* shadcn Alert */
+  [data-slot="alert"] {
+    border-radius: var(--r-lg);
+    font-size: 12px;
+    padding: 10px 14px;
+  }
+}
+
+/* ── Keyframes ───────────────────────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@keyframes db-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50%       { opacity: 0.15; transform: scale(1.35); }
+}
+
+@keyframes hotkey-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft); }
+  50%       { box-shadow: 0 0 0 5px var(--accent-soft); }
 }
