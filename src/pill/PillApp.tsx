@@ -14,7 +14,6 @@ const WEIGHTS = [0.5, 0.7, 0.85, 1.0, 1.0, 0.85, 0.7, 0.5]
 export function PillApp() {
   const [state, setState] = useState<PillState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
-  const [downloadPct, setDownloadPct] = useState(0)
   const modelReadyRef = useRef(false)
   const [tooltip, setTooltip] = useState('')
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -118,7 +117,6 @@ export function PillApp() {
         } else if (info.downloading) {
           modelReadyRef.current = false
           setState('downloading')
-          setDownloadPct(info.downloadProgress)
         }
       })
       .catch(() => { /* ignore */ })
@@ -129,13 +127,11 @@ export function PillApp() {
         if (cancelled) return
         modelReadyRef.current = false
         setState(s => s === 'idle' ? 'downloading' : s)
-        setDownloadPct(0)
       })
       unlisteners.push(um1)
 
-      const um2 = await listen<number>('model-download-progress', (e) => {
+      const um2 = await listen('model-download-progress', () => {
         if (cancelled) return
-        setDownloadPct(e.payload)
         setState(s => s === 'idle' || s === 'downloading' ? 'downloading' : s)
       })
       unlisteners.push(um2)
@@ -143,12 +139,11 @@ export function PillApp() {
       const um3 = await listen('model-download-complete', () => {
         if (cancelled) return
         modelReadyRef.current = true
-        setDownloadPct(100)
         setState('idle')
       })
       unlisteners.push(um3)
 
-      const um4 = await listen<string>('model-download-error', () => {
+      const um4 = await listen('model-download-error', () => {
         if (cancelled) return
         setState('idle')
       })
