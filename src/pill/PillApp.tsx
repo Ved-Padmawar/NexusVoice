@@ -14,6 +14,7 @@ const WEIGHTS = [0.5, 0.7, 0.85, 1.0, 1.0, 0.85, 0.7, 0.5]
 export function PillApp() {
   const [state, setState] = useState<PillState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
+  const [downloadPct, setDownloadPct] = useState(0)
   const modelReadyRef = useRef(false)
   const [tooltip, setTooltip] = useState('')
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -116,6 +117,7 @@ export function PillApp() {
           modelReadyRef.current = true
         } else if (info.downloading) {
           modelReadyRef.current = false
+          setDownloadPct(info.downloadProgress ?? 0)
           setState('downloading')
         }
       })
@@ -130,8 +132,9 @@ export function PillApp() {
       })
       unlisteners.push(um1)
 
-      const um2 = await listen('model-download-progress', () => {
+      const um2 = await listen<number>('model-download-progress', (e) => {
         if (cancelled) return
+        setDownloadPct(e.payload ?? 0)
         setState(s => s === 'idle' || s === 'downloading' ? 'downloading' : s)
       })
       unlisteners.push(um2)
@@ -265,7 +268,11 @@ export function PillApp() {
         {state === 'error' && (
           <span className="pill__error-label" title={errorMsg}>Error</span>
         )}
-        {/* processing & downloading: CSS ::after handles the spinner arc */}
+        {/* processing: spinner arc only (::after) */}
+        {/* downloading: spinner arc (::after) + percentage text */}
+        {state === 'downloading' && (
+          <span className="pill__pct">{downloadPct}%</span>
+        )}
       </div>
     </div>
   )

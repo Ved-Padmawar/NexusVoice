@@ -149,6 +149,23 @@ body {
   min-height: 3px;
 }
 
+/* ===== Download percentage ===== */
+.pill__pct {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  font-size: 7.5px;
+  font-weight: 700;
+  color: rgba(251, 191, 36, 0.95);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
 /* ===== Error label ===== */
 .pill__error-label {
   font-size: 11px;
