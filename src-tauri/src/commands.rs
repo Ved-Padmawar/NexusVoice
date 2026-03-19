@@ -572,10 +572,101 @@ pub async fn get_usage_stats(state: State<'_, AppState>) -> Result<UsageStatsRes
 pub async fn get_transcripts(
     state: State<'_, AppState>,
     limit: Option<i64>,
+    offset: Option<i64>,
+    from: Option<String>,
+    to: Option<String>,
+    sort_asc: Option<bool>,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
     let repo = TranscriptRepository::new(state.db().await.clone());
-    let items = repo.list_recent(limit.unwrap_or(100)).await?;
+    let items = repo.list_paginated(
+        limit.unwrap_or(50),
+        offset.unwrap_or(0),
+        from.as_deref(),
+        to.as_deref(),
+        !sort_asc.unwrap_or(false),
+    ).await?;
     Ok(items.into_iter().map(TranscriptResponse::from).collect())
+}
+
+#[tauri::command]
+pub async fn export_transcripts(
+    state: State<'_, AppState>,
+) -> Result<Vec<TranscriptResponse>, String> {
+    let repo = TranscriptRepository::new(state.db().await.clone());
+    let items = repo.list_all().await.map_err(|e| e.to_string())?;
+    Ok(items.into_iter().map(TranscriptResponse::from).collect())
+}
+
+#[tauri::command]
+pub async fn search_transcripts(
+    state: State<'_, AppState>,
+    query: String,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    from: Option<String>,
+    to: Option<String>,
+    sort_asc: Option<bool>,
+) -> Result<Vec<TranscriptResponse>, ApiError> {
+    if query.trim().is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Load user vocabulary from word_frequency table for fuzzy matching
+    let vocab: Vec<String> = sqlx::query_scalar("SELECT word FROM word_frequency ORDER BY count DESC LIMIT 2000")
+        .fetch_all(state.db().await)
+        .await
+        .unwrap_or_default();
+
+    let fts_query = build_fts_query(&query, &vocab);
+
+    let repo = TranscriptRepository::new(state.db().await.clone());
+    let items = repo.search(
+        &fts_query,
+        limit.unwrap_or(50),
+        offset.unwrap_or(0),
+        from.as_deref(),
+        to.as_deref(),
+        !sort_asc.unwrap_or(false),
+    ).await.unwrap_or_default();
+    Ok(items.into_iter().map(TranscriptResponse::from).collect())
+}
+
+/// Transforms a user query into an FTS5 query string.
+/// For each query word:
+///   - Always includes the word itself and a prefix variant (word*)
+///   - Uses strsim::jaro_winkler to find close matches from the user's vocabulary
+///     (score >= 0.88 and not identical) and adds them as OR alternatives
+fn build_fts_query(query: &str, vocab: &[String]) -> String {
+    let fts_terms: Vec<String> = query
+        .split_whitespace()
+        .map(|w| {
+            let w_lower = w.to_lowercase();
+            let mut variants: Vec<String> = vec![w_lower.clone()];
+
+            // Prefix match for partial typing
+            if w_lower.len() >= 3 {
+                variants.push(format!("{}*", w_lower));
+            }
+
+            // Fuzzy matches from user vocabulary via Jaro-Winkler
+            if w_lower.len() >= 4 {
+                for candidate in vocab {
+                    let c_lower = candidate.to_lowercase();
+                    if c_lower == w_lower {
+                        continue;
+                    }
+                    let score = strsim::jaro_winkler(&w_lower, &c_lower);
+                    if score >= 0.88 {
+                        variants.push(c_lower);
+                    }
+                }
+            }
+
+            variants.join(" OR ")
+        })
+        .collect();
+
+    fts_terms.join(" OR ")
 }
 
 #[tauri::command]

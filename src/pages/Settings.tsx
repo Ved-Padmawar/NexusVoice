@@ -1,9 +1,10 @@
 import { useState, useCallback, useRef, useEffect, memo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
+import { toast } from 'sonner'
 import {
   Palette, Info, Keyboard, Settings2,
-  AlertCircle, CheckCircle2, X, FolderOpen,
+  AlertCircle, X, FolderOpen,
 } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
@@ -71,7 +72,6 @@ function HotkeySection() {
   const [pressedKeys, setPressedKeys] = useState<string[]>([])
   const [isListening, setIsListening] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [hotkeySuccess, setHotkeySuccess] = useState(false)
   const hotkeyRef = useRef<HTMLDivElement>(null)
   const keysRef = useRef<Set<string>>(new Set())
 
@@ -85,7 +85,7 @@ function HotkeySection() {
 
   const startListening = useCallback(() => {
     setIsListening(true); setPressedKeys([]); keysRef.current.clear()
-    setError(null); setHotkeySuccess(false)
+    setError(null)
   }, [setError])
 
   useEffect(() => {
@@ -118,13 +118,13 @@ function HotkeySection() {
     if (!pressedKeys.length) { setError('Press a key combination first'); return }
     const shortcut = buildShortcut(pressedKeys)
     if (!shortcut) { setError('Invalid combination — use modifier + key'); return }
-    setSaving(true); setError(null); setHotkeySuccess(false)
+    setSaving(true); setError(null)
     try {
       await invoke('register_hotkey', { hotkey: shortcut })
       setCurrentHotkey(shortcut)
       useAppStore.setState({ hasHotkey: true })
       setPressedKeys([]); keysRef.current.clear()
-      setHotkeySuccess(true); setTimeout(() => setHotkeySuccess(false), 3000)
+      toast.success('Hotkey registered')
     } catch (e: unknown) {
       setError((e as { message?: string })?.message ?? 'Failed to register hotkey.')
     } finally { setSaving(false) }
@@ -151,13 +151,6 @@ function HotkeySection() {
           </button>
         </div>
       )}
-      {hotkeySuccess && (
-        <div className="flex items-center gap-[10px] px-[14px] py-[10px] rounded-[var(--r-lg)] text-[12px] leading-[1.4] text-[var(--fg-2)]" style={{ background: 'var(--success-soft)', border: '1px solid oklch(from var(--success) l c h / 0.25)' }}>
-          <CheckCircle2 size={13} strokeWidth={2} className="flex-shrink-0 text-[var(--success)]" />
-          <span>Hotkey registered successfully.</span>
-        </div>
-      )}
-
       <div>
         <p className="text-[11px] font-semibold text-[var(--fg-2)] uppercase tracking-[0.03em] mb-3">Recording Hotkey</p>
         <p className="text-[12px] text-[var(--muted)] mb-4">Hold to record · release to transcribe and paste.</p>
@@ -230,12 +223,12 @@ export function Settings() {
   useEffect(() => {
     const requested = (initialLocationState.current as { tab?: string } | null)?.tab
     if (requested && ['general', 'about'].includes(requested)) {
-      setActiveSettingsTab(requested as 'general' | 'audio' | 'about')
+      setActiveSettingsTab(requested as 'general' | 'about')
     }
   }, [setActiveSettingsTab])
 
-  const tab = activeSettingsTab === 'audio' ? 'general' : activeSettingsTab
-  const setTab = (v: string) => setActiveSettingsTab(v as 'general' | 'audio' | 'about')
+  const tab = activeSettingsTab
+  const setTab = (v: string) => setActiveSettingsTab(v as 'general' | 'about')
 
   return (
     <div className="flex flex-col h-full overflow-hidden px-7 py-6">

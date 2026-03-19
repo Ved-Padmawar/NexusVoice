@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Trash2, BookOpen, CheckCircle2, AlertCircle, X, Plus, Pencil, Check, Mic } from 'lucide-react'
+import { toast } from 'sonner'
+import { Trash2, BookOpen, AlertCircle, X, Plus, Pencil, Check, Mic } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,7 +12,6 @@ export function Dictionary() {
   const [term, setTerm] = useState('')
   const [replacement, setReplacement] = useState('')
   const [saving, setSaving] = useState(false)
-  const [success, setSuccess] = useState(false)
 
   const [editId, setEditId] = useState<number | null>(null)
   const [editTerm, setEditTerm] = useState('')
@@ -21,11 +21,11 @@ export function Dictionary() {
   const handleAdd = async () => {
     const t = term.trim(), r = replacement.trim()
     if (!t || !r) return
-    setSaving(true); setError(null); setSuccess(false)
+    setSaving(true); setError(null)
     try {
       await updateDictionary(t, r)
       setTerm(''); setReplacement('')
-      setSuccess(true); setTimeout(() => setSuccess(false), 2500)
+      toast.success('Entry saved')
     } finally { setSaving(false) }
   }
 
@@ -74,14 +74,6 @@ export function Dictionary() {
                 <button type="button" className="ml-auto text-[var(--muted)] bg-transparent border-none cursor-pointer px-[2px] text-[15px] leading-none rounded-[var(--r-xs)] flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity" onClick={() => setError(null)}>
                   <X size={13} strokeWidth={2} />
                 </button>
-              </div>
-            </motion.div>
-          )}
-          {success && (
-            <motion.div key="dict-success" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} style={{ overflow: 'hidden' }}>
-              <div className="flex items-center gap-[10px] px-[14px] py-[10px] rounded-[var(--r-lg)] text-[12px] leading-[1.4] flex-shrink-0 text-[var(--fg-2)]" style={{ background: 'var(--success-soft)', border: '1px solid oklch(from var(--success) l c h / 0.25)' }}>
-                <CheckCircle2 size={13} strokeWidth={2} className="flex-shrink-0 text-[var(--success)]" />
-                <span>Entry saved successfully.</span>
               </div>
             </motion.div>
           )}

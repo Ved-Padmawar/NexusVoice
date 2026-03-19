@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { toast } from 'sonner'
 import {
   AlertCircle, CheckCircle2,
   RefreshCw, Download, ArrowUpCircle, Cpu, Shield, Globe,
@@ -36,7 +37,6 @@ export function AboutTab() {
   const [selected, setSelected] = useState<ModelOverride>('large')
   const [activeModelName, setActiveModelName] = useState<string | null>(null)
   const [modelSaving, setModelSaving] = useState(false)
-  const [modelSaved, setModelSaved] = useState(false)
 
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
   const [updateVersion, setUpdateVersion] = useState<string | null>(null)
@@ -58,14 +58,12 @@ export function AboutTab() {
   const handleModelChange = async (v: ModelOverride) => {
     setSelected(v)
     setModelSaving(true)
-    setModelSaved(false)
     try {
       await invoke('set_model_override', { variant: v })
       invoke('retry_model_download').catch(() => {})
       const info = await invoke<{ modelName: string }>('get_model_info')
       setActiveModelName(info.modelName)
-      setModelSaved(true)
-      setTimeout(() => setModelSaved(false), 2000)
+      toast.success('Model updated')
     } catch { /* ignore */ }
     finally { setModelSaving(false) }
   }
@@ -157,7 +155,6 @@ export function AboutTab() {
                 {MODEL_DISPLAY_NAME[activeModelName] ?? activeModelName}
               </span>
             )}
-            {modelSaved && <CheckCircle2 size={13} strokeWidth={2} className="text-[var(--success)]" />}
           </div>
         </div>
 

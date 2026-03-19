@@ -301,6 +301,8 @@ fn main() {
             commands::stop_transcription,
             commands::get_usage_stats,
             commands::get_transcripts,
+            commands::search_transcripts,
+            commands::export_transcripts,
             commands::get_dictionary,
             commands::save_transcript,
             commands::update_dictionary,

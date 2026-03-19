@@ -1,8 +1,19 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { motion } from 'framer-motion'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import './PillApp.css'
+
+const PILL_WIDTH: Record<string, number> = {
+  idle: 104,
+  recording: 104,
+  processing: 32,
+  downloading: 32,
+  error: 104,
+}
+
+const pillSpring = { type: 'spring' as const, stiffness: 380, damping: 30, mass: 0.8 }
 
 type PillState = 'idle' | 'recording' | 'processing' | 'error' | 'downloading'
 
@@ -177,7 +188,12 @@ export function PillApp() {
         try {
           await invoke('start_transcription')
         } catch (err: unknown) {
-          const msg = err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : String(err)
+          const raw = err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : String(err)
+          const msg = raw.toLowerCase().includes('no input device') || raw.toLowerCase().includes('no microphone')
+            ? 'No microphone found'
+            : raw.toLowerCase().includes('permission') || raw.toLowerCase().includes('access denied')
+              ? 'Mic access denied'
+              : raw
           setErrorMsg(msg)
           setState('error')
           isRecordingRef.current = false
@@ -189,7 +205,6 @@ export function PillApp() {
 
       const u2 = await listen('hotkey-released', async () => {
         if (!isRecordingRef.current) return
-        isRecordingRef.current = false
         setState('processing')
         try {
           await invoke('stop_transcription')
@@ -198,6 +213,8 @@ export function PillApp() {
           setErrorMsg(msg)
           setState('error')
           setTimeout(() => setState('idle'), 3000)
+        } finally {
+          isRecordingRef.current = false
         }
       })
       if (cancelled) { u2(); return }
@@ -236,8 +253,12 @@ export function PillApp() {
         <div className="pill-tooltip">{tooltip}</div>
       )}
 
-      <div
+      <motion.div
         className={`pill pill--${state}`}
+        initial={{ width: 104 }}
+        animate={{ width: PILL_WIDTH[state] ?? 104 }}
+        transition={pillSpring}
+        style={{ overflow: 'hidden' }}
         onMouseDown={handleDragStart}
         role="status"
         aria-label={`NexusVoice: ${state}`}
@@ -245,7 +266,6 @@ export function PillApp() {
         {/* Icon — only shown when pill is full width */}
         {(state === 'idle' || state === 'recording' || state === 'error') && (
           <div className="pill__icon">
-            {/* Mic icon */}
             <svg width="11" height="11" viewBox="0 0 24 22" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="9" y="2" width="6" height="12" rx="3" />
               <path d="M5 10a7 7 0 0 0 14 0" />
@@ -268,12 +288,11 @@ export function PillApp() {
         {state === 'error' && (
           <span className="pill__error-label" title={errorMsg}>Error</span>
         )}
-        {/* processing: spinner arc only (::after) */}
-        {/* downloading: spinner arc (::after) + percentage text */}
+
         {state === 'downloading' && (
           <span className="pill__pct">{downloadPct}%</span>
         )}
-      </div>
+      </motion.div>
     </div>
   )
 }

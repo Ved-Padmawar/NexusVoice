@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { motion } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen } from '@tauri-apps/api/event'
+import { Toaster } from 'sonner'
 
 import { check } from '@tauri-apps/plugin-updater'
 import { useAppStore } from './store/useAppStore'
@@ -95,6 +96,19 @@ function App() {
       <Suspense fallback={<div className="flex items-center justify-center min-h-dvh bg-[var(--bg)]" role="status" data-tauri-drag-region><div className="w-7 h-7 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-[spin_0.65s_linear_infinite]" /></div>}>
         <AnimatedRoutes initialRoute={initialRoute} user={user} />
       </Suspense>
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            background: 'var(--panel)',
+            border: '1px solid var(--border)',
+            color: 'var(--fg)',
+            fontSize: '13px',
+            borderRadius: 'var(--r-lg)',
+            boxShadow: 'var(--shadow-md)',
+          },
+        }}
+      />
     </BrowserRouter>
   )
 }

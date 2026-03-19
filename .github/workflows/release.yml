@@ -151,7 +151,7 @@ jobs:
           pathlib.Path("nsis-name.txt").write_text(exe.name)
 
       - name: Upload NSIS signature
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: sig-${{ matrix.variant }}
           path: |
@@ -159,7 +159,7 @@ jobs:
             nsis-name.txt
 
       - name: Upload release artifacts
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.1
         with:
           tag_name: ${{ github.ref_name }}
           fail_on_unmatched_files: false
@@ -175,7 +175,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download signatures
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8.0.1
         with:
           pattern: sig-*
 
@@ -208,7 +208,7 @@ jobs:
           print(json.dumps(payload, indent=2))
 
       - name: Upload latest.json to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.1
         with:
           tag_name: ${{ github.ref_name }}
           files: latest.json

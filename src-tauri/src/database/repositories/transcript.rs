@@ -48,10 +48,79 @@ impl TranscriptRepository {
 
     pub async fn list_recent(&self, limit: i64) -> Result<Vec<Transcript>, sqlx::Error> {
         sqlx::query_as::<_, Transcript>(
-            "SELECT id, content, word_count, duration_seconds, created_at FROM transcripts ORDER BY created_at DESC LIMIT ?",
+            "SELECT id, content, word_count, duration_seconds, created_at
+             FROM transcripts ORDER BY created_at DESC LIMIT ?",
         )
         .bind(limit)
         .fetch_all(&self.pool)
         .await
+    }
+
+    /// Paginated fetch with optional date range and sort order.
+    pub async fn list_paginated(
+        &self,
+        limit: i64,
+        offset: i64,
+        from: Option<&str>,
+        to: Option<&str>,
+        sort_desc: bool,
+    ) -> Result<Vec<Transcript>, sqlx::Error> {
+        let order = if sort_desc { "DESC" } else { "ASC" };
+        let sql = format!(
+            "SELECT id, content, word_count, duration_seconds, created_at
+             FROM transcripts
+             WHERE (? IS NULL OR created_at >= ?)
+               AND (? IS NULL OR created_at <= ?)
+             ORDER BY created_at {order}
+             LIMIT ? OFFSET ?"
+        );
+        sqlx::query_as::<_, Transcript>(&sql)
+            .bind(from).bind(from)
+            .bind(to).bind(to)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    /// Returns all transcripts ordered by date — used for export.
+    pub async fn list_all(&self) -> Result<Vec<Transcript>, sqlx::Error> {
+        sqlx::query_as::<_, Transcript>(
+            "SELECT id, content, word_count, duration_seconds, created_at
+             FROM transcripts ORDER BY created_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// FTS5 search with optional date range and sort order.
+    pub async fn search(
+        &self,
+        query: &str,
+        limit: i64,
+        offset: i64,
+        from: Option<&str>,
+        to: Option<&str>,
+        sort_desc: bool,
+    ) -> Result<Vec<Transcript>, sqlx::Error> {
+        let order = if sort_desc { "DESC" } else { "ASC" };
+        let sql = format!(
+            "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.created_at
+             FROM transcripts_fts
+             JOIN transcripts t ON transcripts_fts.rowid = t.id
+             WHERE transcripts_fts MATCH ?
+               AND (? IS NULL OR t.created_at >= ?)
+               AND (? IS NULL OR t.created_at <= ?)
+             ORDER BY t.created_at {order}
+             LIMIT ? OFFSET ?"
+        );
+        sqlx::query_as::<_, Transcript>(&sql)
+            .bind(query)
+            .bind(from).bind(from)
+            .bind(to).bind(to)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await
     }
 }

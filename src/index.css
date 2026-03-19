@@ -353,7 +353,8 @@
   }
   .nv-input::placeholder { color: var(--muted); font-weight: 400; font-size: 13px; }
   .nv-input:hover:not(:focus):not(:disabled) { border-color: var(--accent); }
-  .nv-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .nv-input:focus { border-color: var(--accent); outline: none; box-shadow: none; }
+  .nv-input:focus-visible { outline: none; }
   .nv-input:disabled { opacity: 0.45; cursor: not-allowed; }
 
   /* shadcn Button — compact sizing, brand radius */
