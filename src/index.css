@@ -60,6 +60,8 @@
   --warning-soft: oklch(0.78 0.17 70 / 0.12);
   --danger:       oklch(0.63 0.22 22);
   --danger-soft:  oklch(0.63 0.22 22 / 0.14);
+  /* Window close button — Windows 11 red, intentionally not theme-tinted */
+  --color-close:  #c42b1c;
 }
 
 /* ================================================================

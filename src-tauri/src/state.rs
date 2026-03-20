@@ -80,7 +80,8 @@ pub struct AppState {
     pub native_sample_rate: NativeSampleRate,
     pub models_dir: PathBuf,
     /// Cached whisper engine — loaded once, reused across recordings.
-    pub engine: Mutex<Option<Arc<std::sync::Mutex<WhisperEngine>>>>,
+    /// Wrapped in Arc so it can be captured by the spawn closure in stop_transcription.
+    pub engine: Arc<Mutex<Option<Arc<std::sync::Mutex<WhisperEngine>>>>>,
     pub model_download: Arc<ModelDownloadState>,
     /// In-memory dictionary cache — loaded at startup, mutated on add/delete.
     pub dict_cache: DictCache,
@@ -107,7 +108,7 @@ impl AppState {
             audio_buffer: Arc::new(std::sync::Mutex::new(Vec::new())),
             native_sample_rate: Arc::new(std::sync::Mutex::new(44100)),
             models_dir,
-            engine: Mutex::new(None),
+            engine: Arc::new(Mutex::new(None)),
             model_download: Arc::new(ModelDownloadState::new()),
             dict_cache: Arc::new(RwLock::new(HashMap::new())),
         }

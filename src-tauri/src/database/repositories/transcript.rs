@@ -65,16 +65,22 @@ impl TranscriptRepository {
         to: Option<&str>,
         sort_desc: bool,
     ) -> Result<Vec<Transcript>, sqlx::Error> {
-        let order = if sort_desc { "DESC" } else { "ASC" };
-        let sql = format!(
+        let sql = if sort_desc {
             "SELECT id, content, word_count, duration_seconds, created_at
              FROM transcripts
              WHERE (? IS NULL OR created_at >= ?)
                AND (? IS NULL OR created_at <= ?)
-             ORDER BY created_at {order}
+             ORDER BY created_at DESC
              LIMIT ? OFFSET ?"
-        );
-        sqlx::query_as::<_, Transcript>(&sql)
+        } else {
+            "SELECT id, content, word_count, duration_seconds, created_at
+             FROM transcripts
+             WHERE (? IS NULL OR created_at >= ?)
+               AND (? IS NULL OR created_at <= ?)
+             ORDER BY created_at ASC
+             LIMIT ? OFFSET ?"
+        };
+        sqlx::query_as::<_, Transcript>(sql)
             .bind(from).bind(from)
             .bind(to).bind(to)
             .bind(limit)
@@ -103,18 +109,26 @@ impl TranscriptRepository {
         to: Option<&str>,
         sort_desc: bool,
     ) -> Result<Vec<Transcript>, sqlx::Error> {
-        let order = if sort_desc { "DESC" } else { "ASC" };
-        let sql = format!(
+        let sql = if sort_desc {
             "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.created_at
              FROM transcripts_fts
              JOIN transcripts t ON transcripts_fts.rowid = t.id
              WHERE transcripts_fts MATCH ?
                AND (? IS NULL OR t.created_at >= ?)
                AND (? IS NULL OR t.created_at <= ?)
-             ORDER BY t.created_at {order}
+             ORDER BY t.created_at DESC
              LIMIT ? OFFSET ?"
-        );
-        sqlx::query_as::<_, Transcript>(&sql)
+        } else {
+            "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.created_at
+             FROM transcripts_fts
+             JOIN transcripts t ON transcripts_fts.rowid = t.id
+             WHERE transcripts_fts MATCH ?
+               AND (? IS NULL OR t.created_at >= ?)
+               AND (? IS NULL OR t.created_at <= ?)
+             ORDER BY t.created_at ASC
+             LIMIT ? OFFSET ?"
+        };
+        sqlx::query_as::<_, Transcript>(sql)
             .bind(query)
             .bind(from).bind(from)
             .bind(to).bind(to)

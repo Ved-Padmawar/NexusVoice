@@ -23,7 +23,10 @@ const MAX_CHUNK_SAMPLES: usize = 30 * SAMPLE_RATE;
 const OVERLAP_SAMPLES: usize = SAMPLE_RATE / 2;
 /// VAD frame size (Silero V5 at 16 kHz).
 const VAD_CHUNK: usize = 512;
-/// Speech threshold.
+/// Speech threshold for silence-gap detection (split point finder only).
+/// Deliberately higher than vad.rs (0.35) — here we need *clear* silence gaps
+/// to split at, not speech extraction. A higher threshold avoids splitting at
+/// brief inter-word pauses that vad.rs would correctly keep as speech.
 const VAD_THRESHOLD: f32 = 0.5;
 /// Minimum run of silent frames to be considered a valid split point (~160 ms).
 const MIN_SILENCE_FRAMES: usize = 5;
@@ -117,7 +120,7 @@ pub fn stitch_transcripts(parts: &[String]) -> String {
 /// Index i → true means frame i is silent (non-speech).
 fn build_silence_map(samples: &[f32]) -> Vec<bool> {
     let mut vad = match VoiceActivityDetector::builder()
-        .sample_rate(VAD_CHUNK as i64)
+        .sample_rate(SAMPLE_RATE as i64)
         .chunk_size(VAD_CHUNK)
         .build()
     {

@@ -3,6 +3,9 @@ import { motion } from 'framer-motion'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { EVENTS } from '../lib/events'
+import { COMMANDS } from '../lib/commands'
+import { extractErrorMessage } from '../lib/errors'
 import './PillApp.css'
 
 const PILL_WIDTH: Record<string, number> = {
@@ -21,6 +24,8 @@ const BAR_COUNT = 8
 const MIN_H = 3
 const MAX_H = 16
 const WEIGHTS = [0.5, 0.7, 0.85, 1.0, 1.0, 0.85, 0.7, 0.5]
+const ANALYSER_FFT_SIZE = 256
+const FREQ_BIN_COUNT = 32
 
 export function PillApp() {
   const [state, setState] = useState<PillState>('idle')
@@ -53,7 +58,7 @@ export function PillApp() {
       audioCtxRef.current = ctx
       const source = ctx.createMediaStreamSource(stream)
       const analyser = ctx.createAnalyser()
-      analyser.fftSize = 256
+      analyser.fftSize = ANALYSER_FFT_SIZE
       analyser.smoothingTimeConstant = 0.6
       source.connect(analyser)
       analyserRef.current = analyser
@@ -62,7 +67,7 @@ export function PillApp() {
       const tick = () => {
         if (!analyserRef.current) return
         analyserRef.current.getByteFrequencyData(data)
-        const bins = data.slice(0, 32)
+        const bins = data.slice(0, FREQ_BIN_COUNT)
         const rms = Math.sqrt(bins.reduce((s, v) => s + v * v, 0) / bins.length)
         const norm = Math.min(rms / 80, 1)
         const heights = Array.from({ length: BAR_COUNT }, (_, i) => {
@@ -73,7 +78,6 @@ export function PillApp() {
         rafRef.current = requestAnimationFrame(tick)
       }
 
-      ;(analyserRef as React.MutableRefObject<AnalyserNode & { _tick?: () => void }>).current._tick = tick
       rafRef.current = requestAnimationFrame(tick)
     }).catch(() => { /* no mic permission */ })
   }, [])
@@ -136,7 +140,7 @@ export function PillApp() {
 
     const setup = async () => {
       // Events for ongoing progress updates
-      const um1 = await listen('model-download-start', () => {
+      const um1 = await listen(EVENTS.MODEL_DOWNLOAD_START, () => {
         if (cancelled) return
         modelReadyRef.current = false
         setState(s => s === 'idle' ? 'downloading' : s)
@@ -150,14 +154,14 @@ export function PillApp() {
       })
       unlisteners.push(um2)
 
-      const um3 = await listen('model-download-complete', () => {
+      const um3 = await listen(EVENTS.MODEL_DOWNLOAD_COMPLETE, () => {
         if (cancelled) return
         modelReadyRef.current = true
         setState('idle')
       })
       unlisteners.push(um3)
 
-      const um4 = await listen('model-download-error', () => {
+      const um4 = await listen(EVENTS.MODEL_DOWNLOAD_ERROR, () => {
         if (cancelled) return
         setState('idle')
       })
@@ -176,7 +180,7 @@ export function PillApp() {
     const unlisteners: (() => void)[] = []
 
     const setup = async () => {
-      const u1 = await listen('hotkey-pressed', async () => {
+      const u1 = await listen(EVENTS.HOTKEY_PRESSED, async () => {
         if (isRecordingRef.current) return
         // Block recording if model not ready
         if (!modelReadyRef.current) {
@@ -186,9 +190,9 @@ export function PillApp() {
         isRecordingRef.current = true
         setState('recording')
         try {
-          await invoke('start_transcription')
+          await invoke(COMMANDS.START_TRANSCRIPTION)
         } catch (err: unknown) {
-          const raw = err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : String(err)
+          const raw = extractErrorMessage(err, String(err))
           const msg = raw.toLowerCase().includes('no input device') || raw.toLowerCase().includes('no microphone')
             ? 'No microphone found'
             : raw.toLowerCase().includes('permission') || raw.toLowerCase().includes('access denied')
@@ -203,13 +207,13 @@ export function PillApp() {
       if (cancelled) { u1(); return }
       unlisteners.push(u1)
 
-      const u2 = await listen('hotkey-released', async () => {
+      const u2 = await listen(EVENTS.HOTKEY_RELEASED, async () => {
         if (!isRecordingRef.current) return
         setState('processing')
         try {
-          await invoke('stop_transcription')
+          await invoke(COMMANDS.STOP_TRANSCRIPTION)
         } catch (err: unknown) {
-          const msg = err && typeof err === 'object' && 'message' in err ? (err as { message: string }).message : String(err)
+          const msg = extractErrorMessage(err, String(err))
           setErrorMsg(msg)
           setState('error')
           setTimeout(() => setState('idle'), 3000)
@@ -223,7 +227,7 @@ export function PillApp() {
       const u3 = await listen<string>('transcription-complete', async (event) => {
         const text = event.payload
         if (text) {
-          await invoke('type_text', { text })
+          await invoke(COMMANDS.TYPE_TEXT, { text })
         }
         setState('idle')
       })

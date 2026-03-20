@@ -4,7 +4,11 @@ use voice_activity_detector::{IteratorExt, VoiceActivityDetector};
 const VAD_SAMPLE_RATE: i64 = 16_000;
 // 512 samples = 32 ms at 16 kHz — only chunk size supported by Silero V5 at 16k
 const VAD_CHUNK: usize = 512;
-// Speech probability threshold — lower value reduces false negatives on quiet syllables.
+// Speech probability threshold for speech extraction.
+// Deliberately lower than chunker.rs (0.5) — here we want to keep quiet syllables
+// and soft consonants that would otherwise be clipped at a higher threshold.
+// chunker.rs uses a higher threshold (0.5) for a different purpose: finding clear
+// silence gaps as chunk split points, not filtering speech frames.
 const VAD_THRESHOLD: f32 = 0.35;
 // Padding frames before/after each speech segment (12 × 32ms = 384ms).
 // Bridges natural inter-word pauses without cutting speech.

@@ -167,7 +167,7 @@ export function Dictionary() {
                               </td>
                               <td className="px-4 py-[14px] text-right">
                                 <div className="flex items-center justify-end gap-[2px]">
-                                  <button type="button" className="w-7 h-7 flex items-center justify-center rounded-[var(--r-md)] border-none bg-transparent cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)]" style={{}} onClick={commitEdit} disabled={editSaving} onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = 'color-mix(in srgb, var(--success) 12%, transparent)'; (e.currentTarget as HTMLElement).style.color = 'var(--success)' }} onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = ''; (e.currentTarget as HTMLElement).style.color = '' }}>
+                                  <button type="button" className="w-7 h-7 flex items-center justify-center rounded-[var(--r-md)] border-none bg-transparent cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[color-mix(in_srgb,var(--success)_12%,transparent)] hover:text-[var(--success)]" onClick={commitEdit} disabled={editSaving}>
                                     <Check size={14} strokeWidth={2.5} />
                                   </button>
                                   <button type="button" className="w-7 h-7 flex items-center justify-center rounded-[var(--r-md)] border-none bg-transparent cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[var(--surface-hover)] hover:text-[var(--fg)]" onClick={cancelEdit}>
@@ -195,7 +195,7 @@ export function Dictionary() {
                                   <button type="button" className="w-7 h-7 flex items-center justify-center rounded-[var(--r-md)] border-none bg-transparent cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[var(--surface-hover)] hover:text-[var(--fg)]" onClick={() => startEdit(entry.id, entry.term, entry.replacement)}>
                                     <Pencil size={14} strokeWidth={1.75} />
                                   </button>
-                                  <button type="button" className="w-7 h-7 flex items-center justify-center rounded-[var(--r-md)] border-none bg-transparent cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)]" onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = 'color-mix(in srgb, var(--danger) 12%, transparent)'; (e.currentTarget as HTMLElement).style.color = 'var(--danger)' }} onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = ''; (e.currentTarget as HTMLElement).style.color = '' }} onClick={() => deleteDictionaryEntry(entry.id)}>
+                                  <button type="button" className="w-7 h-7 flex items-center justify-center rounded-[var(--r-md)] border-none bg-transparent cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-[var(--danger)]" onClick={() => deleteDictionaryEntry(entry.id)}>
                                     <Trash2 size={14} strokeWidth={1.75} />
                                   </button>
                                 </div>

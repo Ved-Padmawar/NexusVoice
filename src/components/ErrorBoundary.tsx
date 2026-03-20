@@ -23,7 +23,7 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return this.props.fallback ?? (
-        <div style={{ padding: '24px', textAlign: 'center', color: '#f87171', fontFamily: 'inherit' }}>
+        <div style={{ padding: '24px', textAlign: 'center', color: 'var(--danger)', fontFamily: 'inherit' }}>
           Something went wrong. Please restart the app.
         </div>
       )

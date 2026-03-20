@@ -229,8 +229,11 @@ fn main() {
                         state
                             .transcription_running
                             .store(false, std::sync::atomic::Ordering::SeqCst);
-                        std::thread::sleep(std::time::Duration::from_millis(200));
-                        app.exit(0);
+                        let app_handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                            app_handle.exit(0);
+                        });
                     }
                     _ => {}
                 })
@@ -325,27 +328,11 @@ fn main() {
         .expect("error while building tauri application")
         .run(|app, event| {
             use tauri::RunEvent;
-            match event {
-                RunEvent::Exit => {
-                    let state = app.state::<state::AppState>();
-                    state
-                        .transcription_running
-                        .store(false, std::sync::atomic::Ordering::SeqCst);
-                    let app_handle = app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let state = app_handle.state::<state::AppState>();
-                        *state.engine.lock().await = None;
-                        state.db().await.close().await;
-                    });
-                    std::thread::sleep(std::time::Duration::from_millis(300));
-                }
-                RunEvent::ExitRequested { .. } => {
-                    let state = app.state::<state::AppState>();
-                    state
-                        .transcription_running
-                        .store(false, std::sync::atomic::Ordering::SeqCst);
-                }
-                _ => {}
+            if let RunEvent::ExitRequested { .. } = event {
+                let state = app.state::<state::AppState>();
+                state
+                    .transcription_running
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
             }
         });
 }

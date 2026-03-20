@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, memo } from 'react'
 import { useLocation } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
+import { COMMANDS } from '../lib/commands'
 import { toast } from 'sonner'
 import {
   Palette, Info, Keyboard, Settings2,
@@ -52,9 +53,9 @@ function buildShortcut(keys: string[]): string {
 const KeyBadges = memo(function KeyBadges({ keys }: { keys: string[] }) {
   return (
     <div className="flex items-center gap-[3px]">
-      {keys.map((k, i) => (
-        <span key={i} className="flex items-center gap-[3px]">
-          {i > 0 && <span className="text-[9px] text-[var(--muted)] font-semibold px-px">+</span>}
+      {keys.map((k, idx) => (
+        <span key={k} className="flex items-center gap-[3px]">
+          {idx > 0 && <span className="text-[9px] text-[var(--muted)] font-semibold px-px">+</span>}
           <span className="inline-flex items-center justify-center px-[6px] py-[2px] min-w-6 rounded-[var(--r-sm)] bg-[var(--bg-alt)] border border-[var(--border)] shadow-[0_1px_0_var(--border)] text-[10px] font-semibold text-[var(--fg)] leading-[1.4] capitalize font-mono">
             {displayKey(k)}
           </span>
@@ -77,7 +78,7 @@ function HotkeySection() {
 
   useEffect(() => {
     if (hasHotkey) {
-      invoke<string[]>('get_registered_hotkeys')
+      invoke<string[]>(COMMANDS.GET_REGISTERED_HOTKEYS)
         .then(hk => { if (hk.length > 0) setCurrentHotkey(hk[0]) })
         .catch(() => {})
     }
@@ -93,7 +94,10 @@ function HotkeySection() {
     const onDown = (e: KeyboardEvent) => {
       e.preventDefault(); e.stopPropagation()
       const n = getKeyName(e.key, e.code)
-      if (!keysRef.current.has(n)) { keysRef.current.add(n); setPressedKeys(Array.from(keysRef.current)) }
+      if (!keysRef.current.has(n)) {
+        keysRef.current.add(n)
+        setPressedKeys(Array.from(keysRef.current))
+      }
     }
     const onUp = (e: KeyboardEvent) => {
       e.preventDefault(); e.stopPropagation()
@@ -120,7 +124,7 @@ function HotkeySection() {
     if (!shortcut) { setError('Invalid combination — use modifier + key'); return }
     setSaving(true); setError(null)
     try {
-      await invoke('register_hotkey', { hotkey: shortcut })
+      await invoke(COMMANDS.REGISTER_HOTKEY, { hotkey: shortcut })
       setCurrentHotkey(shortcut)
       useAppStore.setState({ hasHotkey: true })
       setPressedKeys([]); keysRef.current.clear()
@@ -132,7 +136,7 @@ function HotkeySection() {
 
   const handleRemoveHotkey = async () => {
     try {
-      await invoke('unregister_hotkey')
+      await invoke(COMMANDS.UNREGISTER_HOTKEY)
       setCurrentHotkey(null)
       useAppStore.setState({ hasHotkey: false })
     } catch (e: unknown) {
@@ -242,7 +246,7 @@ export function Settings() {
             <p className="text-[12px] text-[var(--muted)] mt-[3px] m-0">Configure hotkeys and appearance.</p>
           </div>
         </div>
-        <span className="text-[11px] font-semibold text-[var(--muted)] bg-[var(--surface)] border border-[var(--border-soft)] px-[8px] py-[3px] rounded-[var(--r-sm)] flex-shrink-0">
+        <span className="text-[11px] font-semibold text-[var(--accent)] bg-[var(--surface)] border border-[var(--border-soft)] px-[8px] py-[3px] rounded-[var(--r-sm)] flex-shrink-0">
           v{__APP_VERSION__}
         </span>
       </div>
@@ -263,7 +267,7 @@ export function Settings() {
             <button
               type="button"
               className="inline-flex items-center gap-[5px] px-[10px] h-9 rounded-[var(--r-lg)] bg-[var(--surface)] border-none text-[var(--fg-2)] text-[12px] font-medium cursor-pointer transition-[background,color] duration-[var(--t-fast)] hover:text-[var(--fg)]"
-              onClick={() => invoke('open_logs_folder')}
+              onClick={() => invoke<void>(COMMANDS.OPEN_LOGS_FOLDER)}
               title="Open logs folder"
             >
               <FolderOpen size={12} strokeWidth={1.75} />

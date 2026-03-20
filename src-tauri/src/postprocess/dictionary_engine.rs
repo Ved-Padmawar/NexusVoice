@@ -1,27 +1,35 @@
+use std::collections::HashSet;
+use std::sync::OnceLock;
+
 use crate::database::models::dictionary::DictionaryEntry;
 
 // ---------------------------------------------------------------------------
 // Stop words — never fuzzy-correct common English words
 // ---------------------------------------------------------------------------
-const STOPWORDS: &[&str] = &[
-    "a","i","am","an","as","at","be","by","do","go","he","if","in","is","it",
-    "me","my","no","of","on","or","so","to","up","us","we","and","are","but",
-    "can","did","for","get","got","had","has","her","him","his","how","its",
-    "let","may","not","now","off","old","one","our","out","own","put","run",
-    "say","see","she","the","too","two","use","was","way","who","why","yet",
-    "you","your","they","them","then","than","that","this","with","have",
-    "from","been","will","were","when","what","said","just","also","into",
-    "over","more","some","time","very","here","even","know","back","only",
-    "come","like","make","most","much","need","same","such","take","well",
-    "went","which","would","could","should","there","their","about","after",
-    "where","these","those","being","doing","going","having","making","taking",
-    "every","other","right","might","shall","while","still","again","never",
-    "always","often","maybe","thing","think","great","small","large","first",
-    "last","next","many","each","both","few","already","before","between",
-];
+fn stopwords() -> &'static HashSet<&'static str> {
+    static SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    SET.get_or_init(|| {
+        [
+            "a","i","am","an","as","at","be","by","do","go","he","if","in","is","it",
+            "me","my","no","of","on","or","so","to","up","us","we","and","are","but",
+            "can","did","for","get","got","had","has","her","him","his","how","its",
+            "let","may","not","now","off","old","one","our","out","own","put","run",
+            "say","see","she","the","too","two","use","was","way","who","why","yet",
+            "you","your","they","them","then","than","that","this","with","have",
+            "from","been","will","were","when","what","said","just","also","into",
+            "over","more","some","time","very","here","even","know","back","only",
+            "come","like","make","most","much","need","same","such","take","well",
+            "went","which","would","could","should","there","their","about","after",
+            "where","these","those","being","doing","going","having","making","taking",
+            "every","other","right","might","shall","while","still","again","never",
+            "always","often","maybe","thing","think","great","small","large","first",
+            "last","next","many","each","both","few","already","before","between",
+        ].into()
+    })
+}
 
 fn is_stopword(word: &str) -> bool {
-    STOPWORDS.contains(&word)
+    stopwords().contains(word)
 }
 
 // ---------------------------------------------------------------------------

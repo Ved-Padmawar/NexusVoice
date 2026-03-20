@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { COMMANDS } from '../../lib/commands'
 import { toast } from 'sonner'
 import {
   AlertCircle, CheckCircle2,
@@ -45,8 +46,8 @@ export function AboutTab() {
   const updaterRef = useRef<Awaited<ReturnType<typeof check>> | null>(null)
 
   useEffect(() => {
-    invoke<HardwareProfile>('get_hardware_profile').then(setProfile).catch(() => {})
-    invoke<{ modelName: string }>('get_model_info').then(info => {
+    invoke<HardwareProfile>(COMMANDS.GET_HARDWARE_PROFILE).then(setProfile).catch(() => {})
+    invoke<{ modelName: string }>(COMMANDS.GET_MODEL_INFO).then(info => {
       setActiveModelName(info.modelName)
       const name = info.modelName
       if (name.startsWith('large')) setSelected('large')
@@ -59,9 +60,9 @@ export function AboutTab() {
     setSelected(v)
     setModelSaving(true)
     try {
-      await invoke('set_model_override', { variant: v })
-      invoke('retry_model_download').catch(() => {})
-      const info = await invoke<{ modelName: string }>('get_model_info')
+      await invoke(COMMANDS.SET_MODEL_OVERRIDE, { variant: v })
+      invoke(COMMANDS.RETRY_MODEL_DOWNLOAD).catch(() => {})
+      const info = await invoke<{ modelName: string }>(COMMANDS.GET_MODEL_INFO)
       setActiveModelName(info.modelName)
       toast.success('Model updated')
     } catch { /* ignore */ }

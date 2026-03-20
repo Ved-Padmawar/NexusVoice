@@ -13,8 +13,8 @@ pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
 
     let params = SincInterpolationParameters {
         sinc_len: 256,
-        f_cutoff: 0.95,
-        interpolation: SincInterpolationType::Linear,
+        f_cutoff: 0.85, // ≤0.85 recommended for downsampling to avoid aliasing near Nyquist
+        interpolation: SincInterpolationType::Cubic, // higher quality than Linear, reduces passband ripple
         oversampling_factor: 256,
         window: WindowFunction::BlackmanHarris2,
     };

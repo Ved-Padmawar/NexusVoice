@@ -1,4 +1,4 @@
-import { useEffect, lazy, Suspense } from 'react'
+import React, { useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -6,9 +6,11 @@ import { listen } from '@tauri-apps/api/event'
 import { Toaster } from 'sonner'
 
 import { check } from '@tauri-apps/plugin-updater'
-import { useAppStore } from './store/useAppStore'
+import { useAppStore, type Transcript, type DictionaryEntry } from './store/useAppStore'
+import { EVENTS } from './lib/events'
 import { Layout } from './components/Layout'
 import { AuthGuard } from './components/AuthGuard'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 const Auth = lazy(() => import('./pages/Auth').then(m => ({ default: m.Auth })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
@@ -20,12 +22,12 @@ function App() {
 
   useEffect(() => {
     const cleanup = listenForAuthReady()
-    return () => { cleanup.then(fn => fn()) }
+    return () => { cleanup.then(fn => fn()).catch(() => {}) }
   }, [listenForAuthReady])
 
   useEffect(() => {
     const cleanup = listenForModelEvents()
-    return () => { cleanup.then(fn => fn()) }
+    return () => { cleanup.then(fn => fn()).catch(() => {}) }
   }, [listenForModelEvents])
 
   useEffect(() => {
@@ -42,11 +44,10 @@ function App() {
 
   // Real-time transcript updates — prepend to store and refresh stats
   useEffect(() => {
-    type NewTranscript = { id: number; content: string; createdAt: string; wordCount: number; durationSeconds: number | null }
-    const unlisten = listen<NewTranscript>('transcript:new', (e) => {
+    const unlisten = listen<Transcript>(EVENTS.TRANSCRIPT_NEW, (e) => {
       const t = e.payload
       useAppStore.setState(s => ({
-        transcripts: [{ id: t.id, content: t.content, createdAt: t.createdAt, wordCount: t.wordCount, durationSeconds: t.durationSeconds }, ...s.transcripts],
+        transcripts: [t, ...s.transcripts],
       }))
       useAppStore.getState().fetchStats()
     })
@@ -55,8 +56,7 @@ function App() {
 
   // Real-time dictionary updates — merge auto-learned words into store
   useEffect(() => {
-    type DictEntry = { id: number; term: string; replacement: string; hits: number; createdAt: string }
-    const unlisten = listen<DictEntry[]>('dictionary:updated', (e) => {
+    const unlisten = listen<DictionaryEntry[]>(EVENTS.DICTIONARY_UPDATED, (e) => {
       useAppStore.setState(s => {
         const existing = new Set(s.dictionary.map(d => d.term))
         const newEntries = e.payload.filter(d => !existing.has(d.term))
@@ -120,6 +120,14 @@ const pageVariants = {
 }
 const pageTransition = { duration: 0.18, ease: 'easeInOut' as const }
 
+function PageTransition({ id, children }: { id: string; children: React.ReactNode }) {
+  return (
+    <motion.div key={id} className="contents" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}>
+      {children}
+    </motion.div>
+  )
+}
+
 function AnimatedRoutes({ initialRoute, user }: { initialRoute: string; user: { id: number; email: string } | null }) {
   const location = useLocation()
   return (
@@ -127,23 +135,23 @@ function AnimatedRoutes({ initialRoute, user }: { initialRoute: string; user: { 
       <Route path="/" element={<Layout />}>
         <Route index element={
           <AuthGuard>
-            <motion.div key="dashboard" className="contents" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}>
-              <Dashboard />
-            </motion.div>
+            <ErrorBoundary>
+              <PageTransition id="dashboard"><Dashboard /></PageTransition>
+            </ErrorBoundary>
           </AuthGuard>
         } />
         <Route path="settings" element={
           <AuthGuard>
-            <motion.div key="settings" className="contents" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}>
-              <Settings />
-            </motion.div>
+            <ErrorBoundary>
+              <PageTransition id="settings"><Settings /></PageTransition>
+            </ErrorBoundary>
           </AuthGuard>
         } />
         <Route path="dictionary" element={
           <AuthGuard>
-            <motion.div key="dictionary" className="contents" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}>
-              <Dictionary />
-            </motion.div>
+            <ErrorBoundary>
+              <PageTransition id="dictionary"><Dictionary /></PageTransition>
+            </ErrorBoundary>
           </AuthGuard>
         } />
         <Route path="auth" element={user ? <Navigate to="/" replace /> : <Auth />} />

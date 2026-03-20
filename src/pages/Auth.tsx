@@ -7,6 +7,8 @@ import { z } from 'zod'
 import { Zap, Check, AlertCircle, X, Minus, Square } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../store/useAppStore'
+
+const appWindow = getCurrentWindow()
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -71,7 +73,7 @@ export function Auth() {
     reset({ email: '', password: '', rememberMe: false })
   }
 
-  const win = getCurrentWindow()
+  const win = appWindow
 
   return (
     <div className="flex flex-col h-dvh overflow-hidden bg-[var(--bg)]">
@@ -81,7 +83,7 @@ export function Auth() {
         <div className="flex items-stretch no-drag">
           <button className="flex items-center justify-center w-[46px] h-full bg-transparent border-none cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[var(--surface-hover)] hover:text-[var(--fg)]" onClick={() => win.minimize()} aria-label="Minimize"><Minus size={10} strokeWidth={2} /></button>
           <button className="flex items-center justify-center w-[46px] h-full bg-transparent border-none cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[var(--surface-hover)] hover:text-[var(--fg)]" onClick={() => win.toggleMaximize()} aria-label="Maximize"><Square size={9} strokeWidth={2} /></button>
-          <button className="flex items-center justify-center w-[46px] h-full bg-transparent border-none cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[#c42b1c] hover:text-white" onClick={() => win.close()} aria-label="Close"><X size={10} strokeWidth={2} /></button>
+          <button className="flex items-center justify-center w-[46px] h-full bg-transparent border-none cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[var(--color-close)] hover:text-white" onClick={() => win.close()} aria-label="Close"><X size={10} strokeWidth={2} /></button>
         </div>
       </div>
 
@@ -149,7 +151,7 @@ export function Auth() {
             <AnimatePresence>
               {errors.root && (
                 <motion.div key="auth-error" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.18 }} style={{ overflow: 'hidden' }}>
-                  <div className="flex items-center gap-[10px] px-[14px] py-[10px] rounded-[var(--r-lg)] text-[12px] leading-[1.4] text-[var(--fg-2)]" style={{ background: 'color-mix(in srgb, var(--danger, #e05555) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--danger, #e05555) 30%, transparent)' }}>
+                  <div className="flex items-center gap-[10px] px-[14px] py-[10px] rounded-[var(--r-lg)] text-[12px] leading-[1.4] text-[var(--fg-2)]" style={{ background: 'var(--danger-soft)', border: '1px solid color-mix(in srgb, var(--danger) 30%, transparent)' }}>
                     <AlertCircle size={13} strokeWidth={2} className="flex-shrink-0 text-[var(--danger)]" />
                     <span className="flex-1">{errors.root.message}</span>
                   </div>

@@ -348,7 +348,12 @@ pub async fn stop_transcription(
         None
     };
 
-    if samples.is_empty() {
+    // Reject empty or sub-0.5s recordings — too short to produce meaningful transcriptions
+    // and would pollute the database with noise-only entries.
+    const MIN_DURATION_SECS: f64 = 0.5;
+    let too_short = samples.is_empty()
+        || (captured_rate > 0 && (samples.len() as f64 / captured_rate as f64) < MIN_DURATION_SECS);
+    if too_short {
         let _ = app.emit("transcription-complete", "");
         return Ok(false);
     }
@@ -365,6 +370,8 @@ pub async fn stop_transcription(
             return Ok(false);
         }
     };
+    // Clone the Arc so the spawn closure can evict a poisoned engine from the cache.
+    let engine_cache = Arc::clone(&state.engine);
 
     // Snapshot dictionary cache once — used for both prompt and post-processing
     let dict_entries: Vec<_> = dict_cache.read().await.values().cloned().collect();
@@ -406,8 +413,15 @@ pub async fn stop_transcription(
             let chunk_prompt = prompt.clone();
             let eng = engine.clone();
             let chunk_result = tauri::async_runtime::spawn_blocking(move || {
-                let mut eng = eng.lock().unwrap_or_else(|e| e.into_inner());
-                eng.transcribe(&chunk_samples, &chunk_prompt)
+                match eng.lock() {
+                    Ok(mut guard) => guard.transcribe(&chunk_samples, &chunk_prompt),
+                    Err(_poison) => {
+                        // The engine Mutex is poisoned — a previous transcription panicked
+                        // while holding the lock. Do NOT recover the guard; the WhisperEngine
+                        // state may be corrupt. Return a sentinel so the caller can evict.
+                        Err("engine_poisoned".to_string())
+                    }
+                }
             })
             .await
             .map_err(|e| format!("inference join error (chunk {i}): {e}"))
@@ -417,6 +431,17 @@ pub async fn stop_transcription(
                 Ok(text) => {
                     log::debug!("chunk {i} → {} chars", text.len());
                     chunk_texts.push(text);
+                }
+                Err(e) if e == "engine_poisoned" => {
+                    // Evict the broken engine from the cache so the next recording
+                    // loads a fresh instance instead of reusing the corrupt one.
+                    log::error!("WhisperEngine mutex poisoned — evicting cached engine");
+                    *engine_cache.lock().await = None;
+                    let _ = app_handle.emit(
+                        "transcription-error",
+                        "Transcription engine encountered an error and was reset. Please try again.",
+                    );
+                    return Err("engine poisoned".to_string());
                 }
                 Err(e) => {
                     log::warn!("chunk {i} inference failed: {e}");
@@ -591,9 +616,9 @@ pub async fn get_transcripts(
 #[tauri::command]
 pub async fn export_transcripts(
     state: State<'_, AppState>,
-) -> Result<Vec<TranscriptResponse>, String> {
+) -> Result<Vec<TranscriptResponse>, ApiError> {
     let repo = TranscriptRepository::new(state.db().await.clone());
-    let items = repo.list_all().await.map_err(|e| e.to_string())?;
+    let items = repo.list_all().await?;
     Ok(items.into_iter().map(TranscriptResponse::from).collect())
 }
 
@@ -674,6 +699,9 @@ pub async fn save_transcript(
     state: State<'_, AppState>,
     content: String,
 ) -> Result<TranscriptResponse, ApiError> {
+    if content.trim().is_empty() {
+        return Err(ApiError::new("invalid_input", "transcript content cannot be empty"));
+    }
     let repo = TranscriptRepository::new(state.db().await.clone());
     let word_count = content.split_whitespace().count() as i64;
     let transcript = repo.create(CreateTranscript { content, word_count, duration_seconds: None }).await?;

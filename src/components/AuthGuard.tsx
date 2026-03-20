@@ -12,8 +12,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   if (authChecking) {
     return (
-      <div className="app-loading" role="status" aria-live="polite" data-tauri-drag-region>
-        <div className="loading-spinner" />
+      <div className="flex items-center justify-center min-h-dvh bg-[var(--bg)]" role="status" aria-live="polite" data-tauri-drag-region>
+        <div className="w-5 h-5 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-[spin_0.8s_linear_infinite]" />
       </div>
     )
   }

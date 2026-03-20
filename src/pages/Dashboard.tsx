@@ -112,10 +112,15 @@ const STATS = [
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
+
   const handleCopy = () => {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => setCopied(false), 2000)
     }).catch(() => {})
   }
   return (
@@ -267,6 +272,9 @@ export function Dashboard() {
     observer.observe(sentinelRef.current)
     return () => observer.disconnect()
   }, [loadMoreTranscripts])
+
+  // Clear search timer on unmount to prevent state updates on unmounted component
+  useEffect(() => () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }, [])
 
   // Debounced search
   const handleSearch = useCallback((value: string) => {

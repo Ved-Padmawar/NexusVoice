@@ -1,13 +1,15 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import clsx from 'clsx'
 import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle, ArrowUpCircle } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../store/useAppStore'
 
+const appWindow = getCurrentWindow()
+
 function TitleBar() {
-  const win = getCurrentWindow()
+  const win = appWindow
   return (
     <div className="flex items-stretch h-8 flex-shrink-0 bg-[var(--panel)] border-b border-[var(--border)] select-none">
       <div className="flex-1 h-full cursor-default" data-tauri-drag-region />
@@ -30,7 +32,7 @@ function TitleBar() {
         </button>
         <button
           type="button"
-          className="flex items-center justify-center w-[46px] h-full bg-transparent border-none cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[#c42b1c] hover:text-white"
+          className="flex items-center justify-center w-[46px] h-full bg-transparent border-none cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[var(--color-close)] hover:text-white"
           onClick={() => win.close()}
           aria-label="Close"
         >
@@ -93,7 +95,7 @@ function ModelBanner() {
       <SlideBanner visible={!!downloadError}>
         <div
           className="flex items-center gap-[10px] px-[14px] py-[7px] flex-shrink-0 text-[12px] border-b text-[var(--fg)]"
-          style={{ background: 'color-mix(in srgb, #e05555 12%, transparent)', borderColor: 'color-mix(in srgb, #e05555 40%, transparent)' }}
+          style={{ background: 'var(--danger-soft)', borderColor: 'color-mix(in srgb, var(--danger) 40%, transparent)' }}
         >
           <div className="flex items-center gap-[10px] flex-1 min-w-0">
             <AlertCircle size={13} strokeWidth={2} className="flex-shrink-0" />
@@ -112,7 +114,7 @@ function ModelBanner() {
       <SlideBanner visible={showReady}>
         <div
           className="flex items-center gap-[10px] px-[14px] py-[7px] flex-shrink-0 text-[12px] border-b text-[var(--fg)]"
-          style={{ background: 'color-mix(in srgb, #3d9e6a 12%, transparent)', borderColor: 'color-mix(in srgb, #3d9e6a 40%, transparent)' }}
+          style={{ background: 'var(--success-soft)', borderColor: 'color-mix(in srgb, var(--success) 40%, transparent)' }}
         >
           <div className="flex items-center gap-[10px] flex-1 min-w-0">
             <span className="whitespace-nowrap overflow-hidden text-ellipsis text-[var(--fg-2)]">Model ready — NexusVoice is fully operational.</span>
@@ -181,14 +183,14 @@ export function Layout() {
     }
   }, [location.pathname, setActiveRoute])
 
+  const handleLogout = useCallback(async () => {
+    await logout()
+    navigate('/auth', { replace: true })
+  }, [logout, navigate])
+
   if (location.pathname === '/auth') return <Outlet />
 
   const initials = user?.email?.charAt(0).toUpperCase() ?? '?'
-
-  const handleLogout = async () => {
-    await logout()
-    navigate('/auth', { replace: true })
-  }
 
   return (
     <div className="flex flex-col h-dvh overflow-hidden bg-[var(--bg)]">

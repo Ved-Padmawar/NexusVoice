@@ -57,10 +57,9 @@ impl WhisperEngine {
         };
         let n_threads = (std::thread::available_parallelism()
             .map(|n| n.get())
-            .unwrap_or(4) / 2)
-            .max(1) as i32;
+            .unwrap_or(4) / 2).clamp(1, 4) as i32; // cap at 4 — whisper.cpp degrades above 4-6 threads due to cache pressure
 
-        let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: 3, patience: 1.0 });
+        let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: 1.0 });
         params.set_n_threads(n_threads);
         params.set_language(Some("en"));
         params.set_translate(false);
@@ -87,7 +86,7 @@ impl WhisperEngine {
         for i in 0..n {
             if let Some(seg) = state.get_segment(i) {
                 // Drop segments whisper flagged as silence/noise
-                if seg.no_speech_probability() > 0.5 {
+                if seg.no_speech_probability() > 0.6 {
                     continue;
                 }
                 if let Ok(s) = seg.to_str_lossy() {

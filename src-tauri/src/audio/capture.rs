@@ -99,6 +99,7 @@ fn build_stream<T>(
 where
     T: cpal::Sample + cpal::SizedSample + ToF32,
 {
+    let running_err = Arc::clone(&running);
     let stream = device
         .build_input_stream(
             config,
@@ -119,7 +120,12 @@ where
                     buf.extend_from_slice(&mono);
                 }
             },
-            |err| log::error!("cpal stream error: {err}"),
+            move |err| {
+                // Device disconnected or stream error — stop the recording loop so
+                // the app doesn't stay stuck in "recording" state indefinitely.
+                log::error!("cpal stream error: {err}");
+                running_err.store(false, Ordering::SeqCst);
+            },
             None,
         )
         .map_err(|e| format!("failed to build input stream: {e}"))?;
