@@ -108,9 +108,7 @@ jobs:
           import json, pathlib
           conf_path = pathlib.Path("src-tauri/tauri.conf.json")
           conf = json.loads(conf_path.read_text(encoding="utf-8"))
-          conf["productName"] = "NexusVoice-CUDA"
           conf.setdefault("plugins", {}).setdefault("updater", {})["target"] = "windows-x86_64-cuda"
-          conf.setdefault("bundle", {}).setdefault("windows", {}).setdefault("nsis", {})["installerHooks"] = "windows/cuda-installer-hooks.nsh"
           conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
           print("patched productName and updater target for CUDA")
 
@@ -141,6 +139,19 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build
+
+      - name: Rename CUDA artifacts
+        if: matrix.cuda
+        shell: python
+        run: |
+          import glob, pathlib, re
+          version = "${{ github.ref_name }}".lstrip("v")
+          for pattern, bundle in [("C:/b/release/bundle/nsis/*.exe", "nsis"), ("C:/b/release/bundle/msi/*.msi", "msi")]:
+            for src in glob.glob(pattern):
+              src = pathlib.Path(src)
+              new_name = re.sub(r'^NexusVoice', 'NexusVoice-CUDA', src.name)
+              src.rename(src.parent / new_name)
+              print(f"renamed {src.name} -> {new_name}")
 
       - name: Save NSIS signature
         shell: python
