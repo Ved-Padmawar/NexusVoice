@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { COMMANDS } from '../lib/commands'
 import { EVENTS } from '../lib/events'
+import type { ModelInfo } from '../types'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
 
@@ -30,7 +31,7 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
     } catch { /* ignore */ }
 
     try {
-      const info = await invoke<{ downloaded: boolean; downloading: boolean; downloadProgress: number; downloadError: string | null }>(COMMANDS.GET_MODEL_INFO)
+      const info = await invoke<ModelInfo>(COMMANDS.GET_MODEL_INFO)
       if (info.downloaded) {
         set({ modelReady: true, modelDownloading: false, downloadProgress: 100, downloadError: null })
       } else if (info.downloading) {

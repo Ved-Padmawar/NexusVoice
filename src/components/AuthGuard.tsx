@@ -1,8 +1,10 @@
+import { type ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '../store/useAppStore'
+import { ROUTES } from '../lib/routes'
 
 interface AuthGuardProps {
-  children: React.ReactNode
+  children: ReactNode
 }
 
 export function AuthGuard({ children }: AuthGuardProps) {
@@ -19,7 +21,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
   }
 
   if (!user) {
-    return <Navigate to="/auth" state={{ from: location }} replace />
+    return <Navigate to={ROUTES.AUTH} state={{ from: location }} replace />
   }
 
   return <>{children}</>

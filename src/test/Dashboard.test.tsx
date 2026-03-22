@@ -38,7 +38,6 @@ beforeEach(() => {
     filterSortAsc: false,
     stats: null,
     hasHotkey: true,
-    error: null,
   })
 })
 

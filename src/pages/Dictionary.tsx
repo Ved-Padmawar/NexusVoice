@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
-import { Trash2, BookOpen, AlertCircle, X, Plus, Pencil, Check, Mic } from 'lucide-react'
+import { Trash2, BookOpen, Plus, Pencil, Check, X, Mic } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
 export function Dictionary() {
-  const { dictionary, updateDictionary, deleteDictionaryEntry, error, setError } = useAppStore()
+  const { dictionary, updateDictionary, deleteDictionaryEntry } = useAppStore()
 
   const [term, setTerm] = useState('')
   const [replacement, setReplacement] = useState('')
@@ -21,7 +21,7 @@ export function Dictionary() {
   const handleAdd = async () => {
     const t = term.trim(), r = replacement.trim()
     if (!t || !r) return
-    setSaving(true); setError(null)
+    setSaving(true)
     try {
       await updateDictionary(t, r)
       setTerm(''); setReplacement('')
@@ -63,21 +63,6 @@ export function Dictionary() {
             </div>
           </div>
         </div>
-
-        {/* Notices */}
-        <AnimatePresence>
-          {error && (
-            <motion.div key="dict-error" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} style={{ overflow: 'hidden' }}>
-              <div className="flex items-center gap-[10px] px-[14px] py-[10px] rounded-[var(--r-lg)] text-[12px] leading-[1.4] flex-shrink-0 text-[var(--fg-2)]" style={{ background: 'var(--danger-soft)', border: '1px solid oklch(from var(--danger) l c h / 0.30)' }}>
-                <AlertCircle size={13} strokeWidth={2} className="flex-shrink-0 text-[var(--danger)]" />
-                <span className="flex-1">{error}</span>
-                <button type="button" className="ml-auto text-[var(--muted)] bg-transparent border-none cursor-pointer px-[2px] text-[15px] leading-none rounded-[var(--r-xs)] flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity" onClick={() => setError(null)}>
-                  <X size={13} strokeWidth={2} />
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* Quick Addition */}
         <div className="bg-[var(--panel)] border border-[var(--border)] rounded-[var(--r-xl)] px-[22px] py-5 flex-shrink-0">

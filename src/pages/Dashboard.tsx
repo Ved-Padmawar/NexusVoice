@@ -3,61 +3,33 @@ import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Hash, Timer, Mic, Activity,
-  AlertCircle, Copy, Check, X,
+  AlertCircle, Copy, Check,
   Settings2, Zap, Search, Download, SlidersHorizontal,
 } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
+import { COMMANDS } from '../lib/commands'
 import { toast } from 'sonner'
 import { useAppStore } from '../store/useAppStore'
+import { ROUTES } from '../lib/routes'
+import { fmtTime, fmtDate, downloadBlob } from '../lib/utils'
+import { useClickOutside } from '../lib/hooks'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { Transcript } from '../store/useAppStore'
 
-function fmtTime(s: number) {
-  if (s < 60) return `${s}s`
-  const m = Math.floor(s / 60), rem = s % 60
-  if (m < 60) return rem > 0 ? `${m}m ${rem}s` : `${m}m`
-  const h = Math.floor(m / 60), rm = m % 60
-  return rm > 0 ? `${h}h ${rm}m` : `${h}h`
-}
-
-function fmtDate(d: string) {
-  try {
-    return new Date(d).toLocaleString(undefined, {
-      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-    })
-  } catch { return d }
-}
-
-function downloadBlob(content: string, filename: string, mime: string) {
-  const blob = new Blob([content], { type: mime })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
 
 function ExportButton() {
   const [open, setOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
+  useClickOutside(ref, () => setOpen(false), open)
 
   const doExport = async (format: 'txt' | 'json') => {
     setOpen(false)
     setExporting(true)
     try {
-      const items = await invoke<Transcript[]>('export_transcripts')
+      const items = await invoke<Transcript[]>(COMMANDS.EXPORT_TRANSCRIPTS)
       const date = new Date().toISOString().slice(0, 10)
       if (format === 'txt') {
         const content = items.map(t => `[${fmtDate(t.createdAt)}]\n${t.content}`).join('\n\n---\n\n')
@@ -149,14 +121,7 @@ function FilterDropdown() {
   const ref = useRef<HTMLDivElement>(null)
   const hasActive = !!filterFrom || !!filterTo || filterSortAsc
 
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
+  useClickOutside(ref, () => setOpen(false), open)
 
   const openDropdown = () => {
     setFrom(filterFrom ?? '')
@@ -256,7 +221,7 @@ function FilterDropdown() {
 }
 
 export function Dashboard() {
-  const { transcripts, transcriptHasMore, searchResults, isSearching, stats, hasHotkey, error, setError, loadMoreTranscripts, searchTranscripts } = useAppStore()
+  const { transcripts, transcriptHasMore, searchResults, isSearching, stats, hasHotkey, loadMoreTranscripts, searchTranscripts } = useAppStore()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -309,21 +274,10 @@ export function Dashboard() {
             <div className="flex items-center gap-[10px] px-[14px] py-[10px] rounded-[var(--r-lg)] text-[12px] leading-[1.4] flex-shrink-0 text-[var(--fg-2)]" style={{ background: 'var(--warning-soft)', border: '1px solid oklch(from var(--warning) l c h / 0.25)' }}>
               <AlertCircle size={14} strokeWidth={2} className="flex-shrink-0 text-[var(--warning)]" />
               <span className="flex-1">No hotkey set — NexusVoice won't record until you configure one.</span>
-              <Button size="sm" onClick={() => navigate('/settings', { state: { tab: 'general' } })} className="flex-shrink-0">
+              <Button size="sm" onClick={() => navigate(ROUTES.SETTINGS, { state: { tab: 'general' } })} className="flex-shrink-0">
                 <Settings2 size={12} strokeWidth={2} />
                 Set hotkey
               </Button>
-            </div>
-          </motion.div>
-        )}
-        {error && (
-          <motion.div key="error-notice" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} style={{ overflow: 'hidden' }}>
-            <div className="flex items-center gap-[10px] px-[14px] py-[10px] rounded-[var(--r-lg)] text-[12px] leading-[1.4] flex-shrink-0 text-[var(--fg-2)]" style={{ background: 'var(--danger-soft)', border: '1px solid oklch(from var(--danger) l c h / 0.30)' }}>
-              <AlertCircle size={14} strokeWidth={2} className="flex-shrink-0 text-[var(--danger)]" />
-              <span className="flex-1">{error}</span>
-              <button type="button" className="ml-auto text-[var(--muted)] bg-transparent border-none cursor-pointer px-[2px] text-[15px] leading-none rounded-[var(--r-xs)] flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity" onClick={() => setError(null)}>
-                <X size={14} strokeWidth={2} />
-              </button>
             </div>
           </motion.div>
         )}

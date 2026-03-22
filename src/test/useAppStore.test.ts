@@ -24,7 +24,6 @@ beforeEach(() => {
     dictionary: [],
     stats: null,
     isLoading: false,
-    error: null,
     authChecking: false,
     hasHotkey: false,
     modelReady: false,
@@ -42,17 +41,8 @@ describe('useAppStore — theme', () => {
   })
 })
 
-describe('useAppStore — setError', () => {
-  it('sets and clears error', () => {
-    useAppStore.getState().setError('something broke')
-    expect(useAppStore.getState().error).toBe('something broke')
-    useAppStore.getState().setError(null)
-    expect(useAppStore.getState().error).toBeNull()
-  })
-})
-
 describe('useAppStore — login', () => {
-  it('sets user and refreshToken on success', async () => {
+  it('sets user on success with rememberMe=true', async () => {
     mockInvoke.mockImplementation((cmd) => {
       if (cmd === 'login_with_tokens') return Promise.resolve({
         user: { id: 1, email: 'test@example.com' },
@@ -61,16 +51,28 @@ describe('useAppStore — login', () => {
       return Promise.resolve(undefined)
     })
 
-    await useAppStore.getState().login('test@example.com', 'password')
+    await useAppStore.getState().login('test@example.com', 'password', true)
     const state = useAppStore.getState()
     expect(state.user?.email).toBe('test@example.com')
     expect(state.refreshToken).toBe('refresh')
   })
 
-  it('sets error on failed login', async () => {
+  it('does not store refreshToken when rememberMe=false', async () => {
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'login_with_tokens') return Promise.resolve({
+        user: { id: 1, email: 'test@example.com' },
+        tokens: { accessToken: 'access', refreshToken: 'refresh', expiresInSeconds: 3600 },
+      })
+      return Promise.resolve(undefined)
+    })
+
+    await useAppStore.getState().login('test@example.com', 'password', false)
+    expect(useAppStore.getState().refreshToken).toBeNull()
+  })
+
+  it('throws on failed login', async () => {
     mockInvoke.mockRejectedValue({ message: 'Invalid credentials' })
-    await expect(useAppStore.getState().login('bad@example.com', 'wrong')).rejects.toThrow()
-    expect(useAppStore.getState().error).toBe('Invalid credentials')
+    await expect(useAppStore.getState().login('bad@example.com', 'wrong', false)).rejects.toThrow()
   })
 })
 

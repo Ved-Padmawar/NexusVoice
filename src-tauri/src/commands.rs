@@ -570,17 +570,10 @@ pub async fn get_usage_stats(state: State<'_, AppState>) -> Result<UsageStatsRes
     let repo = TranscriptRepository::new(state.db().await.clone());
     let (total_sessions, total_words, total_duration_seconds) = repo.get_stats().await?;
 
-    // Use real recorded duration when available; fall back to word-count estimate (130 WPM) for legacy rows
-    let speaking_time_seconds = if total_duration_seconds > 0.0 {
-        total_duration_seconds.round() as i64
-    } else {
-        (total_words as f64 * 60.0 / 130.0).round() as i64
-    };
+    let speaking_time_seconds = total_duration_seconds.round() as i64;
 
     let avg_pace_wpm = if total_duration_seconds > 0.0 {
         ((total_words as f64 / (total_duration_seconds / 60.0)).round()) as i64
-    } else if total_sessions > 0 {
-        total_words / total_sessions.max(1)
     } else {
         0
     };

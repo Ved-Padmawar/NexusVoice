@@ -32,6 +32,9 @@
   --radius-xl:   16px;
 }
 
+/* Suppress native WebView2/Edge password reveal button */
+input[type="password"]::-ms-reveal { display: none; }
+
 /* ================================================================
    Design tokens — shared across all themes
    ================================================================ */

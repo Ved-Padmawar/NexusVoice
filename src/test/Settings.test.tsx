@@ -21,7 +21,7 @@ function renderSettings() {
 beforeEach(() => {
   mockInvoke.mockReset()
   mockInvoke.mockResolvedValue(undefined)
-  useAppStore.setState({ hasHotkey: false, error: null })
+  useAppStore.setState({ hasHotkey: false })
 })
 
 describe('HotkeySection', () => {

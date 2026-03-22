@@ -5,11 +5,10 @@ import clsx from 'clsx'
 import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle, ArrowUpCircle } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../store/useAppStore'
-
-const appWindow = getCurrentWindow()
+import { ROUTES } from '../lib/routes'
 
 function TitleBar() {
-  const win = appWindow
+  const win = getCurrentWindow()
   return (
     <div className="flex items-stretch h-8 flex-shrink-0 bg-[var(--panel)] border-b border-[var(--border)] select-none">
       <div className="flex-1 h-full cursor-default" data-tauri-drag-region />
@@ -66,9 +65,11 @@ function SlideBanner({ visible, children }: { visible: boolean; children: ReactN
 }
 
 function ModelBanner() {
-  const { modelDownloading, downloadProgress, downloadError, modelReady } = useAppStore()
+  const { modelDownloading, downloadProgress, downloadError, modelReady, modelChosen } = useAppStore()
   const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const showReady = modelReady && downloadProgress === 100
+  // Suppress banner during first-run modal — modal handles its own progress display
+  const bannerActive = modelChosen && modelDownloading
 
   useEffect(() => {
     if (showReady) {
@@ -81,7 +82,7 @@ function ModelBanner() {
 
   return (
     <>
-      <SlideBanner visible={modelDownloading}>
+      <SlideBanner visible={bannerActive}>
         <div className="flex items-center gap-[10px] px-[14px] py-[7px] flex-shrink-0 text-[12px] border-b border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--fg)]">
           <div className="flex items-center gap-[10px] flex-1 min-w-0">
             <span className="whitespace-nowrap overflow-hidden text-ellipsis text-[var(--fg-2)]">Downloading Whisper model… {downloadProgress}%</span>
@@ -149,7 +150,7 @@ function UpdateBanner() {
             type="button"
             className="flex-shrink-0 text-[11px] font-semibold text-[var(--accent)] bg-[var(--accent-soft)] border border-[var(--accent)] rounded-[var(--r-sm)] px-2 py-0 cursor-pointer leading-[18px] transition-[background,color] duration-[var(--t-fast)] hover:bg-[var(--accent)] hover:text-[var(--accent-fg)]"
             style={{ borderColor: 'color-mix(in srgb, var(--accent) 35%, transparent)' }}
-            onClick={() => navigate('/settings', { state: { tab: 'about' } })}
+            onClick={() => navigate(ROUTES.SETTINGS, { state: { tab: 'about' } })}
           >
             Install
           </button>
@@ -167,9 +168,9 @@ function UpdateBanner() {
 }
 
 const NAV = [
-  { path: '/',           label: 'Dashboard',  Icon: LayoutDashboard },
-  { path: '/dictionary', label: 'Dictionary', Icon: BookOpen },
-  { path: '/settings',   label: 'Settings',   Icon: Settings2 },
+  { path: ROUTES.DASHBOARD,  label: 'Dashboard',  Icon: LayoutDashboard },
+  { path: ROUTES.DICTIONARY, label: 'Dictionary', Icon: BookOpen },
+  { path: ROUTES.SETTINGS,   label: 'Settings',   Icon: Settings2 },
 ]
 
 export function Layout() {
@@ -178,7 +179,7 @@ export function Layout() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    if (location.pathname !== '/auth') {
+    if (location.pathname !== ROUTES.AUTH) {
       setActiveRoute(location.pathname)
     }
   }, [location.pathname, setActiveRoute])
@@ -188,7 +189,7 @@ export function Layout() {
     navigate('/auth', { replace: true })
   }, [logout, navigate])
 
-  if (location.pathname === '/auth') return <Outlet />
+  if (location.pathname === ROUTES.AUTH) return <Outlet />
 
   const initials = user?.email?.charAt(0).toUpperCase() ?? '?'
 
@@ -255,7 +256,6 @@ export function Layout() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-[11px] text-[var(--fg-2)] whitespace-nowrap overflow-hidden text-ellipsis font-medium">{user.email}</div>
-                  <div className="text-[10px] text-[var(--muted)] mt-px">Free plan</div>
                 </div>
                 <button
                   type="button"
@@ -271,7 +271,7 @@ export function Layout() {
                 to="/auth"
                 className={clsx(
                   'flex items-center gap-[9px] px-[10px] py-[7px] rounded-[var(--r-md)] no-underline text-[13px] font-medium transition-[color,background] duration-[var(--t-fast)]',
-                  location.pathname === '/auth'
+                  location.pathname === ROUTES.AUTH
                     ? 'text-[var(--fg)] bg-[var(--surface)]'
                     : 'text-[var(--muted)] hover:text-[var(--fg)] hover:bg-[var(--surface)]'
                 )}

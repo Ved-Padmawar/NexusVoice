@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../lib/commands'
 import { TranscriptSchema, UsageStatsSchema, DictionaryEntrySchema, type Transcript, type UsageStats } from '../types'
 import { invokeWithRefresh } from './invokeWithRefresh'
+import { toast } from 'sonner'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
 
@@ -40,7 +41,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
 
   init: async () => {
     if (!get().user) return
-    set({ isLoading: true, error: null, transcriptOffset: 0, transcriptHasMore: true, filterFrom: null, filterTo: null, filterSortAsc: false, searchQuery: '', searchResults: [] })
+    set({ isLoading: true, transcriptOffset: 0, transcriptHasMore: true, filterFrom: null, filterTo: null, filterSortAsc: false, searchQuery: '', searchResults: [] })
     try {
       const [rawTranscripts, rawDictionary, hotkeys] = await Promise.all([
         invokeWithRefresh<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: 0, from: null, to: null, sortAsc: false }),
@@ -54,7 +55,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
         .catch(e => console.warn('[store] get_usage_stats failed:', e))
       set({ transcripts, transcriptOffset: transcripts.length, transcriptHasMore: transcripts.length === 50, dictionary, hasHotkey: hotkeys.length > 0 })
     } catch (e) {
-      set({ error: e instanceof Error ? e.message : 'Failed to load data' })
+      toast.error(e instanceof Error ? e.message : 'Failed to load data')
     } finally {
       set({ isLoading: false })
     }
@@ -126,14 +127,13 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
   },
 
   addTranscript: async (content) => {
-    set({ error: null })
     try {
       const newTranscript = TranscriptSchema.parse(
         await invokeWithRefresh<unknown>(COMMANDS.SAVE_TRANSCRIPT, { content })
       )
       set((state) => ({ transcripts: [newTranscript, ...state.transcripts] }))
     } catch (e) {
-      set({ error: e instanceof Error ? e.message : 'Failed to save transcript' })
+      toast.error(e instanceof Error ? e.message : 'Failed to save transcript')
     }
   },
 })

@@ -38,7 +38,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **100% local** — Whisper runs entirely on your machine, nothing is sent to the cloud
 - **GPU-accelerated** — auto-detects NVIDIA (CUDA), AMD/Intel (Vulkan), falls back to CPU
 - **Smart model selection** — picks the best Whisper model for your hardware automatically
-- **Auto-download** — models download on first login, cached locally
+- **First-run model picker** — choose your model on first login with a hardware-aware recommendation, then download on demand
 - **Personal dictionary** — map spoken words to their correct form (e.g. "gonna" → "going to")
 - **Auto-learn** — tracks uncommon words from your transcriptions and suggests additions to your dictionary
 - **8 themes** — Abyss, Midnight, Nebula, Pine (dark) + Canvas, Dawn, Breeze, Blossom (light)
@@ -63,11 +63,11 @@ Hotkey released  →  audio resampled to 16kHz mono
 
 | Model | Size | Used When | Notes |
 |-------|------|-----------|-------|
-| ggml-large-v3-turbo | ~1.5 GB | GPU with 6GB+ VRAM | Best accuracy, fast on GPU |
-| ggml-medium.en | ~750 MB | Mid-range GPU or 8GB+ RAM | Great accuracy, runs well on CPU |
-| ggml-small.en | ~460 MB | Low VRAM or under 8GB RAM | Lighter, good for weaker hardware |
+| Whisper Large v3 Turbo | ~800 MB | GPU with 6GB+ VRAM or 16GB+ RAM | Best accuracy, fast on GPU |
+| Whisper Medium | ~450 MB | Mid-range GPU or 8GB+ RAM | Great accuracy, runs well on CPU |
+| Whisper Small | ~150 MB | Low VRAM or under 8GB RAM | Fastest, good for weaker hardware |
 
-The app auto-selects the best model for your hardware based on GPU VRAM and system RAM. You can override in Settings → About. Models are downloaded from HuggingFace on first login and cached locally.
+On first login a model picker modal lets you choose your model — the app recommends the best one for your hardware. You can change it anytime in Settings → About. Models download from HuggingFace and are cached locally.
 
 ---
 
@@ -132,7 +132,7 @@ npm run tauri dev
 
 1. Launch NexusVoice — it appears in the system tray
 2. Go to **Settings → Audio** and set your recording hotkey
-3. Go to **Settings → About** to verify model status (downloads automatically on login)
+3. Choose your Whisper model in the first-run picker — the recommended one is pre-selected for your hardware
 4. Click into any text field in any app
 5. Hold your hotkey → speak → release
 6. Your transcribed text is pasted automatically

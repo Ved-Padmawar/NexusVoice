@@ -25,6 +25,7 @@ export const COMMANDS = {
   // Data
   GET_TRANSCRIPTS:        'get_transcripts',
   SAVE_TRANSCRIPT:        'save_transcript',
+  EXPORT_TRANSCRIPTS:     'export_transcripts',
   GET_USAGE_STATS:        'get_usage_stats',
   GET_DICTIONARY:         'get_dictionary',
   UPDATE_DICTIONARY:      'update_dictionary',

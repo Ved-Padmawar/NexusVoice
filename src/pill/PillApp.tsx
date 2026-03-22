@@ -6,6 +6,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { EVENTS } from '../lib/events'
 import { COMMANDS } from '../lib/commands'
 import { extractErrorMessage } from '../lib/errors'
+import type { ModelInfo } from '../types'
 import './PillApp.css'
 
 const PILL_WIDTH: Record<string, number> = {
@@ -125,7 +126,7 @@ export function PillApp() {
     const unlisteners: (() => void)[] = []
 
     // Fire model info fetch independently — don't block listener registration
-    invoke<{ downloaded: boolean; downloading: boolean; downloadProgress: number; downloadError: string | null }>('get_model_info')
+    invoke<ModelInfo>(COMMANDS.GET_MODEL_INFO)
       .then(info => {
         if (cancelled) return
         if (info.downloaded) {
@@ -147,7 +148,7 @@ export function PillApp() {
       })
       unlisteners.push(um1)
 
-      const um2 = await listen<number>('model-download-progress', (e) => {
+      const um2 = await listen<number>(EVENTS.MODEL_DOWNLOAD_PROGRESS, (e) => {
         if (cancelled) return
         setDownloadPct(e.payload ?? 0)
         setState(s => s === 'idle' || s === 'downloading' ? 'downloading' : s)
@@ -224,7 +225,7 @@ export function PillApp() {
       if (cancelled) { u2(); return }
       unlisteners.push(u2)
 
-      const u3 = await listen<string>('transcription-complete', async (event) => {
+      const u3 = await listen<string>(EVENTS.TRANSCRIPTION_COMPLETE, async (event) => {
         const text = event.payload
         if (text) {
           await invoke(COMMANDS.TYPE_TEXT, { text })
@@ -234,7 +235,7 @@ export function PillApp() {
       if (cancelled) { u3(); return }
       unlisteners.push(u3)
 
-      const u4 = await listen<string>('transcription-error', (event) => {
+      const u4 = await listen<string>(EVENTS.TRANSCRIPTION_ERROR, (event) => {
         setErrorMsg(event.payload ?? 'Transcription failed')
         setState('error')
         setTimeout(() => setState('idle'), 3000)

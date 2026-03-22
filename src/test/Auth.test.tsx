@@ -18,7 +18,7 @@ const mockRegister = vi.fn()
 beforeEach(() => {
   mockLogin.mockReset()
   mockRegister.mockReset()
-  useAppStore.setState({ user: null, error: null, authChecking: false })
+  useAppStore.setState({ user: null, authChecking: false })
   useAppStore.setState({ login: mockLogin, register: mockRegister } as never)
 })
 

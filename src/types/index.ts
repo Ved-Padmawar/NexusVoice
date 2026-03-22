@@ -48,3 +48,19 @@ export type User = z.infer<typeof UserSchema>
 export type Transcript = z.infer<typeof TranscriptSchema>
 export type DictionaryEntry = z.infer<typeof DictionaryEntrySchema>
 export type UsageStats = z.infer<typeof UsageStatsSchema>
+
+export type ModelInfo = {
+  downloaded: boolean
+  downloading: boolean
+  downloadProgress: number
+  downloadError: string | null
+  modelName: string
+}
+
+export type HardwareProfile = {
+  gpuName: string
+  executionProvider: string
+  vramGb: number
+  ramGb: number
+  recommendedModel: string
+}

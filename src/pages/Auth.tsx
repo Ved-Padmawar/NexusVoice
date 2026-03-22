@@ -4,11 +4,9 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Zap, Check, AlertCircle, X, Minus, Square } from 'lucide-react'
+import { Zap, Check, AlertCircle, X, Minus, Square, Eye, EyeOff } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../store/useAppStore'
-
-const appWindow = getCurrentWindow()
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -31,7 +29,7 @@ const registerSchema = z.object({
   rememberMe: z.boolean(),
 })
 
-type FormValues = z.infer<typeof loginSchema>
+type FormValues = z.infer<typeof registerSchema>
 
 const FEATURES = [
   'Hold a hotkey, speak naturally, release to paste',
@@ -41,6 +39,7 @@ const FEATURES = [
 
 export function Auth() {
   const [mode, setMode] = useState<Mode>('login')
+  const [showPassword, setShowPassword] = useState(false)
   const { login, register } = useAppStore()
   const navigate = useNavigate()
   const location = useLocation()
@@ -59,8 +58,8 @@ export function Auth() {
 
   const onSubmit = async (data: FormValues) => {
     try {
-      if (mode === 'login') await login(data.email, data.password)
-      else await register(data.email, data.password)
+      if (mode === 'login') await login(data.email, data.password, data.rememberMe)
+      else await register(data.email, data.password, data.rememberMe)
       navigate(from, { replace: true })
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Authentication failed. Please try again.'
@@ -70,10 +69,11 @@ export function Auth() {
 
   const switchMode = (next: Mode) => {
     setMode(next)
+    setShowPassword(false)
     reset({ email: '', password: '', rememberMe: false })
   }
 
-  const win = appWindow
+  const win = getCurrentWindow()
 
   return (
     <div className="flex flex-col h-dvh overflow-hidden bg-[var(--bg)]">
@@ -177,15 +177,27 @@ export function Auth() {
 
               <div className="flex flex-col gap-[5px]">
                 <Label htmlFor="auth-password">Password</Label>
-                <Input
-                  id="auth-password"
-                  type="password"
-                  placeholder="••••••••"
-                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                  disabled={isSubmitting}
-                  aria-invalid={!!errors.password}
-                  {...formRegister('password')}
-                />
+                <div className="relative">
+                  <Input
+                    id="auth-password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                    disabled={isSubmitting}
+                    aria-invalid={!!errors.password}
+                    className="pr-9"
+                    {...formRegister('password')}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(v => !v)}
+                    className="absolute right-[10px] top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--fg-2)] transition-colors duration-[var(--t-fast)] bg-transparent border-none cursor-pointer p-0"
+                    tabIndex={-1}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff size={14} strokeWidth={2} /> : <Eye size={14} strokeWidth={2} />}
+                  </button>
+                </div>
                 {errors.password && <p className="text-[11px] text-[var(--danger)] m-0" role="alert">{errors.password.message}</p>}
                 {mode === 'register' && !errors.password && (
                   <p className="text-[11px] text-[var(--muted)] m-0">Min. 8 chars · 1 uppercase · 1 number</p>
@@ -201,7 +213,7 @@ export function Auth() {
                   {...formRegister('rememberMe')}
                 />
                 <Label htmlFor="auth-remember" className="text-[11px] font-normal text-[var(--fg-2)] cursor-pointer tracking-normal normal-case">
-                  Remember me for 30 days
+                  Keep me signed in
                 </Label>
               </div>
 

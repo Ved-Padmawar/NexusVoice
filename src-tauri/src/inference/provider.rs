@@ -44,9 +44,9 @@ impl ModelSize {
 
     pub fn display_name(self) -> &'static str {
         match self {
-            ModelSize::Large => "large-v3-turbo",
-            ModelSize::Medium => "medium.en",
-            ModelSize::Small => "small.en",
+            ModelSize::Large => "Whisper Large v3 Turbo",
+            ModelSize::Medium => "Whisper Medium",
+            ModelSize::Small => "Whisper Small",
         }
     }
 

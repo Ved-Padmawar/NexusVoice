@@ -13,9 +13,14 @@ export type AuthSlice = {
   authChecking: boolean
   listenForAuthReady: () => Promise<() => void>
   setUser: (user: User | null) => void
-  login: (email: string, password: string) => Promise<void>
-  register: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string, rememberMe: boolean) => Promise<void>
+  register: (email: string, password: string, rememberMe: boolean) => Promise<void>
   logout: () => Promise<void>
+}
+
+function onAuthSuccess(get: () => AppState): void {
+  invoke(COMMANDS.RETRY_MODEL_DOWNLOAD).catch(() => {})
+  get().init()
 }
 
 export const createAuthSlice: StateCreator<AppState, [], [], AuthSlice> = (set, get) => ({
@@ -31,12 +36,11 @@ export const createAuthSlice: StateCreator<AppState, [], [], AuthSlice> = (set, 
         const u = await invoke<unknown>(COMMANDS.GET_CURRENT_USER)
         if (u) set({ user: UserSchema.parse(u) })
       } catch { /* ignore */ }
-      invoke(COMMANDS.RETRY_MODEL_DOWNLOAD).catch(() => {})
-      get().init()
+      onAuthSuccess(get)
     })
     const unlistenUnauth = await listen<void>(EVENTS.AUTH_UNAUTHENTICATED, () => {
       if (!get().authChecking) return
-      set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null, error: null })
+      set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null })
     })
 
     const MAX_ATTEMPTS = 10
@@ -50,10 +54,9 @@ export const createAuthSlice: StateCreator<AppState, [], [], AuthSlice> = (set, 
           invoke<unknown>(COMMANDS.GET_CURRENT_USER)
             .then(u => { if (u) set({ user: UserSchema.parse(u) }) })
             .catch(e => console.warn('[store] get_current_user failed:', e))
-          invoke(COMMANDS.RETRY_MODEL_DOWNLOAD).catch(() => {})
-          get().init()
+          onAuthSuccess(get)
         } else {
-          set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null, error: null })
+          set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null })
         }
         resolved = true
         break
@@ -62,7 +65,7 @@ export const createAuthSlice: StateCreator<AppState, [], [], AuthSlice> = (set, 
       }
     }
     if (!resolved) {
-      set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null, error: null })
+      set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null })
     }
 
     return () => { unlistenReady(); unlistenUnauth() }
@@ -70,40 +73,38 @@ export const createAuthSlice: StateCreator<AppState, [], [], AuthSlice> = (set, 
 
   setUser: (user) => set({ user }),
 
-  login: async (email, password) => {
-    set({ error: null })
+  login: async (email, password, rememberMe) => {
     try {
       const resp = AuthResponseSchema.parse(await invoke<unknown>(COMMANDS.LOGIN_WITH_TOKENS, { email, password }))
-      set({ user: resp.user, refreshToken: resp.tokens.refreshToken })
-      await invoke(COMMANDS.STORE_REFRESH_TOKEN, {
-        refreshToken: resp.tokens.refreshToken,
-        userId: resp.user.id,
-        accessToken: resp.tokens.accessToken,
-      })
-      invoke(COMMANDS.RETRY_MODEL_DOWNLOAD).catch(() => {})
-      get().init()
+      set({ user: resp.user, refreshToken: rememberMe ? resp.tokens.refreshToken : null })
+      if (rememberMe) {
+        await invoke(COMMANDS.STORE_REFRESH_TOKEN, {
+          refreshToken: resp.tokens.refreshToken,
+          userId: resp.user.id,
+          accessToken: resp.tokens.accessToken,
+        })
+      }
+      onAuthSuccess(get)
     } catch (e) {
       const message = extractErrorMessage(e, 'Login failed')
-      set({ error: message })
       throw new Error(message, { cause: e })
     }
   },
 
-  register: async (email, password) => {
-    set({ error: null })
+  register: async (email, password, rememberMe) => {
     try {
       const resp = AuthResponseSchema.parse(await invoke<unknown>(COMMANDS.REGISTER_WITH_TOKENS, { email, password }))
-      set({ user: resp.user, refreshToken: resp.tokens.refreshToken })
-      await invoke(COMMANDS.STORE_REFRESH_TOKEN, {
-        refreshToken: resp.tokens.refreshToken,
-        userId: resp.user.id,
-        accessToken: resp.tokens.accessToken,
-      })
-      invoke(COMMANDS.RETRY_MODEL_DOWNLOAD).catch(() => {})
-      get().init()
+      set({ user: resp.user, refreshToken: rememberMe ? resp.tokens.refreshToken : null })
+      if (rememberMe) {
+        await invoke(COMMANDS.STORE_REFRESH_TOKEN, {
+          refreshToken: resp.tokens.refreshToken,
+          userId: resp.user.id,
+          accessToken: resp.tokens.accessToken,
+        })
+      }
+      onAuthSuccess(get)
     } catch (e) {
       const message = extractErrorMessage(e, 'Registration failed')
-      set({ error: message })
       throw new Error(message, { cause: e })
     }
   },
@@ -111,6 +112,6 @@ export const createAuthSlice: StateCreator<AppState, [], [], AuthSlice> = (set, 
   logout: async () => {
     const token = get().refreshToken
     await invoke(COMMANDS.CLEAR_STORED_TOKEN, { refreshToken: token }).catch(() => {})
-    set({ user: null, refreshToken: null, error: null, transcripts: [], transcriptOffset: 0, transcriptHasMore: true, filterFrom: null, filterTo: null, filterSortAsc: false, searchQuery: '', searchResults: [], dictionary: [], stats: null })
+    set({ user: null, refreshToken: null, transcripts: [], transcriptOffset: 0, transcriptHasMore: true, filterFrom: null, filterTo: null, filterSortAsc: false, searchQuery: '', searchResults: [], dictionary: [], stats: null })
   },
 })

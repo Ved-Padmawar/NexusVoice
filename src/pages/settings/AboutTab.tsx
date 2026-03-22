@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../../lib/commands'
+import { MODEL_OPTIONS, modelNameToOverride, recommendedToOverride, type ModelOverride } from '../../lib/models'
 import { toast } from 'sonner'
 import {
   AlertCircle, CheckCircle2,
@@ -9,29 +10,9 @@ import {
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { Button } from '@/components/ui/button'
+import type { HardwareProfile } from '../../types'
 
-type HardwareProfile = {
-  gpuName: string
-  executionProvider: string
-  vramGb: number
-  ramGb: number
-  recommendedModel: string
-}
-
-type ModelOverride = 'large' | 'medium' | 'small'
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
-
-const MODEL_OPTIONS: { value: ModelOverride; label: string; sub: string }[] = [
-  { value: 'small',  label: 'Small',  sub: 'Fastest · low-end CPU' },
-  { value: 'medium', label: 'Medium', sub: 'Balanced · CPU / iGPU' },
-  { value: 'large',  label: 'Large',  sub: 'Best accuracy · GPU' },
-]
-
-const MODEL_DISPLAY_NAME: Record<string, string> = {
-  'small.en': 'small.en',
-  'medium.en': 'medium.en',
-  'large-v3-turbo': 'large-v3-turbo',
-}
 
 export function AboutTab() {
   const [profile, setProfile] = useState<HardwareProfile | null>(null)
@@ -49,10 +30,7 @@ export function AboutTab() {
     invoke<HardwareProfile>(COMMANDS.GET_HARDWARE_PROFILE).then(setProfile).catch(() => {})
     invoke<{ modelName: string }>(COMMANDS.GET_MODEL_INFO).then(info => {
       setActiveModelName(info.modelName)
-      const name = info.modelName
-      if (name.startsWith('large')) setSelected('large')
-      else if (name.startsWith('medium')) setSelected('medium')
-      else setSelected('small')
+      setSelected(modelNameToOverride(info.modelName))
     }).catch(() => {})
   }, [])
 
@@ -153,19 +131,15 @@ export function AboutTab() {
           <div className="flex items-center gap-2">
             {activeModelName && (
               <span className="text-[10px] font-semibold text-[var(--accent)] bg-[var(--accent-soft)] border border-[var(--accent-soft)] px-[6px] py-px rounded-[var(--r-sm)]">
-                {MODEL_DISPLAY_NAME[activeModelName] ?? activeModelName}
+                {MODEL_OPTIONS.find(m => m.value === modelNameToOverride(activeModelName))?.label ?? activeModelName}
               </span>
             )}
           </div>
         </div>
 
         <div className="flex gap-2">
-          {MODEL_OPTIONS.map(({ value, label, sub }) => {
-            const isRecommended = profile && (
-              (value === 'large'  && profile.recommendedModel.startsWith('large'))  ||
-              (value === 'medium' && profile.recommendedModel.startsWith('medium')) ||
-              (value === 'small'  && profile.recommendedModel.startsWith('small'))
-            )
+          {MODEL_OPTIONS.map(({ value, label, description }) => {
+            const isRecommended = profile && recommendedToOverride(profile.recommendedModel) === value
             const active = selected === value
             return (
               <button
@@ -183,7 +157,7 @@ export function AboutTab() {
                     </span>
                   )}
                 </div>
-                <span className="text-[10px] text-[var(--muted)]">{sub}</span>
+                <span className="text-[10px] text-[var(--muted)]">{description}</span>
               </button>
             )
           })}
