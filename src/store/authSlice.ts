@@ -19,7 +19,7 @@ export type AuthSlice = {
 }
 
 function onAuthSuccess(get: () => AppState): void {
-  invoke(COMMANDS.RETRY_MODEL_DOWNLOAD).catch(() => {})
+  if (get().modelChosen) invoke(COMMANDS.RETRY_MODEL_DOWNLOAD).catch(() => {})
   get().init()
 }
 

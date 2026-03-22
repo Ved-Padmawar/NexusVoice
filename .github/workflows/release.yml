@@ -110,6 +110,7 @@ jobs:
           conf = json.loads(conf_path.read_text(encoding="utf-8"))
           conf["productName"] = "NexusVoice-CUDA"
           conf.setdefault("plugins", {}).setdefault("updater", {})["target"] = "windows-x86_64-cuda"
+          conf.setdefault("bundle", {}).setdefault("windows", {}).setdefault("nsis", {})["installerHooks"] = "windows/cuda-installer-hooks.nsh"
           conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
           print("patched productName and updater target for CUDA")
 
