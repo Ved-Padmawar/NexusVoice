@@ -146,7 +146,7 @@ jobs:
         run: |
           import glob, pathlib, re
           version = "${{ github.ref_name }}".lstrip("v")
-          for pattern, bundle in [("C:/b/release/bundle/nsis/*.exe", "nsis"), ("C:/b/release/bundle/msi/*.msi", "msi")]:
+          for pattern in ["C:/b/release/bundle/nsis/*.exe", "C:/b/release/bundle/nsis/*.exe.sig", "C:/b/release/bundle/msi/*.msi", "C:/b/release/bundle/msi/*.msi.sig"]:
             for src in glob.glob(pattern):
               src = pathlib.Path(src)
               new_name = re.sub(r'^NexusVoice', 'NexusVoice-CUDA', src.name)
