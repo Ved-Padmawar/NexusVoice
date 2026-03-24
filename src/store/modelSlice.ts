@@ -13,16 +13,32 @@ export type ModelSlice = {
   downloadProgress: number
   downloadError: string | null
   updateAvailable: string | null
+  /** The model override that was active before the current download started — restored on cancel. */
+  downloadingFromModel: string | null
+  setDownloadingFromModel: (variant: string) => void
+  cancelDownload: () => void
   listenForModelEvents: () => Promise<() => void>
 }
 
-export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set) => ({
+export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set, get) => ({
   hasHotkey: false,
   modelReady: false,
   modelDownloading: false,
   downloadProgress: 0,
   downloadError: null,
   updateAvailable: null,
+  downloadingFromModel: null,
+
+  setDownloadingFromModel: (variant: string) => set({ downloadingFromModel: variant }),
+
+  cancelDownload: () => {
+    const prev = get().downloadingFromModel
+    invoke(COMMANDS.CANCEL_MODEL_DOWNLOAD).catch(() => {})
+    // Restore the Rust override to the model that was active before download
+    if (prev) {
+      invoke(COMMANDS.SET_MODEL_OVERRIDE, { variant: prev }).catch(() => {})
+    }
+  },
 
   listenForModelEvents: async () => {
     try {
@@ -48,11 +64,14 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
       set({ downloadProgress: e.payload, modelDownloading: true })
     })
     const u3 = await listen(EVENTS.MODEL_DOWNLOAD_COMPLETE, () => {
-      set({ modelReady: true, modelDownloading: false, downloadProgress: 100, downloadError: null })
+      set({ modelReady: true, modelDownloading: false, downloadProgress: 100, downloadError: null, downloadingFromModel: null })
     })
     const u4 = await listen<string>(EVENTS.MODEL_DOWNLOAD_ERROR, (e) => {
-      set({ modelDownloading: false, downloadError: e.payload ?? 'Download failed' })
+      set({ modelDownloading: false, downloadError: e.payload ?? 'Download failed', downloadingFromModel: null })
     })
-    return () => { u1(); u2(); u3(); u4() }
+    const u5 = await listen(EVENTS.MODEL_DOWNLOAD_CANCELLED, () => {
+      set({ modelDownloading: false, downloadProgress: 0, downloadError: null, downloadingFromModel: null })
+    })
+    return () => { u1(); u2(); u3(); u4(); u5() }
   },
 })

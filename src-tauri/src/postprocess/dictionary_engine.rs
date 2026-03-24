@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
+use rphonetic::DoubleMetaphone;
+
 use crate::database::models::dictionary::DictionaryEntry;
 
 // ---------------------------------------------------------------------------
@@ -168,6 +170,45 @@ impl DictionaryCorrectionEngine {
                     distance: best_dist,
                     exact: false,
                 });
+            }
+        }
+
+        // 9. Phonetic fallback via Double Metaphone — catches sound-alike ASR errors
+        //    that Levenshtein misses (e.g. "neksus" → "nexus", "fastrack" → "fasttrack").
+        //    Only fires when no Levenshtein match was found above.
+        //    Requires unambiguous phonetic match: exactly one dictionary entry shares codes.
+        let dm = DoubleMetaphone::default();
+        let input_codes = dm.double_metaphone(&lower);
+        let ip = input_codes.primary();
+        let ia = input_codes.alternate();
+        if !ip.is_empty() {
+            let mut phonetic_match: Option<&DictionaryEntry> = None;
+            let mut phonetic_ambiguous = false;
+            for entry in &self.entries {
+                if entry.term.chars().next() != lower.chars().next() {
+                    continue;
+                }
+                let entry_codes = dm.double_metaphone(&entry.term);
+                let ep = entry_codes.primary();
+                let ea = entry_codes.alternate();
+                let matches = ep == ip || ea == ip || ep == ia || ea == ia;
+                if matches {
+                    if phonetic_match.is_some() {
+                        phonetic_ambiguous = true;
+                        break;
+                    }
+                    phonetic_match = Some(entry);
+                }
+            }
+            if !phonetic_ambiguous {
+                if let Some(entry) = phonetic_match {
+                    return Some(CorrectionResult {
+                        term: entry.term.clone(),
+                        replacement: entry.replacement.clone(),
+                        distance: usize::MAX, // phonetic match — no edit distance
+                        exact: false,
+                    });
+                }
             }
         }
 

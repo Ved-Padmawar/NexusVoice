@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { motion } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../../lib/commands'
 import { MODEL_OPTIONS, modelNameToOverride, recommendedToOverride, type ModelOverride } from '../../lib/models'
@@ -6,11 +7,14 @@ import { toast } from 'sonner'
 import {
   AlertCircle, CheckCircle2,
   RefreshCw, Download, ArrowUpCircle, Cpu, Shield, Globe,
+  Zap, Scale, Sparkles, Layers, Box,
 } from 'lucide-react'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { Button } from '@/components/ui/button'
 import type { HardwareProfile } from '../../types'
+import { useAppStore } from '../../store/useAppStore'
+import type { BeamSize } from '../../store/uiSlice'
 
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
 
@@ -26,15 +30,34 @@ export function AboutTab() {
   const [updateError, setUpdateError] = useState<string | null>(null)
   const updaterRef = useRef<Awaited<ReturnType<typeof check>> | null>(null)
 
+  const beamSize = useAppStore(s => s.beamSize)
+  const setBeamSize = useAppStore(s => s.setBeamSize)
+  const { modelDownloading, setDownloadingFromModel } = useAppStore()
+
   useEffect(() => {
     invoke<HardwareProfile>(COMMANDS.GET_HARDWARE_PROFILE).then(setProfile).catch(() => {})
     invoke<{ modelName: string }>(COMMANDS.GET_MODEL_INFO).then(info => {
       setActiveModelName(info.modelName)
       setSelected(modelNameToOverride(info.modelName))
     }).catch(() => {})
-  }, [])
+    invoke<number>(COMMANDS.GET_BEAM_SIZE).then(v => {
+      const valid = (v === 2 || v === 5 || v === 8) ? v as BeamSize : 5
+      setBeamSize(valid)
+    }).catch(() => {})
+  }, [setBeamSize])
+
+  // When a download finishes or is cancelled, sync selected to the actual Rust override
+  useEffect(() => {
+    if (!modelDownloading) {
+      invoke<{ modelName: string }>(COMMANDS.GET_MODEL_INFO).then(info => {
+        setSelected(modelNameToOverride(info.modelName))
+      }).catch(() => {})
+    }
+  }, [modelDownloading])
 
   const handleModelChange = async (v: ModelOverride) => {
+    if (modelDownloading) return
+    setDownloadingFromModel(selected)
     setSelected(v)
     setModelSaving(true)
     try {
@@ -45,6 +68,11 @@ export function AboutTab() {
       toast.success('Model updated')
     } catch { /* ignore */ }
     finally { setModelSaving(false) }
+  }
+
+  const handleBeamChange = async (v: BeamSize) => {
+    setBeamSize(v)
+    invoke(COMMANDS.SET_BEAM_SIZE, { beamSize: v }).catch(() => {})
   }
 
   const checkForUpdate = useCallback(async () => {
@@ -138,30 +166,123 @@ export function AboutTab() {
         </div>
 
         <div className="flex gap-2">
-          {MODEL_OPTIONS.map(({ value, label, description }) => {
+          {([
+            { value: 'small'  as ModelOverride, Icon: Cpu,    label: 'Small',  description: 'Fastest, lower accuracy' },
+            { value: 'medium' as ModelOverride, Icon: Layers, label: 'Medium', description: 'Balanced performance' },
+            { value: 'large'  as ModelOverride, Icon: Box,    label: 'Large',  description: 'Slowest, highest accuracy' },
+          ]).map(({ value, Icon, label, description }) => {
             const isRecommended = profile && recommendedToOverride(profile.recommendedModel) === value
             const active = selected === value
             return (
-              <button
+              <motion.button
                 key={value}
                 type="button"
-                className={`flex-1 flex flex-col items-start gap-[3px] px-3 py-[10px] rounded-[var(--r-md)] border-[1.5px] cursor-pointer transition-all duration-[var(--t-fast)] disabled:opacity-50 disabled:cursor-not-allowed ${active ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border)] bg-[var(--surface)] hover:border-[var(--accent)] hover:bg-[var(--surface-hover)]'}`}
+                className="flex-1 flex flex-col items-start gap-[3px] px-3 py-[10px] rounded-[var(--r-md)] border-[1.5px] cursor-pointer disabled:cursor-not-allowed"
+                initial={false}
+                animate={{
+                  backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface)',
+                  borderColor: active ? 'var(--accent)' : 'var(--border)',
+                }}
+                whileHover={{ backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface-hover)' }}
+                whileTap={{ scale: 0.98 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
                 onClick={() => handleModelChange(value)}
                 disabled={modelSaving}
               >
                 <div className="flex items-center gap-[6px]">
-                  <span className={`text-[12px] font-semibold ${active ? 'text-[var(--accent)]' : 'text-[var(--fg)]'}`}>{label}</span>
+                  <motion.div
+                    animate={{ color: active ? 'var(--accent)' : 'var(--muted)' }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <Icon size={12} strokeWidth={1.75} />
+                  </motion.div>
+                  <motion.span
+                    className="text-[12px] font-semibold"
+                    animate={{ color: active ? 'var(--accent)' : 'var(--fg)' }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    {label}
+                  </motion.span>
                   {isRecommended && (
                     <span className="text-[9px] font-bold text-[var(--accent)] bg-[var(--accent-soft)] rounded-[var(--r-xs)] px-[5px] py-px uppercase tracking-[0.04em]">
                       Recommended
                     </span>
                   )}
                 </div>
-                <span className="text-[10px] text-[var(--muted)]">{description}</span>
-              </button>
+                <motion.span
+                  className="text-[10px]"
+                  animate={{ color: active ? 'var(--accent)' : 'var(--muted)' }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {description}
+                </motion.span>
+              </motion.button>
             )
           })}
         </div>
+      </div>
+
+      {/* Transcription quality */}
+      <div className="flex flex-col gap-3 pt-2 border-t border-[var(--border-soft)]">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-semibold text-[var(--fg-2)] uppercase tracking-[0.03em]">Transcription Quality</p>
+            <p className="text-[11px] text-[var(--muted)] mt-[3px]">Faster is quicker; Accurate takes a moment longer.</p>
+          </div>
+          <span className="text-[10px] font-mono font-semibold text-[var(--accent)] bg-[var(--accent-soft)] border border-[var(--accent-soft)] px-[6px] py-px rounded-[var(--r-sm)]">
+            beam · {beamSize}
+          </span>
+        </div>
+
+        <div className="flex gap-2">
+          {([
+            { value: 2 as BeamSize, Icon: Zap,      label: 'Fast',     desc: 'Lower latency' },
+            { value: 5 as BeamSize, Icon: Scale,    label: 'Balanced', desc: 'Recommended' },
+            { value: 8 as BeamSize, Icon: Sparkles, label: 'Accurate', desc: 'Best quality' },
+          ]).map(({ value, Icon, label, desc }) => {
+            const active = beamSize === value
+            return (
+              <motion.button
+                key={value}
+                type="button"
+                className="flex-1 flex flex-col items-start gap-[3px] px-3 py-[10px] rounded-[var(--r-md)] border-[1.5px] cursor-pointer"
+                initial={false}
+                animate={{
+                  backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface)',
+                  borderColor: active ? 'var(--accent)' : 'var(--border)',
+                }}
+                whileHover={{ backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface-hover)' }}
+                whileTap={{ scale: 0.98 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
+                onClick={() => handleBeamChange(value)}
+              >
+                <div className="flex items-center gap-[6px]">
+                  <motion.div
+                    animate={{ color: active ? 'var(--accent)' : 'var(--muted)' }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <Icon size={12} strokeWidth={1.75} />
+                  </motion.div>
+                  <motion.span
+                    className="text-[12px] font-semibold"
+                    animate={{ color: active ? 'var(--accent)' : 'var(--fg)' }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    {label}
+                  </motion.span>
+                </div>
+                <motion.span
+                  className="text-[10px]"
+                  animate={{ color: active ? 'var(--accent)' : 'var(--muted)' }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {desc}
+                </motion.span>
+              </motion.button>
+            )
+          })}
+        </div>
+
       </div>
 
       {/* Updates */}

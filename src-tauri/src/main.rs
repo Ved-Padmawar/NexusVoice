@@ -74,6 +74,7 @@ fn main() {
             let token_store_path = app_data_dir.join("refresh_token");
             let hotkey_store_path = app_data_dir.join("hotkey");
             let model_override_path = app_data_dir.join("model_override");
+            let beam_size_path = app_data_dir.join("beam_size");
             let models_dir = app_data_dir.join("models");
             std::fs::create_dir_all(&models_dir)?;
 
@@ -84,6 +85,7 @@ fn main() {
                 token_store_path,
                 hotkey_store_path,
                 model_override_path,
+                beam_size_path,
                 models_dir,
             );
             app.manage(app_state);
@@ -319,9 +321,14 @@ fn main() {
             commands::get_registered_hotkeys,
             commands::get_model_info,
             commands::retry_model_download,
+            commands::cancel_model_download,
             commands::set_model_override,
             commands::clear_model_override,
+            commands::get_beam_size,
+            commands::set_beam_size,
             commands::get_hardware_profile,
+            commands::get_downloaded_models,
+            commands::delete_model,
             commands::open_logs_folder,
         ])
         .build(tauri::generate_context!())

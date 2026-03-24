@@ -167,6 +167,13 @@ export function PillApp() {
         setState('idle')
       })
       unlisteners.push(um4)
+
+      const um5 = await listen(EVENTS.MODEL_DOWNLOAD_CANCELLED, () => {
+        if (cancelled) return
+        setState('idle')
+        setDownloadPct(0)
+      })
+      unlisteners.push(um5)
     }
 
     setup()

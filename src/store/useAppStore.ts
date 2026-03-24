@@ -32,7 +32,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'nexus-voice-storage',
-      partialize: (state) => ({ theme: state.theme, activeRoute: state.activeRoute, activeSettingsTab: state.activeSettingsTab, modelChosen: state.modelChosen }),
+      partialize: (state) => ({ theme: state.theme, activeRoute: state.activeRoute, activeSettingsTab: state.activeSettingsTab, modelChosen: state.modelChosen, beamSize: state.beamSize }),
     }
   )
 )

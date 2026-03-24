@@ -33,11 +33,16 @@ export const COMMANDS = {
   SEARCH_TRANSCRIPTS:     'search_transcripts',
 
   // Model
-  GET_MODEL_INFO:        'get_model_info',
-  GET_HARDWARE_PROFILE:  'get_hardware_profile',
-  SET_MODEL_OVERRIDE:    'set_model_override',
-  CLEAR_MODEL_OVERRIDE:  'clear_model_override',
-  RETRY_MODEL_DOWNLOAD:  'retry_model_download',
+  GET_MODEL_INFO:          'get_model_info',
+  GET_HARDWARE_PROFILE:    'get_hardware_profile',
+  SET_MODEL_OVERRIDE:      'set_model_override',
+  CLEAR_MODEL_OVERRIDE:    'clear_model_override',
+  RETRY_MODEL_DOWNLOAD:    'retry_model_download',
+  CANCEL_MODEL_DOWNLOAD:   'cancel_model_download',
+  GET_BEAM_SIZE:           'get_beam_size',
+  SET_BEAM_SIZE:           'set_beam_size',
+  GET_DOWNLOADED_MODELS:   'get_downloaded_models',
+  DELETE_MODEL:            'delete_model',
 
   // System
   OPEN_LOGS_FOLDER: 'open_logs_folder',

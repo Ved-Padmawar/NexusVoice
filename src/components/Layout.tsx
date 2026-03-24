@@ -2,7 +2,7 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import clsx from 'clsx'
-import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle, ArrowUpCircle } from 'lucide-react'
+import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle, ArrowUpCircle, XCircle } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../store/useAppStore'
 import { ROUTES } from '../lib/routes'
@@ -65,7 +65,7 @@ function SlideBanner({ visible, children }: { visible: boolean; children: ReactN
 }
 
 function ModelBanner() {
-  const { modelDownloading, downloadProgress, downloadError, modelReady, modelChosen } = useAppStore()
+  const { modelDownloading, downloadProgress, downloadError, modelReady, modelChosen, cancelDownload } = useAppStore()
   const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const showReady = modelReady && downloadProgress === 100
   // Suppress banner during first-run modal — modal handles its own progress display
@@ -90,6 +90,15 @@ function ModelBanner() {
               <div className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-300 ease-linear" style={{ width: `${downloadProgress}%` }} />
             </div>
           </div>
+          <button
+            type="button"
+            className="flex items-center gap-1 flex-shrink-0 text-[11px] font-medium text-[var(--muted)] hover:text-[var(--danger)] transition-colors duration-[var(--t-fast)] cursor-pointer bg-transparent border-none px-1"
+            onClick={cancelDownload}
+            aria-label="Cancel download"
+          >
+            <XCircle size={13} strokeWidth={1.75} />
+            Cancel
+          </button>
         </div>
       </SlideBanner>
 

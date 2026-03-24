@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, AtomicU8, Ordering},
-    Arc,
+    Arc, Condvar,
 };
 
 use sqlx::SqlitePool;
@@ -26,11 +26,13 @@ pub struct AuthSession {
 }
 
 /// Model download state tracked in AppState so the frontend can poll via command.
-/// 0 = idle/unknown, 1 = downloading, 2 = complete, 3 = error
+/// 0 = idle/unknown, 1 = downloading, 2 = complete, 3 = error, 4 = cancelled
 pub struct ModelDownloadState {
     pub status: AtomicU8,
     pub progress: std::sync::Mutex<u8>,
     pub error: std::sync::Mutex<Option<String>>,
+    /// Set to true by cancel_model_download; checked each chunk in download_file.
+    pub cancelled: AtomicBool,
 }
 
 impl ModelDownloadState {
@@ -39,27 +41,38 @@ impl ModelDownloadState {
             status: AtomicU8::new(0),
             progress: std::sync::Mutex::new(0),
             error: std::sync::Mutex::new(None),
+            cancelled: AtomicBool::new(false),
         }
     }
 
     pub fn set_downloading(&self) {
+        self.cancelled.store(false, Ordering::SeqCst);
         self.status.store(1, Ordering::SeqCst);
-        *self.progress.lock().unwrap() = 0;
-        *self.error.lock().unwrap() = None;
+        *self.progress.lock().expect("progress lock poisoned") = 0;
+        *self.error.lock().expect("error lock poisoned") = None;
     }
 
     pub fn set_progress(&self, pct: u8) {
-        *self.progress.lock().unwrap() = pct;
+        *self.progress.lock().expect("progress lock poisoned") = pct;
     }
 
     pub fn set_complete(&self) {
         self.status.store(2, Ordering::SeqCst);
-        *self.progress.lock().unwrap() = 100;
+        *self.progress.lock().expect("progress lock poisoned") = 100;
     }
 
     pub fn set_error(&self, msg: String) {
         self.status.store(3, Ordering::SeqCst);
-        *self.error.lock().unwrap() = Some(msg);
+        *self.error.lock().expect("error lock poisoned") = Some(msg);
+    }
+
+    pub fn set_cancelled(&self) {
+        self.status.store(4, Ordering::SeqCst);
+        *self.progress.lock().expect("progress lock poisoned") = 0;
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
     }
 }
 
@@ -73,6 +86,7 @@ pub struct AppState {
     pub token_store_path: PathBuf,
     pub hotkey_store_path: PathBuf,
     pub model_override_path: PathBuf,
+    pub beam_size_path: PathBuf,
     pub auth_session: Mutex<AuthSession>,
     pub transcription_running: Arc<AtomicBool>,
     pub current_hotkey: Mutex<Option<String>>,
@@ -85,6 +99,9 @@ pub struct AppState {
     pub model_download: Arc<ModelDownloadState>,
     /// In-memory dictionary cache — loaded at startup, mutated on add/delete.
     pub dict_cache: DictCache,
+    /// Signalled by the capture thread when it has fully stopped and dropped the stream.
+    /// stop_transcription waits on this instead of sleeping a fixed duration.
+    pub capture_done: Arc<(std::sync::Mutex<bool>, Condvar)>,
 }
 
 impl AppState {
@@ -93,6 +110,7 @@ impl AppState {
         token_store_path: PathBuf,
         hotkey_store_path: PathBuf,
         model_override_path: PathBuf,
+        beam_size_path: PathBuf,
         models_dir: PathBuf,
     ) -> Self {
         Self {
@@ -102,6 +120,7 @@ impl AppState {
             token_store_path,
             hotkey_store_path,
             model_override_path,
+            beam_size_path,
             auth_session: Mutex::new(AuthSession::default()),
             transcription_running: Arc::new(AtomicBool::new(false)),
             current_hotkey: Mutex::new(None),
@@ -111,6 +130,7 @@ impl AppState {
             engine: Arc::new(Mutex::new(None)),
             model_download: Arc::new(ModelDownloadState::new()),
             dict_cache: Arc::new(RwLock::new(HashMap::new())),
+            capture_done: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
         }
     }
 
@@ -231,6 +251,24 @@ impl AppState {
 
     pub fn delete_model_override(&self) {
         let _ = std::fs::remove_file(&self.model_override_path);
+    }
+
+    /// Beam size preset: 2 = Fast, 5 = Balanced (default), 8 = Accurate
+    pub fn save_beam_size(&self, beam_size: i32) -> std::io::Result<()> {
+        std::fs::write(&self.beam_size_path, beam_size.to_string())
+    }
+
+    pub fn load_beam_size(&self) -> i32 {
+        std::fs::read_to_string(&self.beam_size_path)
+            .ok()
+            .and_then(|s| s.trim().parse::<i32>().ok())
+            .filter(|&v| v == 2 || v == 5 || v == 8)
+            .unwrap_or(5) // default: Balanced
+    }
+
+    #[allow(dead_code)]
+    pub fn delete_beam_size(&self) {
+        let _ = std::fs::remove_file(&self.beam_size_path);
     }
 
     pub fn try_start_transcription(&self) -> bool {

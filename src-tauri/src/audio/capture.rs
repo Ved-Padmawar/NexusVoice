@@ -1,6 +1,6 @@
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
+    Arc, Condvar, Mutex,
 };
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -30,11 +30,13 @@ impl ToF32 for u16 {
 }
 
 /// Open the default input device and stream mono f32 samples into `buffer` until
-/// `running` is set to false. Blocks the calling thread for the duration.
+/// `running` is set to false. Signals `done` before returning so the caller
+/// can wait without sleeping a fixed duration.
 pub fn capture_microphone(
     running: Arc<AtomicBool>,
     buffer: Arc<Mutex<Vec<f32>>>,
     native_rate: Arc<Mutex<u32>>,
+    done: Arc<(Mutex<bool>, Condvar)>,
 ) -> Result<(), String> {
     let host = cpal::default_host();
     let device = host
@@ -50,7 +52,7 @@ pub fn capture_microphone(
     let sample_format = config.sample_format();
     let stream_config: cpal::StreamConfig = config.into();
 
-    *native_rate.lock().unwrap() = sample_rate;
+    *native_rate.lock().expect("native_rate lock poisoned") = sample_rate;
 
     let stream = match sample_format {
         SampleFormat::F32 => build_stream::<f32>(
@@ -85,7 +87,13 @@ pub fn capture_microphone(
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 
-    drop(stream);
+    drop(stream); // flush final cpal callback before signalling
+
+    // Notify stop_transcription that the stream is fully stopped and buffer is ready.
+    let (lock, cvar) = &*done;
+    *lock.lock().expect("capture_done lock poisoned") = true;
+    cvar.notify_one();
+
     Ok(())
 }
 

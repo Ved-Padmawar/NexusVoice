@@ -41,7 +41,8 @@ impl WhisperEngine {
     }
 
     /// Transcribe 16 kHz mono f32 samples. `prompt` biases recognition.
-    pub fn transcribe(&mut self, samples_16k: &[f32], prompt: &str) -> Result<String, String> {
+    /// `beam_size` controls the quality/speed tradeoff: 2=Fast, 5=Balanced, 8=Accurate.
+    pub fn transcribe(&mut self, samples_16k: &[f32], prompt: &str, beam_size: i32) -> Result<String, String> {
         // whisper.cpp requires at least 1 second of audio at 16 kHz
         const MIN_SAMPLES: usize = 16_000;
         let padded;
@@ -59,7 +60,8 @@ impl WhisperEngine {
             .map(|n| n.get())
             .unwrap_or(4) / 2).clamp(1, 4) as i32; // cap at 4 — whisper.cpp degrades above 4-6 threads due to cache pressure
 
-        let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: 1.0 });
+        let beam_size = beam_size.clamp(1, 8);
+        let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size, patience: 1.0 });
         params.set_n_threads(n_threads);
         params.set_language(Some("en"));
         params.set_translate(false);
@@ -67,6 +69,9 @@ impl WhisperEngine {
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
+        // Segments with high token entropy are likely hallucinations (e.g. "Thank you for watching").
+        // 2.4 is the community-validated threshold — pairs with the no_speech_probability guard below.
+        params.set_entropy_thold(2.4);
         if !prompt.is_empty() {
             params.set_initial_prompt(prompt);
         }

@@ -299,21 +299,31 @@ pub async fn start_transcription(
     }
 
     {
-        let mut buf = state.audio_buffer.lock().unwrap();
+        let mut buf = state.audio_buffer.lock().expect("audio_buffer lock poisoned");
         buf.clear();
     }
 
     let running = Arc::clone(&state.transcription_running);
     let audio_buffer = Arc::clone(&state.audio_buffer);
     let native_rate = Arc::clone(&state.native_sample_rate);
+    let capture_done = Arc::clone(&state.capture_done);
     let app_handle = app.clone();
 
+    // Reset the done flag before starting a new capture session.
+    *capture_done.0.lock().expect("capture_done lock poisoned") = false;
+
     std::thread::spawn(move || {
-        if let Err(e) =
-            crate::audio::capture_microphone(Arc::clone(&running), audio_buffer, native_rate)
-        {
+        if let Err(e) = crate::audio::capture_microphone(
+            Arc::clone(&running),
+            audio_buffer,
+            native_rate,
+            Arc::clone(&capture_done),
+        ) {
             log::error!("microphone capture error: {e}");
             running.store(false, Ordering::SeqCst);
+            // Signal done even on error so stop_transcription doesn't wait forever.
+            *capture_done.0.lock().expect("capture_done lock poisoned") = true;
+            capture_done.1.notify_one();
             let _ = app_handle.emit("transcription-error", e);
         }
     });
@@ -333,12 +343,20 @@ pub async fn stop_transcription(
         ));
     }
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+    // Wait for the capture thread to fully stop and drop the cpal stream.
+    // Uses a condvar instead of a fixed sleep — returns as soon as the thread signals done.
+    let capture_done = Arc::clone(&state.capture_done);
+    tauri::async_runtime::spawn_blocking(move || {
+        let (lock, cvar) = &*capture_done;
+        let _guard = cvar.wait_while(lock.lock().expect("capture_done lock poisoned"), |done| !*done).expect("capture_done condvar poisoned");
+    })
+    .await
+    .ok();
 
     let (samples, captured_rate) = {
-        let buf = state.audio_buffer.lock().unwrap();
-        let rate = *state.native_sample_rate.lock().unwrap();
-        (buf.clone(), rate)
+        let mut buf = state.audio_buffer.lock().expect("audio_buffer lock poisoned");
+        let rate = *state.native_sample_rate.lock().expect("native_sample_rate lock poisoned");
+        (std::mem::take(&mut *buf), rate)
     };
 
     // Compute real recording duration from raw samples before any processing
@@ -375,6 +393,9 @@ pub async fn stop_transcription(
 
     // Snapshot dictionary cache once — used for both prompt and post-processing
     let dict_entries: Vec<_> = dict_cache.read().await.values().cloned().collect();
+
+    // Load beam size preference before spawning — avoids holding State across the await.
+    let beam_size = state.load_beam_size();
 
     // Build Whisper initial prompt from recent transcripts only.
     // Dictionary terms are intentionally excluded — passing them as raw hints
@@ -414,7 +435,7 @@ pub async fn stop_transcription(
             let eng = engine.clone();
             let chunk_result = tauri::async_runtime::spawn_blocking(move || {
                 match eng.lock() {
-                    Ok(mut guard) => guard.transcribe(&chunk_samples, &chunk_prompt),
+                    Ok(mut guard) => guard.transcribe(&chunk_samples, &chunk_prompt, beam_size),
                     Err(_poison) => {
                         // The engine Mutex is poisoned — a previous transcription panicked
                         // while holding the lock. Do NOT recover the guard; the WhisperEngine
@@ -450,7 +471,10 @@ pub async fn stop_transcription(
         }
 
         // Stitch all chunk transcripts into the final text
-        let raw_text = crate::preprocess::chunker::stitch_transcripts(&chunk_texts);
+        // Strip leading hyphens — Whisper hallucinates "- " at the start of short utterances
+        let raw_text = crate::preprocess::chunker::stitch_transcripts(&chunk_texts)
+            .trim_start_matches(|c: char| c == '-' || c == '–' || c == '—' || c.is_whitespace())
+            .to_string();
         log::debug!("stitched result: {} chars", raw_text.len());
 
         let result: Result<String, String> = if raw_text.is_empty() {
@@ -467,10 +491,14 @@ pub async fn stop_transcription(
                 if !matched_terms.is_empty() {
                     let dict_repo = DictionaryRepository::new(pool.clone());
                     let _ = dict_repo.increment_hits_batch(&matched_terms).await;
-                    // Refresh cache so hits are visible immediately
-                    if let Ok(entries) = dict_repo.list_all().await {
+                    // Update only the matched entries in-memory — avoids a full table reload.
+                    {
                         let mut cache = dict_cache.write().await;
-                        *cache = entries.into_iter().map(|e| (e.term.clone(), e)).collect();
+                        for term in &matched_terms {
+                            if let Some(entry) = cache.get_mut(term) {
+                                entry.hits += 1;
+                            }
+                        }
                     }
                 }
 
@@ -752,6 +780,85 @@ pub async fn apply_dictionary(
 }
 
 // ---------------------------------------------------------------------------
+// Model manager commands
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadedModel {
+    pub variant: String,
+    pub display_name: String,
+    pub size_bytes: u64,
+    pub is_active: bool,
+}
+
+/// List all model files currently on disk.
+#[tauri::command]
+pub fn get_downloaded_models(state: State<'_, AppState>) -> Vec<DownloadedModel> {
+    use crate::inference::provider::{detect_backend, select_model_size, ModelSize};
+
+    let active_override = state.load_model_override();
+    let active_backend = detect_backend();
+    let active_size = select_model_size(active_backend, active_override.as_deref());
+
+    let all: &[(&str, ModelSize)] = &[
+        ("small",  ModelSize::Small),
+        ("medium", ModelSize::Medium),
+        ("large",  ModelSize::Large),
+    ];
+
+    all.iter().filter_map(|(variant, size)| {
+        let path = state.models_dir.join(size.filename());
+        if !path.exists() { return None; }
+        let size_bytes = path.metadata().map(|m| m.len()).unwrap_or(0);
+        Some(DownloadedModel {
+            variant: variant.to_string(),
+            display_name: size.display_name().to_string(),
+            size_bytes,
+            is_active: *size == active_size,
+        })
+    }).collect()
+}
+
+/// Delete a downloaded model file by variant ("small" | "medium" | "large").
+/// Refuses to delete the currently active model.
+#[tauri::command]
+pub async fn delete_model(
+    state: State<'_, AppState>,
+    variant: String,
+) -> Result<(), ApiError> {
+    use crate::inference::provider::{detect_backend, select_model_size, ModelSize};
+
+    let size = match variant.as_str() {
+        "small"  => ModelSize::Small,
+        "medium" => ModelSize::Medium,
+        "large"  => ModelSize::Large,
+        _ => return Err(ApiError::new("invalid_variant", "variant must be small, medium, or large")),
+    };
+
+    let active_override = state.load_model_override();
+    let active_backend = detect_backend();
+    let active_size = select_model_size(active_backend, active_override.as_deref());
+
+    if size == active_size {
+        return Err(ApiError::new("active_model", "cannot delete the currently active model"));
+    }
+
+    let path = state.models_dir.join(size.filename());
+    if !path.exists() {
+        return Err(ApiError::new("not_found", "model file not found"));
+    }
+
+    std::fs::remove_file(&path)
+        .map_err(|e| ApiError::new("io_error", e.to_string()))?;
+
+    // If deleted model was cached in engine, evict it
+    *state.engine.lock().await = None;
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Logs command
 // ---------------------------------------------------------------------------
 
@@ -946,6 +1053,31 @@ pub async fn clear_model_override(state: State<'_, AppState>) -> Result<(), ApiE
 }
 
 // ---------------------------------------------------------------------------
+// Beam size commands
+// ---------------------------------------------------------------------------
+
+/// Get the current beam size. Returns 2 (Fast), 5 (Balanced), or 8 (Accurate).
+#[tauri::command]
+pub fn get_beam_size(state: State<'_, AppState>) -> i32 {
+    state.load_beam_size()
+}
+
+/// Set beam size to 2, 5, or 8. Does not evict the engine — beam_size is applied
+/// per transcription call, so it takes effect immediately on the next recording.
+#[tauri::command]
+pub fn set_beam_size(state: State<'_, AppState>, beam_size: i32) -> Result<(), ApiError> {
+    if beam_size != 2 && beam_size != 5 && beam_size != 8 {
+        return Err(ApiError::new(
+            "invalid_beam_size",
+            "beam_size must be 2 (Fast), 5 (Balanced), or 8 (Accurate)",
+        ));
+    }
+    state
+        .save_beam_size(beam_size)
+        .map_err(|e| ApiError::new("io_error", e.to_string()))
+}
+
+// ---------------------------------------------------------------------------
 // Model commands
 // ---------------------------------------------------------------------------
 
@@ -970,8 +1102,8 @@ pub async fn get_model_info(state: State<'_, AppState>) -> Result<ModelInfoRespo
 
     let dl = &state.model_download;
     let status = dl.status.load(std::sync::atomic::Ordering::SeqCst);
-    let progress = *dl.progress.lock().unwrap();
-    let error = dl.error.lock().unwrap().clone();
+    let progress = *dl.progress.lock().expect("progress lock poisoned");
+    let error = dl.error.lock().expect("error lock poisoned").clone();
 
     Ok(ModelInfoResponse {
         downloaded: model_path.exists() || status == 2,
@@ -1020,6 +1152,10 @@ pub async fn retry_model_download(
                 dl_state.set_complete();
                 let _ = app.emit("model-download-complete", ());
             }
+            Err(e) if e == "download_cancelled" => {
+                dl_state.set_cancelled();
+                let _ = app.emit("model-download-cancelled", ());
+            }
             Err(e) => {
                 dl_state.set_error(e.clone());
                 let _ = app.emit("model-download-error", e);
@@ -1028,6 +1164,17 @@ pub async fn retry_model_download(
     });
 
     Ok(true)
+}
+
+/// Cancel an in-progress model download. The download loop checks this flag
+/// each chunk and exits cleanly, deleting the partial .tmp file.
+#[tauri::command]
+pub fn cancel_model_download(state: State<'_, AppState>) {
+    let dl = &state.model_download;
+    let status = dl.status.load(std::sync::atomic::Ordering::SeqCst);
+    if status == 1 {
+        dl.cancelled.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 /// Download the selected ggml model file. Reports progress via events.
@@ -1095,6 +1242,12 @@ fn download_file(
     let mut last_pct: u8 = 0;
     let mut buf = vec![0u8; 256 * 1024]; // 256 KB chunks
     loop {
+        // Check cancel flag before each chunk — gives ~256 KB granularity.
+        if dl_state.is_cancelled() {
+            drop(file);
+            let _ = std::fs::remove_file(&tmp); // clean up partial download
+            return Err("download_cancelled".to_string());
+        }
         let n = response
             .read(&mut buf)
             .map_err(|e| format!("read body failed: {e}"))?;

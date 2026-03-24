@@ -94,38 +94,55 @@ export function ModelPickerModal() {
             const isRecommended = recommended === value
             const active = selected === value
             return (
-              <button
+              <motion.button
                 key={value}
                 type="button"
                 disabled={confirmed}
                 onClick={() => setSelected(value)}
-                className={`w-full flex items-start gap-4 px-4 py-4 rounded-[var(--r-lg)] border-[1.5px] text-left cursor-pointer transition-all duration-[var(--t-fast)] disabled:cursor-not-allowed ${
-                  active
-                    ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
-                    : 'border-[var(--border)] bg-[var(--surface)] hover:border-[var(--accent)] hover:bg-[var(--surface-hover)]'
-                }`}
+                className="w-full flex items-start gap-4 px-4 py-4 rounded-[var(--r-lg)] border-[1.5px] text-left cursor-pointer disabled:cursor-not-allowed"
+                initial={false}
+                animate={{
+                  backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface)',
+                  borderColor: active ? 'var(--accent)' : 'var(--border)',
+                }}
+                whileHover={{ backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface-hover)' }}
+                whileTap={{ scale: 0.99 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
               >
                 {/* Radio indicator */}
-                <div className={`w-[18px] h-[18px] rounded-full border-[1.5px] flex items-center justify-center flex-shrink-0 mt-[1px] transition-all duration-[var(--t-fast)] ${
-                  active ? 'border-[var(--accent)] bg-[var(--accent)]' : 'border-[var(--border)]'
-                }`}>
+                <motion.div
+                  className="w-[18px] h-[18px] rounded-full border-[1.5px] flex items-center justify-center flex-shrink-0 mt-[1px]"
+                  animate={{
+                    borderColor: active ? 'var(--accent)' : 'var(--border)',
+                    backgroundColor: active ? 'var(--accent)' : 'transparent',
+                  }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
+                >
                   {active && <Check size={10} strokeWidth={3} className="text-[var(--accent-fg)]" />}
-                </div>
+                </motion.div>
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-[13px] font-semibold leading-none ${active ? 'text-[var(--accent)]' : 'text-[var(--fg)]'}`}>
+                    <motion.span
+                      className="text-[13px] font-semibold leading-none"
+                      animate={{ color: active ? 'var(--accent)' : 'var(--fg)' }}
+                      transition={{ duration: 0.2 }}
+                    >
                       {label}
-                    </span>
+                    </motion.span>
                     {isRecommended && (
                       <span className="text-[9px] font-bold text-[var(--accent)] bg-[var(--accent-soft)] border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] rounded-[var(--r-xs)] px-[6px] py-[2px] uppercase tracking-[0.05em]">
                         Recommended
                       </span>
                     )}
                   </div>
-                  <p className={`text-[11px] mt-[4px] mb-[6px] font-medium ${active ? 'text-[var(--accent)]' : 'text-[var(--fg-2)]'}`}>
+                  <motion.p
+                    className="text-[11px] mt-[4px] mb-[6px] font-medium"
+                    animate={{ color: active ? 'var(--accent)' : 'var(--fg-2)' }}
+                    transition={{ duration: 0.2 }}
+                  >
                     {description}
-                  </p>
+                  </motion.p>
                   <p className="text-[11px] text-[var(--muted)] leading-[1.5]">{detail}</p>
                 </div>
 
@@ -133,7 +150,7 @@ export function ModelPickerModal() {
                   <HardDrive size={11} strokeWidth={1.75} className="text-[var(--muted)]" />
                   <span className="text-[11px] text-[var(--muted)] font-medium">{sizeLabel}</span>
                 </div>
-              </button>
+              </motion.button>
             )
           })}
         </div>

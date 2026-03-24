@@ -1,14 +1,16 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../lib/commands'
-import { Palette, Info, Settings2, FolderOpen } from 'lucide-react'
+import { Palette, Info, Settings2, FolderOpen, Database } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { SETTINGS_TABS, type SettingsTab } from '../lib/routes'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { GeneralTab } from './settings/GeneralTab'
 import { AboutTab } from './settings/AboutTab'
 import { HotkeySection } from './settings/HotkeySection'
+import { ModelManagerModal } from '../components/ModelManagerModal'
+import { AnimatePresence } from 'framer-motion'
 export function Settings() {
   const { activeSettingsTab, setActiveSettingsTab } = useAppStore()
   const location = useLocation()
@@ -22,6 +24,7 @@ export function Settings() {
     }
   }, [setActiveSettingsTab])
 
+  const [modelManagerOpen, setModelManagerOpen] = useState(false)
   const tab = activeSettingsTab
   const setTab = (v: string) => setActiveSettingsTab(v as SettingsTab)
 
@@ -55,15 +58,26 @@ export function Settings() {
             </TabsTrigger>
           </TabsList>
           {tab === 'about' && (
-            <button
-              type="button"
-              className="inline-flex items-center gap-[5px] px-[10px] h-9 rounded-[var(--r-lg)] bg-[var(--surface)] border-none text-[var(--fg-2)] text-[12px] font-medium cursor-pointer transition-[background,color] duration-[var(--t-fast)] hover:text-[var(--fg)]"
-              onClick={() => invoke<void>(COMMANDS.OPEN_LOGS_FOLDER)}
-              title="Open logs folder"
-            >
-              <FolderOpen size={12} strokeWidth={1.75} />
-              Logs
-            </button>
+            <div className="flex items-center gap-1 self-start mt-[3px]">
+              <button
+                type="button"
+                className="inline-flex items-center gap-[5px] px-[10px] h-9 rounded-[var(--r-md)] bg-[var(--surface)] border-none text-[var(--fg-2)] text-[12px] font-medium cursor-pointer transition-[background,color] duration-[var(--t-fast)] hover:text-[var(--fg)]"
+                onClick={() => setModelManagerOpen(true)}
+                title="Manage downloaded models"
+              >
+                <Database size={12} strokeWidth={1.75} />
+                Models
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-[5px] px-[10px] h-9 rounded-[var(--r-md)] bg-[var(--surface)] border-none text-[var(--fg-2)] text-[12px] font-medium cursor-pointer transition-[background,color] duration-[var(--t-fast)] hover:text-[var(--fg)]"
+                onClick={() => invoke<void>(COMMANDS.OPEN_LOGS_FOLDER)}
+                title="Open logs folder"
+              >
+                <FolderOpen size={12} strokeWidth={1.75} />
+                Logs
+              </button>
+            </div>
           )}
         </div>
 
@@ -77,6 +91,12 @@ export function Settings() {
           <AboutTab />
         </TabsContent>
       </Tabs>
+
+      <AnimatePresence>
+        {modelManagerOpen && (
+          <ModelManagerModal onClose={() => setModelManagerOpen(false)} />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
