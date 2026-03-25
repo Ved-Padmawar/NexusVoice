@@ -63,9 +63,11 @@ Hotkey released  →  audio resampled to 16kHz mono
 
 | Model | Size | Used When | Notes |
 |-------|------|-----------|-------|
-| Whisper Large v3 Turbo | ~800 MB | GPU with 6GB+ VRAM or 16GB+ RAM | Best accuracy, fast on GPU |
-| Whisper Medium | ~450 MB | Mid-range GPU or 8GB+ RAM | Great accuracy, runs well on CPU |
-| Whisper Small | ~150 MB | Low VRAM or under 8GB RAM | Fastest, good for weaker hardware |
+| Whisper Large v3 Turbo | ~1.6 GB | GPU with 6GB+ VRAM or 16GB+ RAM | Best accuracy, fast on GPU |
+| Whisper Medium | ~1.5 GB | Mid-range GPU or 8GB+ RAM | Great accuracy, runs well on CPU |
+| Whisper Small | ~465 MB | Moderate hardware or 4GB+ RAM | Good balance of speed and quality |
+| Whisper Base | ~145 MB | Low-end hardware | Basic accuracy, fast inference |
+| Whisper Tiny | ~75 MB | Ultra-low-end hardware | Fastest, lowest accuracy |
 
 On first login a model picker modal lets you choose your model — the app recommends the best one for your hardware. You can change it anytime in Settings → About. Models download from HuggingFace and are cached locally.
 

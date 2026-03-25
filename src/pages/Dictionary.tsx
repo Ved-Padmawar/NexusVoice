@@ -49,7 +49,7 @@ export function Dictionary() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-hidden px-8 pt-7 pb-8 flex flex-col gap-6">
+      <div className="flex-1 min-h-0 overflow-hidden px-8 pt-7 pb-4 flex flex-col gap-5">
 
         {/* Hero */}
         <div className="flex items-center justify-between gap-4 pb-5 border-b border-[var(--border-soft)]">
@@ -65,12 +65,12 @@ export function Dictionary() {
         </div>
 
         {/* Quick Addition */}
-        <div className="bg-[var(--panel)] border border-[var(--border)] rounded-[var(--r-xl)] px-[22px] py-5 flex-shrink-0">
-          <div className="flex items-center gap-[7px] mb-4">
-            <Plus size={14} strokeWidth={2} className="text-[var(--accent)]" />
+        <div className="bg-[var(--panel)] border border-[var(--border)] rounded-[var(--r-xl)] px-[18px] py-3 flex-shrink-0">
+          <div className="flex items-center gap-[7px] mb-[10px]">
+            <Plus size={12} strokeWidth={2} className="text-[var(--accent)]" />
             <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--muted)]">Quick Addition</span>
           </div>
-          <div className="grid grid-cols-[1fr_1fr_auto] gap-[14px] items-end">
+          <div className="grid grid-cols-[1fr_1fr_auto] gap-[10px] items-end">
             <div className="flex flex-col gap-[6px]">
               <label className="text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--muted)]">Trigger Word</label>
               <Input
@@ -103,9 +103,9 @@ export function Dictionary() {
         </div>
 
         {/* Vocabulary Table */}
-        <div className="flex flex-col flex-1 min-h-0 gap-[14px] overflow-hidden">
+        <div className="flex flex-col flex-1 min-h-0 gap-[10px] overflow-hidden">
           <div className="flex items-center justify-between flex-shrink-0">
-            <h2 className="text-[15px] font-bold tracking-[-0.015em] text-[var(--fg)] m-0">Vocabulary Engine</h2>
+            <h2 className="text-[13px] font-bold tracking-[-0.015em] text-[var(--fg)] m-0">Vocabulary Engine</h2>
           </div>
 
           <div className="flex-1 min-h-0 border border-[var(--border)] rounded-[var(--r-xl)] bg-[var(--bg)] overflow-hidden flex flex-col">
@@ -155,7 +155,7 @@ export function Dictionary() {
                                   <button type="button" className="w-7 h-7 flex items-center justify-center rounded-[var(--r-md)] border-none bg-transparent cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[color-mix(in_srgb,var(--success)_12%,transparent)] hover:text-[var(--success)]" onClick={commitEdit} disabled={editSaving}>
                                     <Check size={14} strokeWidth={2.5} />
                                   </button>
-                                  <button type="button" className="w-7 h-7 flex items-center justify-center rounded-[var(--r-md)] border-none bg-transparent cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[var(--surface-hover)] hover:text-[var(--fg)]" onClick={cancelEdit}>
+                                  <button type="button" className="w-7 h-7 flex items-center justify-center rounded-[var(--r-md)] border-none bg-transparent cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-[var(--danger)]" onClick={cancelEdit}>
                                     <X size={14} strokeWidth={2} />
                                   </button>
                                 </div>
@@ -177,7 +177,7 @@ export function Dictionary() {
                               </td>
                               <td className="px-4 py-[14px] text-right">
                                 <div className="flex items-center justify-end gap-[2px]">
-                                  <button type="button" className="w-7 h-7 flex items-center justify-center rounded-[var(--r-md)] border-none bg-transparent cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[var(--surface-hover)] hover:text-[var(--fg)]" onClick={() => startEdit(entry.id, entry.term, entry.replacement)}>
+                                  <button type="button" className="w-7 h-7 flex items-center justify-center rounded-[var(--r-md)] border-none bg-transparent cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]" onClick={() => startEdit(entry.id, entry.term, entry.replacement)}>
                                     <Pencil size={14} strokeWidth={1.75} />
                                   </button>
                                   <button type="button" className="w-7 h-7 flex items-center justify-center rounded-[var(--r-md)] border-none bg-transparent cursor-pointer text-[var(--muted)] transition-[background,color] duration-[var(--t-fast)] hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-[var(--danger)]" onClick={() => deleteDictionaryEntry(entry.id)}>

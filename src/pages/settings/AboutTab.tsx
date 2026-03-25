@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import {
   AlertCircle, CheckCircle2,
   RefreshCw, Download, ArrowUpCircle, Cpu, Shield, Globe,
-  Zap, Scale, Sparkles, Layers, Box,
+  Zap, Scale, Sparkles, Wind, Server, Layers, Box,
 } from 'lucide-react'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
@@ -118,16 +118,6 @@ export function AboutTab() {
     }
   }, [])
 
-  const updateDesc = {
-    idle: 'Check for the latest release.',
-    checking: 'Checking for updates…',
-    'up-to-date': 'You\'re on the latest version.',
-    available: `v${updateVersion} is ready to download.`,
-    downloading: `Downloading update… ${downloadProgress}%`,
-    ready: 'Restart to apply the update.',
-    error: updateError ?? 'Something went wrong.',
-  }[updateStatus]
-
   return (
     <div className="flex flex-col gap-4">
 
@@ -165,9 +155,11 @@ export function AboutTab() {
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="grid grid-cols-5 gap-2">
           {([
-            { value: 'small'  as ModelOverride, Icon: Cpu,    label: 'Small',  description: 'Fastest, lower accuracy' },
+            { value: 'tiny'   as ModelOverride, Icon: Wind,   label: 'Tiny',   description: 'Fastest, lowest accuracy' },
+            { value: 'base'   as ModelOverride, Icon: Server, label: 'Base',   description: 'Fast, basic accuracy' },
+            { value: 'small'  as ModelOverride, Icon: Cpu,    label: 'Small',  description: 'Standard, lower accuracy' },
             { value: 'medium' as ModelOverride, Icon: Layers, label: 'Medium', description: 'Balanced performance' },
             { value: 'large'  as ModelOverride, Icon: Box,    label: 'Large',  description: 'Slowest, highest accuracy' },
           ]).map(({ value, Icon, label, description }) => {
@@ -289,33 +281,75 @@ export function AboutTab() {
       <div className="flex flex-col gap-3 pt-2 border-t border-[var(--border-soft)]">
         <p className="text-[11px] font-semibold text-[var(--fg-2)] uppercase tracking-[0.03em]">Updates</p>
 
-        <div className="flex items-center justify-between gap-4 px-4 py-3 rounded-[var(--r-lg)] bg-[var(--surface)] border border-[var(--border-soft)]">
-          <div className="flex-1 min-w-0">
-            <p className={`text-[12px] font-medium ${updateStatus === 'error' ? 'text-[var(--danger)]' : updateStatus === 'up-to-date' || updateStatus === 'ready' ? 'text-[var(--success)]' : 'text-[var(--fg)]'}`}>
-              {updateDesc}
-            </p>
-            {updateStatus === 'downloading' && (
-              <div className="h-[2px] rounded-full bg-[var(--border)] overflow-hidden mt-2">
-                <div
-                  className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-300 ease-linear"
-                  style={{ width: `${downloadProgress}%` }}
-                />
-              </div>
-            )}
+        <div className={`flex items-center justify-between gap-4 px-4 py-3 rounded-[var(--r-lg)] bg-[var(--surface)] border ${
+          updateStatus === 'available' || updateStatus === 'downloading' || updateStatus === 'checking'
+            ? 'border-[var(--accent)]'
+            : updateStatus === 'ready'
+              ? 'border-[var(--success)]'
+              : updateStatus === 'error'
+                ? 'border-[var(--danger)]'
+                : 'border-[var(--border-soft)]'
+        }`}>
+          {/* Icon badge */}
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className={`w-8 h-8 rounded-[var(--r-md)] flex items-center justify-center flex-shrink-0 ${
+              updateStatus === 'up-to-date' || updateStatus === 'ready'
+                ? 'bg-[var(--success-soft)] text-[var(--success)]'
+                : updateStatus === 'error'
+                  ? 'bg-[var(--danger-soft)] text-[var(--danger)]'
+                  : 'bg-[var(--accent-soft)] text-[var(--accent)]'
+            }`}>
+              {(updateStatus === 'up-to-date') && <CheckCircle2 size={14} strokeWidth={2} />}
+              {(updateStatus === 'ready') && <CheckCircle2 size={14} strokeWidth={2} />}
+              {(updateStatus === 'error') && <AlertCircle size={14} strokeWidth={2} />}
+              {(updateStatus === 'idle' || updateStatus === 'checking') && <motion.span animate={updateStatus === 'checking' ? { rotate: 360 } : {}} transition={{ duration: 1, ease: 'linear', repeat: Infinity }}><RefreshCw size={14} strokeWidth={2} /></motion.span>}
+              {(updateStatus === 'available' || updateStatus === 'downloading') && <Download size={14} strokeWidth={2} />}
+            </div>
+
+            {/* Text + progress */}
+            <div className="flex-1 min-w-0">
+              {updateStatus === 'downloading' ? (
+                <>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[12px] font-medium text-[var(--fg-2)]">Downloading…</span>
+                    <span className="text-[11px] font-semibold text-[var(--accent)] tabular-nums">{downloadProgress}%</span>
+                  </div>
+                  <div className="h-[3px] rounded-full bg-[var(--border-soft)] overflow-hidden mt-[6px]">
+                    <div
+                      className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-300 ease-linear"
+                      style={{ width: `${downloadProgress}%` }}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className={`text-[12px] font-medium ${
+                    updateStatus === 'error' ? 'text-[var(--danger)]'
+                      : updateStatus === 'up-to-date' || updateStatus === 'ready' ? 'text-[var(--success)]'
+                        : updateStatus === 'available' ? 'text-[var(--fg)]'
+                          : 'text-[var(--fg)]'
+                  }`}>
+                    {updateStatus === 'idle' ? 'Check for updates' : updateStatus === 'checking' ? 'Looking for updates…' : updateStatus === 'up-to-date' ? "You're up to date" : updateStatus === 'available' ? `v${updateVersion} available` : updateStatus === 'ready' ? 'Ready to install' : updateError ?? 'Update failed'}
+                  </p>
+                  <p className="text-[10px] text-[var(--muted)] mt-[2px]">
+                    {updateStatus === 'idle' ? `Currently on v${__APP_VERSION__}` : updateStatus === 'checking' ? 'Please wait…' : updateStatus === 'up-to-date' ? `v${__APP_VERSION__} is the latest` : updateStatus === 'available' ? 'Ready to download' : updateStatus === 'ready' ? `Restart to apply v${updateVersion}` : 'Check your network connection'}
+                  </p>
+                </>
+              )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {updateStatus === 'up-to-date' && <CheckCircle2 size={14} strokeWidth={2} className="text-[var(--success)]" />}
-            {updateStatus === 'error' && <AlertCircle size={14} strokeWidth={2} className="text-[var(--danger)]" />}
+          {/* Action button */}
+          <div className="flex-shrink-0">
             {(updateStatus === 'idle' || updateStatus === 'up-to-date' || updateStatus === 'error') && (
-              <Button size="sm" variant="outline" onClick={checkForUpdate}>
+              <Button size="sm" onClick={checkForUpdate}>
                 <RefreshCw size={11} strokeWidth={2} />
-                Check
+                {updateStatus === 'up-to-date' ? 'Check again' : updateStatus === 'error' ? 'Retry' : 'Check'}
               </Button>
             )}
             {updateStatus === 'checking' && (
-              <Button size="sm" variant="outline" disabled>
-                <RefreshCw size={11} strokeWidth={2} className="animate-[spin_1s_linear_infinite]" />
+              <Button size="sm" disabled>
+                <motion.span animate={{ rotate: 360 }} transition={{ duration: 1, ease: 'linear', repeat: Infinity }}><RefreshCw size={11} strokeWidth={2} /></motion.span>
                 Checking…
               </Button>
             )}
@@ -328,7 +362,7 @@ export function AboutTab() {
             {updateStatus === 'downloading' && (
               <Button size="sm" disabled>
                 <Download size={11} strokeWidth={2} />
-                {downloadProgress}%
+                Downloading…
               </Button>
             )}
             {updateStatus === 'ready' && (

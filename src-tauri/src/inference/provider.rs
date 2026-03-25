@@ -29,8 +29,12 @@ pub enum ModelSize {
     Large,
     /// ggml-medium.en — good accuracy, GPU ≥3 GB VRAM or ≥8 GB RAM
     Medium,
-    /// ggml-small.en — fastest, low-end CPU or <3 GB VRAM
+    /// ggml-small.en — standard accuracy, moderate hardware
     Small,
+    /// ggml-base.en — basic accuracy, low-end hardware
+    Base,
+    /// ggml-tiny.en — lowest accuracy, fastest inference
+    Tiny,
 }
 
 impl ModelSize {
@@ -39,6 +43,8 @@ impl ModelSize {
             ModelSize::Large => "ggml-large-v3-turbo.bin",
             ModelSize::Medium => "ggml-medium.en.bin",
             ModelSize::Small => "ggml-small.en.bin",
+            ModelSize::Base => "ggml-base.en.bin",
+            ModelSize::Tiny => "ggml-tiny.en.bin",
         }
     }
 
@@ -47,6 +53,8 @@ impl ModelSize {
             ModelSize::Large => "Whisper Large v3 Turbo",
             ModelSize::Medium => "Whisper Medium",
             ModelSize::Small => "Whisper Small",
+            ModelSize::Base => "Whisper Base",
+            ModelSize::Tiny => "Whisper Tiny",
         }
     }
 
@@ -55,6 +63,8 @@ impl ModelSize {
             ModelSize::Large => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
             ModelSize::Medium => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
             ModelSize::Small => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
+            ModelSize::Base => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
+            ModelSize::Tiny => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
         }
     }
 }
@@ -136,12 +146,14 @@ pub fn select_model_size_from_profile(
 }
 
 /// Resolve final model size: apply user override if set, else recommend from hardware.
-/// `override_size` accepts "large" | "medium" | "small".
+/// `override_size` accepts "large" | "medium" | "small" | "base" | "tiny".
 pub fn select_model_size(backend: Backend, override_size: Option<&str>) -> ModelSize {
     match override_size {
         Some("large") => ModelSize::Large,
         Some("medium") => ModelSize::Medium,
         Some("small") => ModelSize::Small,
+        Some("base") => ModelSize::Base,
+        Some("tiny") => ModelSize::Tiny,
         _ => {
             let profile = crate::hardware::cached_profile();
             select_model_size_from_profile(

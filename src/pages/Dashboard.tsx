@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   Hash, Timer, Mic, Activity,
   AlertCircle, Copy, Check,
-  Settings2, Zap, Search, Download, SlidersHorizontal,
+  Settings2, Search, Download, SlidersHorizontal, LayoutDashboard,
 } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../lib/commands'
@@ -252,13 +252,13 @@ export function Dashboard() {
   const displayItems = isSearchMode ? searchResults : transcripts
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-8 pt-7 pb-10 gap-7">
+    <div className="flex flex-col h-full overflow-hidden px-8 pt-7 pb-4 gap-7">
 
       {/* Hero */}
       <div className="flex items-center justify-between gap-4 pb-5 border-b border-[var(--border-soft)]">
         <div className="flex items-center gap-[14px]">
           <div className="w-9 h-9 rounded-[var(--r-lg)] bg-[var(--accent-soft)] text-[var(--accent)] flex items-center justify-center flex-shrink-0">
-            <Zap size={18} strokeWidth={2.5} />
+            <LayoutDashboard size={18} strokeWidth={2} />
           </div>
           <div>
             <h1 className="text-[18px] font-bold tracking-[-0.025em] text-[var(--fg)] leading-[1.1] m-0">Dashboard</h1>
@@ -374,7 +374,7 @@ export function Dashboard() {
             {/* Infinite scroll sentinel — only shown when not searching */}
             {!isSearchMode && transcriptHasMore && (
               <div ref={sentinelRef} className="flex items-center justify-center py-4">
-                <div className="w-4 h-4 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-[spin_0.65s_linear_infinite]" />
+                <motion.div className="w-4 h-4 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)]" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
               </div>
             )}
           </div>

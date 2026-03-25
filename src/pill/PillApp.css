@@ -62,15 +62,6 @@ body {
   background: #0c0c16;
 }
 
-.pill--processing::after {
-  content: '';
-  position: absolute;
-  inset: 4px;
-  border-radius: 50%;
-  border: 1.5px solid rgba(120, 162, 244, 0.15);
-  border-top-color: rgba(120, 162, 244, 0.9);
-  animation: pillSpin 1s linear infinite;
-}
 
 
 /* ===== Downloading — morphs to circle ===== */
@@ -80,15 +71,6 @@ body {
   background: #0f0e0c;
 }
 
-.pill--downloading::after {
-  content: '';
-  position: absolute;
-  inset: 4px;
-  border-radius: 50%;
-  border: 1.5px solid rgba(245, 158, 11, 0.15);
-  border-top-color: rgba(251, 191, 36, 0.9);
-  animation: pillSpin 1s linear infinite;
-}
 
 
 /* ===== Error ===== */
@@ -97,9 +79,6 @@ body {
   background: #130e0e;
 }
 
-@keyframes pillSpin {
-  to { transform: rotate(360deg); }
-}
 
 /* ===== Icon ===== */
 .pill__icon {

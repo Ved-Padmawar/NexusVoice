@@ -67,18 +67,18 @@ function SlideBanner({ visible, children }: { visible: boolean; children: ReactN
 function ModelBanner() {
   const { modelDownloading, downloadProgress, downloadError, modelReady, modelChosen, cancelDownload } = useAppStore()
   const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const showReady = modelReady && downloadProgress === 100
   // Suppress banner during first-run modal — modal handles its own progress display
   const bannerActive = modelChosen && modelDownloading
 
+  // Auto-reset progress when download completes so the downloading banner hides
   useEffect(() => {
-    if (showReady) {
+    if (modelReady && downloadProgress === 100) {
       autoDismissRef.current = setTimeout(() => {
         useAppStore.setState({ downloadProgress: 0 })
-      }, 3000)
+      }, 500)
     }
     return () => { if (autoDismissRef.current) clearTimeout(autoDismissRef.current) }
-  }, [showReady])
+  }, [modelReady, downloadProgress])
 
   return (
     <>
@@ -121,23 +121,6 @@ function ModelBanner() {
         </div>
       </SlideBanner>
 
-      <SlideBanner visible={showReady}>
-        <div
-          className="flex items-center gap-[10px] px-[14px] py-[7px] flex-shrink-0 text-[12px] border-b text-[var(--fg)]"
-          style={{ background: 'var(--success-soft)', borderColor: 'color-mix(in srgb, var(--success) 40%, transparent)' }}
-        >
-          <div className="flex items-center gap-[10px] flex-1 min-w-0">
-            <span className="whitespace-nowrap overflow-hidden text-ellipsis text-[var(--fg-2)]">Model ready — NexusVoice is fully operational.</span>
-          </div>
-          <button
-            type="button"
-            className="flex items-center justify-center w-5 h-5 rounded-[var(--r-sm)] text-[var(--muted)] bg-transparent border-none cursor-pointer flex-shrink-0 transition-[color,background] duration-[var(--t-fast)] hover:text-[var(--fg)] hover:bg-[var(--surface-hover)]"
-            onClick={() => useAppStore.setState({ downloadProgress: 0 })}
-          >
-            <X size={12} strokeWidth={2} />
-          </button>
-        </div>
-      </SlideBanner>
     </>
   )
 }
@@ -213,12 +196,12 @@ export function Layout() {
           {/* Brand */}
           <div className="px-[14px] pt-4 pb-3 border-b border-[var(--border-soft)]">
             <Link to="/" className="flex items-center gap-[9px] no-underline group">
-              <div className="w-7 h-7 rounded-[var(--r-md)] bg-[var(--accent)] flex items-center justify-center text-[var(--accent-fg)] flex-shrink-0 shadow-[var(--glow)] transition-shadow duration-[var(--t-fast)] group-hover:shadow-[var(--glow),0_0_0_3px_var(--accent-soft)]">
+              <div className="w-7 h-7 rounded-[var(--r-md)] bg-[var(--accent)] flex items-center justify-center text-black flex-shrink-0 shadow-[var(--glow)] transition-shadow duration-[var(--t-fast)] group-hover:shadow-[var(--glow),0_0_0_3px_var(--accent-soft)]">
                 <Zap size={13} strokeWidth={2.5} />
               </div>
               <div>
-                <div className="text-[13px] font-bold tracking-[-0.02em] text-[var(--fg)] leading-none">NexusVoice</div>
-                <div className="text-[10px] text-[var(--muted)] mt-0.5 tracking-[0.03em]">v{__APP_VERSION__}</div>
+                <div className="text-[13px] font-black tracking-[-0.02em] leading-none"><span className="text-[var(--fg)]">Nexus</span><span className="text-[var(--accent)]">Voice</span></div>
+                <div className="text-[10px] text-[var(--fg-2)] mt-0.5 tracking-[0.03em]">v{__APP_VERSION__}</div>
               </div>
             </Link>
           </div>

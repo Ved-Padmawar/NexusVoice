@@ -74,7 +74,7 @@ function App() {
   if (authChecking || isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-dvh gap-[14px] bg-[var(--bg)]" role="status" aria-live="polite" data-tauri-drag-region>
-        <div className="w-7 h-7 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-[spin_0.65s_linear_infinite]" />
+        <motion.div className="w-7 h-7 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)]" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
         <p className="text-[12px] text-[var(--muted)]">Loading…</p>
       </div>
     )
@@ -84,7 +84,7 @@ function App() {
 
   return (
     <BrowserRouter>
-      <Suspense fallback={<div className="flex items-center justify-center min-h-dvh bg-[var(--bg)]" role="status" data-tauri-drag-region><div className="w-7 h-7 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-[spin_0.65s_linear_infinite]" /></div>}>
+      <Suspense fallback={<div className="flex items-center justify-center min-h-dvh bg-[var(--bg)]" role="status" data-tauri-drag-region><motion.div className="w-7 h-7 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)]" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} /></div>}>
         <AnimatedRoutes initialRoute={initialRoute} user={user} />
       </Suspense>
       {user && !modelChosen && <ModelPickerModal />}

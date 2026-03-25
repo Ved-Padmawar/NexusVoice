@@ -235,7 +235,9 @@ export function PillApp() {
       const u3 = await listen<string>(EVENTS.TRANSCRIPTION_COMPLETE, async (event) => {
         const text = event.payload
         if (text) {
-          await invoke(COMMANDS.TYPE_TEXT, { text })
+          try {
+            await invoke(COMMANDS.TYPE_TEXT, { text })
+          } catch { /* clipboard briefly locked — text is still on clipboard, user can paste */ }
         }
         setState('idle')
       })
@@ -301,8 +303,35 @@ export function PillApp() {
           <span className="pill__error-label" title={errorMsg}>Error</span>
         )}
 
+        {state === 'processing' && (
+          <motion.div
+            style={{
+              position: 'absolute',
+              inset: 4,
+              borderRadius: '50%',
+              border: '1.5px solid rgba(120, 162, 244, 0.15)',
+              borderTopColor: 'rgba(120, 162, 244, 0.9)',
+            }}
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, ease: 'linear', repeat: Infinity }}
+          />
+        )}
+
         {state === 'downloading' && (
-          <span className="pill__pct">{downloadPct}%</span>
+          <>
+            <motion.div
+              style={{
+                position: 'absolute',
+                inset: 4,
+                borderRadius: '50%',
+                border: '1.5px solid rgba(245, 158, 11, 0.15)',
+                borderTopColor: 'rgba(251, 191, 36, 0.9)',
+              }}
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, ease: 'linear', repeat: Infinity }}
+            />
+            <span className="pill__pct">{downloadPct}%</span>
+          </>
         )}
       </motion.div>
     </div>

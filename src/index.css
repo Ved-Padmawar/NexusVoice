@@ -83,11 +83,11 @@ input[type="password"]::-ms-reveal { display: none; }
   --border-soft:   oklch(0.28 0.02 250);
   --fg:            oklch(0.92 0.01 250);
   --fg-2:          oklch(0.85 0.01 250);
-  --muted:         oklch(0.65 0.01 250);
+  --muted:         oklch(0.56 0.01 250);
   --accent:        oklch(0.75 0.12 250);
   --accent-hover:  oklch(0.80 0.12 250);
   --accent-soft:   oklch(0.75 0.12 250 / 0.15);
-  --accent-fg:     oklch(0.15 0.02 250);
+  --accent-fg:     oklch(0.98 0.005 0);
   --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.30), 0 1px 2px oklch(0 0 0 / 0.20);
   --shadow-md:     0 4px 12px oklch(0 0 0 / 0.40), 0 2px 4px oklch(0 0 0 / 0.25);
   --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.60), 0 4px 8px oklch(0 0 0 / 0.35);
@@ -101,12 +101,12 @@ input[type="password"]::-ms-reveal { display: none; }
   color-scheme: dark;
   --bg:            oklch(0.12 0.03 260);
   --bg-alt:        oklch(0.08 0.04 260);
-  --panel:         oklch(0.16 0.04 260);
-  --panel-border:  oklch(0.22 0.06 260);
-  --surface:       oklch(0.20 0.06 260);
-  --surface-hover: oklch(0.25 0.07 260);
-  --border:        oklch(0.28 0.08 260);
-  --border-soft:   oklch(0.18 0.05 260);
+  --panel:         oklch(0.22 0.04 260);
+  --panel-border:  oklch(0.28 0.06 260);
+  --surface:       oklch(0.16 0.05 260);
+  --surface-hover: oklch(0.22 0.06 260);
+  --border:        oklch(0.30 0.08 260);
+  --border-soft:   oklch(0.20 0.05 260);
   --fg:            oklch(0.98 0.01 260);
   --fg-2:          oklch(0.85 0.03 260);
   --muted:         oklch(0.55 0.06 260);
@@ -135,7 +135,7 @@ input[type="password"]::-ms-reveal { display: none; }
   --border-soft:   oklch(0.30 0.03 310);
   --fg:            oklch(0.94 0.01 310);
   --fg-2:          oklch(0.86 0.01 310);
-  --muted:         oklch(0.68 0.02 310);
+  --muted:         oklch(0.56 0.02 310);
   --accent:        oklch(0.55 0.20 310);
   --accent-hover:  oklch(0.62 0.20 310);
   --accent-soft:   oklch(0.55 0.20 310 / 0.20);
@@ -161,11 +161,11 @@ input[type="password"]::-ms-reveal { display: none; }
   --border-soft:   oklch(0.31 0.02 150);
   --fg:            oklch(0.92 0.01 150);
   --fg-2:          oklch(0.84 0.01 150);
-  --muted:         oklch(0.66 0.02 150);
+  --muted:         oklch(0.56 0.02 150);
   --accent:        oklch(0.72 0.14 150);
   --accent-hover:  oklch(0.78 0.14 150);
   --accent-soft:   oklch(0.72 0.14 150 / 0.15);
-  --accent-fg:     oklch(0.18 0.02 150);
+  --accent-fg:     oklch(0.98 0.005 0);
   --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.30), 0 1px 2px oklch(0 0 0 / 0.20);
   --shadow-md:     0 4px 12px oklch(0 0 0 / 0.45), 0 2px 4px oklch(0 0 0 / 0.28);
   --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.60), 0 4px 8px oklch(0 0 0 / 0.35);
@@ -332,8 +332,6 @@ input[type="password"]::-ms-reveal { display: none; }
   [data-tauri-drag-region] { -webkit-app-region: drag; app-region: drag; cursor: default; }
   .no-drag { -webkit-app-region: no-drag; app-region: no-drag; }
 
-  /* Hotkey listening pulse — keyframe animation applied as a class */
-  .hotkey-listening { animation: hotkey-pulse 1.5s ease-in-out infinite; }
 }
 
 /* ── Component classes (shadcn slot overrides) ───────────────────── */
@@ -470,15 +468,4 @@ input[type="password"]::-ms-reveal { display: none; }
   }
 }
 
-/* ── Keyframes ───────────────────────────────────────────────────── */
-@keyframes spin { to { transform: rotate(360deg); } }
 
-@keyframes db-pulse {
-  0%, 100% { opacity: 0.5; transform: scale(1); }
-  50%       { opacity: 0.15; transform: scale(1.35); }
-}
-
-@keyframes hotkey-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px var(--accent-soft); }
-  50%       { box-shadow: 0 0 0 5px var(--accent-soft); }
-}

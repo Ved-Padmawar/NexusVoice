@@ -802,6 +802,8 @@ pub fn get_downloaded_models(state: State<'_, AppState>) -> Vec<DownloadedModel>
     let active_size = select_model_size(active_backend, active_override.as_deref());
 
     let all: &[(&str, ModelSize)] = &[
+        ("tiny",   ModelSize::Tiny),
+        ("base",   ModelSize::Base),
         ("small",  ModelSize::Small),
         ("medium", ModelSize::Medium),
         ("large",  ModelSize::Large),
@@ -820,7 +822,7 @@ pub fn get_downloaded_models(state: State<'_, AppState>) -> Vec<DownloadedModel>
     }).collect()
 }
 
-/// Delete a downloaded model file by variant ("small" | "medium" | "large").
+/// Delete a downloaded model file by variant ("tiny" | "base" | "small" | "medium" | "large").
 /// Refuses to delete the currently active model.
 #[tauri::command]
 pub async fn delete_model(
@@ -830,10 +832,12 @@ pub async fn delete_model(
     use crate::inference::provider::{detect_backend, select_model_size, ModelSize};
 
     let size = match variant.as_str() {
+        "tiny"   => ModelSize::Tiny,
+        "base"   => ModelSize::Base,
         "small"  => ModelSize::Small,
         "medium" => ModelSize::Medium,
         "large"  => ModelSize::Large,
-        _ => return Err(ApiError::new("invalid_variant", "variant must be small, medium, or large")),
+        _ => return Err(ApiError::new("invalid_variant", "variant must be tiny, base, small, medium, or large")),
     };
 
     let active_override = state.load_model_override();
@@ -1024,17 +1028,17 @@ pub async fn get_hardware_profile() -> Result<HardwareProfileResponse, ApiError>
 // Model override commands
 // ---------------------------------------------------------------------------
 
-/// Set model size override ("large" | "medium"). Clears the cached engine
-/// so the next transcription reloads with the chosen model.
+/// Set model size override ("tiny" | "base" | "small" | "medium" | "large").
+/// Clears the cached engine so the next transcription reloads with the chosen model.
 #[tauri::command]
 pub async fn set_model_override(
     state: State<'_, AppState>,
     variant: String,
 ) -> Result<(), ApiError> {
-    if variant != "large" && variant != "medium" && variant != "small" {
+    if !matches!(variant.as_str(), "tiny" | "base" | "small" | "medium" | "large") {
         return Err(ApiError::new(
             "invalid_variant",
-            "variant must be 'large', 'medium', or 'small'",
+            "variant must be 'tiny', 'base', 'small', 'medium', or 'large'",
         ));
     }
     state

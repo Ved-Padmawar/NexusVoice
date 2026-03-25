@@ -1,4 +1,5 @@
 import { memo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Check } from 'lucide-react'
 import { useAppStore, type ThemeName } from '../../store/useAppStore'
 
@@ -20,36 +21,41 @@ function ThemePreview({ bg, panel, accent, border, surface, muted }: {
   bg: string; panel: string; accent: string; border: string; surface: string; muted: string
 }) {
   return (
-    <svg viewBox="0 0 120 72" xmlns="http://www.w3.org/2000/svg" className="w-full block rounded-t-[var(--r-md)]">
-      <rect width="120" height="72" fill={bg} />
-      <rect x="0" y="0" width="120" height="9" fill={panel} />
-      <circle cx="6" cy="4.5" r="1.8" fill={muted} opacity="0.6" />
-      <circle cx="11" cy="4.5" r="1.8" fill={muted} opacity="0.6" />
-      <circle cx="16" cy="4.5" r="1.8" fill={muted} opacity="0.6" />
-      <rect x="42" y="3" width="36" height="3" rx="1.5" fill={border} opacity="0.7" />
-      <rect x="0" y="9" width="28" height="63" fill={panel} />
-      <rect x="0" y="9" width="28" height="63" fill="none" stroke={border} strokeWidth="0.5" />
-      <rect x="4" y="16" width="3" height="3" rx="1" fill={accent} opacity="0.9" />
-      <rect x="10" y="17" width="14" height="2" rx="1" fill={accent} opacity="0.5" />
-      <rect x="4" y="24" width="3" height="3" rx="1" fill={muted} opacity="0.5" />
-      <rect x="10" y="25" width="12" height="2" rx="1" fill={muted} opacity="0.3" />
-      <rect x="4" y="32" width="3" height="3" rx="1" fill={muted} opacity="0.5" />
-      <rect x="10" y="33" width="10" height="2" rx="1" fill={muted} opacity="0.3" />
-      <rect x="32" y="14" width="22" height="3" rx="1.5" fill={muted} opacity="0.5" />
-      <rect x="32" y="22" width="20" height="12" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
-      <rect x="55" y="22" width="20" height="12" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
-      <rect x="78" y="22" width="20" height="12" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
-      <rect x="101" y="22" width="15" height="12" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
-      <rect x="35" y="28" width="14" height="3" rx="1" fill={accent} opacity="0.85" />
-      <rect x="58" y="28" width="14" height="3" rx="1" fill={accent} opacity="0.6" />
-      <rect x="81" y="28" width="14" height="3" rx="1" fill={accent} opacity="0.4" />
-      <rect x="104" y="28" width="9" height="3" rx="1" fill={accent} opacity="0.25" />
-      <rect x="32" y="38" width="84" height="28" rx="2" fill={surface} stroke={border} strokeWidth="0.5" />
-      <rect x="36" y="43" width="40" height="2" rx="1" fill={muted} opacity="0.4" />
-      <rect x="36" y="48" width="60" height="2" rx="1" fill={muted} opacity="0.25" />
-      <rect x="36" y="53" width="50" height="2" rx="1" fill={muted} opacity="0.2" />
-      <rect x="36" y="58" width="30" height="2" rx="1" fill={accent} opacity="0.35" />
-    </svg>
+    <div className="relative h-[78px] w-full overflow-hidden rounded-t-[var(--r-md)]" style={{ background: bg }}>
+      {/* Titlebar */}
+      <div className="flex h-[9px] items-center gap-[2px] px-1" style={{ background: panel }}>
+        <div className="size-[3px] rounded-full opacity-50" style={{ background: muted }} />
+        <div className="size-[3px] rounded-full opacity-50" style={{ background: muted }} />
+        <div className="size-[3px] rounded-full opacity-50" style={{ background: muted }} />
+        <div className="ml-auto h-[3px] w-[28px] rounded-full opacity-60" style={{ background: border }} />
+      </div>
+      {/* Sidebar */}
+      <div className="absolute bottom-0 left-0 top-[9px] w-[22px]" style={{ background: panel, borderRight: `0.5px solid ${border}` }}>
+        <div className="mx-[3px] mt-[5px] h-[2px] w-[10px] rounded-[1px] opacity-70" style={{ background: accent }} />
+        <div className="mx-[3px] mt-1 h-[2px] w-[8px] rounded-[1px] opacity-30" style={{ background: muted }} />
+        <div className="mx-[3px] mt-1 h-[2px] w-[9px] rounded-[1px] opacity-30" style={{ background: muted }} />
+      </div>
+      {/* Content */}
+      <div className="absolute bottom-1 left-[26px] right-1 top-[13px]">
+        <div className="mb-1 h-[2.5px] w-[55%] rounded-[1px] opacity-40" style={{ background: muted }} />
+        <div className="mb-1 flex gap-[3px]">
+          <div className="flex h-[11px] flex-1 items-end justify-center rounded-[2px] pb-[1.5px]" style={{ background: surface, border: `0.5px solid ${border}` }}>
+            <div className="h-[2px] w-[60%] rounded-[1px] opacity-70" style={{ background: accent }} />
+          </div>
+          <div className="flex h-[11px] flex-1 items-end justify-center rounded-[2px] pb-[1.5px]" style={{ background: surface, border: `0.5px solid ${border}` }}>
+            <div className="h-[2px] w-[55%] rounded-[1px] opacity-40" style={{ background: accent }} />
+          </div>
+          <div className="flex h-[11px] flex-1 items-end justify-center rounded-[2px] pb-[1.5px]" style={{ background: surface, border: `0.5px solid ${border}` }}>
+            <div className="h-[2px] w-[50%] rounded-[1px] opacity-25" style={{ background: accent }} />
+          </div>
+        </div>
+        <div className="rounded-[2px] p-[3px] px-1" style={{ background: surface, border: `0.5px solid ${border}`, height: 'calc(100% - 18px)' }}>
+          <div className="mb-[3px] h-[1.5px] w-[50%] rounded-[1px] opacity-35" style={{ background: muted }} />
+          <div className="mb-[3px] h-[1.5px] w-[70%] rounded-[1px] opacity-20" style={{ background: muted }} />
+          <div className="h-[1.5px] w-[35%] rounded-[1px] opacity-30" style={{ background: accent }} />
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -67,22 +73,49 @@ export const GeneralTab = memo(function GeneralTab() {
           return (
             <div key={mode} className="mb-5 last:mb-0">
               <p className="text-[10px] font-semibold text-[var(--muted)] uppercase tracking-[0.06em] mb-2">{mode === 'dark' ? 'Dark' : 'Light'}</p>
-              <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(4, 120px)' }}>
+              <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(4, minmax(120px, 160px))' }}>
                 {group.map((t) => {
                   const active = theme === t.name
                   return (
-                    <button
+                    <motion.button
                       key={t.name}
                       type="button"
-                      className={`flex flex-col p-0 rounded-[var(--r-md)] border-[1.5px] bg-[var(--surface)] cursor-pointer text-left overflow-hidden transition-all duration-[var(--t-fast)] hover:-translate-y-px hover:shadow-[var(--shadow-md)] ${active ? 'border-[var(--accent)] shadow-[0_0_0_1px_var(--accent)]' : 'border-[var(--border-soft)] hover:border-[var(--border)]'}`}
+                      className="flex flex-col p-0 rounded-[var(--r-md)] border-[1.5px] cursor-pointer text-left overflow-hidden"
                       onClick={() => setTheme(t.name)}
+                      initial={false}
+                      animate={{
+                        borderColor: active ? 'var(--accent)' : 'var(--border-soft)',
+                        boxShadow: active ? '0 0 0 1px var(--accent)' : '0 0 0 0px transparent',
+                        backgroundColor: 'var(--surface)',
+                      }}
+                      whileHover={{ y: -1, boxShadow: active ? '0 0 0 1px var(--accent)' : 'var(--shadow-md)' }}
+                      whileTap={{ scale: 0.99 }}
+                      transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
                     >
                       <ThemePreview bg={t.bg} panel={t.panel} accent={t.accent} border={t.border} surface={t.surface} muted={t.muted} />
                       <div className="flex items-center justify-between px-[6px] py-[4px]">
-                        <span className={`text-[10px] font-semibold tracking-[-0.01em] ${active ? 'text-[var(--accent)]' : 'text-[var(--fg)]'}`}>{t.label}</span>
-                        {active && <Check size={8} strokeWidth={3.5} className="text-[var(--accent)] flex-shrink-0" />}
+                        <motion.span
+                          className="text-[10px] font-semibold tracking-[-0.01em]"
+                          initial={false}
+                          animate={{ color: active ? 'var(--accent)' : 'var(--fg)' }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          {t.label}
+                        </motion.span>
+                        <AnimatePresence>
+                          {active && (
+                            <motion.span
+                              initial={{ scale: 0, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              exit={{ scale: 0, opacity: 0 }}
+                              transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
+                            >
+                              <Check size={8} strokeWidth={3.5} className="text-[var(--accent)] flex-shrink-0" />
+                            </motion.span>
+                          )}
+                        </AnimatePresence>
                       </div>
-                    </button>
+                    </motion.button>
                   )
                 })}
               </div>
