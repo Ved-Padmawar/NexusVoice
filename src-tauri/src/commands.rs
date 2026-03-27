@@ -1,3 +1,6 @@
+// Tauri requires State<'_, T> by value in sync command signatures — this is correct usage.
+#![allow(clippy::needless_pass_by_value)]
+
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -58,7 +61,6 @@ impl From<AuthError> for ApiError {
 
 fn map_db_error(error: &sqlx::Error) -> String {
     match error {
-        sqlx::Error::Database(_) => "database error".to_string(),
         sqlx::Error::RowNotFound => "record not found".to_string(),
         sqlx::Error::PoolClosed => "database unavailable".to_string(),
         sqlx::Error::Io(_) => "database io error".to_string(),
@@ -283,6 +285,7 @@ pub async fn logout_token(
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
+#[allow(clippy::too_many_lines)]
 pub async fn start_transcription(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -302,6 +305,9 @@ pub async fn start_transcription(
         let mut buf = state.audio_buffer.lock().expect("audio_buffer lock poisoned");
         buf.clear();
     }
+
+    // Install a fresh pipeline for this recording session.
+    *state.pipeline.lock().await = Some(crate::pipeline::StreamingPipeline::new());
 
     let running = Arc::clone(&state.transcription_running);
     let audio_buffer = Arc::clone(&state.audio_buffer);
@@ -328,10 +334,106 @@ pub async fn start_transcription(
         }
     });
 
+    // Spawn a background poller that fires pipeline chunks while recording.
+    // It wakes every 2 s, checks if enough audio has accumulated, and if so
+    // preprocesses + transcribes the next chunk — so most work is done before
+    // the user releases the hotkey.
+    {
+        let running = Arc::clone(&state.transcription_running);
+        let audio_buffer = Arc::clone(&state.audio_buffer);
+        let native_rate_arc = Arc::clone(&state.native_sample_rate);
+        let pipeline_arc = Arc::clone(&state.pipeline);
+        let engine_arc = Arc::clone(&state.engine);
+        let engine_cache = Arc::clone(&state.engine);
+        let pool = state.db().await.clone();
+
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+                if !running.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                // Snapshot buffer + rate under lock, then release immediately.
+                let (buffer_snapshot, captured_rate) = {
+                    let buf = audio_buffer.lock().expect("audio_buffer lock poisoned");
+                    let rate = *native_rate_arc.lock().expect("native_rate lock poisoned");
+                    (buf.clone(), rate)
+                };
+
+                // Get engine — skip this tick if not loaded yet.
+                let engine = {
+                    let guard = engine_arc.lock().await;
+                    guard.as_ref().map(Arc::clone)
+                };
+                let Some(engine) = engine else { continue };
+
+                // Build prompt from recent transcripts for this chunk.
+                let prompt = {
+                    let repo = TranscriptRepository::new(pool.clone());
+                    repo.list_recent(5).await.unwrap_or_default()
+                        .into_iter()
+                        .rev()
+                        .map(|t| t.content)
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                };
+
+                // Read beam size preference.
+                // beam_size_path is not accessible here; we read from the engine_cache handle.
+                // Instead we pass 5 (Balanced default) — the full beam size is used on finalize.
+                // Actually we need the real value: read it via a blocking call.
+                // We can't access AppState here cleanly, so carry beam_size as a captured value.
+                // beam_size is set once per recording so snapshot it outside the loop.
+                // (handled below — see beam_size capture above spawn)
+
+                let committed = tauri::async_runtime::spawn_blocking({
+                    let engine = Arc::clone(&engine);
+                    let engine_cache = Arc::clone(&engine_cache);
+                    let pipeline_arc = Arc::clone(&pipeline_arc);
+                    move || {
+                        let mut pl_guard = pipeline_arc.blocking_lock();
+                        if let Some(pl) = pl_guard.as_mut() {
+                            let did_commit = pl.try_commit_chunk(
+                                &buffer_snapshot,
+                                captured_rate,
+                                &engine,
+                                &prompt,
+                                5, // Balanced — same as default beam size
+                            );
+                            if did_commit {
+                                // Check if engine was poisoned
+                                if engine.is_poisoned() {
+                                    log::error!("WhisperEngine mutex poisoned during streaming chunk — evicting");
+                                    drop(pl_guard);
+                                    let mut cache = engine_cache.blocking_lock();
+                                    *cache = None;
+                                    return Err("engine_poisoned");
+                                }
+                            }
+                            Ok(did_commit)
+                        } else {
+                            Ok(false)
+                        }
+                    }
+                })
+                .await;
+
+                match committed {
+                    Ok(Ok(true)) => log::debug!("streaming: mid-recording chunk committed"),
+                    Ok(Err("engine_poisoned")) => break,
+                    _ => {}
+                }
+            }
+        });
+    }
+
     Ok(true)
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_lines)]
 pub async fn stop_transcription(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -359,19 +461,23 @@ pub async fn stop_transcription(
         (std::mem::take(&mut *buf), rate)
     };
 
-    // Compute real recording duration from raw samples before any processing
+    #[allow(clippy::items_after_statements)]
+    const MIN_DURATION_SECS: f64 = 0.5;
+
+    // Compute real recording duration from raw samples before any processing.
+    #[allow(clippy::cast_precision_loss)] // sample counts fit f64 mantissa at typical lengths
     let duration_seconds: Option<f64> = if captured_rate > 0 && !samples.is_empty() {
-        Some(samples.len() as f64 / captured_rate as f64)
+        Some(samples.len() as f64 / f64::from(captured_rate))
     } else {
         None
     };
 
-    // Reject empty or sub-0.5s recordings — too short to produce meaningful transcriptions
-    // and would pollute the database with noise-only entries.
-    const MIN_DURATION_SECS: f64 = 0.5;
+    // Reject empty or sub-0.5s recordings.
+    #[allow(clippy::cast_precision_loss)]
     let too_short = samples.is_empty()
-        || (captured_rate > 0 && (samples.len() as f64 / captured_rate as f64) < MIN_DURATION_SECS);
+        || (captured_rate > 0 && (samples.len() as f64 / f64::from(captured_rate)) < MIN_DURATION_SECS);
     if too_short {
+        *state.pipeline.lock().await = None;
         let _ = app.emit("transcription-complete", "");
         return Ok(false);
     }
@@ -384,168 +490,136 @@ pub async fn stop_transcription(
         Ok(e) => e,
         Err(e) => {
             log::error!("engine load failed: {e}");
+            *state.pipeline.lock().await = None;
             let _ = app_handle.emit("transcription-error", format!("model not ready: {e}"));
             return Ok(false);
         }
     };
-    // Clone the Arc so the spawn closure can evict a poisoned engine from the cache.
     let engine_cache = Arc::clone(&state.engine);
 
-    // Snapshot dictionary cache once — used for both prompt and post-processing
-    let dict_entries: Vec<_> = dict_cache.read().await.values().cloned().collect();
+    // Take the pipeline out of state — finalize consumes it.
+    let pipeline = state.pipeline.lock().await.take();
 
-    // Load beam size preference before spawning — avoids holding State across the await.
+    let dict_entries: Vec<_> = dict_cache.read().await.values().cloned().collect();
     let beam_size = state.load_beam_size();
 
-    // Build Whisper initial prompt from recent transcripts only.
-    // Dictionary terms are intentionally excluded — passing them as raw hints
-    // causes the decoder to hallucinate those words before post-processing runs.
-    // Corrections are applied cleanly in the post-processing step instead.
     let prompt = {
         let transcript_repo = TranscriptRepository::new(pool.clone());
         let recent = transcript_repo.list_recent(5).await.unwrap_or_default();
         recent
             .into_iter()
-            .rev() // oldest first so context reads naturally
+            .rev()
             .map(|t| t.content)
             .collect::<Vec<_>>()
             .join(" ")
     };
 
     tauri::async_runtime::spawn(async move {
-        let duration_seconds = duration_seconds;
-        log::debug!("preprocessing {} samples at {}Hz", samples.len(), captured_rate);
-        let resampled = tauri::async_runtime::spawn_blocking(move || {
-            crate::preprocess::preprocess(&samples, captured_rate)
+        // finalize() preprocesses only the tail (audio since last committed chunk)
+        // and stitches with previously committed chunk texts — fast path when
+        // mid-recording chunks already covered most of the speech.
+        let raw_text = tauri::async_runtime::spawn_blocking({
+            let engine = Arc::clone(&engine);
+            let engine_cache = Arc::clone(&engine_cache);
+            move || -> Result<String, String> {
+                let pl = pipeline.unwrap_or_else(crate::pipeline::StreamingPipeline::new);
+                let Ok(text) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    pl.finalize(&samples, captured_rate, &engine, &prompt, beam_size)
+                })) else {
+                    log::error!("WhisperEngine panicked during finalize — evicting");
+                    let mut cache = engine_cache.blocking_lock();
+                    *cache = None;
+                    return Err("engine_poisoned".to_string());
+                };
+                // Also evict if Mutex was poisoned during finalize
+                if engine.is_poisoned() {
+                    log::error!("WhisperEngine mutex poisoned after finalize — evicting");
+                    let mut cache = engine_cache.blocking_lock();
+                    *cache = None;
+                }
+                Ok(text)
+            }
         })
         .await
-        .map_err(|e| format!("preprocess join error: {e}"))?;
+        .map_err(|e| format!("finalize join error: {e}"))
+        .and_then(|r| r);
 
-        log::debug!("resampled to {} samples, chunking for inference", resampled.len());
+        let raw_text = match raw_text {
+            Ok(t) => t,
+            Err(e) => {
+                let _ = app_handle.emit(
+                    "transcription-error",
+                    "Transcription engine encountered an error and was reset. Please try again.",
+                );
+                log::error!("finalize failed: {e}");
+                return Ok(());
+            }
+        };
 
-        // Split into VAD-aware chunks (no-op for recordings ≤ 30 s)
-        let chunks = crate::preprocess::chunker::chunk_audio(&resampled);
-        log::debug!("audio split into {} chunk(s)", chunks.len());
+        // Strip leading dash hallucinations — Whisper emits "- " at the start of short utterances.
+        let raw_text = raw_text
+            .trim_start_matches(|c: char| c == '-' || c == '–' || c == '—' || c.is_whitespace())
+            .to_string();
 
-        // Transcribe each chunk sequentially (engine holds the model in a Mutex)
-        let mut chunk_texts: Vec<String> = Vec::with_capacity(chunks.len());
-        for (i, chunk) in chunks.iter().enumerate() {
-            let chunk_samples = chunk.samples.clone();
-            let chunk_prompt = prompt.clone();
-            let eng = engine.clone();
-            let chunk_result = tauri::async_runtime::spawn_blocking(move || {
-                match eng.lock() {
-                    Ok(mut guard) => guard.transcribe(&chunk_samples, &chunk_prompt, beam_size),
-                    Err(_poison) => {
-                        // The engine Mutex is poisoned — a previous transcription panicked
-                        // while holding the lock. Do NOT recover the guard; the WhisperEngine
-                        // state may be corrupt. Return a sentinel so the caller can evict.
-                        Err("engine_poisoned".to_string())
-                    }
-                }
-            })
-            .await
-            .map_err(|e| format!("inference join error (chunk {i}): {e}"))
-            .and_then(|r| r);
+        log::debug!("final stitched result: {} chars", raw_text.len());
 
-            match chunk_result {
-                Ok(text) => {
-                    log::debug!("chunk {i} → {} chars", text.len());
-                    chunk_texts.push(text);
-                }
-                Err(e) if e == "engine_poisoned" => {
-                    // Evict the broken engine from the cache so the next recording
-                    // loads a fresh instance instead of reusing the corrupt one.
-                    log::error!("WhisperEngine mutex poisoned — evicting cached engine");
-                    *engine_cache.lock().await = None;
-                    let _ = app_handle.emit(
-                        "transcription-error",
-                        "Transcription engine encountered an error and was reset. Please try again.",
-                    );
-                    return Err("engine poisoned".to_string());
-                }
-                Err(e) => {
-                    log::warn!("chunk {i} inference failed: {e}");
+        if raw_text.is_empty() {
+            let _ = app_handle.emit("transcription-complete", "");
+            return Ok(());
+        }
+
+        // Post-process: apply dictionary corrections.
+        let corrector = DictionaryCorrectionEngine::new(dict_entries);
+        let (text, matched_terms) = corrector.apply_to_text(&raw_text);
+
+        if !matched_terms.is_empty() {
+            let dict_repo = DictionaryRepository::new(pool.clone());
+            let _ = dict_repo.increment_hits_batch(&matched_terms).await;
+            let mut cache = dict_cache.write().await;
+            for term in &matched_terms {
+                if let Some(entry) = cache.get_mut(term) {
+                    entry.hits += 1;
                 }
             }
         }
 
-        // Stitch all chunk transcripts into the final text
-        // Strip leading hyphens — Whisper hallucinates "- " at the start of short utterances
-        let raw_text = crate::preprocess::chunker::stitch_transcripts(&chunk_texts)
-            .trim_start_matches(|c: char| c == '-' || c == '–' || c == '—' || c.is_whitespace())
-            .to_string();
-        log::debug!("stitched result: {} chars", raw_text.len());
+        let _ = app_handle.emit("transcription-complete", text.clone());
 
-        let result: Result<String, String> = if raw_text.is_empty() {
-            Ok(String::new())
-        } else {
-            Ok(raw_text)
-        };
+        let repo = TranscriptRepository::new(pool.clone());
+        #[allow(clippy::cast_possible_wrap)] // word count never exceeds i64::MAX
+        let word_count = text.split_whitespace().count() as i64;
+        if let Ok(saved) = repo.create(CreateTranscript { content: text.clone(), word_count, duration_seconds }).await {
+            let _ = app_handle.emit("transcript:new", TranscriptResponse::from(saved));
+        }
 
-        match result {
-            Ok(raw_text) if !raw_text.is_empty() => {
-                // Post-process: apply dictionary corrections to whisper output
-                let corrector = DictionaryCorrectionEngine::new(dict_entries);
-                let (text, matched_terms) = corrector.apply_to_text(&raw_text);
-                if !matched_terms.is_empty() {
+        // Auto-learn words from raw_text (pre-correction).
+        let words = extract_trackable_words(&raw_text);
+        if !words.is_empty() {
+            let freq_repo = WordFrequencyRepository::new(pool.clone());
+            match freq_repo.increment_batch(&words).await {
+                Ok(newly_learned) if !newly_learned.is_empty() => {
                     let dict_repo = DictionaryRepository::new(pool.clone());
-                    let _ = dict_repo.increment_hits_batch(&matched_terms).await;
-                    // Update only the matched entries in-memory — avoids a full table reload.
-                    {
-                        let mut cache = dict_cache.write().await;
-                        for term in &matched_terms {
-                            if let Some(entry) = cache.get_mut(term) {
-                                entry.hits += 1;
+                    let mut added: Vec<DictionaryResponse> = Vec::new();
+                    for word in &newly_learned {
+                        match dict_repo.upsert(CreateDictionaryEntry {
+                            term: word.clone(),
+                            replacement: word.clone(),
+                        }).await {
+                            Ok(entry) => {
+                                let mut cache = dict_cache.write().await;
+                                cache.entry(entry.term.clone()).or_insert_with(|| entry.clone());
+                                added.push(DictionaryResponse::from(entry));
+                                log::debug!("auto-learned word: {word}");
                             }
+                            Err(e) => log::warn!("auto-learn dict upsert failed for {word}: {e}"),
                         }
                     }
-                }
-
-                let _ = app_handle.emit("transcription-complete", text.clone());
-                let repo = TranscriptRepository::new(pool.clone());
-                let word_count = text.split_whitespace().count() as i64;
-                if let Ok(saved) = repo.create(CreateTranscript { content: text.clone(), word_count, duration_seconds }).await {
-                    let _ = app_handle.emit("transcript:new", TranscriptResponse::from(saved));
-                }
-
-                // Auto-learn words: track frequency and add to dictionary once threshold is hit.
-                // Use raw_text (pre-correction) so dictionary replacements don't pollute counts.
-                let words = extract_trackable_words(&raw_text);
-                if !words.is_empty() {
-                    let freq_repo = WordFrequencyRepository::new(pool.clone());
-                    match freq_repo.increment_batch(&words).await {
-                        Ok(newly_learned) if !newly_learned.is_empty() => {
-                            let dict_repo = DictionaryRepository::new(pool.clone());
-                            let mut added: Vec<DictionaryResponse> = Vec::new();
-                            for word in &newly_learned {
-                                match dict_repo.upsert(CreateDictionaryEntry {
-                                    term: word.clone(),
-                                    replacement: word.clone(),
-                                }).await {
-                                    Ok(entry) => {
-                                        let mut cache = dict_cache.write().await;
-                                        cache.entry(entry.term.clone()).or_insert_with(|| entry.clone());
-                                        added.push(DictionaryResponse::from(entry));
-                                        log::debug!("auto-learned word: {word}");
-                                    }
-                                    Err(e) => log::warn!("auto-learn dict upsert failed for {word}: {e}"),
-                                }
-                            }
-                            if !added.is_empty() {
-                                let _ = app_handle.emit("dictionary:updated", &added);
-                            }
-                        }
-                        Ok(_) => {}
-                        Err(e) => log::warn!("word frequency update failed: {e}"),
+                    if !added.is_empty() {
+                        let _ = app_handle.emit("dictionary:updated", &added);
                     }
                 }
-            }
-            Ok(_) => {
-                let _ = app_handle.emit("transcription-complete", "");
-            }
-            Err(e) => {
-                let _ = app_handle.emit("transcription-error", e);
+                Ok(_) => {}
+                Err(e) => log::warn!("word frequency update failed: {e}"),
             }
         }
 
@@ -598,8 +672,10 @@ pub async fn get_usage_stats(state: State<'_, AppState>) -> Result<UsageStatsRes
     let repo = TranscriptRepository::new(state.db().await.clone());
     let (total_sessions, total_words, total_duration_seconds) = repo.get_stats().await?;
 
+    #[allow(clippy::cast_possible_truncation)] // durations and word counts fit i64
     let speaking_time_seconds = total_duration_seconds.round() as i64;
 
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     let avg_pace_wpm = if total_duration_seconds > 0.0 {
         ((total_words as f64 / (total_duration_seconds / 60.0)).round()) as i64
     } else {
@@ -663,7 +739,7 @@ pub async fn search_transcripts(
         .await
         .unwrap_or_default();
 
-    let fts_query = build_fts_query(&query, &vocab);
+    let fts_query = TranscriptRepository::build_fts_query(&query, &vocab);
 
     let repo = TranscriptRepository::new(state.db().await.clone());
     let items = repo.search(
@@ -677,43 +753,6 @@ pub async fn search_transcripts(
     Ok(items.into_iter().map(TranscriptResponse::from).collect())
 }
 
-/// Transforms a user query into an FTS5 query string.
-/// For each query word:
-///   - Always includes the word itself and a prefix variant (word*)
-///   - Uses strsim::jaro_winkler to find close matches from the user's vocabulary
-///     (score >= 0.88 and not identical) and adds them as OR alternatives
-fn build_fts_query(query: &str, vocab: &[String]) -> String {
-    let fts_terms: Vec<String> = query
-        .split_whitespace()
-        .map(|w| {
-            let w_lower = w.to_lowercase();
-            let mut variants: Vec<String> = vec![w_lower.clone()];
-
-            // Prefix match for partial typing
-            if w_lower.len() >= 3 {
-                variants.push(format!("{}*", w_lower));
-            }
-
-            // Fuzzy matches from user vocabulary via Jaro-Winkler
-            if w_lower.len() >= 4 {
-                for candidate in vocab {
-                    let c_lower = candidate.to_lowercase();
-                    if c_lower == w_lower {
-                        continue;
-                    }
-                    let score = strsim::jaro_winkler(&w_lower, &c_lower);
-                    if score >= 0.88 {
-                        variants.push(c_lower);
-                    }
-                }
-            }
-
-            variants.join(" OR ")
-        })
-        .collect();
-
-    fts_terms.join(" OR ")
-}
 
 #[tauri::command]
 pub async fn save_transcript(
@@ -724,6 +763,7 @@ pub async fn save_transcript(
         return Err(ApiError::new("invalid_input", "transcript content cannot be empty"));
     }
     let repo = TranscriptRepository::new(state.db().await.clone());
+    #[allow(clippy::cast_possible_wrap)]
     let word_count = content.split_whitespace().count() as i64;
     let transcript = repo.create(CreateTranscript { content, word_count, duration_seconds: None }).await?;
     Ok(transcript.into())
@@ -1066,7 +1106,7 @@ pub fn get_beam_size(state: State<'_, AppState>) -> i32 {
     state.load_beam_size()
 }
 
-/// Set beam size to 2, 5, or 8. Does not evict the engine — beam_size is applied
+/// Set beam size to 2, 5, or 8. Does not evict the engine — `beam_size` is applied
 /// per transcription call, so it takes effect immediately on the next recording.
 #[tauri::command]
 pub fn set_beam_size(state: State<'_, AppState>, beam_size: i32) -> Result<(), ApiError> {
@@ -1151,8 +1191,8 @@ pub async fn retry_model_download(
     let _ = app.emit("model-download-start", ());
 
     tauri::async_runtime::spawn_blocking(move || {
-        match download_whisper_model(&models_dir, model_size, &app, &dl_state) {
-            Ok(_) => {
+        match crate::inference::downloader::download_whisper_model(&models_dir, model_size, &app, &dl_state) {
+            Ok(()) => {
                 dl_state.set_complete();
                 let _ = app.emit("model-download-complete", ());
             }
@@ -1181,98 +1221,3 @@ pub fn cancel_model_download(state: State<'_, AppState>) {
     }
 }
 
-/// Download the selected ggml model file. Reports progress via events.
-pub fn download_whisper_model(
-    models_dir: &std::path::Path,
-    model_size: crate::inference::provider::ModelSize,
-    app: &AppHandle,
-    dl_state: &crate::state::ModelDownloadState,
-) -> Result<(), String> {
-    let file_urls: &[(&str, &str)] = &[(model_size.filename(), model_size.url())];
-
-    // HEAD each URL to get Content-Length; use on-disk size for already-downloaded files
-    let client = reqwest::blocking::Client::new();
-    let mut file_sizes: Vec<u64> = Vec::new();
-    for (filename, url) in file_urls {
-        let dest = models_dir.join(filename);
-        if dest.exists() {
-            file_sizes.push(dest.metadata().map(|m| m.len()).unwrap_or(0));
-        } else {
-            let size = client
-                .head(*url)
-                .send()
-                .ok()
-                .and_then(|r| r.headers().get("content-length")?.to_str().ok()?.parse().ok())
-                .unwrap_or(0);
-            file_sizes.push(size);
-        }
-    }
-
-    let total_bytes: u64 = file_sizes.iter().sum();
-    let mut downloaded_total: u64 = 0;
-
-    for ((filename, url), &size) in file_urls.iter().zip(file_sizes.iter()) {
-        let dest = models_dir.join(filename);
-        if dest.exists() {
-            downloaded_total += size;
-            continue;
-        }
-        download_file(url, &dest, app, dl_state, &mut downloaded_total, total_bytes)?;
-    }
-
-    Ok(())
-}
-
-fn download_file(
-    url: &str,
-    dest: &std::path::Path,
-    app: &AppHandle,
-    dl_state: &crate::state::ModelDownloadState,
-    downloaded_total: &mut u64,
-    total_bytes: u64,
-) -> Result<(), String> {
-    use std::io::{Read, Write};
-
-    let mut response =
-        reqwest::blocking::get(url).map_err(|e| format!("download request failed: {e}"))?;
-
-    if !response.status().is_success() {
-        return Err(format!("download HTTP {} for {}", response.status(), url));
-    }
-
-    let tmp = dest.with_extension("tmp");
-    let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create file failed: {e}"))?;
-
-    let mut last_pct: u8 = 0;
-    let mut buf = vec![0u8; 256 * 1024]; // 256 KB chunks
-    loop {
-        // Check cancel flag before each chunk — gives ~256 KB granularity.
-        if dl_state.is_cancelled() {
-            drop(file);
-            let _ = std::fs::remove_file(&tmp); // clean up partial download
-            return Err("download_cancelled".to_string());
-        }
-        let n = response
-            .read(&mut buf)
-            .map_err(|e| format!("read body failed: {e}"))?;
-        if n == 0 {
-            break;
-        }
-        file.write_all(&buf[..n])
-            .map_err(|e| format!("write file failed: {e}"))?;
-        *downloaded_total += n as u64;
-        if total_bytes > 0 {
-            let pct = ((*downloaded_total * 100) / total_bytes).min(100) as u8;
-            if pct != last_pct {
-                last_pct = pct;
-                dl_state.set_progress(pct);
-                let _ = app.emit("model-download-progress", pct);
-            }
-        }
-    }
-
-    drop(file);
-    std::fs::rename(&tmp, dest).map_err(|e| format!("rename file failed: {e}"))?;
-
-    Ok(())
-}

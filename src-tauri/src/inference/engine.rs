@@ -56,9 +56,11 @@ impl WhisperEngine {
         } else {
             samples_16k
         };
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        // clamp(1,4) guarantees the value fits i32 on any platform
         let n_threads = (std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4) / 2).clamp(1, 4) as i32; // cap at 4 — whisper.cpp degrades above 4-6 threads due to cache pressure
+            .map(std::num::NonZero::get)
+            .unwrap_or(4) / 2).clamp(1, 4) as i32;
 
         let beam_size = beam_size.clamp(1, 8);
         let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size, patience: 1.0 });

@@ -9,7 +9,7 @@ pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
         return samples.to_vec();
     }
 
-    let ratio = to_rate as f64 / from_rate as f64;
+    let ratio = f64::from(to_rate) / f64::from(from_rate);
 
     let params = SincInterpolationParameters {
         sinc_len: 256,
@@ -34,7 +34,9 @@ pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     let mut padded = samples.to_vec();
     padded.extend(std::iter::repeat_n(0.0f32, needed));
 
-    let mut out = Vec::with_capacity((padded.len() as f64 * ratio) as usize + 16);
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let capacity = (padded.len() as f64 * ratio) as usize + 16;
+    let mut out = Vec::with_capacity(capacity);
 
     for chunk in padded.chunks(chunk_size) {
         let waves_in = vec![chunk.to_vec()];
@@ -55,6 +57,7 @@ pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     }
 
     // Trim to the expected output length to remove zero-padding artifacts.
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let expected_len = (samples.len() as f64 * ratio).round() as usize;
     out.truncate(expected_len);
     out

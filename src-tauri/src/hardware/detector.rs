@@ -32,6 +32,7 @@ pub fn detect_profile<P: HardwareInfoProvider>(provider: &P) -> HardwareProfile 
 }
 
 fn bytes_to_gb(bytes: u64) -> f32 {
+    #[allow(clippy::cast_precision_loss)] // VRAM values fit f32 mantissa at GB scale
     let gb = bytes as f32 / 1_073_741_824.0;
     (gb * 10.0).round() / 10.0
 }
@@ -40,8 +41,7 @@ fn map_execution_provider(gpu: &GpuDescriptor) -> String {
     if let Some(vendor_id) = gpu.vendor_id {
         return match vendor_id {
             NVIDIA_VENDOR_ID => "cuda".to_string(),
-            AMD_VENDOR_ID => "vulkan".to_string(),
-            INTEL_VENDOR_ID => "vulkan".to_string(),
+            AMD_VENDOR_ID | INTEL_VENDOR_ID => "vulkan".to_string(),
             APPLE_VENDOR_ID => "metal".to_string(),
             _ => "cpu".to_string(),
         };

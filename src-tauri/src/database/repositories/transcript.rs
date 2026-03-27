@@ -36,7 +36,7 @@ impl TranscriptRepository {
         .await
     }
 
-    /// Returns (total_sessions, total_words, total_duration_seconds) via single aggregate query.
+    /// Returns (`total_sessions`, `total_words`, `total_duration_seconds`) via single aggregate query.
     pub async fn get_stats(&self) -> Result<(i64, i64, f64), sqlx::Error> {
         let row: (i64, i64, Option<f64>) = sqlx::query_as(
             "SELECT COUNT(*), COALESCE(SUM(word_count), 0), SUM(duration_seconds) FROM transcripts",
@@ -97,6 +97,44 @@ impl TranscriptRepository {
         )
         .fetch_all(&self.pool)
         .await
+    }
+
+    /// Transforms a user query into an FTS5 query string.
+    /// For each query word:
+    ///   - Always includes the word itself and a prefix variant (word*)
+    ///   - Uses `strsim::jaro_winkler` to find close matches from the user's vocabulary
+    ///     (score >= 0.88 and not identical) and adds them as OR alternatives
+    pub fn build_fts_query(query: &str, vocab: &[String]) -> String {
+        let fts_terms: Vec<String> = query
+            .split_whitespace()
+            .map(|w| {
+                let w_lower = w.to_lowercase();
+                let mut variants: Vec<String> = vec![w_lower.clone()];
+
+                // Prefix match for partial typing
+                if w_lower.len() >= 3 {
+                    variants.push(format!("{w_lower}*"));
+                }
+
+                // Fuzzy matches from user vocabulary via Jaro-Winkler
+                if w_lower.len() >= 4 {
+                    for candidate in vocab {
+                        let c_lower = candidate.to_lowercase();
+                        if c_lower == w_lower {
+                            continue;
+                        }
+                        let score = strsim::jaro_winkler(&w_lower, &c_lower);
+                        if score >= 0.88 {
+                            variants.push(c_lower);
+                        }
+                    }
+                }
+
+                variants.join(" OR ")
+            })
+            .collect();
+
+        fts_terms.join(" OR ")
     }
 
     /// FTS5 search with optional date range and sort order.

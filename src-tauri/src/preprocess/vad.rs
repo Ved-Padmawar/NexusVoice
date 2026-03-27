@@ -21,20 +21,16 @@ const MIN_SILENCE_FRAMES: usize = 15;
 /// padding, and concatenate into a single buffer ready for Whisper.
 /// Falls back to the full buffer if VAD init fails.
 pub fn extract_speech(samples: &[f32]) -> Vec<f32> {
-    let mut vad = match VoiceActivityDetector::builder()
+    let Ok(mut vad) = VoiceActivityDetector::builder()
         .sample_rate(VAD_SAMPLE_RATE)
         .chunk_size(VAD_CHUNK)
-        .build()
-    {
-        Ok(v) => v,
-        Err(_) => return samples.to_vec(),
-    };
+        .build() else { return samples.to_vec() };
 
     let predictions: Vec<(Vec<f32>, f32)> = samples
         .iter()
         .copied()
         .predict(&mut vad)
-        .map(|(chunk, prob)| (chunk.to_vec(), prob))
+        .map(|(chunk, prob)| (chunk.clone(), prob))
         .collect();
 
     let n = predictions.len();
@@ -59,7 +55,9 @@ pub fn extract_speech(samples: &[f32]) -> Vec<f32> {
         let mut mask = speech_mask.clone();
         let mut i = 0;
         while i < n {
-            if !speech_mask[i] {
+            if speech_mask[i] {
+                i += 1;
+            } else {
                 // Measure silence run length
                 let run_start = i;
                 while i < n && !speech_mask[i] {
@@ -70,8 +68,6 @@ pub fn extract_speech(samples: &[f32]) -> Vec<f32> {
                     // Short gap — treat as speech to bridge the pause
                     mask[run_start..i].fill(true);
                 }
-            } else {
-                i += 1;
             }
         }
         mask
@@ -103,7 +99,10 @@ fn trim_silence_rms(samples: &[f32]) -> Vec<f32> {
     }
     let windows: Vec<f32> = samples
         .chunks(WINDOW)
-        .map(|w| (w.iter().map(|&s| s * s).sum::<f32>() / w.len() as f32).sqrt())
+        .map(|w| {
+            #[allow(clippy::cast_precision_loss)] // window ≤ 160 samples, fits f32 exactly
+            (w.iter().map(|&s| s * s).sum::<f32>() / w.len() as f32).sqrt()
+        })
         .collect();
     let first = windows.iter().position(|&r| r >= 0.01).unwrap_or(0);
     let last = windows

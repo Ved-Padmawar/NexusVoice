@@ -19,19 +19,20 @@ impl ToF32 for f32 {
 
 impl ToF32 for i16 {
     fn to_f32(self) -> f32 {
-        self as f32 / i16::MAX as f32
+        f32::from(self) / f32::from(i16::MAX)
     }
 }
 
 impl ToF32 for u16 {
     fn to_f32(self) -> f32 {
-        (self as f32 / u16::MAX as f32) * 2.0 - 1.0
+        (f32::from(self) / f32::from(u16::MAX)) * 2.0 - 1.0
     }
 }
 
 /// Open the default input device and stream mono f32 samples into `buffer` until
 /// `running` is set to false. Signals `done` before returning so the caller
 /// can wait without sleeping a fixed duration.
+#[allow(clippy::needless_pass_by_value)] // Arcs are moved into the capture thread
 pub fn capture_microphone(
     running: Arc<AtomicBool>,
     buffer: Arc<Mutex<Vec<f32>>>,
@@ -120,7 +121,9 @@ where
                 } else {
                     data.chunks(channels)
                         .map(|frame| {
-                            frame.iter().map(|s| s.to_f32()).sum::<f32>() / channels as f32
+                            #[allow(clippy::cast_precision_loss)]
+                            let n = channels as f32; // channels ≤ 8 in practice, no real precision loss
+                            frame.iter().map(|s| s.to_f32()).sum::<f32>() / n
                         })
                         .collect()
                 };

@@ -18,10 +18,12 @@ fn query_total_ram_gb() -> f32 {
     {
         use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
         let mut mem = MEMORYSTATUSEX {
+            #[allow(clippy::cast_possible_truncation)] // size_of::<MEMORYSTATUSEX>() is always < u32::MAX
             dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
             ..Default::default()
         };
-        if unsafe { GlobalMemoryStatusEx(&mut mem) }.is_ok() {
+        if unsafe { GlobalMemoryStatusEx(std::ptr::addr_of_mut!(mem)) }.is_ok() {
+            #[allow(clippy::cast_precision_loss)] // RAM value fits f32 at GB scale
             let gb = mem.ullTotalPhys as f32 / 1_073_741_824.0;
             return (gb * 10.0).round() / 10.0;
         }
@@ -54,10 +56,7 @@ fn query_gpus_dxgi() -> Vec<GpuDescriptor> {
                 Err(e) if e.code() == DXGI_ERROR_NOT_FOUND => break,
                 Err(_) => break,
                 Ok(adapter) => {
-                    let desc = match unsafe { adapter.GetDesc1() } {
-                        Ok(d) => d,
-                        Err(_) => { i += 1; continue; }
-                    };
+                    let Ok(desc) = (unsafe { adapter.GetDesc1() }) else { i += 1; continue; };
 
                     // Skip software/Microsoft Basic Render Driver (Flags bit 2 = DXGI_ADAPTER_FLAG_SOFTWARE)
                     if desc.Flags & 2 != 0 {

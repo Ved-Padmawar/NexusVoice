@@ -1,10 +1,10 @@
-pub mod chunker;
+pub mod stitcher;
 pub mod denoise;
 pub mod vad;
 
 use crate::audio::resample;
 
-/// Full preprocessing pipeline: native_rate → DC offset removal → 48k denoise → 16k VAD → peak normalize → speech only.
+/// Full preprocessing pipeline: `native_rate` → DC offset removal → 48k denoise → 16k VAD → peak normalize → speech only.
 pub fn preprocess(samples: &[f32], native_rate: u32) -> Vec<f32> {
     // 1. Resample to 48 kHz for nnnoiseless
     let at_48k = resample(samples, native_rate, 48_000);
@@ -12,6 +12,7 @@ pub fn preprocess(samples: &[f32], native_rate: u32) -> Vec<f32> {
     // 2. DC offset removal — subtract signal mean before denoising.
     //    Budget USB mics often have a non-zero DC bias that distorts the mel
     //    spectrogram inside Whisper. Mean subtraction eliminates it cheaply.
+    #[allow(clippy::cast_precision_loss)] // buffer len fits f32 at audio sizes
     let mean = at_48k.iter().copied().sum::<f32>() / at_48k.len().max(1) as f32;
     let at_48k: Vec<f32> = at_48k.iter().map(|s| s - mean).collect();
 

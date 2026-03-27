@@ -35,6 +35,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 ## Features
 
 - **Push-to-talk** — hold any custom hotkey to record, release to transcribe and paste
+- **Low-latency streaming** — audio is processed in chunks mid-recording so only the tail needs processing on release
 - **100% local** — Whisper runs entirely on your machine, nothing is sent to the cloud
 - **GPU-accelerated** — auto-detects NVIDIA (CUDA), AMD/Intel (Vulkan), falls back to CPU
 - **Smart model selection** — picks the best Whisper model for your hardware automatically
@@ -52,10 +53,14 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 
 ```
 Hotkey held      →  cpal captures mic audio
-Hotkey released  →  audio resampled to 16kHz mono
-                 →  Whisper model transcribes locally
+                 →  VAD-gated chunks processed mid-recording (every ~8s)
+                 →  silence boundaries detected to avoid cutting words
+Hotkey released  →  only the final tail segment (~last 6s) is transcribed
+                 →  chunks stitched together with overlap deduplication
                  →  text written to clipboard + Ctrl+V pasted
 ```
+
+For short recordings the pipeline is transparent — everything processes on release as before. For longer recordings latency is significantly reduced since most of the audio is already transcribed by the time you let go of the hotkey.
 
 ---
 

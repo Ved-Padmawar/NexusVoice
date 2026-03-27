@@ -57,7 +57,7 @@ pub async fn open_database(db_path: &Path) -> Result<SqlitePool, String> {
         .map_err(|e| format!("database init failed: {e}"))?;
 
     match init_database(&pool).await {
-        Ok(_) => Ok(pool),
+        Ok(()) => Ok(pool),
         Err(sqlx::Error::Migrate(ref migrate_err)) if is_inconsistent(migrate_err) => {
             log::warn!(
                 "migration state inconsistent: {migrate_err} — backing up and recreating database"

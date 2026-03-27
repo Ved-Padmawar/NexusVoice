@@ -15,10 +15,12 @@ mod commands;
 mod database;
 mod hardware;
 mod inference;
+mod pipeline;
 mod postprocess;
 mod preprocess;
 mod state;
 
+#[allow(clippy::too_many_lines)] // Tauri setup is inherently long — splitting adds no clarity
 fn main() {
     // Panic hook — writes panic info to log before crashing.
     // Note: only active in debug builds since release profile uses panic = "abort".
@@ -118,8 +120,8 @@ fn main() {
                         }
                     };
                     let auth_service = auth::AuthService::new(pool.clone(), jwt_secret);
-                    state.set_pool(pool.clone()).await;
-                    state.set_auth(auth_service).await;
+                    state.set_pool(pool.clone());
+                    state.set_auth(auth_service);
 
                     log::info!("database ready");
 
@@ -166,7 +168,7 @@ fn main() {
                         let hw = detect_profile(&SysinfoProvider);
                         let recommended = recommend_model_size();
                         (hw, recommended)
-                    }).await.unwrap_or_else(|_| (Default::default(), inference::provider::ModelSize::Small));
+                    }).await.unwrap_or_else(|_| (hardware::profile::HardwareProfile::default(), inference::provider::ModelSize::Small));
 
                     log::info!("NexusVoice v{} starting", env!("CARGO_PKG_VERSION"));
                     log::info!("OS: {}", std::env::consts::OS);
@@ -265,7 +267,7 @@ fn main() {
                     let config = app_handle.config();
                     if let Some(win_config) = config.app.windows.iter().find(|w| w.label == "pill") {
                         match tauri::WebviewWindowBuilder::from_config(&app_handle, win_config)
-                            .and_then(|b| b.build())
+                            .and_then(tauri::WebviewWindowBuilder::build)
                         {
                             Ok(pill) => {
                                 // Position: centered horizontally, near bottom of primary monitor
@@ -275,9 +277,11 @@ fn main() {
                                     let pill_w = 120.0;
                                     let pill_h = 44.0;
                                     let margin = 72.0;
-                                    let logical_w = screen.width as f64 / scale;
-                                    let logical_h = screen.height as f64 / scale;
+                                    let logical_w = f64::from(screen.width) / scale;
+                                    let logical_h = f64::from(screen.height) / scale;
+                                    #[allow(clippy::cast_possible_truncation)] // pixel coords fit i32
                                     let x = ((logical_w - pill_w) / 2.0) as i32;
+                                    #[allow(clippy::cast_possible_truncation)]
                                     let y = (logical_h - pill_h - margin) as i32;
                                     let _ = pill.set_position(tauri::LogicalPosition::new(x, y));
                                 }

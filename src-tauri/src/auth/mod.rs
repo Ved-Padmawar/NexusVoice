@@ -3,6 +3,8 @@ pub mod service;
 pub mod session;
 pub mod tokens;
 
+use rand::RngCore;
+
 pub use errors::AuthError;
 pub use service::AuthService;
 pub use tokens::TokenPair;
@@ -28,7 +30,6 @@ pub fn load_or_create_jwt_secret(secret_path: &std::path::Path) -> std::io::Resu
     }
 
     // Generate new 32-byte random secret and persist it
-    use rand::RngCore;
     let mut secret = vec![0u8; 32];
     rand::rng().fill_bytes(&mut secret);
     std::fs::write(secret_path, &secret)?;

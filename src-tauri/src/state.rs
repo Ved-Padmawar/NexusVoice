@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use crate::auth::AuthService;
 use crate::database::models::dictionary::DictionaryEntry;
 use crate::inference::WhisperEngine;
+use crate::pipeline::StreamingPipeline;
 
 /// Dictionary cache keyed by term for O(1) lookup and deduplication.
 pub type DictCache = Arc<RwLock<HashMap<String, DictionaryEntry>>>;
@@ -25,13 +26,13 @@ pub struct AuthSession {
     pub access_token: Option<String>,
 }
 
-/// Model download state tracked in AppState so the frontend can poll via command.
+/// Model download state tracked in `AppState` so the frontend can poll via command.
 /// 0 = idle/unknown, 1 = downloading, 2 = complete, 3 = error, 4 = cancelled
 pub struct ModelDownloadState {
     pub status: AtomicU8,
     pub progress: std::sync::Mutex<u8>,
     pub error: std::sync::Mutex<Option<String>>,
-    /// Set to true by cancel_model_download; checked each chunk in download_file.
+    /// Set to true by `cancel_model_download`; checked each chunk in `download_file`.
     pub cancelled: AtomicBool,
 }
 
@@ -94,14 +95,16 @@ pub struct AppState {
     pub native_sample_rate: NativeSampleRate,
     pub models_dir: PathBuf,
     /// Cached whisper engine — loaded once, reused across recordings.
-    /// Wrapped in Arc so it can be captured by the spawn closure in stop_transcription.
+    /// Wrapped in Arc so it can be captured by the spawn closure in `stop_transcription`.
     pub engine: Arc<Mutex<Option<Arc<std::sync::Mutex<WhisperEngine>>>>>,
     pub model_download: Arc<ModelDownloadState>,
     /// In-memory dictionary cache — loaded at startup, mutated on add/delete.
     pub dict_cache: DictCache,
     /// Signalled by the capture thread when it has fully stopped and dropped the stream.
-    /// stop_transcription waits on this instead of sleeping a fixed duration.
+    /// `stop_transcription` waits on this instead of sleeping a fixed duration.
     pub capture_done: Arc<(std::sync::Mutex<bool>, Condvar)>,
+    /// Active streaming pipeline — Some while recording, None otherwise.
+    pub pipeline: Arc<Mutex<Option<StreamingPipeline>>>,
 }
 
 impl AppState {
@@ -131,16 +134,17 @@ impl AppState {
             model_download: Arc::new(ModelDownloadState::new()),
             dict_cache: Arc::new(RwLock::new(HashMap::new())),
             capture_done: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
+            pipeline: Arc::new(Mutex::new(None)),
         }
     }
 
     /// Set the database pool once it's ready (called from the background init task).
-    pub async fn set_pool(&self, pool: SqlitePool) {
+    pub fn set_pool(&self, pool: SqlitePool) {
         let _ = self.db.set(pool);
     }
 
     /// Set the auth service once the pool is ready.
-    pub async fn set_auth(&self, auth: AuthService) {
+    pub fn set_auth(&self, auth: AuthService) {
         let _ = self.auth_cell.set(auth);
     }
 
@@ -167,7 +171,7 @@ impl AppState {
         }).await
     }
 
-    /// Get or load the cached WhisperEngine.
+    /// Get or load the cached `WhisperEngine`.
     /// Returns Err if the model file is missing (not yet downloaded).
     pub async fn get_or_load_engine(
         &self,

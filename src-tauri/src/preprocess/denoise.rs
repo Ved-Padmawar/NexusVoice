@@ -1,6 +1,6 @@
 use nnnoiseless::DenoiseState;
 
-/// Apply RNNoise frame-by-frame. Expects samples at 48 kHz.
+/// Apply `RNNoise` frame-by-frame. Expects samples at 48 kHz.
 /// Input and output are f32 in [-1.0, 1.0].
 pub fn denoise(samples: &[f32]) -> Vec<f32> {
     const FRAME: usize = DenoiseState::FRAME_SIZE;

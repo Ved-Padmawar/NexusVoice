@@ -13,8 +13,8 @@ fn common_words() -> &'static HashSet<&'static str> {
 }
 
 /// Returns true if the word looks domain-specific / worth learning:
-/// - CamelCase (e.g. "ChromaDB", "NexusVoice")
-/// - ALL_CAPS acronym (e.g. "GPU", "API")
+/// - CamelCase (e.g. `ChromaDB`, `NexusVoice`)
+/// - `ALL_CAPS` acronym (e.g. "GPU", "API")
 /// - contains digits (e.g. "GPT4", "H264")
 fn is_technical_pattern(word: &str) -> bool {
     // Contains digit
@@ -29,7 +29,7 @@ fn is_technical_pattern(word: &str) -> bool {
     }
     // CamelCase: has both upper and lower, and uppercase is not just the first char
     if upper_count > 0 && lower_count > 0 {
-        let has_interior_upper = word.chars().skip(1).any(|c| c.is_uppercase());
+        let has_interior_upper = word.chars().skip(1).any(char::is_uppercase);
         if has_interior_upper {
             return true;
         }
@@ -74,7 +74,7 @@ pub fn extract_trackable_words(text: &str) -> Vec<String> {
             }
 
             // Only alphabetic tokens past this point (no mixed alnum that aren't technical)
-            if !word.chars().all(|c| c.is_alphabetic()) {
+            if !word.chars().all(char::is_alphabetic) {
                 return None;
             }
 

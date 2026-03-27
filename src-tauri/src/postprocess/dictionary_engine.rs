@@ -73,8 +73,7 @@ impl DictionaryCorrectionEngine {
                 .unwrap_or(token.len());
             let end = token
                 .rfind(|c: char| c.is_alphabetic())
-                .map(|i| i + token[i..].chars().next().map_or(0, |ch| ch.len_utf8()))
-                .unwrap_or(0);
+                .map_or(0, |i| i + token[i..].chars().next().map_or(0, char::len_utf8));
 
             if start >= end {
                 result.push(token.to_string());
@@ -106,7 +105,7 @@ impl DictionaryCorrectionEngine {
         }
 
         // 2. Skip all-uppercase tokens ≥2 chars — already an acronym
-        if input.len() >= 2 && input.chars().all(|c| c.is_uppercase()) {
+        if input.len() >= 2 && input.chars().all(char::is_uppercase) {
             return None;
         }
 
@@ -132,6 +131,7 @@ impl DictionaryCorrectionEngine {
 
         // 6. Ratio-based max distance: min(2, floor(len * 0.35))
         //    len4→1, len5→1, len6→2, len7→2, len8→2, ...
+        #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let max_dist = 2.min((lower.len() as f32 * 0.35) as usize);
 
         let mut best: Option<(usize, &DictionaryEntry)> = None;
