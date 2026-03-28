@@ -37,7 +37,15 @@ impl WhisperEngine {
         )
         .map_err(|e| format!("failed to load whisper model: {e}"))?;
 
-        Ok(Self { ctx, backend, model_size })
+        let mut engine = Self { ctx, backend, model_size };
+
+        // Warmup pass — forces model weights into GPU/CPU memory so the first real
+        // transcription is instant. Feed 1s of silence and discard the output.
+        let silence = vec![0.0f32; 16_000];
+        let _ = engine.transcribe(&silence, "", 2);
+        log::info!("whisper engine warmed up");
+
+        Ok(engine)
     }
 
     /// Transcribe 16 kHz mono f32 samples. `prompt` biases recognition.

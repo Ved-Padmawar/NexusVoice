@@ -62,6 +62,7 @@ pub fn capture_microphone(
             channels,
             Arc::clone(&buffer),
             Arc::clone(&running),
+            Arc::clone(&done),
         )?,
         SampleFormat::I16 => build_stream::<i16>(
             &device,
@@ -69,6 +70,7 @@ pub fn capture_microphone(
             channels,
             Arc::clone(&buffer),
             Arc::clone(&running),
+            Arc::clone(&done),
         )?,
         SampleFormat::U16 => build_stream::<u16>(
             &device,
@@ -76,6 +78,7 @@ pub fn capture_microphone(
             channels,
             Arc::clone(&buffer),
             Arc::clone(&running),
+            Arc::clone(&done),
         )?,
         fmt => return Err(format!("unsupported sample format: {fmt:?}")),
     };
@@ -104,6 +107,7 @@ fn build_stream<T>(
     channels: usize,
     buffer: Arc<Mutex<Vec<f32>>>,
     running: Arc<AtomicBool>,
+    done: Arc<(Mutex<bool>, Condvar)>,
 ) -> Result<cpal::Stream, String>
 where
     T: cpal::Sample + cpal::SizedSample + ToF32,
@@ -132,10 +136,16 @@ where
                 }
             },
             move |err| {
-                // Device disconnected or stream error — stop the recording loop so
-                // the app doesn't stay stuck in "recording" state indefinitely.
+                // Device disconnected or stream error — stop the recording loop and
+                // signal the condvar so stop_transcription unblocks immediately.
+                // Without this, the app hangs with the mic held open until restarted.
                 log::error!("cpal stream error: {err}");
                 running_err.store(false, Ordering::SeqCst);
+                let (lock, cvar) = &*done;
+                if let Ok(mut guard) = lock.lock() {
+                    *guard = true;
+                    cvar.notify_one();
+                }
             },
             None,
         )
