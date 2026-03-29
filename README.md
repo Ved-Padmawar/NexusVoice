@@ -52,6 +52,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 ## How It Works
 
 ```
+App launch       →  Whisper model loaded and warmed up in the background
 Hotkey held      →  cpal captures mic audio
                  →  VAD-gated chunks processed mid-recording (every ~8s)
                  →  silence boundaries detected to avoid cutting words
@@ -60,7 +61,7 @@ Hotkey released  →  only the final tail segment (~last 6s) is transcribed
                  →  text written to clipboard + Ctrl+V pasted
 ```
 
-For short recordings the pipeline is transparent — everything processes on release as before. For longer recordings latency is significantly reduced since most of the audio is already transcribed by the time you let go of the hotkey.
+For short recordings the pipeline is transparent — everything processes on release as before. For longer recordings latency is significantly reduced since most of the audio is already transcribed by the time you let go of the hotkey. The engine pre-loads at launch so the first transcription is instant.
 
 ---
 

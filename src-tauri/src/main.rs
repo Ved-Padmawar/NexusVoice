@@ -213,6 +213,20 @@ fn main() {
                 });
             }
 
+            // Spawn: eagerly pre-load the Whisper engine so the first transcription is instant.
+            // Runs after DB init (model selection may depend on override stored on disk).
+            // If the model isn't downloaded yet this is a no-op — get_or_load_engine returns Err.
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = app_handle.state::<state::AppState>();
+                    match state.get_or_load_engine().await {
+                        Ok(_) => log::info!("whisper engine pre-loaded and warmed up"),
+                        Err(e) => log::info!("whisper engine pre-load skipped: {e}"),
+                    }
+                });
+            }
+
             // System tray
             let show_item = MenuItem::with_id(app, "show", "Show Dashboard", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
