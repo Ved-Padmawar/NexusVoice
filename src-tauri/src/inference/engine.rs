@@ -105,6 +105,17 @@ impl WhisperEngine {
                     continue;
                 }
                 if let Ok(s) = seg.to_str_lossy() {
+                    // Drop hallucination tokens — Whisper emits these on silence/noise segments
+                    let trimmed = s.trim();
+                    if trimmed.eq_ignore_ascii_case("[blank_audio]")
+                        || trimmed.eq_ignore_ascii_case("[silence]")
+                        || trimmed.eq_ignore_ascii_case("[noise]")
+                        || trimmed.eq_ignore_ascii_case("[music]")
+                        || trimmed.eq_ignore_ascii_case("(music)")
+                        || trimmed.contains('♪')
+                    {
+                        continue;
+                    }
                     text.push_str(&s);
                 }
             }
