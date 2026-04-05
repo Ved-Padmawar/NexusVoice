@@ -407,8 +407,7 @@ pub async fn start_transcription(
                                 if engine.is_poisoned() {
                                     log::error!("WhisperEngine mutex poisoned during streaming chunk — evicting");
                                     drop(pl_guard);
-                                    let mut cache = engine_cache.blocking_lock();
-                                    *cache = None;
+                                    *engine_cache.blocking_lock() = None;
                                     return Err("engine_poisoned");
                                 }
                             }
@@ -527,8 +526,7 @@ pub async fn stop_transcription(
                     pl.finalize(&samples, captured_rate, &engine, &prompt, beam_size)
                 })) else {
                     log::error!("WhisperEngine panicked during finalize — evicting");
-                    let mut cache = engine_cache.blocking_lock();
-                    *cache = None;
+                    *engine_cache.blocking_lock() = None;
                     return Err("engine_poisoned".to_string());
                 };
                 // Also evict if Mutex was poisoned during finalize
@@ -606,8 +604,7 @@ pub async fn stop_transcription(
                             replacement: word.clone(),
                         }).await {
                             Ok(entry) => {
-                                let mut cache = dict_cache.write().await;
-                                cache.entry(entry.term.clone()).or_insert_with(|| entry.clone());
+                                dict_cache.write().await.entry(entry.term.clone()).or_insert_with(|| entry.clone());
                                 added.push(DictionaryResponse::from(entry));
                                 log::debug!("auto-learned word: {word}");
                             }
@@ -789,8 +786,7 @@ pub async fn update_dictionary(
         .await?;
 
     // Update in-memory cache: O(1) insert/replace via HashMap
-    let mut cache = state.dict_cache.write().await;
-    cache.insert(entry.term.clone(), entry.clone());
+    state.dict_cache.write().await.insert(entry.term.clone(), entry.clone());
 
     Ok(entry.into())
 }
@@ -1005,8 +1001,7 @@ pub async fn register_hotkey(
         })?;
 
     let _ = state.save_hotkey(&hotkey);
-    let mut current = state.current_hotkey.lock().await;
-    *current = Some(hotkey);
+    *state.current_hotkey.lock().await = Some(hotkey);
 
     Ok(true)
 }
@@ -1027,9 +1022,9 @@ pub async fn unregister_hotkey(app: AppHandle, state: State<'_, AppState>) -> Re
 
 #[tauri::command]
 pub async fn get_registered_hotkeys(state: State<'_, AppState>) -> Result<Vec<String>, ApiError> {
-    let current = state.current_hotkey.lock().await;
-    if let Some(h) = current.as_ref() {
-        return Ok(vec![h.clone()]);
+    let hotkey = state.current_hotkey.lock().await.clone();
+    if let Some(h) = hotkey {
+        return Ok(vec![h]);
     }
     Ok(state.load_hotkey().map(|h| vec![h]).unwrap_or_default())
 }

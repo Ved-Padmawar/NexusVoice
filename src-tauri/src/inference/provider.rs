@@ -8,16 +8,16 @@ pub enum Backend {
 }
 
 impl Backend {
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
-            Backend::Cuda => "cuda",
-            Backend::Vulkan => "vulkan",
-            Backend::Cpu => "cpu",
+            Self::Cuda => "cuda",
+            Self::Vulkan => "vulkan",
+            Self::Cpu => "cpu",
         }
     }
 
-    pub fn has_gpu(self) -> bool {
-        matches!(self, Backend::Cuda | Backend::Vulkan)
+    pub const fn has_gpu(self) -> bool {
+        matches!(self, Self::Cuda | Self::Vulkan)
     }
 }
 
@@ -38,33 +38,33 @@ pub enum ModelSize {
 }
 
 impl ModelSize {
-    pub fn filename(self) -> &'static str {
+    pub const fn filename(self) -> &'static str {
         match self {
-            ModelSize::Large => "ggml-large-v3-turbo.bin",
-            ModelSize::Medium => "ggml-medium.en.bin",
-            ModelSize::Small => "ggml-small.en.bin",
-            ModelSize::Base => "ggml-base.en.bin",
-            ModelSize::Tiny => "ggml-tiny.en.bin",
+            Self::Large => "ggml-large-v3-turbo.bin",
+            Self::Medium => "ggml-medium.en.bin",
+            Self::Small => "ggml-small.en.bin",
+            Self::Base => "ggml-base.en.bin",
+            Self::Tiny => "ggml-tiny.en.bin",
         }
     }
 
-    pub fn display_name(self) -> &'static str {
+    pub const fn display_name(self) -> &'static str {
         match self {
-            ModelSize::Large => "Whisper Large v3 Turbo",
-            ModelSize::Medium => "Whisper Medium",
-            ModelSize::Small => "Whisper Small",
-            ModelSize::Base => "Whisper Base",
-            ModelSize::Tiny => "Whisper Tiny",
+            Self::Large => "Whisper Large v3 Turbo",
+            Self::Medium => "Whisper Medium",
+            Self::Small => "Whisper Small",
+            Self::Base => "Whisper Base",
+            Self::Tiny => "Whisper Tiny",
         }
     }
 
-    pub fn url(self) -> &'static str {
+    pub const fn url(self) -> &'static str {
         match self {
-            ModelSize::Large => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
-            ModelSize::Medium => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
-            ModelSize::Small => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
-            ModelSize::Base => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
-            ModelSize::Tiny => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
+            Self::Large => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+            Self::Medium => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
+            Self::Small => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
+            Self::Base => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
+            Self::Tiny => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
         }
     }
 }

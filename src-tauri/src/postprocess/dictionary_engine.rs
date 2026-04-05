@@ -54,7 +54,7 @@ pub struct DictionaryCorrectionEngine {
 }
 
 impl DictionaryCorrectionEngine {
-    pub fn new(entries: Vec<DictionaryEntry>) -> Self {
+    pub const fn new(entries: Vec<DictionaryEntry>) -> Self {
         Self { entries }
     }
 

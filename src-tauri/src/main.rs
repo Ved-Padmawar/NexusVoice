@@ -299,6 +299,7 @@ fn main() {
                                     let y = (logical_h - pill_h - margin) as i32;
                                     let _ = pill.set_position(tauri::LogicalPosition::new(x, y));
                                 }
+                                let _ = pill.set_skip_taskbar(true);
                                 let _ = pill.show();
                             }
                             Err(e) => log::error!("failed to create pill window: {e}"),

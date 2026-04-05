@@ -37,7 +37,7 @@ pub struct ModelDownloadState {
 }
 
 impl ModelDownloadState {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             status: AtomicU8::new(0),
             progress: std::sync::Mutex::new(0),
@@ -193,6 +193,7 @@ impl AppState {
         let engine = WhisperEngine::new(&self.models_dir, override_size.as_deref())?;
         let arc = Arc::new(std::sync::Mutex::new(engine));
         *guard = Some(Arc::clone(&arc));
+        drop(guard);
         Ok(arc)
     }
 

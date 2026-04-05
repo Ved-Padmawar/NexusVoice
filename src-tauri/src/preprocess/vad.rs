@@ -30,7 +30,6 @@ pub fn extract_speech(samples: &[f32]) -> Vec<f32> {
         .iter()
         .copied()
         .predict(&mut vad)
-        .map(|(chunk, prob)| (chunk.clone(), prob))
         .collect();
 
     let n = predictions.len();

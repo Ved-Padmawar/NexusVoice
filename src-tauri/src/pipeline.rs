@@ -39,7 +39,7 @@ pub struct StreamingPipeline {
 }
 
 impl StreamingPipeline {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             committed_cursor: 0,
             completed_texts: Vec::new(),
@@ -109,7 +109,7 @@ impl StreamingPipeline {
             return false;
         }
 
-        let text = if let Ok(mut guard) = engine.lock() {
+        let text = if let Ok(guard) = engine.lock() {
             match guard.transcribe(&resampled, prompt, beam_size) {
                 Ok(t) => t,
                 Err(e) => {
@@ -159,12 +159,10 @@ impl StreamingPipeline {
             let resampled = crate::preprocess::preprocess(tail, native_rate);
 
             if !resampled.is_empty() {
-                let text = if let Ok(mut guard) = engine.lock() {
-                    guard.transcribe(&resampled, prompt, beam_size).unwrap_or_default()
-                } else {
+                let text = engine.lock().map_or_else(|_| {
                     log::error!("WhisperEngine mutex poisoned during finalize");
                     String::new()
-                };
+                }, |guard| guard.transcribe(&resampled, prompt, beam_size).unwrap_or_default());
                 if !text.is_empty() {
                     self.completed_texts.push(text);
                 }

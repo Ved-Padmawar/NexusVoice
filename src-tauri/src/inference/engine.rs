@@ -37,7 +37,7 @@ impl WhisperEngine {
         )
         .map_err(|e| format!("failed to load whisper model: {e}"))?;
 
-        let mut engine = Self { ctx, backend, model_size };
+        let engine = Self { ctx, backend, model_size };
 
         // Warmup pass — forces model weights into GPU/CPU memory so the first real
         // transcription is instant. Feed 1s of silence and discard the output.
@@ -50,7 +50,7 @@ impl WhisperEngine {
 
     /// Transcribe 16 kHz mono f32 samples. `prompt` biases recognition.
     /// `beam_size` controls the quality/speed tradeoff: 2=Fast, 5=Balanced, 8=Accurate.
-    pub fn transcribe(&mut self, samples_16k: &[f32], prompt: &str, beam_size: i32) -> Result<String, String> {
+    pub fn transcribe(&self, samples_16k: &[f32], prompt: &str, beam_size: i32) -> Result<String, String> {
         // whisper.cpp requires at least 1 second of audio at 16 kHz
         const MIN_SAMPLES: usize = 16_000;
         let padded;

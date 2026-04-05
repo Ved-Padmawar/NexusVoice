@@ -90,7 +90,7 @@ pub async fn open_database(db_path: &Path) -> Result<SqlitePool, String> {
     }
 }
 
-fn is_inconsistent(err: &MigrateError) -> bool {
+const fn is_inconsistent(err: &MigrateError) -> bool {
     matches!(
         err,
         MigrateError::VersionMissing(_) | MigrateError::VersionMismatch(_)

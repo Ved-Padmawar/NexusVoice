@@ -19,13 +19,13 @@ impl ToF32 for f32 {
 
 impl ToF32 for i16 {
     fn to_f32(self) -> f32 {
-        f32::from(self) / f32::from(i16::MAX)
+        f32::from(self) / f32::from(Self::MAX)
     }
 }
 
 impl ToF32 for u16 {
     fn to_f32(self) -> f32 {
-        (f32::from(self) / f32::from(u16::MAX)) * 2.0 - 1.0
+        (f32::from(self) / f32::from(Self::MAX)).mul_add(2.0, -1.0)
     }
 }
 

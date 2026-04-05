@@ -6,7 +6,7 @@ pub struct WordFrequencyRepository {
 }
 
 impl WordFrequencyRepository {
-    pub fn new(pool: SqlitePool) -> Self {
+    pub const fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
