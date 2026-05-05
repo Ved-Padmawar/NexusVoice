@@ -3,7 +3,7 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager,
+    Emitter, Listener, Manager,
 };
 
 // 10 MB in bytes
@@ -234,6 +234,7 @@ fn main() {
 
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("NexusVoice")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
@@ -304,6 +305,19 @@ fn main() {
                             }
                             Err(e) => log::error!("failed to create pill window: {e}"),
                         }
+                    }
+                });
+            }
+
+            // Re-assert pill always-on-top whenever any window gains focus.
+            // Works around a Windows/WebView2 bug where Alt+Tab cycling resets Z-order
+            // and causes the pill to disappear behind other windows.
+            {
+                let app_handle = app.handle().clone();
+                app.listen("tauri://focus", move |_| {
+                    if let Some(pill) = app_handle.get_webview_window("pill") {
+                        let _ = pill.set_always_on_top(true);
+                        let _ = pill.show();
                     }
                 });
             }
