@@ -20,6 +20,9 @@ export type ThemeName =
 export type AppState = AuthSlice & TranscriptSlice & DictionarySlice & ModelSlice & UiSlice
 
 export type { User, Transcript, DictionaryEntry, UsageStats } from '../types'
+export type { PillTheme } from './uiSlice'
+
+export const STORE_PERSIST_KEY = 'nexus-voice-storage'
 
 export const useAppStore = create<AppState>()(
   persist(
@@ -31,8 +34,8 @@ export const useAppStore = create<AppState>()(
       ...createUiSlice(...args),
     }),
     {
-      name: 'nexus-voice-storage',
-      partialize: (state) => ({ theme: state.theme, activeRoute: state.activeRoute, activeSettingsTab: state.activeSettingsTab, modelChosen: state.modelChosen, beamSize: state.beamSize }),
+      name: STORE_PERSIST_KEY,
+      partialize: (state) => ({ theme: state.theme, pillTheme: state.pillTheme, activeRoute: state.activeRoute, activeSettingsTab: state.activeSettingsTab, modelChosen: state.modelChosen, beamSize: state.beamSize }),
     }
   )
 )

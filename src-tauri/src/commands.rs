@@ -13,8 +13,7 @@ use crate::database::models::{dictionary::DictionaryEntry, transcript::Transcrip
 use crate::database::repositories::{
     dictionary::DictionaryRepository, transcript::TranscriptRepository,
 };
-use crate::database::repositories::word_frequency::WordFrequencyRepository;
-use crate::postprocess::{extract_trackable_words, DictionaryCorrectionEngine};
+use crate::postprocess::DictionaryCorrectionEngine;
 use crate::state::{AppState, DictCache};
 
 // ---------------------------------------------------------------------------
@@ -588,36 +587,6 @@ pub async fn stop_transcription(
         let word_count = text.split_whitespace().count() as i64;
         if let Ok(saved) = repo.create(CreateTranscript { content: text.clone(), word_count, duration_seconds }).await {
             let _ = app_handle.emit("transcript:new", TranscriptResponse::from(saved));
-        }
-
-        // Auto-learn words from raw_text (pre-correction).
-        let words = extract_trackable_words(&raw_text);
-        if !words.is_empty() {
-            let freq_repo = WordFrequencyRepository::new(pool.clone());
-            match freq_repo.increment_batch(&words).await {
-                Ok(newly_learned) if !newly_learned.is_empty() => {
-                    let dict_repo = DictionaryRepository::new(pool.clone());
-                    let mut added: Vec<DictionaryResponse> = Vec::new();
-                    for word in &newly_learned {
-                        match dict_repo.upsert(CreateDictionaryEntry {
-                            term: word.clone(),
-                            replacement: word.clone(),
-                        }).await {
-                            Ok(entry) => {
-                                dict_cache.write().await.entry(entry.term.clone()).or_insert_with(|| entry.clone());
-                                added.push(DictionaryResponse::from(entry));
-                                log::debug!("auto-learned word: {word}");
-                            }
-                            Err(e) => log::warn!("auto-learn dict upsert failed for {word}: {e}"),
-                        }
-                    }
-                    if !added.is_empty() {
-                        let _ = app_handle.emit("dictionary:updated", &added);
-                    }
-                }
-                Ok(_) => {}
-                Err(e) => log::warn!("word frequency update failed: {e}"),
-            }
         }
 
         Ok::<(), String>(())

@@ -7,11 +7,13 @@ import { EVENTS } from '../lib/events'
 import { COMMANDS } from '../lib/commands'
 import { extractErrorMessage } from '../lib/errors'
 import type { ModelInfo } from '../types'
+import type { PillTheme } from '../store/uiSlice'
+import { STORE_PERSIST_KEY } from '../store/useAppStore'
 import './PillApp.css'
 
 const PILL_WIDTH: Record<string, number> = {
   idle: 104,
-  recording: 104,
+  recording: 80,
   processing: 32,
   downloading: 32,
   error: 104,
@@ -21,12 +23,42 @@ const pillSpring = { type: 'spring' as const, stiffness: 380, damping: 30, mass:
 
 type PillState = 'idle' | 'recording' | 'processing' | 'error' | 'downloading'
 
-const BAR_COUNT = 8
 const MIN_H = 3
 const MAX_H = 16
-const WEIGHTS = [0.5, 0.7, 0.85, 1.0, 1.0, 0.85, 0.7, 0.5]
 const ANALYSER_FFT_SIZE = 256
-const FREQ_BIN_COUNT = 32
+
+// Map each bar to a frequency bin range — speech sits in 80Hz–3kHz
+const BIN_RANGES: [number, number][] = [
+  [1, 2],
+  [2, 3],
+  [3, 5],
+  [5, 7],
+  [7, 10],
+  [10, 14],
+  [14, 20],
+  [20, 28],
+]
+
+// Bell-curve weights — center bars are naturally tallest
+const BELL = [0.4, 0.65, 0.85, 1.0, 1.0, 0.85, 0.65, 0.4]
+
+const SPINNER_COLORS: Record<PillTheme, { proc: [string, string]; dl: [string, string] }> = {
+  dark:  { proc: ['rgba(120,162,244,0.15)', 'rgba(120,162,244,0.9)'],  dl: ['rgba(245,158,11,0.15)', 'rgba(251,191,36,0.9)'] },
+  steel: { proc: ['rgba(148,168,200,0.15)', 'rgba(148,168,200,0.9)'],  dl: ['rgba(245,158,11,0.15)', 'rgba(245,158,11,0.9)'] },
+  light: { proc: ['rgba(58,91,217,0.15)',   'rgba(58,91,217,0.9)'],    dl: ['rgba(245,158,11,0.15)', 'rgba(245,158,11,0.9)'] },
+  teal:  { proc: ['rgba(91,184,196,0.15)',  'rgba(91,184,196,0.9)'],   dl: ['rgba(245,158,11,0.15)', 'rgba(245,158,11,0.9)'] },
+}
+
+function readPillTheme(): PillTheme {
+  try {
+    const raw = localStorage.getItem(STORE_PERSIST_KEY)
+    if (!raw) return 'dark'
+    const parsed = JSON.parse(raw) as { state?: { pillTheme?: PillTheme } }
+    return parsed?.state?.pillTheme ?? 'dark'
+  } catch {
+    return 'dark'
+  }
+}
 
 export function PillApp() {
   const [state, setState] = useState<PillState>('idle')
@@ -36,6 +68,7 @@ export function PillApp() {
   const [tooltip, setTooltip] = useState('')
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [barHeights, setBarHeights] = useState([3, 3, 3, 3, 3, 3, 3, 3])
+  const [pillTheme, setPillTheme] = useState<PillTheme>(readPillTheme)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const rafRef = useRef<number | null>(null)
@@ -68,12 +101,12 @@ export function PillApp() {
       const tick = () => {
         if (!analyserRef.current) return
         analyserRef.current.getByteFrequencyData(data)
-        const bins = data.slice(0, FREQ_BIN_COUNT)
-        const rms = Math.sqrt(bins.reduce((s, v) => s + v * v, 0) / bins.length)
-        const norm = Math.min(rms / 80, 1)
-        const heights = Array.from({ length: BAR_COUNT }, (_, i) => {
-          const h = MIN_H + (MAX_H - MIN_H) * norm * WEIGHTS[i]
-          return Math.max(MIN_H, Math.round(h))
+        const heights = BIN_RANGES.map(([start, end], i) => {
+          let sum = 0
+          for (let b = start; b < end; b++) sum += data[b]
+          const avg = sum / (end - start)
+          const norm = Math.min(avg / 180, 1) * BELL[i]
+          return Math.max(MIN_H, Math.round(MIN_H + (MAX_H - MIN_H) * norm))
         })
         setBarHeights(heights)
         rafRef.current = requestAnimationFrame(tick)
@@ -109,6 +142,16 @@ export function PillApp() {
   // Ensure pill stays above the Windows taskbar at runtime
   useEffect(() => {
     void getCurrentWindow().setAlwaysOnTop(true)
+  }, [])
+
+  // Sync pill theme from main window via event
+  useEffect(() => {
+    let cancelled = false
+    let unlisten: (() => void) | undefined
+    listen<PillTheme>(EVENTS.PILL_THEME_CHANGED, (e) => {
+      if (!cancelled) setPillTheme(e.payload)
+    }).then(fn => { if (!cancelled) unlisten = fn; else fn() })
+    return () => { cancelled = true; unlisten?.() }
   }, [])
 
   const isRecordingRef = useRef(false)
@@ -269,8 +312,10 @@ export function PillApp() {
 
       <motion.div
         className={`pill pill--${state}`}
+        data-pill-theme={pillTheme === 'dark' ? undefined : pillTheme}
         initial={{ width: 104 }}
         animate={{ width: PILL_WIDTH[state] ?? 104 }}
+
         transition={pillSpring}
         style={{ overflow: 'hidden' }}
         onMouseDown={handleDragStart}
@@ -280,11 +325,11 @@ export function PillApp() {
         {/* Icon — only shown when pill is full width */}
         {(state === 'idle' || state === 'recording' || state === 'error') && (
           <div className="pill__icon">
-            <svg width="11" height="11" viewBox="0 0 24 22" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="9" y="2" width="6" height="12" rx="3" />
-              <path d="M5 10a7 7 0 0 0 14 0" />
-              <line x1="12" y1="19" x2="12" y2="22" />
-              <line x1="9" y1="22" x2="15" y2="22" />
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+              <path d="M19 10a7 7 0 0 1-14 0"/>
+              <line x1="12" y1="19" x2="12" y2="22"/>
+              <line x1="9" y1="22" x2="15" y2="22"/>
             </svg>
           </div>
         )}
@@ -309,8 +354,8 @@ export function PillApp() {
               position: 'absolute',
               inset: 4,
               borderRadius: '50%',
-              border: '1.5px solid rgba(120, 162, 244, 0.15)',
-              borderTopColor: 'rgba(120, 162, 244, 0.9)',
+              border: `1.5px solid ${SPINNER_COLORS[pillTheme].proc[0]}`,
+              borderTopColor: SPINNER_COLORS[pillTheme].proc[1],
             }}
             animate={{ rotate: 360 }}
             transition={{ duration: 1, ease: 'linear', repeat: Infinity }}
@@ -324,8 +369,8 @@ export function PillApp() {
                 position: 'absolute',
                 inset: 4,
                 borderRadius: '50%',
-                border: '1.5px solid rgba(245, 158, 11, 0.15)',
-                borderTopColor: 'rgba(251, 191, 36, 0.9)',
+                border: `1.5px solid ${SPINNER_COLORS[pillTheme].dl[0]}`,
+                borderTopColor: SPINNER_COLORS[pillTheme].dl[1],
               }}
               animate={{ rotate: 360 }}
               transition={{ duration: 1, ease: 'linear', repeat: Infinity }}

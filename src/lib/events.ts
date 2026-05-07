@@ -25,6 +25,9 @@ export const EVENTS = {
   // Auth
   AUTH_READY:           'auth:ready',
   AUTH_UNAUTHENTICATED: 'auth:unauthenticated',
+
+  // Pill
+  PILL_THEME_CHANGED: 'pill:theme-changed',
 } as const
 
 export type AppEvent = typeof EVENTS[keyof typeof EVENTS]

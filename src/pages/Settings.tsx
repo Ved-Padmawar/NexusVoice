@@ -2,13 +2,14 @@ import { useRef, useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../lib/commands'
-import { Palette, Info, Settings2, FolderOpen, Database } from 'lucide-react'
+import { Palette, Info, Settings2, FolderOpen, Database, Pill } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { SETTINGS_TABS, type SettingsTab } from '../lib/routes'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { GeneralTab } from './settings/GeneralTab'
 import { AboutTab } from './settings/AboutTab'
 import { HotkeySection } from './settings/HotkeySection'
+import { PillTab } from './settings/PillTab'
 import { ModelManagerModal } from '../components/ModelManagerModal'
 import { AnimatePresence } from 'framer-motion'
 export function Settings() {
@@ -52,6 +53,10 @@ export function Settings() {
               <Palette size={12} strokeWidth={1.75} />
               General
             </TabsTrigger>
+            <TabsTrigger value="pill" className="gap-[5px]! text-[12px]!">
+              <Pill size={12} strokeWidth={1.75} />
+              Pill
+            </TabsTrigger>
             <TabsTrigger value="about" className="gap-[5px]! text-[12px]!">
               <Info size={12} strokeWidth={1.75} />
               About
@@ -85,6 +90,10 @@ export function Settings() {
           <GeneralTab />
           <div className="h-px bg-[var(--border-soft)]" />
           <HotkeySection />
+        </TabsContent>
+
+        <TabsContent value="pill" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 mt-0!">
+          <PillTab />
         </TabsContent>
 
         <TabsContent value="about" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 mt-0!">
