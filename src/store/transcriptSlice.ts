@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { z } from 'zod'
 import { COMMANDS } from '../lib/commands'
 import { TranscriptSchema, UsageStatsSchema, DictionaryEntrySchema, type Transcript, type UsageStats } from '../types'
 import { invokeWithRefresh } from './invokeWithRefresh'
@@ -49,8 +50,8 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
         invokeWithRefresh<unknown>(COMMANDS.GET_DICTIONARY),
         invoke<string[]>(COMMANDS.GET_REGISTERED_HOTKEYS),
       ])
-      const transcripts = TranscriptSchema.array().parse(rawTranscripts)
-      const dictionary = DictionaryEntrySchema.array().parse(rawDictionary)
+      const transcripts = z.array(TranscriptSchema).parse(rawTranscripts)
+      const dictionary = z.array(DictionaryEntrySchema).parse(rawDictionary)
       invokeWithRefresh<unknown>(COMMANDS.GET_USAGE_STATS)
         .then(raw => set({ stats: UsageStatsSchema.parse(raw) }))
         .catch(e => console.warn('[store] get_usage_stats failed:', e))
@@ -74,7 +75,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
   setFilters: async (from, to, sortAsc) => {
     set({ filterFrom: from, filterTo: to, filterSortAsc: sortAsc, transcriptOffset: 0, transcriptHasMore: true, transcripts: [] })
     try {
-      const items = TranscriptSchema.array().parse(
+      const items = z.array(TranscriptSchema).parse(
         await invokeWithRefresh<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: 0, from, to, sortAsc })
       )
       set({ transcripts: items, transcriptOffset: items.length, transcriptHasMore: items.length === 50 })
@@ -83,7 +84,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     if (searchQuery.trim()) {
       set({ isSearching: true })
       try {
-        const results = TranscriptSchema.array().parse(
+        const results = z.array(TranscriptSchema).parse(
           await invokeWithRefresh<unknown>(COMMANDS.SEARCH_TRANSCRIPTS, { query: searchQuery, limit: 50, offset: 0, from, to, sortAsc })
         )
         set({ searchResults: results })
@@ -96,7 +97,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     const { transcriptOffset, transcriptHasMore, transcripts, filterFrom, filterTo, filterSortAsc } = get()
     if (!transcriptHasMore) return
     try {
-      const more = TranscriptSchema.array().parse(
+      const more = z.array(TranscriptSchema).parse(
         await invokeWithRefresh<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: transcriptOffset, from: filterFrom, to: filterTo, sortAsc: filterSortAsc })
       )
       set({
@@ -116,7 +117,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     set({ isSearching: true })
     const { filterFrom, filterTo, filterSortAsc } = get()
     try {
-      const results = TranscriptSchema.array().parse(
+      const results = z.array(TranscriptSchema).parse(
         await invokeWithRefresh<unknown>(COMMANDS.SEARCH_TRANSCRIPTS, { query, limit: 50, offset: 0, from: filterFrom, to: filterTo, sortAsc: filterSortAsc })
       )
       set({ searchResults: results })
