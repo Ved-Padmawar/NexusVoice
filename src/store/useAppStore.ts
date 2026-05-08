@@ -10,7 +10,7 @@ import { createUiSlice, type UiSlice } from './uiSlice'
 export type ThemeName =
   | 'abyss'
   | 'midnight'
-  | 'nebula'
+  | 'steel'
   | 'pine'
   | 'canvas'
   | 'dawn'

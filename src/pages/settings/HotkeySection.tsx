@@ -147,10 +147,10 @@ export function HotkeySection() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-[6px] text-[12px] font-semibold text-[var(--fg-2)]">
-          <Keyboard size={12} strokeWidth={1.75} className="text-[var(--muted)]" />
+          <Keyboard size={14} strokeWidth={1.75} className="text-[var(--fg-2)]" />
           Recording Hotkey
         </div>
-        <span className={`text-[10px] ${currentHotkey ? 'text-[var(--accent)]' : 'text-[var(--muted)]'}`}>
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-(--r-sm) text-[10px] font-semibold border ${isListening ? 'text-(--accent) bg-(--accent-soft) border-[color-mix(in_srgb,var(--accent)_25%,transparent)]' : currentHotkey ? 'text-(--accent) bg-(--accent-soft) border-[color-mix(in_srgb,var(--accent)_25%,transparent)]' : 'text-muted-foreground bg-(--surface) border-(--border-soft)'}`}>
           {isListening ? 'Listening…' : currentHotkey ? 'Active' : 'Not set'}
         </span>
       </div>

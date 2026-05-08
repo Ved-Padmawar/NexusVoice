@@ -139,7 +139,7 @@ export function AboutTab() {
       <div className="flex flex-col gap-3 pt-2 border-t border-[var(--border-soft)]">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[11px] font-semibold text-[var(--fg-2)] uppercase tracking-[0.03em]">Whisper Model</p>
+            <p className="text-[12px] font-semibold text-[var(--fg-2)] tracking-[-0.01em]">Whisper model</p>
             <p className="text-[11px] text-[var(--muted)] mt-[3px]">
               {profile
                 ? <span className="flex items-center gap-1"><Cpu size={10} strokeWidth={1.75} />{profile.gpuName} · {profile.executionProvider.toUpperCase()}{profile.vramGb > 0 ? ` · ${profile.vramGb}GB VRAM` : ''}</span>
@@ -218,7 +218,7 @@ export function AboutTab() {
       <div className="flex flex-col gap-3 pt-2 border-t border-[var(--border-soft)]">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[11px] font-semibold text-[var(--fg-2)] uppercase tracking-[0.03em]">Transcription Quality</p>
+            <p className="text-[12px] font-semibold text-[var(--fg-2)] tracking-[-0.01em]">Transcription quality</p>
             <p className="text-[11px] text-[var(--muted)] mt-[3px]">Faster is quicker; Accurate takes a moment longer.</p>
           </div>
           <span className="text-[10px] font-mono font-semibold text-[var(--accent)] bg-[var(--accent-soft)] border border-[var(--accent-soft)] px-[6px] py-px rounded-[var(--r-sm)]">
@@ -279,7 +279,7 @@ export function AboutTab() {
 
       {/* Updates */}
       <div className="flex flex-col gap-3 pt-2 border-t border-[var(--border-soft)]">
-        <p className="text-[11px] font-semibold text-[var(--fg-2)] uppercase tracking-[0.03em]">Updates</p>
+        <p className="text-[12px] font-semibold text-[var(--fg-2)] tracking-[-0.01em]">Updates</p>
 
         <div className={`flex items-center justify-between gap-4 px-4 py-3 rounded-[var(--r-lg)] bg-[var(--surface)] border ${
           updateStatus === 'available' || updateStatus === 'downloading' || updateStatus === 'checking'

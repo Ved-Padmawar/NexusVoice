@@ -64,7 +64,7 @@ export const PillTab = memo(function PillTab() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <p className="text-[11px] font-semibold text-[var(--fg-2)] uppercase tracking-[0.03em] mb-3">Pill Appearance</p>
+        <p className="text-[12px] font-semibold text-[var(--fg-2)] tracking-[-0.01em] mb-1">Pill appearance</p>
         <p className="text-[12px] text-[var(--muted)] mb-4">Choose a color theme for the floating pill overlay.</p>
 
         <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(4, minmax(100px, 160px))' }}>

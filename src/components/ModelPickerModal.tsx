@@ -63,24 +63,24 @@ export function ModelPickerModal() {
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ duration: 0.22, ease: 'easeOut' }}
-        className="w-[520px] flex flex-col bg-[var(--panel)] border border-[var(--border)] rounded-[var(--r-xl)] shadow-[var(--shadow-lg)] overflow-hidden"
+        className="w-130 flex flex-col bg-(--panel) border border-(--border) rounded-(--r-xl) shadow-(--shadow-lg) overflow-hidden"
       >
         {/* Header */}
-        <div className="px-6 pt-5 pb-4 border-b border-[var(--border-soft)]">
+        <div className="px-6 pt-5 pb-4 border-b border-(--border-soft)">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-[var(--r-md)] bg-[var(--accent)] flex items-center justify-center text-[var(--accent-fg)] shadow-[var(--glow)] flex-shrink-0">
+            <div className="w-8 h-8 rounded-(--r-md) bg-(--accent) flex items-center justify-center text-primary-foreground shadow-(--glow) shrink-0">
               <Zap size={14} strokeWidth={2.5} />
             </div>
             <div>
-              <h2 className="text-[15px] font-bold tracking-[-0.025em] text-[var(--fg)] m-0">Choose your AI model</h2>
-              <p className="text-[11px] text-[var(--muted)] mt-[1px]">Select once — you can change this later in Settings.</p>
+              <h2 className="text-[15px] font-bold tracking-tight text-(--fg) m-0">Choose your AI model</h2>
+              <p className="text-[11px] text-muted-foreground mt-px">Select once — you can change this later in Settings.</p>
             </div>
           </div>
 
           {profile && (
-            <div className="flex items-center gap-[6px] px-[10px] py-[4px] rounded-[var(--r-md)] bg-[var(--surface)] border border-[var(--border-soft)] w-fit">
-              <Cpu size={10} strokeWidth={1.75} className="text-[var(--muted)]" />
-              <span className="text-[10px] text-[var(--fg-2)]">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-(--r-md) bg-(--surface) border border-(--border-soft) w-fit">
+              <Cpu size={10} strokeWidth={1.75} className="text-muted-foreground" />
+              <span className="text-[10px] text-(--fg-2)">
                 {profile.gpuName} · {profile.executionProvider.toUpperCase()}
                 {profile.vramGb > 0 ? ` · ${profile.vramGb} GB VRAM` : ''}
               </span>
@@ -99,7 +99,7 @@ export function ModelPickerModal() {
                 type="button"
                 disabled={confirmed}
                 onClick={() => setSelected(value)}
-                className="w-full flex items-start gap-3 px-3 py-3 rounded-[var(--r-lg)] border-[1.5px] text-left cursor-pointer disabled:cursor-not-allowed"
+                className="w-full flex items-start gap-3 px-3 py-3 rounded-(--r-lg) border-[1.5px] text-left cursor-pointer disabled:cursor-not-allowed"
                 initial={false}
                 animate={{
                   backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface)',
@@ -111,14 +111,14 @@ export function ModelPickerModal() {
               >
                 {/* Radio indicator */}
                 <motion.div
-                  className="w-[16px] h-[16px] rounded-full border-[1.5px] flex items-center justify-center flex-shrink-0 mt-[1px]"
+                  className="w-4 h-4 rounded-full border-[1.5px] flex items-center justify-center shrink-0 mt-px"
                   animate={{
                     borderColor: active ? 'var(--accent)' : 'var(--border)',
                     backgroundColor: active ? 'var(--accent)' : 'transparent',
                   }}
                   transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
                 >
-                  {active && <Check size={9} strokeWidth={3} className="text-[var(--accent-fg)]" />}
+                  {active && <Check size={9} strokeWidth={3} className="text-primary-foreground" />}
                 </motion.div>
 
                 <div className="flex-1 min-w-0">
@@ -131,24 +131,24 @@ export function ModelPickerModal() {
                       {label}
                     </motion.span>
                     {isRecommended && (
-                      <span className="text-[9px] font-bold text-[var(--accent)] bg-[var(--accent-soft)] border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] rounded-[var(--r-xs)] px-[6px] py-[2px] uppercase tracking-[0.05em]">
+                      <span className="text-[9px] font-bold text-(--accent) bg-(--accent-soft) border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] rounded-(--r-xs) px-1.5 py-0.5 uppercase tracking-wider">
                         Recommended
                       </span>
                     )}
                   </div>
                   <motion.p
-                    className="text-[10px] mt-[2px] mb-[3px] font-medium"
+                    className="text-[10px] mt-0.5 mb-0.75 font-medium"
                     animate={{ color: active ? 'var(--accent)' : 'var(--fg-2)' }}
                     transition={{ duration: 0.2 }}
                   >
                     {description}
                   </motion.p>
-                  <p className="text-[10px] text-[var(--muted)] leading-[1.4]">{detail}</p>
+                  <p className="text-[10px] text-muted-foreground leading-[1.4]">{detail}</p>
                 </div>
 
-                <div className="flex items-center gap-[5px] flex-shrink-0 mt-[2px]">
-                  <HardDrive size={11} strokeWidth={1.75} className="text-[var(--muted)]" />
-                  <span className="text-[11px] text-[var(--muted)] font-medium">{sizeLabel}</span>
+                <div className="flex items-center gap-1.25 shrink-0 mt-0.5">
+                  <HardDrive size={11} strokeWidth={1.75} className="text-muted-foreground" />
+                  <span className="text-[11px] text-muted-foreground font-medium">{sizeLabel}</span>
                 </div>
               </motion.button>
             )
@@ -166,14 +166,14 @@ export function ModelPickerModal() {
                 className="flex flex-col gap-2"
               >
                 <div className="flex items-center justify-between text-[11px] mb-1">
-                  <span className="text-[var(--fg-2)]">
+                  <span className="text-(--fg-2)">
                     {downloadProgress < 100 ? 'Downloading model…' : 'Download complete — loading…'}
                   </span>
-                  <span className="text-[var(--accent)] font-semibold tabular-nums">{downloadProgress}%</span>
+                  <span className="text-(--accent) font-semibold tabular-nums">{downloadProgress}%</span>
                 </div>
-                <div className="h-[3px] rounded-full bg-[var(--border)] overflow-hidden">
+                <div className="h-0.75 rounded-full bg-(--border) overflow-hidden">
                   <motion.div
-                    className="h-full rounded-full bg-[var(--accent)]"
+                    className="h-full rounded-full bg-(--accent)"
                     initial={{ width: '0%' }}
                     animate={{ width: `${downloadProgress}%` }}
                     transition={{ duration: 0.3, ease: 'linear' }}

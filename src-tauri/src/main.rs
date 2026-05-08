@@ -343,6 +343,7 @@ fn main() {
             commands::export_transcripts,
             commands::get_dictionary,
             commands::save_transcript,
+            commands::delete_transcript,
             commands::update_dictionary,
             commands::delete_dictionary_entry,
             commands::apply_dictionary,

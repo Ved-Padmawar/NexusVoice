@@ -24,6 +24,7 @@ export type TranscriptSlice = {
   loadMoreTranscripts: () => Promise<void>
   searchTranscripts: (query: string) => Promise<void>
   addTranscript: (content: string) => Promise<void>
+  deleteTranscript: (id: number) => Promise<void>
 }
 
 export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSlice> = (set, get) => ({
@@ -134,6 +135,20 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
       set((state) => ({ transcripts: [newTranscript, ...state.transcripts] }))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to save transcript')
+    }
+  },
+
+  deleteTranscript: async (id) => {
+    set((state) => ({
+      transcripts: state.transcripts.filter(t => t.id !== id),
+      searchResults: state.searchResults.filter(t => t.id !== id),
+      transcriptOffset: Math.max(0, state.transcriptOffset - 1),
+    }))
+    try {
+      await invokeWithRefresh<boolean>(COMMANDS.DELETE_TRANSCRIPT, { id })
+      get().fetchStats()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to delete transcript')
     }
   },
 })

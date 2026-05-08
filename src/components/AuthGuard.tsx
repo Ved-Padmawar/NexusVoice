@@ -15,8 +15,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   if (authChecking) {
     return (
-      <div className="flex items-center justify-center min-h-dvh bg-[var(--bg)]" role="status" aria-live="polite" data-tauri-drag-region>
-        <motion.div className="w-5 h-5 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)]" animate={{ rotate: 360 }} transition={{ duration: 0.8, ease: 'linear', repeat: Infinity }} />
+      <div className="flex items-center justify-center min-h-dvh bg-background" role="status" aria-live="polite" data-tauri-drag-region>
+        <motion.div className="w-5 h-5 rounded-full border-2 border-(--border) border-t-(--accent)" animate={{ rotate: 360 }} transition={{ duration: 0.8, ease: 'linear', repeat: Infinity }} />
       </div>
     )
   }

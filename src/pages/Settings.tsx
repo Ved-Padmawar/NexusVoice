@@ -31,42 +31,42 @@ export function Settings() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden px-7 py-6">
-      <div className="flex items-center justify-between gap-4 pb-5 mb-4 border-b border-[var(--border-soft)] flex-shrink-0">
-        <div className="flex items-center gap-[14px]">
-          <div className="w-9 h-9 rounded-[var(--r-lg)] bg-[var(--accent-soft)] text-[var(--accent)] flex items-center justify-center flex-shrink-0">
+      <div className="flex items-center justify-between gap-4 pb-5 mb-4 border-b border-(--border-soft) shrink-0">
+        <div className="flex items-center gap-3.5">
+          <div className="w-9 h-9 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
             <Settings2 size={18} strokeWidth={2} />
           </div>
           <div>
-            <h1 className="text-[18px] font-bold tracking-[-0.025em] text-[var(--fg)] leading-[1.1] m-0">Settings</h1>
-            <p className="text-[12px] text-[var(--muted)] mt-[3px] m-0">Configure hotkeys and appearance.</p>
+            <h1 className="text-[18px] font-bold tracking-tight text-(--fg) leading-[1.1] m-0">Settings</h1>
+            <p className="text-[12px] text-muted-foreground mt-0.75 m-0">Configure hotkeys and appearance.</p>
           </div>
         </div>
-        <span className="text-[11px] font-semibold text-[var(--accent)] bg-[var(--surface)] border border-[var(--border-soft)] px-[8px] py-[3px] rounded-[var(--r-sm)] flex-shrink-0">
+        <span className="text-[11px] font-semibold text-(--accent) bg-(--surface) border border-(--border-soft) px-2 py-0.75 rounded-(--r-sm) shrink-0">
           v{__APP_VERSION__}
         </span>
       </div>
 
       <Tabs value={tab} onValueChange={setTab} className="flex flex-col flex-1 min-h-0 gap-0!">
-        <div className="flex items-center justify-between mb-4 flex-shrink-0">
+        <div className="flex items-center justify-between mb-4 shrink-0">
           <TabsList className="w-fit!">
-            <TabsTrigger value="general" className="gap-[5px]! text-[12px]!">
+            <TabsTrigger value="general" className="gap-1.25! text-[12px]!">
               <Palette size={12} strokeWidth={1.75} />
               General
             </TabsTrigger>
-            <TabsTrigger value="pill" className="gap-[5px]! text-[12px]!">
+            <TabsTrigger value="pill" className="gap-1.25! text-[12px]!">
               <Pill size={12} strokeWidth={1.75} />
               Pill
             </TabsTrigger>
-            <TabsTrigger value="about" className="gap-[5px]! text-[12px]!">
+            <TabsTrigger value="about" className="gap-1.25! text-[12px]!">
               <Info size={12} strokeWidth={1.75} />
               About
             </TabsTrigger>
           </TabsList>
           {tab === 'about' && (
-            <div className="flex items-center gap-1 self-start mt-[3px]">
+            <div className="flex items-center gap-1 self-start mt-0.75">
               <button
                 type="button"
-                className="inline-flex items-center gap-[5px] px-[10px] h-9 rounded-[var(--r-md)] bg-[var(--surface)] border-none text-[var(--fg-2)] text-[12px] font-medium cursor-pointer transition-[background,color] duration-[var(--t-fast)] hover:text-[var(--fg)]"
+                className="inline-flex items-center gap-1.25 px-2.5 h-9 rounded-(--r-md) bg-(--surface) border-none text-(--fg-2) text-[12px] font-medium cursor-pointer transition-[background,color] duration-(--t-fast) hover:text-(--fg)"
                 onClick={() => setModelManagerOpen(true)}
                 title="Manage downloaded models"
               >
@@ -75,7 +75,7 @@ export function Settings() {
               </button>
               <button
                 type="button"
-                className="inline-flex items-center gap-[5px] px-[10px] h-9 rounded-[var(--r-md)] bg-[var(--surface)] border-none text-[var(--fg-2)] text-[12px] font-medium cursor-pointer transition-[background,color] duration-[var(--t-fast)] hover:text-[var(--fg)]"
+                className="inline-flex items-center gap-1.25 px-2.5 h-9 rounded-(--r-md) bg-(--surface) border-none text-(--fg-2) text-[12px] font-medium cursor-pointer transition-[background,color] duration-(--t-fast) hover:text-(--fg)"
                 onClick={() => invoke<void>(COMMANDS.OPEN_LOGS_FOLDER)}
                 title="Open logs folder"
               >
@@ -88,7 +88,7 @@ export function Settings() {
 
         <TabsContent value="general" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-6 mt-0!">
           <GeneralTab />
-          <div className="h-px bg-[var(--border-soft)]" />
+          <div className="h-px bg-(--border-soft)" />
           <HotkeySection />
         </TabsContent>
 

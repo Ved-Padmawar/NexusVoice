@@ -69,17 +69,17 @@ export function ModelManagerModal({ onClose }: Props) {
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 8 }}
         transition={{ duration: 0.22, ease: 'easeOut' }}
-        className="w-[460px] flex flex-col bg-[var(--panel)] border border-[var(--border)] rounded-[var(--r-xl)] shadow-[var(--shadow-lg)] overflow-hidden"
+        className="w-115 flex flex-col bg-(--panel) border border-(--border) rounded-(--r-xl) shadow-(--shadow-lg) overflow-hidden"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-[var(--border-soft)]">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-(--border-soft)">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-[var(--r-lg)] bg-[var(--accent-soft)] text-[var(--accent)] flex items-center justify-center flex-shrink-0">
+            <div className="w-9 h-9 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
               <Database size={15} strokeWidth={2} />
             </div>
             <div>
-              <h2 className="text-[15px] font-bold tracking-[-0.025em] text-[var(--fg)] m-0">Model Manager</h2>
-              <p className="text-[11px] text-[var(--muted)] mt-[2px]">
+              <h2 className="text-[15px] font-bold tracking-tight text-(--fg) m-0">Model Manager</h2>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
                 {models.length > 0 ? `${models.length} model${models.length > 1 ? 's' : ''} · ${formatBytes(totalBytes)} on disk` : 'No models downloaded'}
               </p>
             </div>
@@ -87,7 +87,7 @@ export function ModelManagerModal({ onClose }: Props) {
           <button
             type="button"
             aria-label="Close"
-            className="flex items-center justify-center w-7 h-7 rounded-[var(--r-md)] text-[var(--muted)] bg-transparent border-none cursor-pointer transition-[color,background] duration-[var(--t-fast)] hover:text-[var(--fg)] hover:bg-[var(--surface-hover)]"
+            className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer transition-[color,background] duration-(--t-fast) hover:text-(--fg) hover:bg-accent"
             onClick={onClose}
           >
             <X size={14} strokeWidth={2} />
@@ -98,7 +98,7 @@ export function ModelManagerModal({ onClose }: Props) {
         <div className="flex flex-col gap-2 px-6 py-5">
           <AnimatePresence initial={false}>
             {models.length === 0 ? (
-              <p className="text-[12px] text-[var(--muted)] text-center py-6">No models on disk.</p>
+              <p className="text-[12px] text-muted-foreground text-center py-6">No models on disk.</p>
             ) : (
               models.map((model) => (
                 <motion.div
@@ -108,27 +108,27 @@ export function ModelManagerModal({ onClose }: Props) {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, x: -8 }}
                   transition={{ duration: 0.18, ease: 'easeOut' }}
-                  className="flex items-center gap-3 px-4 py-3 rounded-[var(--r-lg)] bg-[var(--surface)] border border-[var(--border-soft)]"
+                  className="flex items-center gap-3 px-4 py-3 rounded-(--r-lg) bg-(--surface) border border-(--border-soft)"
                 >
-                  <HardDrive size={13} strokeWidth={1.75} className="text-[var(--muted)] flex-shrink-0" />
+                  <HardDrive size={13} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-[12px] font-semibold text-[var(--fg)]">{model.displayName}</span>
+                      <span className="text-[12px] font-semibold text-(--fg)">{model.displayName}</span>
                       {model.isActive && (
-                        <span className="text-[9px] font-bold text-[var(--accent)] bg-[var(--accent-soft)] border border-[var(--accent-soft)] rounded-[var(--r-xs)] px-[5px] py-px uppercase tracking-[0.04em]">
+                        <span className="text-[9px] font-bold text-(--accent) bg-(--accent-soft) border border-(--accent-soft) rounded-(--r-xs) px-1.25 py-px uppercase tracking-[0.04em]">
                           Active
                         </span>
                       )}
                     </div>
-                    <span className="text-[10px] text-[var(--muted)]">{formatBytes(model.sizeBytes)}</span>
+                    <span className="text-[10px] text-muted-foreground">{formatBytes(model.sizeBytes)}</span>
                   </div>
 
                   <button
                     type="button"
                     aria-label={`Delete ${model.displayName}`}
                     disabled={model.isActive || deleting === model.variant}
-                    className="flex items-center justify-center w-7 h-7 rounded-[var(--r-md)] text-[var(--muted)] bg-transparent border-none cursor-pointer transition-[color,background] duration-[var(--t-fast)] hover:text-[var(--danger)] hover:bg-[var(--surface-hover)] disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer transition-[color,background] duration-(--t-fast) hover:text-destructive hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed"
                     onClick={() => handleDelete(model.variant, model.displayName)}
                   >
                     <Trash2 size={13} strokeWidth={1.75} />
@@ -141,7 +141,7 @@ export function ModelManagerModal({ onClose }: Props) {
 
         {/* Footer */}
         <div className="px-6 pb-5 pt-0">
-          <p className="text-[10px] text-[var(--muted)]">The active model cannot be deleted. Switch models in the Whisper Model section above.</p>
+          <p className="text-[10px] text-muted-foreground">The active model cannot be deleted. Switch models in the Whisper Model section above.</p>
         </div>
       </motion.div>
     </div>

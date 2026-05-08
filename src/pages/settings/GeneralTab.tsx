@@ -9,7 +9,7 @@ const THEMES: {
 }[] = [
   { name: 'abyss',    label: 'Abyss',    mode: 'dark',  bg: '#22232b', panel: '#2a2b35', accent: '#78a2f4', border: '#383a48', surface: '#2e303d', muted: '#6a6e88' },
   { name: 'midnight', label: 'Midnight', mode: 'dark',  bg: '#0d101c', panel: '#131526', accent: '#8b5cf6', border: '#1e2240', surface: '#181b2e', muted: '#4a507a' },
-  { name: 'nebula',   label: 'Nebula',   mode: 'dark',  bg: '#231b2a', panel: '#2c2433', accent: '#9d38a8', border: '#3e3048', surface: '#332840', muted: '#6a5878' },
+  { name: 'steel',    label: 'Steel',    mode: 'dark',  bg: '#141820', panel: '#191e28', accent: '#b8cce0', border: '#252d3a', surface: '#1e2530', muted: '#5a6880' },
   { name: 'pine',     label: 'Pine',     mode: 'dark',  bg: '#1b2420', panel: '#222d29', accent: '#58c596', border: '#304038', surface: '#283530', muted: '#507060' },
   { name: 'canvas',   label: 'Canvas',   mode: 'light', bg: '#f8f9fc', panel: '#ffffff', accent: '#3a5bd9', border: '#d8dce8', surface: '#f0f2f8', muted: '#8890b0' },
   { name: 'dawn',     label: 'Dawn',     mode: 'light', bg: '#faf4ee', panel: '#ede0d0', accent: '#d4610a', border: '#d8c8b4', surface: '#f5ede2', muted: '#9a8870' },
@@ -65,14 +65,14 @@ export const GeneralTab = memo(function GeneralTab() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <p className="text-[11px] font-semibold text-[var(--fg-2)] uppercase tracking-[0.03em] mb-3">Appearance</p>
+        <p className="text-[12px] font-semibold text-[var(--fg-2)] tracking-[-0.01em] mb-1">Appearance</p>
         <p className="text-[12px] text-[var(--muted)] mb-4">Choose a color scheme for your workspace.</p>
 
         {(['dark', 'light'] as const).map((mode) => {
           const group = THEMES.filter(t => t.mode === mode)
           return (
             <div key={mode} className="mb-5 last:mb-0">
-              <p className="text-[10px] font-semibold text-[var(--muted)] uppercase tracking-[0.06em] mb-2">{mode === 'dark' ? 'Dark' : 'Light'}</p>
+              <p className="text-[11px] font-medium text-[var(--muted)] mb-2">{mode === 'dark' ? 'Dark' : 'Light'}</p>
               <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(4, minmax(120px, 160px))' }}>
                 {group.map((t) => {
                   const active = theme === t.name

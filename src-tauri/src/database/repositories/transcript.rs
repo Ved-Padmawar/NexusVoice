@@ -89,6 +89,14 @@ impl TranscriptRepository {
             .await
     }
 
+    pub async fn delete_by_id(&self, id: i64) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM transcripts WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Returns all transcripts ordered by date — used for export.
     pub async fn list_all(&self) -> Result<Vec<Transcript>, sqlx::Error> {
         sqlx::query_as::<_, Transcript>(

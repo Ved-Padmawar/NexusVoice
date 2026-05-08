@@ -775,6 +775,15 @@ pub async fn delete_dictionary_entry(
 }
 
 #[tauri::command]
+pub async fn delete_transcript(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<bool, ApiError> {
+    let repo = TranscriptRepository::new(state.db().await.clone());
+    Ok(repo.delete_by_id(id).await?)
+}
+
+#[tauri::command]
 pub async fn apply_dictionary(
     state: State<'_, AppState>,
     text: String,
