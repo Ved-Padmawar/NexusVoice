@@ -28,6 +28,14 @@ pub fn stitch_transcripts(parts: &[String]) -> String {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/// Normalize a word for overlap comparison only: trim leading/trailing
+/// non-alphanumeric characters and lowercase. Internal punctuation (apostrophes,
+/// hyphens) is preserved so "don't" == "don't" and "well-known" == "well-known".
+fn normalize(word: &str) -> String {
+    word.trim_matches(|c: char| !c.is_alphanumeric())
+        .to_lowercase()
+}
+
 /// Merge two adjacent transcript strings by removing duplicated words at the
 /// boundary introduced by the overlap window.
 ///
@@ -47,9 +55,13 @@ fn merge_pair(prev: &str, next: &str) -> String {
     let next_head = &next_words[..nw];
 
     // Find longest overlap: suffix of prev_tail == prefix of next_head
+    // Normalize for comparison only: trim boundary punctuation + lowercase.
+    // Output words are taken from the originals, not the normalized form.
     let mut best_len = 0usize;
     for len in 1..=pw.min(nw) {
-        if prev_tail[pw - len..] == next_head[..len] {
+        let tail = prev_tail[pw - len..].iter().map(|w| normalize(w));
+        let head = next_head[..len].iter().map(|w| normalize(w));
+        if tail.eq(head) {
             best_len = len;
         }
     }
