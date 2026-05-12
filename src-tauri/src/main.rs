@@ -3,7 +3,7 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Listener, Manager,
+    Emitter, Manager,
 };
 
 // 10 MB in bytes
@@ -51,6 +51,19 @@ fn main() {
     let log_level = log::LevelFilter::Info;
 
     tauri::Builder::default()
+        .on_window_event(|window, event| {
+            // When a non-pill window gains focus (e.g. Alt+Tab to main), immediately
+            // re-promote the pill's Z-order so it stays visible above other apps.
+            if let tauri::WindowEvent::Focused(true) = event {
+                if window.label() != "pill" {
+                    if let Some(pill) = window.app_handle().get_webview_window("pill") {
+                        let _ = pill.set_always_on_top(false);
+                        let _ = pill.set_always_on_top(true);
+                        let _ = pill.show();
+                    }
+                }
+            }
+        })
 .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -309,15 +322,24 @@ fn main() {
                 });
             }
 
-            // Re-assert pill always-on-top whenever any window gains focus.
-            // Works around a Windows/WebView2 bug where Alt+Tab cycling resets Z-order
-            // and causes the pill to disappear behind other windows.
+            // Re-assert pill Z-order periodically. Windows demotes always-on-top windows
+            // when fullscreen apps appear, after Alt+Tab cycling between other apps,
+            // and on virtual-desktop switches. set_always_on_top(true) is a no-op when
+            // already true — must toggle false→true to actually re-promote Z-order.
             {
                 let app_handle = app.handle().clone();
-                app.listen("tauri://focus", move |_| {
-                    if let Some(pill) = app_handle.get_webview_window("pill") {
-                        let _ = pill.set_always_on_top(true);
-                        let _ = pill.show();
+                tauri::async_runtime::spawn(async move {
+                    let mut iv = tokio::time::interval(std::time::Duration::from_secs(2));
+                    iv.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    loop {
+                        iv.tick().await;
+                        if let Some(pill) = app_handle.get_webview_window("pill") {
+                            if !pill.is_visible().unwrap_or(true) {
+                                let _ = pill.show();
+                            }
+                            let _ = pill.set_always_on_top(false);
+                            let _ = pill.set_always_on_top(true);
+                        }
                     }
                 });
             }

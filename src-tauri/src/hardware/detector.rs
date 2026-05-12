@@ -60,6 +60,7 @@ fn map_execution_provider(gpu: &GpuDescriptor) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)] // test asserts compare exact-representable values passed through unchanged
 mod tests {
     use super::*;
 

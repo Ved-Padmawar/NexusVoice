@@ -97,7 +97,7 @@ mod tests {
     fn refresh_token_is_64_chars() {
         let token = generate_refresh_token();
         assert_eq!(token.len(), 64);
-        assert!(token.chars().all(|c| c.is_alphanumeric()));
+        assert!(token.chars().all(char::is_alphanumeric));
     }
 
     #[test]
