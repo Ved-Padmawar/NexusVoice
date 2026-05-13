@@ -168,17 +168,24 @@ export function PillApp() {
     let cancelled = false
     const unlisteners: (() => void)[] = []
 
-    // Fire model info fetch independently — don't block listener registration
+    // Fire model info fetch independently — don't block listener registration.
+    // Only apply the result if no download event has already set the state,
+    // to avoid racing with in-flight progress events.
     invoke<ModelInfo>(COMMANDS.GET_MODEL_INFO)
       .then(info => {
         if (cancelled) return
-        if (info.downloaded) {
-          modelReadyRef.current = true
-        } else if (info.downloading) {
-          modelReadyRef.current = false
-          setDownloadPct(info.downloadProgress ?? 0)
-          setState('downloading')
-        }
+        setState(current => {
+          if (current === 'downloading') return current // already driven by events
+          if (info.downloading) {
+            modelReadyRef.current = false
+            setDownloadPct(info.downloadProgress ?? 0)
+            return 'downloading'
+          }
+          if (info.downloaded) {
+            modelReadyRef.current = true
+          }
+          return current
+        })
       })
       .catch(() => { /* ignore */ })
 

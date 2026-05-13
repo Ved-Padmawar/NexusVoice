@@ -73,7 +73,13 @@ impl WhisperEngine {
         let beam_size = beam_size.clamp(1, 8);
         let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size, patience: 1.0 });
         params.set_n_threads(n_threads);
-        params.set_language(Some("en"));
+        // Large variants are multilingual — let Whisper auto-detect the language.
+        // The .en models (Tiny/Base/Small/Medium) only know English so we pin it.
+        let lang = match self.model_size {
+            ModelSize::Large | ModelSize::LargeFull => None,
+            _ => Some("en"),
+        };
+        params.set_language(lang);
         params.set_translate(false);
         params.set_print_special(false);
         params.set_print_progress(false);

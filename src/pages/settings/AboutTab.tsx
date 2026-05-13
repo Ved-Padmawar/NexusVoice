@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import {
   AlertCircle, CheckCircle2,
   RefreshCw, Download, ArrowUpCircle, Cpu, Shield, Globe,
-  Zap, Scale, Sparkles, Wind, Server, Layers, Box,
+  Zap, Scale, Sparkles, Wind, Server, Layers, Box, Gem,
 } from 'lucide-react'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
@@ -155,13 +155,14 @@ export function AboutTab() {
           </div>
         </div>
 
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid grid-cols-6 gap-1.5">
           {([
-            { value: 'tiny'   as ModelOverride, Icon: Wind,   label: 'Tiny',   description: 'Fastest, lowest accuracy' },
-            { value: 'base'   as ModelOverride, Icon: Server, label: 'Base',   description: 'Fast, basic accuracy' },
-            { value: 'small'  as ModelOverride, Icon: Cpu,    label: 'Small',  description: 'Standard, lower accuracy' },
-            { value: 'medium' as ModelOverride, Icon: Layers, label: 'Medium', description: 'Balanced performance' },
-            { value: 'large'  as ModelOverride, Icon: Box,    label: 'Large',  description: 'Slowest, highest accuracy' },
+            { value: 'tiny'       as ModelOverride, Icon: Wind,   label: 'Tiny',    description: 'Fastest, lowest accuracy' },
+            { value: 'base'       as ModelOverride, Icon: Server, label: 'Base',    description: 'Fast, basic accuracy' },
+            { value: 'small'      as ModelOverride, Icon: Cpu,    label: 'Small',   description: 'Standard accuracy' },
+            { value: 'medium'     as ModelOverride, Icon: Layers, label: 'Medium',  description: 'Balanced performance' },
+            { value: 'large'      as ModelOverride, Icon: Box,    label: 'Turbo',   description: 'High accuracy, fast' },
+            { value: 'large-full' as ModelOverride, Icon: Gem,    label: 'Max',     description: 'Maximum accuracy' },
           ]).map(({ value, Icon, label, description }) => {
             const isRecommended = profile && recommendedToOverride(profile.recommendedModel) === value
             const active = selected === value
@@ -169,7 +170,7 @@ export function AboutTab() {
               <motion.button
                 key={value}
                 type="button"
-                className="flex-1 flex flex-col items-start gap-[3px] px-3 py-[10px] rounded-[var(--r-md)] border-[1.5px] cursor-pointer disabled:cursor-not-allowed"
+                className="flex-1 flex flex-col items-start gap-[3px] px-2.5 py-[9px] rounded-[var(--r-md)] border-[1.5px] cursor-pointer disabled:cursor-not-allowed"
                 initial={false}
                 animate={{
                   backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface)',
@@ -181,22 +182,22 @@ export function AboutTab() {
                 onClick={() => handleModelChange(value)}
                 disabled={modelSaving}
               >
-                <div className="flex items-center gap-[6px]">
+                <div className="flex items-center gap-[5px] flex-wrap">
                   <motion.div
                     animate={{ color: active ? 'var(--accent)' : 'var(--muted)' }}
                     transition={{ duration: 0.2 }}
                   >
-                    <Icon size={12} strokeWidth={1.75} />
+                    <Icon size={11} strokeWidth={1.75} />
                   </motion.div>
                   <motion.span
-                    className="text-[12px] font-semibold"
+                    className="text-[11px] font-semibold"
                     animate={{ color: active ? 'var(--accent)' : 'var(--fg)' }}
                     transition={{ duration: 0.2 }}
                   >
                     {label}
                   </motion.span>
                   {isRecommended && (
-                    <span className="text-[9px] font-bold text-[var(--accent)] bg-[var(--accent-soft)] rounded-[var(--r-xs)] px-[5px] py-px uppercase tracking-[0.04em]">
+                    <span className="text-[8px] font-bold text-[var(--accent)] bg-[var(--accent-soft)] rounded-[var(--r-xs)] px-[4px] py-px uppercase tracking-[0.04em] leading-[14px]">
                       Recommended
                     </span>
                   )}

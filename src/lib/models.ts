@@ -1,4 +1,4 @@
-export type ModelOverride = 'tiny' | 'base' | 'small' | 'medium' | 'large'
+export type ModelOverride = 'tiny' | 'base' | 'small' | 'medium' | 'large' | 'large-full'
 
 export type ModelOption = {
   value: ModelOverride
@@ -40,15 +40,23 @@ export const MODEL_OPTIONS: ModelOption[] = [
   {
     value: 'large',
     label: 'Whisper Large v3 Turbo',
-    description: 'Slowest, highest accuracy',
+    description: 'Highest accuracy, fast',
     detail: 'Recommended for GPUs with 6+ GB VRAM or systems with 16+ GB RAM. Highest transcription quality.',
     sizeLabel: '~1.6 GB',
+  },
+  {
+    value: 'large-full',
+    label: 'Whisper Large v3',
+    description: 'Maximum accuracy',
+    detail: 'Full Large v3 model. Requires 10+ GB VRAM. Slower than Turbo but marginally more accurate.',
+    sizeLabel: '~3.1 GB',
   },
 ]
 
 /** Map any backend model name/display string → ModelOverride key (case-insensitive) */
 export function modelNameToOverride(name: string): ModelOverride {
   const n = name.toLowerCase()
+  if (n.includes('large') && !n.includes('turbo')) return 'large-full'
   if (n.includes('large')) return 'large'
   if (n.includes('medium')) return 'medium'
   if (n.includes('small')) return 'small'

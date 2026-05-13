@@ -25,6 +25,8 @@ impl Backend {
 /// Auto-selected based on hardware; user can override.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelSize {
+    /// ggml-large-v3 — maximum accuracy, requires GPU ≥10 GB VRAM
+    LargeFull,
     /// ggml-large-v3-turbo — best accuracy, requires GPU ≥6 GB VRAM or ≥16 GB RAM
     Large,
     /// ggml-medium.en — good accuracy, GPU ≥3 GB VRAM or ≥8 GB RAM
@@ -40,6 +42,7 @@ pub enum ModelSize {
 impl ModelSize {
     pub const fn filename(self) -> &'static str {
         match self {
+            Self::LargeFull => "ggml-large-v3.bin",
             Self::Large => "ggml-large-v3-turbo.bin",
             Self::Medium => "ggml-medium.en.bin",
             Self::Small => "ggml-small.en.bin",
@@ -50,6 +53,7 @@ impl ModelSize {
 
     pub const fn display_name(self) -> &'static str {
         match self {
+            Self::LargeFull => "Whisper Large v3",
             Self::Large => "Whisper Large v3 Turbo",
             Self::Medium => "Whisper Medium",
             Self::Small => "Whisper Small",
@@ -60,6 +64,7 @@ impl ModelSize {
 
     pub const fn url(self) -> &'static str {
         match self {
+            Self::LargeFull => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
             Self::Large => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
             Self::Medium => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
             Self::Small => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
@@ -146,9 +151,10 @@ pub fn select_model_size_from_profile(
 }
 
 /// Resolve final model size: apply user override if set, else recommend from hardware.
-/// `override_size` accepts "large" | "medium" | "small" | "base" | "tiny".
+/// `override_size` accepts "large-full" | "large" | "medium" | "small" | "base" | "tiny".
 pub fn select_model_size(backend: Backend, override_size: Option<&str>) -> ModelSize {
     match override_size {
+        Some("large-full") => ModelSize::LargeFull,
         Some("large") => ModelSize::Large,
         Some("medium") => ModelSize::Medium,
         Some("small") => ModelSize::Small,

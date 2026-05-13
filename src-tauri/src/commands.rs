@@ -816,11 +816,12 @@ pub fn get_downloaded_models(state: State<'_, AppState>) -> Vec<DownloadedModel>
     let active_size = select_model_size(active_backend, active_override.as_deref());
 
     let all: &[(&str, ModelSize)] = &[
-        ("tiny",   ModelSize::Tiny),
-        ("base",   ModelSize::Base),
-        ("small",  ModelSize::Small),
-        ("medium", ModelSize::Medium),
-        ("large",  ModelSize::Large),
+        ("tiny",       ModelSize::Tiny),
+        ("base",       ModelSize::Base),
+        ("small",      ModelSize::Small),
+        ("medium",     ModelSize::Medium),
+        ("large",      ModelSize::Large),
+        ("large-full", ModelSize::LargeFull),
     ];
 
     all.iter().filter_map(|(variant, size)| {
@@ -846,12 +847,13 @@ pub async fn delete_model(
     use crate::inference::provider::{detect_backend, select_model_size, ModelSize};
 
     let size = match variant.as_str() {
-        "tiny"   => ModelSize::Tiny,
-        "base"   => ModelSize::Base,
-        "small"  => ModelSize::Small,
-        "medium" => ModelSize::Medium,
-        "large"  => ModelSize::Large,
-        _ => return Err(ApiError::new("invalid_variant", "variant must be tiny, base, small, medium, or large")),
+        "tiny"       => ModelSize::Tiny,
+        "base"       => ModelSize::Base,
+        "small"      => ModelSize::Small,
+        "medium"     => ModelSize::Medium,
+        "large"      => ModelSize::Large,
+        "large-full" => ModelSize::LargeFull,
+        _ => return Err(ApiError::new("invalid_variant", "variant must be tiny, base, small, medium, large, or large-full")),
     };
 
     let active_override = state.load_model_override();
@@ -1041,17 +1043,17 @@ pub async fn get_hardware_profile() -> Result<HardwareProfileResponse, ApiError>
 // Model override commands
 // ---------------------------------------------------------------------------
 
-/// Set model size override ("tiny" | "base" | "small" | "medium" | "large").
+/// Set model size override ("tiny" | "base" | "small" | "medium" | "large" | "large-full").
 /// Clears the cached engine so the next transcription reloads with the chosen model.
 #[tauri::command]
 pub async fn set_model_override(
     state: State<'_, AppState>,
     variant: String,
 ) -> Result<(), ApiError> {
-    if !matches!(variant.as_str(), "tiny" | "base" | "small" | "medium" | "large") {
+    if !matches!(variant.as_str(), "tiny" | "base" | "small" | "medium" | "large" | "large-full") {
         return Err(ApiError::new(
             "invalid_variant",
-            "variant must be 'tiny', 'base', 'small', 'medium', or 'large'",
+            "variant must be 'tiny', 'base', 'small', 'medium', 'large', or 'large-full'",
         ));
     }
     state
