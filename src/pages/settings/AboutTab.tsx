@@ -12,6 +12,7 @@ import {
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { Button } from '@/components/ui/button'
+import { FormattingToggle } from '../../components/FormattingToggle'
 import type { HardwareProfile } from '../../types'
 import { useAppStore } from '../../store/useAppStore'
 import type { BeamSize } from '../../store/uiSlice'
@@ -277,6 +278,9 @@ export function AboutTab() {
         </div>
 
       </div>
+
+      {/* Smart formatting (local LLM) */}
+      <FormattingToggle />
 
       {/* Updates */}
       <div className="flex flex-col gap-3 pt-2 border-t border-[var(--border-soft)]">

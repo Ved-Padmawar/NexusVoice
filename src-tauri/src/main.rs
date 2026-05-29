@@ -15,10 +15,12 @@ mod commands;
 mod database;
 mod hardware;
 mod inference;
+mod llm;
 mod pipeline;
 mod postprocess;
 mod preprocess;
 mod state;
+mod transcription;
 
 #[allow(clippy::too_many_lines)] // Tauri setup is inherently long — splitting adds no clarity
 fn main() {
@@ -90,6 +92,7 @@ fn main() {
             let hotkey_store_path = app_data_dir.join("hotkey");
             let model_override_path = app_data_dir.join("model_override");
             let beam_size_path = app_data_dir.join("beam_size");
+            let format_config_path = app_data_dir.join("format_config.json");
             let models_dir = app_data_dir.join("models");
             std::fs::create_dir_all(&models_dir)?;
 
@@ -101,6 +104,7 @@ fn main() {
                 hotkey_store_path,
                 model_override_path,
                 beam_size_path,
+                format_config_path,
                 models_dir,
             );
             app.manage(app_state);
@@ -385,6 +389,9 @@ fn main() {
             commands::get_hardware_profile,
             commands::get_downloaded_models,
             commands::delete_model,
+            commands::get_format_config,
+            commands::set_format_config,
+            commands::test_format_connection,
             commands::open_logs_folder,
         ])
         .build(tauri::generate_context!())

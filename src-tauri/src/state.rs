@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use crate::auth::AuthService;
 use crate::database::models::dictionary::DictionaryEntry;
 use crate::inference::WhisperEngine;
+use crate::llm::FormatConfig;
 use crate::pipeline::StreamingPipeline;
 
 /// Dictionary cache keyed by term for O(1) lookup and deduplication.
@@ -88,6 +89,7 @@ pub struct AppState {
     pub hotkey_store_path: PathBuf,
     pub model_override_path: PathBuf,
     pub beam_size_path: PathBuf,
+    pub format_config_path: PathBuf,
     pub auth_session: Mutex<AuthSession>,
     pub transcription_running: Arc<AtomicBool>,
     pub current_hotkey: Mutex<Option<String>>,
@@ -114,6 +116,7 @@ impl AppState {
         hotkey_store_path: PathBuf,
         model_override_path: PathBuf,
         beam_size_path: PathBuf,
+        format_config_path: PathBuf,
         models_dir: PathBuf,
     ) -> Self {
         Self {
@@ -124,6 +127,7 @@ impl AppState {
             hotkey_store_path,
             model_override_path,
             beam_size_path,
+            format_config_path,
             auth_session: Mutex::new(AuthSession::default()),
             transcription_running: Arc::new(AtomicBool::new(false)),
             current_hotkey: Mutex::new(None),
@@ -274,6 +278,22 @@ impl AppState {
     #[allow(dead_code)]
     pub fn delete_beam_size(&self) {
         let _ = std::fs::remove_file(&self.beam_size_path);
+    }
+
+    /// Load the formatter config from disk. Returns the default (disabled)
+    /// config if the file is missing or unparseable.
+    pub fn load_format_config(&self) -> FormatConfig {
+        std::fs::read_to_string(&self.format_config_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    /// Persist the formatter config as JSON.
+    pub fn save_format_config(&self, cfg: &FormatConfig) -> std::io::Result<()> {
+        let json = serde_json::to_string_pretty(cfg)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(&self.format_config_path, json)
     }
 
     pub fn try_start_transcription(&self) -> bool {

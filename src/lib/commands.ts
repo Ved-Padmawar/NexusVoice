@@ -45,6 +45,11 @@ export const COMMANDS = {
   GET_DOWNLOADED_MODELS:   'get_downloaded_models',
   DELETE_MODEL:            'delete_model',
 
+  // Formatting LLM (OpenAI-compatible HTTP endpoint)
+  GET_FORMAT_CONFIG:       'get_format_config',
+  SET_FORMAT_CONFIG:       'set_format_config',
+  TEST_FORMAT_CONNECTION:  'test_format_connection',
+
   // System
   OPEN_LOGS_FOLDER: 'open_logs_folder',
 } as const

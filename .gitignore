@@ -30,6 +30,7 @@ src-tauri/cuda
 
 # Claude Code
 .claude/
+CLAUDE.md
 
 # Local dev tools
 docs/

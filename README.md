@@ -4,7 +4,7 @@
 
 **Hold a hotkey. Speak. Text appears wherever your cursor is.**
 
-A lightweight, privacy-first voice-to-text desktop app that runs entirely on your machine — no cloud, no subscriptions, no data leaving your device.
+A lightweight, privacy-first voice-to-text desktop app. Transcription runs entirely on your machine — no cloud, no subscriptions, no data leaving your device.
 
 <br/>
 
@@ -42,7 +42,8 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **First-run model picker** — choose your model on first login with a hardware-aware recommendation, then download on demand
 - **Personal dictionary** — map spoken words to their correct form (e.g. "gonna" → "going to")
 - **Auto-learn** — tracks uncommon words from your transcriptions and suggests additions to your dictionary
-- **8 themes** — Abyss, Midnight, Nebula, Pine (dark) + Canvas, Dawn, Breeze, Blossom (light)
+- **Smart formatting (optional)** — clean up punctuation and turn spoken lists into real lists using any OpenAI-compatible LLM. Off by default; works fully local with Ollama or LM Studio, or with a cloud provider (OpenAI, OpenRouter) if you prefer
+- **8 themes** — Abyss, Midnight, Steel, Pine (dark) + Canvas, Dawn, Breeze, Blossom (light)
 - **Compact pill overlay** — draggable recording indicator that stays on top while you work
 - **Dashboard** — transcription history, word count, session stats
 - **System tray** — runs silently in the background
@@ -58,10 +59,13 @@ Hotkey held      →  cpal captures mic audio
                  →  silence boundaries detected to avoid cutting words
 Hotkey released  →  only the final tail segment (~last 6s) is transcribed
                  →  chunks stitched together with overlap deduplication
+                 →  (optional) transcript reformatted by your chosen LLM
                  →  text written to clipboard + Ctrl+V pasted
 ```
 
 For short recordings the pipeline is transparent — everything processes on release as before. For longer recordings latency is significantly reduced since most of the audio is already transcribed by the time you let go of the hotkey. The engine pre-loads at launch so the first transcription is instant.
+
+If **Smart Formatting** is enabled, the stitched transcript is sent to your configured LLM endpoint for cleanup before pasting; otherwise the raw transcript is pasted as-is. If the formatter is unreachable or errors, it transparently falls back to the raw transcript.
 
 ---
 
@@ -79,6 +83,24 @@ On first login a model picker modal lets you choose your model — the app recom
 
 ---
 
+## Smart Formatting (optional)
+
+By default NexusVoice pastes the raw transcription. Enable **Smart Formatting** (Settings → About) to have an LLM clean up punctuation and infer structure — e.g. turning a spoken "first… second… third…" into a real numbered list — before pasting.
+
+It connects to any **OpenAI-compatible** chat endpoint. Presets prefill the base URL; you supply the model name and (where needed) an API key:
+
+| Provider | Local? | Notes |
+|----------|--------|-------|
+| Ollama | ✅ | `http://localhost:11434/v1`, no key needed |
+| LM Studio | ✅ | `http://localhost:1234/v1`, no key needed |
+| OpenAI | ☁️ | requires API key |
+| OpenRouter | ☁️ | requires API key |
+| Custom | — | any other OpenAI-compatible endpoint |
+
+Use a small **instruct** model (e.g. `qwen2.5-3b-instruct`) — not a reasoning/thinking model — for the best speed and most faithful formatting. The feature is off by default; with Ollama or LM Studio it stays fully on-device.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -88,6 +110,7 @@ On first login a model picker modal lets you choose your model — the app recom
 | Audio capture | cpal |
 | Transcription | whisper-rs (ggml) |
 | GPU inference | CUDA (NVIDIA) / Vulkan (AMD, Intel) |
+| Smart formatting | Any OpenAI-compatible LLM (Ollama, LM Studio, OpenAI, OpenRouter) over HTTP |
 | Database | SQLite via sqlx |
 | Frontend | React 19 + TypeScript |
 | Styling | Tailwind CSS v4 + shadcn/ui |
@@ -149,7 +172,9 @@ npm run tauri dev
 
 ## Privacy
 
-All audio processing happens locally on your device. No audio, transcripts, or personal data is ever transmitted to any server. The only network request is the one-time model download from HuggingFace.
+All **audio processing and transcription happen locally** on your device — audio is never transmitted anywhere. The only network request in the default setup is the one-time Whisper model download from HuggingFace.
+
+**Smart Formatting** is the one optional exception, and it's **off by default**. When enabled, your transcript text (never the audio) is sent to whichever LLM endpoint you configure. Point it at a local server (Ollama or LM Studio) to keep everything on-device, or at a cloud provider (OpenAI, OpenRouter) if you choose — in which case the transcript text is sent to that provider. The choice, and whether to enable it at all, is entirely yours.
 
 ---
 
