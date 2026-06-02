@@ -6,6 +6,7 @@ import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle, Arro
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../store/useAppStore'
 import { ROUTES } from '../lib/routes'
+import logoUrl from '../assets/logo.png'
 
 function TitleBar() {
   const win = getCurrentWindow()
@@ -196,9 +197,13 @@ export function Layout() {
           {/* Brand */}
           <div className="px-3.5 pt-4 pb-3 border-b border-(--border-soft)">
             <Link to="/" className="flex items-center gap-2.25 no-underline group">
-              <div className="w-7 h-7 rounded-(--r-md) bg-(--accent) flex items-center justify-center text-black shrink-0 shadow-(--glow) transition-shadow duration-(--t-fast) group-hover:shadow-[var(--glow),0_0_0_3px_var(--accent-soft)]">
-                <Zap size={13} strokeWidth={2.5} />
-              </div>
+              {/* Real app icon (cyan/steel split tile + waveform) — same mark as
+                  the taskbar/tray icon, so branding is consistent everywhere. */}
+              <img
+                src={logoUrl}
+                alt="NexusVoice"
+                className="w-9 h-9 rounded-(--r-md) shrink-0"
+              />
               <div>
                 <div className="text-[13px] font-black tracking-[-0.02em] leading-none"><span className="text-(--fg)">Nexus</span><span className="text-(--accent)">Voice</span></div>
                 <div className="text-[10px] text-(--fg-2) mt-0.5 tracking-[0.03em]">v{__APP_VERSION__}</div>

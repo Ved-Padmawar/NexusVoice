@@ -249,8 +249,17 @@ fn main() {
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
+            // Use the app icon for the tray, but load a high-resolution (256px)
+            // render of it explicitly. `default_window_icon()` resolves to a small
+            // layer that Windows then upscales, which looks low-res in the tray;
+            // handing it a crisp 256px source lets Windows downscale cleanly.
+            // Embedded so the path resolves identically in dev and bundled builds.
+            let tray_icon = tauri::image::Image::from_bytes(include_bytes!(
+                "../icons/tray.png"
+            ))?;
+
             let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(tray_icon)
                 .tooltip("NexusVoice")
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {

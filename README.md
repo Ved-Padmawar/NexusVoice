@@ -1,6 +1,8 @@
 <div align="center">
 
-# ⚡ NexusVoice
+<img src="src-tauri/icons/128x128.png" alt="NexusVoice logo" width="96" />
+
+# NexusVoice
 
 **Hold a hotkey. Speak. Text appears wherever your cursor is.**
 
