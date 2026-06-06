@@ -80,7 +80,10 @@ mod tests {
 
     #[test]
     fn no_gpu_defaults_to_cpu() {
-        let provider = MockProvider { gpus: vec![], ram_gb: 16.0 };
+        let provider = MockProvider {
+            gpus: vec![],
+            ram_gb: 16.0,
+        };
         let profile = detect_profile(&provider);
         assert_eq!(profile.gpu_type, "cpu");
         assert_eq!(profile.execution_provider, "cpu");

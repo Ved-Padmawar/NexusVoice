@@ -62,8 +62,14 @@ pub async fn format_transcript(cfg: &FormatConfig, raw: &str) -> Result<String, 
     let body = ChatRequest {
         model: cfg.model.trim(),
         messages: vec![
-            ChatMessage { role: "system", content: &system },
-            ChatMessage { role: "user", content: raw },
+            ChatMessage {
+                role: "system",
+                content: &system,
+            },
+            ChatMessage {
+                role: "user",
+                content: raw,
+            },
         ],
         temperature: 0.3,
         stream: false,
@@ -82,7 +88,10 @@ pub async fn test_connection(cfg: &FormatConfig) -> Result<(), String> {
     const TEST_TIMEOUT: Duration = Duration::from_secs(15);
     let body = ChatRequest {
         model: cfg.model.trim(),
-        messages: vec![ChatMessage { role: "user", content: "hi" }],
+        messages: vec![ChatMessage {
+            role: "user",
+            content: "hi",
+        }],
         temperature: 0.0,
         stream: false,
         max_tokens: Some(1),
@@ -110,7 +119,10 @@ async fn send_chat(
         req = req.bearer_auth(key);
     }
 
-    let resp = req.send().await.map_err(|e| format!("request failed: {e}"))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("request failed: {e}"))?;
 
     let status = resp.status();
     if !status.is_success() {

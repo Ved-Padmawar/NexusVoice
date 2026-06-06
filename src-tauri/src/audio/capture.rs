@@ -35,6 +35,7 @@ impl ToF32 for u16 {
 #[allow(clippy::needless_pass_by_value)] // Arcs are moved into the capture thread
 pub fn capture_microphone(
     running: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
     buffer: Arc<Mutex<Vec<f32>>>,
     native_rate: Arc<Mutex<u32>>,
     done: Arc<(Mutex<bool>, Condvar)>,
@@ -62,6 +63,7 @@ pub fn capture_microphone(
             channels,
             Arc::clone(&buffer),
             Arc::clone(&running),
+            Arc::clone(&paused),
             Arc::clone(&done),
         )?,
         SampleFormat::I16 => build_stream::<i16>(
@@ -70,6 +72,7 @@ pub fn capture_microphone(
             channels,
             Arc::clone(&buffer),
             Arc::clone(&running),
+            Arc::clone(&paused),
             Arc::clone(&done),
         )?,
         SampleFormat::U16 => build_stream::<u16>(
@@ -78,6 +81,7 @@ pub fn capture_microphone(
             channels,
             Arc::clone(&buffer),
             Arc::clone(&running),
+            Arc::clone(&paused),
             Arc::clone(&done),
         )?,
         fmt => return Err(format!("unsupported sample format: {fmt:?}")),
@@ -107,6 +111,7 @@ fn build_stream<T>(
     channels: usize,
     buffer: Arc<Mutex<Vec<f32>>>,
     running: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
     done: Arc<(Mutex<bool>, Condvar)>,
 ) -> Result<cpal::Stream, String>
 where
@@ -117,7 +122,7 @@ where
         .build_input_stream(
             config,
             move |data: &[T], _| {
-                if !running.load(Ordering::SeqCst) {
+                if !running.load(Ordering::SeqCst) || paused.load(Ordering::SeqCst) {
                     return;
                 }
                 let mono: Vec<f32> = if channels == 1 {

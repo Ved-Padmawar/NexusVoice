@@ -35,9 +35,12 @@ async fn recent_transcripts_prompt(repo: &TranscriptRepository) -> String {
 /// the transcription work is done before the user releases the hotkey.
 pub fn start_capture(app: &AppHandle, state: &AppState, pool: sqlx::SqlitePool) {
     let running = Arc::clone(&state.transcription_running);
+    let paused = Arc::clone(&state.capture_paused);
     let audio_buffer = Arc::clone(&state.audio_buffer);
     let native_rate = Arc::clone(&state.native_sample_rate);
     let capture_done = Arc::clone(&state.capture_done);
+    let recording_mode = Arc::clone(&state.recording_mode);
+    let session_phase = Arc::clone(&state.session_phase);
     let app_handle = app.clone();
 
     // Reset the done flag before starting a new capture session.
@@ -46,12 +49,19 @@ pub fn start_capture(app: &AppHandle, state: &AppState, pool: sqlx::SqlitePool) 
     std::thread::spawn(move || {
         if let Err(e) = crate::audio::capture_microphone(
             Arc::clone(&running),
+            Arc::clone(&paused),
             audio_buffer,
             native_rate,
             Arc::clone(&capture_done),
         ) {
             log::error!("microphone capture error: {e}");
             running.store(false, Ordering::SeqCst);
+            paused.store(false, Ordering::SeqCst);
+            recording_mode.store(
+                crate::state::RecordingMode::PushToTalk as u8,
+                Ordering::SeqCst,
+            );
+            session_phase.store(crate::state::SessionPhase::Idle as u8, Ordering::SeqCst);
             // Signal done even on error so stop_transcription doesn't wait forever.
             *capture_done.0.lock().expect("capture_done lock poisoned") = true;
             capture_done.1.notify_one();
@@ -118,7 +128,9 @@ fn spawn_chunk_poller(state: &AppState, pool: sqlx::SqlitePool) {
                             5,
                         );
                         if did_commit && engine.is_poisoned() {
-                            log::error!("WhisperEngine mutex poisoned during streaming chunk — evicting");
+                            log::error!(
+                                "WhisperEngine mutex poisoned during streaming chunk — evicting"
+                            );
                             drop(pl_guard);
                             *engine_cache.blocking_lock() = None;
                             return Err("engine_poisoned");
@@ -273,7 +285,11 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
         #[allow(clippy::cast_possible_wrap)] // word count never exceeds i64::MAX
         let word_count = text.split_whitespace().count() as i64;
         if let Ok(saved) = repo
-            .create(CreateTranscript { content: text.clone(), word_count, duration_seconds })
+            .create(CreateTranscript {
+                content: text.clone(),
+                word_count,
+                duration_seconds,
+            })
             .await
         {
             let _ = app.emit("transcript:new", TranscriptResponse::from(saved));

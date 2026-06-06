@@ -5,9 +5,25 @@ import { Trash2, BookOpen, Plus, Pencil, Check, X, Mic } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { SectionState } from '../components/SectionState'
+
+function DictionarySkeleton() {
+  return (
+    <div className="flex flex-col">
+      {[0, 1, 2, 3, 4].map(i => (
+        <div key={i} className="flex items-center gap-4 px-4 py-3.5 border-b border-(--border-soft) last:border-none">
+          <div className="h-3.5 w-[28%] rounded bg-(--surface) animate-pulse" />
+          <div className="h-3.5 w-[28%] rounded bg-(--surface) animate-pulse" />
+          <div className="h-3.5 w-8 rounded bg-(--surface) animate-pulse ml-auto" />
+          <div className="h-3.5 w-12 rounded bg-(--surface) animate-pulse" />
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export function Dictionary() {
-  const { dictionary, updateDictionary, deleteDictionaryEntry } = useAppStore()
+  const { dictionary, dictionaryStatus, dictionaryError, loadDictionary, updateDictionary, deleteDictionaryEntry } = useAppStore()
 
   const [term, setTerm] = useState('')
   const [replacement, setReplacement] = useState('')
@@ -110,6 +126,7 @@ export function Dictionary() {
 
           <div className="flex-1 min-h-0 border border-(--border) rounded-(--r-xl) bg-background overflow-hidden flex flex-col">
             <div className="flex-1 min-h-0 overflow-y-auto">
+              <SectionState status={dictionaryStatus} error={dictionaryError} onRetry={loadDictionary} skeleton={<DictionarySkeleton />}>
               {dictionary.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-8 px-4 text-center">
                   <div className="w-9 h-9 rounded-(--r-lg) bg-(--surface) border border-(--border-soft) flex items-center justify-center text-muted-foreground opacity-80">
@@ -193,6 +210,7 @@ export function Dictionary() {
                   </tbody>
                 </table>
               )}
+              </SectionState>
             </div>
           </div>
         </div>

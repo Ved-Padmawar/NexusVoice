@@ -15,7 +15,40 @@ import { fmtTime, fmtDate, downloadBlob } from '../lib/utils'
 import { useClickOutside } from '../lib/hooks'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { SectionState } from '../components/SectionState'
 import type { Transcript } from '../store/useAppStore'
+
+function StatsSkeleton() {
+  return (
+    <div className="grid grid-cols-4 gap-2.5">
+      {[0, 1, 2, 3].map(i => (
+        <div key={i} className="flex items-center gap-3.5 px-4.5 py-4 rounded-(--r-xl) bg-(--panel) border border-(--border)">
+          <div className="w-9 h-9 rounded-(--r-md) bg-(--surface) animate-pulse shrink-0" />
+          <div className="flex flex-col gap-1.5">
+            <div className="h-4 w-14 rounded bg-(--surface) animate-pulse" />
+            <div className="h-2.5 w-16 rounded bg-(--surface) animate-pulse" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function FeedSkeleton() {
+  return (
+    <div className="flex flex-col gap-3 pr-1.5">
+      {[0, 1, 2, 3].map(i => (
+        <div key={i} className="grid grid-cols-[20px_1fr] gap-x-3.5">
+          <div className="w-2 h-2 rounded-full bg-(--surface) animate-pulse mt-3 justify-self-center" />
+          <div className="bg-(--panel) border border-(--border-soft) rounded-(--r-lg) px-3.5 py-3 flex flex-col gap-2">
+            <div className="h-3 w-full rounded bg-(--surface) animate-pulse" />
+            <div className="h-3 w-3/4 rounded bg-(--surface) animate-pulse" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 
 function ExportButton() {
@@ -221,7 +254,11 @@ function FilterDropdown() {
 }
 
 export function Dashboard() {
-  const { transcripts, transcriptHasMore, searchResults, isSearching, stats, hasHotkey, loadMoreTranscripts, searchTranscripts, deleteTranscript } = useAppStore()
+  const {
+    transcripts, transcriptHasMore, searchResults, isSearching, stats, hasHotkey,
+    transcriptsStatus, transcriptsError, statsStatus, statsError,
+    loadStats, retryTranscripts, loadMoreTranscripts, searchTranscripts, deleteTranscript,
+  } = useAppStore()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -284,6 +321,7 @@ export function Dashboard() {
       </AnimatePresence>
 
       {/* Stats */}
+      <SectionState status={statsStatus} error={statsError} onRetry={loadStats} skeleton={<StatsSkeleton />}>
       <div className="grid grid-cols-4 gap-2.5">
         {STATS.map(({ key, label, fmt, Icon }, i) => {
           const raw = stats?.[key as keyof typeof stats] as number | undefined
@@ -306,6 +344,7 @@ export function Dashboard() {
           )
         })}
       </div>
+      </SectionState>
 
       {/* Activity feed */}
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -332,6 +371,12 @@ export function Dashboard() {
           </div>
         </div>
 
+        <SectionState
+          status={transcriptsStatus}
+          error={transcriptsError}
+          onRetry={retryTranscripts}
+          skeleton={<FeedSkeleton />}
+        >
         {displayItems.length === 0 && !isSearching ? (
           <div className="flex flex-col items-center gap-3 py-14 px-6 text-center">
             <div className="w-14 h-14 rounded-full border-[1.5px] border-dashed border-(--border) flex items-center justify-center text-muted-foreground">
@@ -390,6 +435,7 @@ export function Dashboard() {
             )}
           </div>
         )}
+        </SectionState>
       </div>
 
     </div>

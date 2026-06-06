@@ -9,6 +9,22 @@ use tauri::{
 // 10 MB in bytes
 const LOG_MAX_SIZE: u128 = 10 * 1024 * 1024;
 
+/// A short id identifying this app run, attached to every structured log line so
+/// lines from one session can be grouped when logs from multiple runs interleave.
+fn session_id() -> &'static str {
+    use std::sync::OnceLock;
+    static SESSION_ID: OnceLock<String> = OnceLock::new();
+    SESSION_ID.get_or_init(|| {
+        // Derive 8 hex chars from the startup timestamp — no extra deps needed.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        #[allow(clippy::cast_possible_truncation)] // low 32 bits are all we want for an id
+        let low = (nanos & 0xffff_ffff) as u64;
+        format!("{low:08x}")
+    })
+}
+
 mod audio;
 mod auth;
 mod commands;
@@ -40,15 +56,19 @@ fn main() {
     let log_targets = vec![
         tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
         tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
-        tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: Some("nexusvoice".into()) }),
+        tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+            file_name: Some("nexusvoice".into()),
+        }),
     ];
     #[cfg(not(debug_assertions))]
-    let log_targets = vec![
-        tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: Some("nexusvoice".into()) }),
-    ];
+    let log_targets = vec![tauri_plugin_log::Target::new(
+        tauri_plugin_log::TargetKind::LogDir {
+            file_name: Some("nexusvoice".into()),
+        },
+    )];
 
     #[cfg(debug_assertions)]
-    let log_level = log::LevelFilter::Debug;
+    let log_level = log::LevelFilter::Info;
     #[cfg(not(debug_assertions))]
     let log_level = log::LevelFilter::Info;
 
@@ -66,7 +86,7 @@ fn main() {
                 }
             }
         })
-.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -78,6 +98,18 @@ fn main() {
                 .level(log_level)
                 .max_file_size(LOG_MAX_SIZE)
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                // Structured (JSON-line) output: one object per record with a stable
+                // schema (ts/level/target/session/msg) so logs are queryable.
+                .format(|out, message, record| {
+                    let line = serde_json::json!({
+                        "ts": chrono::Utc::now().to_rfc3339(),
+                        "level": record.level().as_str(),
+                        "target": record.target(),
+                        "session": session_id(),
+                        "msg": message.to_string(),
+                    });
+                    out.finish(format_args!("{line}"));
+                })
                 .build(),
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -90,6 +122,8 @@ fn main() {
 
             let token_store_path = app_data_dir.join("refresh_token");
             let hotkey_store_path = app_data_dir.join("hotkey");
+            let dictation_hotkey_store_path = app_data_dir.join("dictation_hotkey");
+            let dictation_commit_hotkey_store_path = app_data_dir.join("dictation_commit_hotkey");
             let model_override_path = app_data_dir.join("model_override");
             let beam_size_path = app_data_dir.join("beam_size");
             let format_config_path = app_data_dir.join("format_config.json");
@@ -102,6 +136,8 @@ fn main() {
                 app_data_dir,
                 token_store_path,
                 hotkey_store_path,
+                dictation_hotkey_store_path,
+                dictation_commit_hotkey_store_path,
                 model_override_path,
                 beam_size_path,
                 format_config_path,
@@ -157,7 +193,9 @@ fn main() {
                     if let Some(raw_token) = state.load_refresh_token() {
                         match state.auth().await.refresh_tokens(&raw_token).await {
                             Ok(pair) => {
-                                if let Ok(user_id) = state.auth().await.validate_token(&pair.access_token) {
+                                if let Ok(user_id) =
+                                    state.auth().await.validate_token(&pair.access_token)
+                                {
                                     state.set_auth_session(user_id, pair.access_token).await;
                                     let _ = state.save_refresh_token(&pair.refresh_token);
                                     let _ = app_handle.emit("auth:ready", user_id);
@@ -185,12 +223,24 @@ fn main() {
                         let hw = detect_profile(&SysinfoProvider);
                         let recommended = recommend_model_size();
                         (hw, recommended)
-                    }).await.unwrap_or_else(|_| (hardware::profile::HardwareProfile::default(), inference::provider::ModelSize::Small));
+                    })
+                    .await
+                    .unwrap_or_else(|_| {
+                        (
+                            hardware::profile::HardwareProfile::default(),
+                            inference::provider::ModelSize::Small,
+                        )
+                    });
 
                     log::info!("NexusVoice v{} starting", env!("CARGO_PKG_VERSION"));
                     log::info!("OS: {}", std::env::consts::OS);
                     log::info!("RAM: {:.1} GB", hw.ram_gb);
-                    log::info!("GPU: {} ({}, {:.1} GB VRAM)", hw.gpu_type, hw.execution_provider, hw.vram_gb);
+                    log::info!(
+                        "GPU: {} ({}, {:.1} GB VRAM)",
+                        hw.gpu_type,
+                        hw.execution_provider,
+                        hw.vram_gb
+                    );
                     log::info!("Recommended model: {}", recommended.display_name());
 
                     let _ = app_handle.emit(
@@ -208,25 +258,9 @@ fn main() {
 
             // Spawn: hotkey restore
             {
-                use tauri_plugin_global_shortcut::GlobalShortcutExt;
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    let state = app_handle.state::<state::AppState>();
-                    if let Some(hotkey) = state.load_hotkey() {
-                        let inner_handle = app_handle.clone();
-                        let _ = app_handle.global_shortcut().on_shortcut(
-                            hotkey.as_str(),
-                            move |_app, _shortcut, event| {
-                                use tauri_plugin_global_shortcut::ShortcutState;
-                                if event.state == ShortcutState::Pressed {
-                                    let _ = inner_handle.emit("hotkey-pressed", ());
-                                } else {
-                                    let _ = inner_handle.emit("hotkey-released", ());
-                                }
-                            },
-                        );
-                        *state.current_hotkey.lock().await = Some(hotkey);
-                    }
+                    commands::restore_registered_hotkeys(&app_handle).await;
                 });
             }
 
@@ -254,9 +288,7 @@ fn main() {
             // layer that Windows then upscales, which looks low-res in the tray;
             // handing it a crisp 256px source lets Windows downscale cleanly.
             // Embedded so the path resolves identically in dev and bundled builds.
-            let tray_icon = tauri::image::Image::from_bytes(include_bytes!(
-                "../icons/tray.png"
-            ))?;
+            let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
 
             let _tray = TrayIconBuilder::new()
                 .icon(tray_icon)
@@ -274,6 +306,7 @@ fn main() {
                         state
                             .transcription_running
                             .store(false, std::sync::atomic::Ordering::SeqCst);
+                        state.reset_recording_session();
                         let app_handle = app.clone();
                         tauri::async_runtime::spawn(async move {
                             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -306,7 +339,8 @@ fn main() {
                 tauri::async_runtime::spawn(async move {
                     // Find pill window config and build it manually
                     let config = app_handle.config();
-                    if let Some(win_config) = config.app.windows.iter().find(|w| w.label == "pill") {
+                    if let Some(win_config) = config.app.windows.iter().find(|w| w.label == "pill")
+                    {
                         match tauri::WebviewWindowBuilder::from_config(&app_handle, win_config)
                             .and_then(tauri::WebviewWindowBuilder::build)
                         {
@@ -315,12 +349,13 @@ fn main() {
                                 if let Some(monitor) = pill.primary_monitor().ok().flatten() {
                                     let screen = monitor.size();
                                     let scale = monitor.scale_factor();
-                                    let pill_w = 120.0;
+                                    let pill_w = 104.0;
                                     let pill_h = 44.0;
                                     let margin = 72.0;
                                     let logical_w = f64::from(screen.width) / scale;
                                     let logical_h = f64::from(screen.height) / scale;
-                                    #[allow(clippy::cast_possible_truncation)] // pixel coords fit i32
+                                    #[allow(clippy::cast_possible_truncation)]
+                                    // pixel coords fit i32
                                     let x = ((logical_w - pill_w) / 2.0) as i32;
                                     #[allow(clippy::cast_possible_truncation)]
                                     let y = (logical_h - pill_h - margin) as i32;
@@ -372,6 +407,11 @@ fn main() {
             commands::logout_token,
             commands::start_transcription,
             commands::stop_transcription,
+            commands::start_dictation,
+            commands::pause_dictation,
+            commands::resume_dictation,
+            commands::commit_dictation,
+            commands::cancel_dictation,
             commands::get_usage_stats,
             commands::get_transcripts,
             commands::search_transcripts,
@@ -387,6 +427,10 @@ fn main() {
             commands::type_text,
             commands::register_hotkey,
             commands::unregister_hotkey,
+            commands::register_dictation_hotkey,
+            commands::unregister_dictation_hotkey,
+            commands::register_dictation_commit_hotkey,
+            commands::unregister_dictation_commit_hotkey,
             commands::get_registered_hotkeys,
             commands::get_model_info,
             commands::retry_model_download,
@@ -402,6 +446,7 @@ fn main() {
             commands::set_format_config,
             commands::test_format_connection,
             commands::open_logs_folder,
+            commands::log_frontend,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -412,6 +457,7 @@ fn main() {
                 state
                     .transcription_running
                     .store(false, std::sync::atomic::Ordering::SeqCst);
+                state.reset_recording_session();
             }
         });
 }

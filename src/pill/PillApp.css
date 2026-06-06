@@ -55,6 +55,17 @@ body {
   border-color: rgba(255, 255, 255, 0.16);
 }
 
+.pill--dictation,
+.pill--dictation-paused {
+  padding: 0 5px;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.pill--dictation-paused {
+  border-color: rgba(120, 162, 244, 0.35);
+  background: #10121c;
+}
+
 /* ===== Processing — morphs to circle ===== */
 .pill--processing {
   padding: 0;
@@ -122,6 +133,62 @@ body {
   min-height: 3px;
 }
 
+.pill__dictation {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 3px;
+  position: relative;
+  z-index: 2;
+}
+
+.pill__waveform--dictation {
+  min-width: 0;
+  gap: 1.5px;
+  opacity: 1;
+  transition: opacity 0.12s ease;
+}
+
+.pill--dictation-paused .pill__waveform--dictation {
+  opacity: 0.45;
+}
+
+.pill__control {
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.07);
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.pill__control:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.pill__control:active {
+  transform: scale(0.94);
+}
+
+.pill__control--commit {
+  color: #7dd3a7;
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.pill__control--commit:hover {
+  background: rgba(34, 197, 94, 0.22);
+  color: #b7f7cc;
+}
+
 /* ===== Download percentage ===== */
 .pill__pct {
   position: absolute;
@@ -176,6 +243,8 @@ body {
 /* ===== Steel ===== */
 .pill[data-pill-theme="steel"] { background: #141820; border-color: rgba(148,168,200,0.15); box-shadow: inset 0 1px 0 rgba(255,255,255,0.04); }
 .pill[data-pill-theme="steel"].pill--recording { border-color: rgba(148,168,200,0.28); }
+.pill[data-pill-theme="steel"].pill--dictation,
+.pill[data-pill-theme="steel"].pill--dictation-paused { border-color: rgba(148,168,200,0.32); }
 .pill[data-pill-theme="steel"].pill--processing { background: #111520; border-color: rgba(148,168,200,0.5); box-shadow: none; }
 .pill[data-pill-theme="steel"].pill--downloading { background: #13161e; border-color: rgba(245,158,11,0.5); box-shadow: none; }
 .pill[data-pill-theme="steel"].pill--error { background: #1a1218; border-color: rgba(239,68,68,0.4); }
@@ -186,6 +255,8 @@ body {
 /* ===== Light ===== */
 .pill[data-pill-theme="light"] { background: #ffffff; border-color: rgba(0,0,0,0.10); box-shadow: 0 2px 12px rgba(0,0,0,0.10), 0 1px 3px rgba(0,0,0,0.07); }
 .pill[data-pill-theme="light"].pill--recording { border-color: rgba(58,91,217,0.25); }
+.pill[data-pill-theme="light"].pill--dictation,
+.pill[data-pill-theme="light"].pill--dictation-paused { border-color: rgba(58,91,217,0.28); }
 .pill[data-pill-theme="light"].pill--processing { background: #f0f4ff; border-color: rgba(58,91,217,0.4); box-shadow: none; }
 .pill[data-pill-theme="light"].pill--downloading { background: #fffbf0; border-color: rgba(245,158,11,0.5); box-shadow: none; }
 .pill[data-pill-theme="light"].pill--error { background: #fff5f5; border-color: rgba(220,38,38,0.3); }
@@ -193,10 +264,15 @@ body {
 .pill[data-pill-theme="light"] .pill__bar { background: #3a5bd9; }
 .pill[data-pill-theme="light"] .pill__brand { color: rgba(20,20,45,0.82); }
 .pill[data-pill-theme="light"] .pill__error-label { color: #dc2626; }
+.pill[data-pill-theme="light"] .pill__control { color: rgba(20,20,45,0.75); background: rgba(20,20,45,0.07); }
+.pill[data-pill-theme="light"] .pill__control:hover { color: rgba(20,20,45,0.95); background: rgba(20,20,45,0.12); }
+.pill[data-pill-theme="light"] .pill__control--commit { color: #15803d; background: rgba(34,197,94,0.16); }
 
 /* ===== Teal ===== */
 .pill[data-pill-theme="teal"] { background: #0e1a1d; border-color: rgba(91,184,196,0.14); box-shadow: inset 0 1px 0 rgba(255,255,255,0.04); }
 .pill[data-pill-theme="teal"].pill--recording { border-color: rgba(91,184,196,0.28); }
+.pill[data-pill-theme="teal"].pill--dictation,
+.pill[data-pill-theme="teal"].pill--dictation-paused { border-color: rgba(91,184,196,0.32); }
 .pill[data-pill-theme="teal"].pill--processing { background: #0c181c; border-color: rgba(91,184,196,0.5); box-shadow: none; }
 .pill[data-pill-theme="teal"].pill--downloading { background: #0e1810; border-color: rgba(245,158,11,0.45); box-shadow: none; }
 .pill[data-pill-theme="teal"].pill--error { background: #1a1214; border-color: rgba(239,68,68,0.4); }

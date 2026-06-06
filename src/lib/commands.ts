@@ -15,11 +15,19 @@ export const COMMANDS = {
   // Transcription
   START_TRANSCRIPTION: 'start_transcription',
   STOP_TRANSCRIPTION:  'stop_transcription',
+  START_DICTATION:     'start_dictation',
+  PAUSE_DICTATION:     'pause_dictation',
+  RESUME_DICTATION:    'resume_dictation',
+  COMMIT_DICTATION:    'commit_dictation',
   TYPE_TEXT:           'type_text',
 
   // Hotkey
   REGISTER_HOTKEY:     'register_hotkey',
   UNREGISTER_HOTKEY:   'unregister_hotkey',
+  REGISTER_DICTATION_HOTKEY:   'register_dictation_hotkey',
+  UNREGISTER_DICTATION_HOTKEY: 'unregister_dictation_hotkey',
+  REGISTER_DICTATION_COMMIT_HOTKEY:   'register_dictation_commit_hotkey',
+  UNREGISTER_DICTATION_COMMIT_HOTKEY: 'unregister_dictation_commit_hotkey',
   GET_REGISTERED_HOTKEYS: 'get_registered_hotkeys',
 
   // Data
@@ -52,6 +60,7 @@ export const COMMANDS = {
 
   // System
   OPEN_LOGS_FOLDER: 'open_logs_folder',
+  LOG_FRONTEND:     'log_frontend',
 } as const
 
 export type AppCommand = typeof COMMANDS[keyof typeof COMMANDS]

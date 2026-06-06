@@ -286,7 +286,10 @@ function ProviderModal({
           {/* Base URL */}
           <Field label="Base URL">
             <input
+              id="format-base-url"
+              name="format-base-url"
               type="text"
+              autoComplete="off"
               value={baseUrl}
               onChange={(e) => { setBaseUrl(e.target.value); setTestResult('idle') }}
               placeholder="http://localhost:11434/v1"
@@ -298,7 +301,10 @@ function ProviderModal({
           {/* Model */}
           <Field label="Model">
             <input
+              id="format-model"
+              name="format-model"
               type="text"
+              autoComplete="off"
               value={model}
               onChange={(e) => { setModel(e.target.value); setTestResult('idle') }}
               placeholder={preset.modelHint}
@@ -313,7 +319,10 @@ function ProviderModal({
           {/* API key */}
           <Field label={preset.needsKey ? 'API key' : 'API key (optional)'}>
             <input
+              id="format-api-key"
+              name="format-api-key"
               type="password"
+              autoComplete="off"
               value={apiKey}
               onChange={(e) => { setApiKey(e.target.value); setTestResult('idle') }}
               placeholder={preset.needsKey ? 'sk-…' : 'leave blank for local servers'}

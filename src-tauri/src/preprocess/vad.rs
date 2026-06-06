@@ -24,13 +24,12 @@ pub fn extract_speech(samples: &[f32]) -> Vec<f32> {
     let Ok(mut vad) = VoiceActivityDetector::builder()
         .sample_rate(VAD_SAMPLE_RATE)
         .chunk_size(VAD_CHUNK)
-        .build() else { return samples.to_vec() };
+        .build()
+    else {
+        return samples.to_vec();
+    };
 
-    let predictions: Vec<(Vec<f32>, f32)> = samples
-        .iter()
-        .copied()
-        .predict(&mut vad)
-        .collect();
+    let predictions: Vec<(Vec<f32>, f32)> = samples.iter().copied().predict(&mut vad).collect();
 
     let n = predictions.len();
     if n == 0 {

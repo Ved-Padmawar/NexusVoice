@@ -1,5 +1,5 @@
-pub mod stitcher;
 pub mod denoise;
+pub mod stitcher;
 pub mod vad;
 
 use crate::audio::resample;

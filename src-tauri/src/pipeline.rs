@@ -88,7 +88,11 @@ impl StreamingPipeline {
 
         // Map the 16 kHz split back to native-rate samples
         let ratio = f64::from(native_rate) / 16_000.0;
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
         let split_native = (split_16k as f64 * ratio) as usize;
 
         // The chunk to transcribe is from the start to the split (native rate)
@@ -159,10 +163,17 @@ impl StreamingPipeline {
             let resampled = crate::preprocess::preprocess(tail, native_rate);
 
             if !resampled.is_empty() {
-                let text = engine.lock().map_or_else(|_| {
-                    log::error!("WhisperEngine mutex poisoned during finalize");
-                    String::new()
-                }, |guard| guard.transcribe(&resampled, prompt, beam_size).unwrap_or_default());
+                let text = engine.lock().map_or_else(
+                    |_| {
+                        log::error!("WhisperEngine mutex poisoned during finalize");
+                        String::new()
+                    },
+                    |guard| {
+                        guard
+                            .transcribe(&resampled, prompt, beam_size)
+                            .unwrap_or_default()
+                    },
+                );
                 if !text.is_empty() {
                     self.completed_texts.push(text);
                 }
@@ -182,7 +193,10 @@ fn find_vad_split(samples: &[f32]) -> usize {
     let Ok(mut vad) = VoiceActivityDetector::builder()
         .sample_rate(16_000)
         .chunk_size(VAD_CHUNK_16K)
-        .build() else { return samples.len() };
+        .build()
+    else {
+        return samples.len();
+    };
 
     let predictions: Vec<f32> = samples
         .iter()

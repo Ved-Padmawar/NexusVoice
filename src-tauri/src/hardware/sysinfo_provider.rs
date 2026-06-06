@@ -40,7 +40,9 @@ fn query_total_ram_gb() -> f32 {
 fn query_gpus_dxgi() -> Vec<GpuDescriptor> {
     #[cfg(target_os = "windows")]
     {
-        use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1, DXGI_ERROR_NOT_FOUND};
+        use windows::Win32::Graphics::Dxgi::{
+            CreateDXGIFactory1, IDXGIFactory1, DXGI_ERROR_NOT_FOUND,
+        };
 
         let factory: IDXGIFactory1 = match unsafe { CreateDXGIFactory1() } {
             Ok(f) => f,
@@ -56,7 +58,10 @@ fn query_gpus_dxgi() -> Vec<GpuDescriptor> {
                 Err(e) if e.code() == DXGI_ERROR_NOT_FOUND => break,
                 Err(_) => break,
                 Ok(adapter) => {
-                    let Ok(desc) = (unsafe { adapter.GetDesc1() }) else { i += 1; continue; };
+                    let Ok(desc) = (unsafe { adapter.GetDesc1() }) else {
+                        i += 1;
+                        continue;
+                    };
 
                     // Skip software/Microsoft Basic Render Driver (Flags bit 2 = DXGI_ADAPTER_FLAG_SOFTWARE)
                     if desc.Flags & 2 != 0 {
@@ -65,14 +70,17 @@ fn query_gpus_dxgi() -> Vec<GpuDescriptor> {
                     }
 
                     let name = String::from_utf16_lossy(
-                        &desc.Description.iter()
+                        &desc
+                            .Description
+                            .iter()
                             .copied()
                             .take_while(|&c| c != 0)
-                            .collect::<Vec<u16>>()
+                            .collect::<Vec<u16>>(),
                     );
 
                     let name_lower = name.to_lowercase();
-                    if name_lower.contains("microsoft basic") || name_lower.contains("basic render") {
+                    if name_lower.contains("microsoft basic") || name_lower.contains("basic render")
+                    {
                         i += 1;
                         continue;
                     }

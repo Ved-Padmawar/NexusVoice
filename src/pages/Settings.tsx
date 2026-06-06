@@ -2,7 +2,7 @@ import { useRef, useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../lib/commands'
-import { Palette, Info, Settings2, FolderOpen, Database, Pill } from 'lucide-react'
+import { Palette, Info, Settings2, FolderOpen, Database, Keyboard } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { SETTINGS_TABS, type SettingsTab } from '../lib/routes'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -26,7 +26,8 @@ export function Settings() {
   }, [setActiveSettingsTab])
 
   const [modelManagerOpen, setModelManagerOpen] = useState(false)
-  const tab = activeSettingsTab
+  // Normalize a stale persisted value ('pill' was renamed to 'shortcuts').
+  const tab: SettingsTab = activeSettingsTab === ('pill' as SettingsTab) ? 'shortcuts' : activeSettingsTab
   const setTab = (v: string) => setActiveSettingsTab(v as SettingsTab)
 
   return (
@@ -53,9 +54,9 @@ export function Settings() {
               <Palette size={12} strokeWidth={1.75} />
               General
             </TabsTrigger>
-            <TabsTrigger value="pill" className="gap-1.25! text-[12px]!">
-              <Pill size={12} strokeWidth={1.75} />
-              Pill
+            <TabsTrigger value="shortcuts" className="gap-1.25! text-[12px]!">
+              <Keyboard size={12} strokeWidth={1.75} />
+              Shortcuts
             </TabsTrigger>
             <TabsTrigger value="about" className="gap-1.25! text-[12px]!">
               <Info size={12} strokeWidth={1.75} />
@@ -89,11 +90,11 @@ export function Settings() {
         <TabsContent value="general" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-6 mt-0!">
           <GeneralTab />
           <div className="h-px bg-(--border-soft)" />
-          <HotkeySection />
+          <PillTab />
         </TabsContent>
 
-        <TabsContent value="pill" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 mt-0!">
-          <PillTab />
+        <TabsContent value="shortcuts" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 mt-0!">
+          <HotkeySection />
         </TabsContent>
 
         <TabsContent value="about" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 mt-0!">

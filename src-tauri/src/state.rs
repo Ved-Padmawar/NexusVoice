@@ -21,6 +21,42 @@ pub type DictCache = Arc<RwLock<HashMap<String, DictionaryEntry>>>;
 pub type AudioBuffer = Arc<std::sync::Mutex<Vec<f32>>>;
 pub type NativeSampleRate = Arc<std::sync::Mutex<u32>>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum RecordingMode {
+    PushToTalk = 0,
+    Dictation = 1,
+}
+
+impl RecordingMode {
+    fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Dictation,
+            _ => Self::PushToTalk,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SessionPhase {
+    Idle = 0,
+    Recording = 1,
+    Paused = 2,
+    Finalizing = 3,
+}
+
+impl SessionPhase {
+    fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Recording,
+            2 => Self::Paused,
+            3 => Self::Finalizing,
+            _ => Self::Idle,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct AuthSession {
     pub user_id: Option<i64>,
@@ -87,12 +123,19 @@ pub struct AppState {
     pub app_data_dir: PathBuf,
     pub token_store_path: PathBuf,
     pub hotkey_store_path: PathBuf,
+    pub dictation_hotkey_store_path: PathBuf,
+    pub dictation_commit_hotkey_store_path: PathBuf,
     pub model_override_path: PathBuf,
     pub beam_size_path: PathBuf,
     pub format_config_path: PathBuf,
     pub auth_session: Mutex<AuthSession>,
     pub transcription_running: Arc<AtomicBool>,
+    pub recording_mode: Arc<AtomicU8>,
+    pub session_phase: Arc<AtomicU8>,
+    pub capture_paused: Arc<AtomicBool>,
     pub current_hotkey: Mutex<Option<String>>,
+    pub current_dictation_hotkey: Mutex<Option<String>>,
+    pub current_dictation_commit_hotkey: Mutex<Option<String>>,
     pub audio_buffer: AudioBuffer,
     pub native_sample_rate: NativeSampleRate,
     pub models_dir: PathBuf,
@@ -110,10 +153,13 @@ pub struct AppState {
 }
 
 impl AppState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         app_data_dir: PathBuf,
         token_store_path: PathBuf,
         hotkey_store_path: PathBuf,
+        dictation_hotkey_store_path: PathBuf,
+        dictation_commit_hotkey_store_path: PathBuf,
         model_override_path: PathBuf,
         beam_size_path: PathBuf,
         format_config_path: PathBuf,
@@ -125,12 +171,19 @@ impl AppState {
             app_data_dir,
             token_store_path,
             hotkey_store_path,
+            dictation_hotkey_store_path,
+            dictation_commit_hotkey_store_path,
             model_override_path,
             beam_size_path,
             format_config_path,
             auth_session: Mutex::new(AuthSession::default()),
             transcription_running: Arc::new(AtomicBool::new(false)),
+            recording_mode: Arc::new(AtomicU8::new(RecordingMode::PushToTalk as u8)),
+            session_phase: Arc::new(AtomicU8::new(SessionPhase::Idle as u8)),
+            capture_paused: Arc::new(AtomicBool::new(false)),
             current_hotkey: Mutex::new(None),
+            current_dictation_hotkey: Mutex::new(None),
+            current_dictation_commit_hotkey: Mutex::new(None),
             audio_buffer: Arc::new(std::sync::Mutex::new(Vec::new())),
             native_sample_rate: Arc::new(std::sync::Mutex::new(44100)),
             models_dir,
@@ -154,42 +207,42 @@ impl AppState {
 
     /// Get the database pool, waiting if it's still initializing.
     pub async fn db(&self) -> &SqlitePool {
-        self.db.get_or_init(|| async {
-            // This branch should never execute — the pool is always set by the init task.
-            // But if somehow it does, open the DB as a fallback.
-            let db_path = self.app_data_dir.join("nexusvoice.db");
-            crate::database::connection::open_database(&db_path)
-                .await
-                .expect("fallback database init failed")
-        }).await
+        self.db
+            .get_or_init(|| async {
+                // This branch should never execute — the pool is always set by the init task.
+                // But if somehow it does, open the DB as a fallback.
+                let db_path = self.app_data_dir.join("nexusvoice.db");
+                crate::database::connection::open_database(&db_path)
+                    .await
+                    .expect("fallback database init failed")
+            })
+            .await
     }
 
     /// Get the auth service, waiting if it's still initializing.
     pub async fn auth(&self) -> &AuthService {
-        self.auth_cell.get_or_init(|| async {
-            let pool = self.db().await.clone();
-            let jwt_secret_path = self.app_data_dir.join("jwt_secret");
-            let jwt_secret = crate::auth::load_or_create_jwt_secret(&jwt_secret_path)
-                .expect("fallback jwt secret init failed");
-            AuthService::new(pool, jwt_secret)
-        }).await
+        self.auth_cell
+            .get_or_init(|| async {
+                let pool = self.db().await.clone();
+                let jwt_secret_path = self.app_data_dir.join("jwt_secret");
+                let jwt_secret = crate::auth::load_or_create_jwt_secret(&jwt_secret_path)
+                    .expect("fallback jwt secret init failed");
+                AuthService::new(pool, jwt_secret)
+            })
+            .await
     }
 
     /// Get or load the cached `WhisperEngine`.
     /// Returns Err if the model file is missing (not yet downloaded).
-    pub async fn get_or_load_engine(
-        &self,
-    ) -> Result<Arc<std::sync::Mutex<WhisperEngine>>, String> {
+    pub async fn get_or_load_engine(&self) -> Result<Arc<std::sync::Mutex<WhisperEngine>>, String> {
         let mut guard = self.engine.lock().await;
         if let Some(engine) = guard.as_ref() {
             return Ok(Arc::clone(engine));
         }
         let override_size = self.load_model_override();
         let backend = crate::inference::provider::detect_backend();
-        let model_size = crate::inference::provider::select_model_size(
-            backend,
-            override_size.as_deref(),
-        );
+        let model_size =
+            crate::inference::provider::select_model_size(backend, override_size.as_deref());
         let model_path = self.models_dir.join(model_size.filename());
         if !model_path.exists() {
             return Err("model not downloaded yet".to_string());
@@ -245,6 +298,36 @@ impl AppState {
 
     pub fn delete_hotkey(&self) {
         let _ = std::fs::remove_file(&self.hotkey_store_path);
+    }
+
+    pub fn save_dictation_hotkey(&self, hotkey: &str) -> std::io::Result<()> {
+        std::fs::write(&self.dictation_hotkey_store_path, hotkey)
+    }
+
+    pub fn load_dictation_hotkey(&self) -> Option<String> {
+        std::fs::read_to_string(&self.dictation_hotkey_store_path)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    pub fn delete_dictation_hotkey(&self) {
+        let _ = std::fs::remove_file(&self.dictation_hotkey_store_path);
+    }
+
+    pub fn save_dictation_commit_hotkey(&self, hotkey: &str) -> std::io::Result<()> {
+        std::fs::write(&self.dictation_commit_hotkey_store_path, hotkey)
+    }
+
+    pub fn load_dictation_commit_hotkey(&self) -> Option<String> {
+        std::fs::read_to_string(&self.dictation_commit_hotkey_store_path)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    pub fn delete_dictation_commit_hotkey(&self) {
+        let _ = std::fs::remove_file(&self.dictation_commit_hotkey_store_path);
     }
 
     pub fn save_model_override(&self, variant: &str) -> std::io::Result<()> {
@@ -306,5 +389,33 @@ impl AppState {
         self.transcription_running
             .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
+    }
+
+    pub fn recording_mode(&self) -> RecordingMode {
+        RecordingMode::from_u8(self.recording_mode.load(Ordering::SeqCst))
+    }
+
+    pub fn set_recording_mode(&self, mode: RecordingMode) {
+        self.recording_mode.store(mode as u8, Ordering::SeqCst);
+    }
+
+    pub fn session_phase(&self) -> SessionPhase {
+        SessionPhase::from_u8(self.session_phase.load(Ordering::SeqCst))
+    }
+
+    pub fn set_session_phase(&self, phase: SessionPhase) {
+        self.session_phase.store(phase as u8, Ordering::SeqCst);
+    }
+
+    pub fn transition_session_phase(&self, from: SessionPhase, to: SessionPhase) -> bool {
+        self.session_phase
+            .compare_exchange(from as u8, to as u8, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
+
+    pub fn reset_recording_session(&self) {
+        self.capture_paused.store(false, Ordering::SeqCst);
+        self.set_session_phase(SessionPhase::Idle);
+        self.set_recording_mode(RecordingMode::PushToTalk);
     }
 }

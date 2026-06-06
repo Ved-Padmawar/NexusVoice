@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { Check, Pause, Play } from 'lucide-react'
 import { EVENTS } from '../lib/events'
 import { COMMANDS } from '../lib/commands'
 import { extractErrorMessage } from '../lib/errors'
@@ -14,6 +15,8 @@ import './PillApp.css'
 const PILL_WIDTH: Record<string, number> = {
   idle: 104,
   recording: 80,
+  dictation: 104,
+  'dictation-paused': 104,
   processing: 32,
   downloading: 32,
   error: 104,
@@ -21,7 +24,7 @@ const PILL_WIDTH: Record<string, number> = {
 
 const pillSpring = { type: 'spring' as const, stiffness: 380, damping: 30, mass: 0.8 }
 
-type PillState = 'idle' | 'recording' | 'processing' | 'error' | 'downloading'
+type PillState = 'idle' | 'recording' | 'dictation' | 'dictation-paused' | 'processing' | 'error' | 'downloading'
 
 const MIN_H = 3
 const MAX_H = 16
@@ -73,6 +76,11 @@ export function PillApp() {
   const analyserRef = useRef<AnalyserNode | null>(null)
   const rafRef = useRef<number | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const stateRef = useRef<PillState>('idle')
+
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
 
   // Start dragging the window on mousedown
   const handleDragStart = useCallback((e: React.MouseEvent) => {
@@ -116,12 +124,12 @@ export function PillApp() {
     }).catch(() => { /* no mic permission */ })
   }, [])
 
-  const stopAudio = useCallback(() => {
+  const stopAudio = useCallback((resetBars = true) => {
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
     if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null }
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null }
     analyserRef.current = null
-    requestAnimationFrame(() => setBarHeights([3, 3, 3, 3, 3, 3, 3, 3]))
+    if (resetBars) requestAnimationFrame(() => setBarHeights([3, 3, 3, 3, 3, 3, 3, 3]))
   }, [])
 
   // Cleanup on unmount
@@ -129,15 +137,17 @@ export function PillApp() {
     return () => { stopAudio() }
   }, [stopAudio])
 
-  // Start/stop audio based on recording state
-  const isRecording = state === 'recording'
+  // Start/stop audio based on recording state. Dictation pause freezes the last waveform frame.
+  const isRecording = state === 'recording' || state === 'dictation'
   useEffect(() => {
     if (isRecording) {
       startAudio()
+    } else if (state === 'dictation-paused') {
+      stopAudio(false)
     } else {
       stopAudio()
     }
-  }, [isRecording, startAudio, stopAudio])
+  }, [isRecording, state, startAudio, stopAudio])
 
   // Ensure pill stays above the Windows taskbar at runtime
   useEffect(() => {
@@ -155,6 +165,7 @@ export function PillApp() {
   }, [])
 
   const isRecordingRef = useRef(false)
+  const isDictationRef = useRef(false)
 
   const showTooltip = useCallback((msg: string) => {
     setTooltip(msg)
@@ -239,7 +250,7 @@ export function PillApp() {
 
     const setup = async () => {
       const u1 = await listen(EVENTS.HOTKEY_PRESSED, async () => {
-        if (isRecordingRef.current) return
+        if (isRecordingRef.current || isDictationRef.current) return
         // Block recording if model not ready
         if (!modelReadyRef.current) {
           showTooltip('Model downloading… please wait')
@@ -290,6 +301,8 @@ export function PillApp() {
           } catch { /* clipboard briefly locked — text is still on clipboard, user can paste */ }
         }
         setState('idle')
+        isRecordingRef.current = false
+        isDictationRef.current = false
       })
       if (cancelled) { u3(); return }
       unlisteners.push(u3)
@@ -297,10 +310,64 @@ export function PillApp() {
       const u4 = await listen<string>(EVENTS.TRANSCRIPTION_ERROR, (event) => {
         setErrorMsg(event.payload ?? 'Transcription failed')
         setState('error')
+        isRecordingRef.current = false
+        isDictationRef.current = false
         setTimeout(() => setState('idle'), 3000)
       })
       if (cancelled) { u4(); return }
       unlisteners.push(u4)
+
+      const u5 = await listen(EVENTS.DICTATION_HOTKEY_PRESSED, async () => {
+        if (isRecordingRef.current || stateRef.current === 'processing' || stateRef.current === 'downloading') return
+        if (!modelReadyRef.current && !isDictationRef.current) {
+          showTooltip('Model downloading... please wait')
+          return
+        }
+
+        try {
+          if (!isDictationRef.current) {
+            isDictationRef.current = true
+            setState('dictation')
+            await invoke(COMMANDS.START_DICTATION)
+            return
+          }
+
+          if (stateRef.current === 'dictation') {
+            await invoke(COMMANDS.PAUSE_DICTATION)
+            setState('dictation-paused')
+            return
+          }
+
+          if (stateRef.current === 'dictation-paused') {
+            await invoke(COMMANDS.RESUME_DICTATION)
+            setState('dictation')
+          }
+        } catch (err: unknown) {
+          const msg = extractErrorMessage(err, String(err))
+          setErrorMsg(msg)
+          setState('error')
+          isDictationRef.current = false
+          setTimeout(() => setState('idle'), 3000)
+        }
+      })
+      if (cancelled) { u5(); return }
+      unlisteners.push(u5)
+
+      const u6 = await listen(EVENTS.DICTATION_COMMIT_HOTKEY_PRESSED, async () => {
+        if (!isDictationRef.current || isRecordingRef.current || stateRef.current === 'processing') return
+        setState('processing')
+        try {
+          await invoke(COMMANDS.COMMIT_DICTATION)
+        } catch (err: unknown) {
+          const msg = extractErrorMessage(err, String(err))
+          setErrorMsg(msg)
+          setState('error')
+          isDictationRef.current = false
+          setTimeout(() => setState('idle'), 3000)
+        }
+      })
+      if (cancelled) { u6(); return }
+      unlisteners.push(u6)
     }
 
     setup()
@@ -309,6 +376,36 @@ export function PillApp() {
       unlisteners.forEach(fn => fn())
     }
   }, [showTooltip])
+
+  const handleToggleDictationPause = useCallback(async () => {
+    try {
+      if (state === 'dictation') {
+        await invoke(COMMANDS.PAUSE_DICTATION)
+        setState('dictation-paused')
+      } else if (state === 'dictation-paused') {
+        await invoke(COMMANDS.RESUME_DICTATION)
+        setState('dictation')
+      }
+    } catch (err: unknown) {
+      setErrorMsg(extractErrorMessage(err, String(err)))
+      setState('error')
+      isDictationRef.current = false
+      setTimeout(() => setState('idle'), 3000)
+    }
+  }, [state])
+
+  const handleCommitDictation = useCallback(async () => {
+    if (!isDictationRef.current) return
+    setState('processing')
+    try {
+      await invoke(COMMANDS.COMMIT_DICTATION)
+    } catch (err: unknown) {
+      setErrorMsg(extractErrorMessage(err, String(err)))
+      setState('error')
+      isDictationRef.current = false
+      setTimeout(() => setState('idle'), 3000)
+    }
+  }, [])
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -349,6 +446,35 @@ export function PillApp() {
             {barHeights.map((h, i) => (
               <span key={i} className="pill__bar" style={{ height: `${h}px` }} />
             ))}
+          </div>
+        )}
+        {(state === 'dictation' || state === 'dictation-paused') && (
+          <div className="pill__dictation" aria-label={state === 'dictation-paused' ? 'Dictation paused' : 'Dictation recording'}>
+            <button
+              type="button"
+              className="pill__control"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={handleToggleDictationPause}
+              aria-label={state === 'dictation-paused' ? 'Resume dictation' : 'Pause dictation'}
+              title={state === 'dictation-paused' ? 'Resume' : 'Pause'}
+            >
+              {state === 'dictation-paused' ? <Play size={11} strokeWidth={2.4} /> : <Pause size={11} strokeWidth={2.4} />}
+            </button>
+            <div className="pill__waveform pill__waveform--dictation">
+              {barHeights.map((h, i) => (
+                <span key={i} className="pill__bar" style={{ height: `${h}px` }} />
+              ))}
+            </div>
+            <button
+              type="button"
+              className="pill__control pill__control--commit"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={handleCommitDictation}
+              aria-label="Commit dictation"
+              title="Save"
+            >
+              <Check size={12} strokeWidth={2.5} />
+            </button>
           </div>
         )}
         {state === 'error' && (

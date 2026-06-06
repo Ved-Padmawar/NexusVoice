@@ -19,7 +19,11 @@ impl WhisperEngine {
         let backend = detect_backend();
         let model_size = select_model_size(backend, override_size);
 
-        log::info!("backend: {}, model: {}", backend.as_str(), model_size.display_name());
+        log::info!(
+            "backend: {}, model: {}",
+            backend.as_str(),
+            model_size.display_name()
+        );
 
         let model_path = models_dir.join(model_size.filename());
         if !model_path.exists() {
@@ -37,7 +41,11 @@ impl WhisperEngine {
         )
         .map_err(|e| format!("failed to load whisper model: {e}"))?;
 
-        let engine = Self { ctx, backend, model_size };
+        let engine = Self {
+            ctx,
+            backend,
+            model_size,
+        };
 
         // Warmup pass — forces model weights into GPU/CPU memory so the first real
         // transcription is instant. Feed 1s of silence and discard the output.
@@ -50,7 +58,12 @@ impl WhisperEngine {
 
     /// Transcribe 16 kHz mono f32 samples. `prompt` biases recognition.
     /// `beam_size` controls the quality/speed tradeoff: 2=Fast, 5=Balanced, 8=Accurate.
-    pub fn transcribe(&self, samples_16k: &[f32], prompt: &str, beam_size: i32) -> Result<String, String> {
+    pub fn transcribe(
+        &self,
+        samples_16k: &[f32],
+        prompt: &str,
+        beam_size: i32,
+    ) -> Result<String, String> {
         // whisper.cpp requires at least 1 second of audio at 16 kHz
         const MIN_SAMPLES: usize = 16_000;
         let padded;
@@ -68,10 +81,15 @@ impl WhisperEngine {
         // clamp(1,4) guarantees the value fits i32 on any platform
         let n_threads = (std::thread::available_parallelism()
             .map(std::num::NonZero::get)
-            .unwrap_or(4) / 2).clamp(1, 4) as i32;
+            .unwrap_or(4)
+            / 2)
+        .clamp(1, 4) as i32;
 
         let beam_size = beam_size.clamp(1, 8);
-        let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size, patience: 1.0 });
+        let mut params = FullParams::new(SamplingStrategy::BeamSearch {
+            beam_size,
+            patience: 1.0,
+        });
         params.set_n_threads(n_threads);
         // Large variants are multilingual — let Whisper auto-detect the language.
         // The .en models (Tiny/Base/Small/Medium) only know English so we pin it.

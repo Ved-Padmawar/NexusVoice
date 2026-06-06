@@ -80,7 +80,11 @@ pub async fn login_with_tokens(
     email: String,
     password: String,
 ) -> Result<AuthResponse, ApiError> {
-    let (user, pair) = state.auth().await.login_with_tokens(&email, &password).await?;
+    let (user, pair) = state
+        .auth()
+        .await
+        .login_with_tokens(&email, &password)
+        .await?;
     Ok(AuthResponse {
         user: user.into(),
         tokens: pair.into(),
@@ -93,7 +97,11 @@ pub async fn register_with_tokens(
     email: String,
     password: String,
 ) -> Result<AuthResponse, ApiError> {
-    let (user, pair) = state.auth().await.register_with_tokens(&email, &password).await?;
+    let (user, pair) = state
+        .auth()
+        .await
+        .register_with_tokens(&email, &password)
+        .await?;
     Ok(AuthResponse {
         user: user.into(),
         tokens: pair.into(),

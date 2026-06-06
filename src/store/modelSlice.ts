@@ -8,6 +8,8 @@ import type { AppState } from './useAppStore'
 
 export type ModelSlice = {
   hasHotkey: boolean
+  hasDictationHotkey: boolean
+  hasDictationCommitHotkey: boolean
   modelReady: boolean
   modelDownloading: boolean
   downloadProgress: number
@@ -22,6 +24,8 @@ export type ModelSlice = {
 
 export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set, get) => ({
   hasHotkey: false,
+  hasDictationHotkey: false,
+  hasDictationCommitHotkey: false,
   modelReady: false,
   modelDownloading: false,
   downloadProgress: 0,
@@ -42,8 +46,13 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
 
   listenForModelEvents: async () => {
     try {
-      const hotkeys = await invoke<string[]>(COMMANDS.GET_REGISTERED_HOTKEYS)
-      set({ hasHotkey: hotkeys.length > 0 })
+      const hotkeys = await invoke<unknown>(COMMANDS.GET_REGISTERED_HOTKEYS)
+      const parsed = parseRegisteredHotkeys(hotkeys)
+      set({
+        hasHotkey: parsed.ptt.length > 0,
+        hasDictationHotkey: parsed.dictation.length > 0,
+        hasDictationCommitHotkey: parsed.dictationCommit.length > 0,
+      })
     } catch { /* ignore */ }
 
     try {
@@ -75,3 +84,32 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
     return () => { u1(); u2(); u3(); u4(); u5() }
   },
 })
+
+type ParsedHotkeys = {
+  ptt: string[]
+  dictation: string[]
+  dictationCommit: string[]
+}
+
+function asHotkeyList(value: unknown): string[] {
+  if (typeof value === 'string' && value.length > 0) return [value]
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item.length > 0)
+  return []
+}
+
+export function parseRegisteredHotkeys(value: unknown): ParsedHotkeys {
+  if (Array.isArray(value)) {
+    return { ptt: asHotkeyList(value), dictation: [], dictationCommit: [] }
+  }
+
+  if (!value || typeof value !== 'object') {
+    return { ptt: [], dictation: [], dictationCommit: [] }
+  }
+
+  const record = value as Record<string, unknown>
+  return {
+    ptt: asHotkeyList(record.ptt ?? record.pushToTalk ?? record.recording ?? record.hotkey ?? record.primary),
+    dictation: asHotkeyList(record.dictation ?? record.dictationHotkey ?? record.dictation_hotkey),
+    dictationCommit: asHotkeyList(record.dictationCommit ?? record.dictation_commit ?? record.dictationCommitHotkey ?? record.dictation_commit_hotkey),
+  }
+}

@@ -24,7 +24,14 @@ pub fn download_whisper_model(
                 .head(*url)
                 .send()
                 .ok()
-                .and_then(|r| r.headers().get("content-length")?.to_str().ok()?.parse().ok())
+                .and_then(|r| {
+                    r.headers()
+                        .get("content-length")?
+                        .to_str()
+                        .ok()?
+                        .parse()
+                        .ok()
+                })
                 .unwrap_or(0);
             file_sizes.push(size);
         }
@@ -39,7 +46,14 @@ pub fn download_whisper_model(
             downloaded_total += size;
             continue;
         }
-        download_file(url, &dest, app, dl_state, &mut downloaded_total, total_bytes)?;
+        download_file(
+            url,
+            &dest,
+            app,
+            dl_state,
+            &mut downloaded_total,
+            total_bytes,
+        )?;
     }
 
     Ok(())

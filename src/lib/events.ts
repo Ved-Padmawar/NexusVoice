@@ -13,6 +13,8 @@ export const EVENTS = {
   // Hotkey
   HOTKEY_PRESSED:  'hotkey-pressed',
   HOTKEY_RELEASED: 'hotkey-released',
+  DICTATION_HOTKEY_PRESSED: 'dictation-hotkey-pressed',
+  DICTATION_COMMIT_HOTKEY_PRESSED: 'dictation-commit-hotkey-pressed',
 
   // Transcription
   TRANSCRIPT_NEW:           'transcript:new',

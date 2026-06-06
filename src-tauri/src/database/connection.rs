@@ -47,10 +47,7 @@ pub async fn init_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 ///
 /// Returns the ready pool.
 pub async fn open_database(db_path: &Path) -> Result<SqlitePool, String> {
-    let db_url = format!(
-        "sqlite://{}",
-        db_path.to_string_lossy().replace('\\', "/")
-    );
+    let db_url = format!("sqlite://{}", db_path.to_string_lossy().replace('\\', "/"));
 
     let pool = create_pool(&db_url)
         .await

@@ -8,11 +8,41 @@ import { check } from '@tauri-apps/plugin-updater'
 import { useAppStore, type Transcript, type DictionaryEntry } from './store/useAppStore'
 import { EVENTS } from './lib/events'
 import { ROUTES } from './lib/routes'
-import { useEventListener } from './lib/hooks'
+import { useEventListener, useDelayedFlag } from './lib/hooks'
 import { Layout } from './components/Layout'
 import { AuthGuard } from './components/AuthGuard'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ModelPickerModal } from './components/ModelPickerModal'
+
+const Spinner = () => (
+  <motion.div className="w-7 h-7 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)]" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
+)
+
+/** Full-screen startup loader. Spinner appears only after a short delay so a fast
+ * auth check doesn't flash it; the themed background shows immediately. */
+function StartupLoader() {
+  const showSpinner = useDelayedFlag(true, 250)
+  return (
+    <div className="flex flex-col items-center justify-center min-h-dvh gap-[14px] bg-[var(--bg)]" role="status" aria-live="polite" data-tauri-drag-region>
+      {showSpinner && (
+        <>
+          <Spinner />
+          <p className="text-[12px] text-[var(--muted)]">Loading…</p>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** Suspense fallback for lazy routes — delayed so quick chunk loads don't flash. */
+function RouteFallback() {
+  const showSpinner = useDelayedFlag(true, 250)
+  return (
+    <div className="flex items-center justify-center min-h-dvh bg-[var(--bg)]" role="status" data-tauri-drag-region>
+      {showSpinner && <Spinner />}
+    </div>
+  )
+}
 
 const Auth = lazy(() => import('./pages/Auth').then(m => ({ default: m.Auth })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
@@ -20,7 +50,7 @@ const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.S
 const Dictionary = lazy(() => import('./pages/Dictionary').then(m => ({ default: m.Dictionary })))
 
 function App() {
-  const { theme, isLoading, user, authChecking, activeRoute, modelChosen, listenForAuthReady, listenForModelEvents } = useAppStore()
+  const { theme, user, authChecking, activeRoute, modelChosen, listenForAuthReady, listenForModelEvents } = useAppStore()
 
   useEffect(() => {
     const cleanup = listenForAuthReady()
@@ -46,7 +76,7 @@ function App() {
 
   useEventListener<Transcript>(EVENTS.TRANSCRIPT_NEW, (t) => {
     useAppStore.setState(s => ({ transcripts: [t, ...s.transcripts] }))
-    useAppStore.getState().fetchStats()
+    useAppStore.getState().loadStats()
   })
 
   useEventListener<DictionaryEntry[]>(EVENTS.DICTIONARY_UPDATED, (entries) => {
@@ -71,20 +101,15 @@ function App() {
     return () => { unlisten.then(fn => fn()) }
   }, [])
 
-  if (authChecking || isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-dvh gap-[14px] bg-[var(--bg)]" role="status" aria-live="polite" data-tauri-drag-region>
-        <motion.div className="w-7 h-7 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)]" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
-        <p className="text-[12px] text-[var(--muted)]">Loading…</p>
-      </div>
-    )
+  if (authChecking) {
+    return <StartupLoader />
   }
 
   const initialRoute = user ? activeRoute : '/'
 
   return (
     <BrowserRouter>
-      <Suspense fallback={<div className="flex items-center justify-center min-h-dvh bg-[var(--bg)]" role="status" data-tauri-drag-region><motion.div className="w-7 h-7 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)]" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} /></div>}>
+      <Suspense fallback={<RouteFallback />}>
         <AnimatedRoutes initialRoute={initialRoute} user={user} />
       </Suspense>
       {user && !modelChosen && <ModelPickerModal />}

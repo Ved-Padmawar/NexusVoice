@@ -1,4 +1,3 @@
-
 /// Which whisper-rs backend to use for inference (auto-detected, not user-configurable).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
@@ -64,12 +63,24 @@ impl ModelSize {
 
     pub const fn url(self) -> &'static str {
         match self {
-            Self::LargeFull => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
-            Self::Large => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
-            Self::Medium => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
-            Self::Small => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
-            Self::Base => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
-            Self::Tiny => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
+            Self::LargeFull => {
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin"
+            }
+            Self::Large => {
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"
+            }
+            Self::Medium => {
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin"
+            }
+            Self::Small => {
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"
+            }
+            Self::Base => {
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+            }
+            Self::Tiny => {
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
+            }
         }
     }
 }
@@ -162,11 +173,7 @@ pub fn select_model_size(backend: Backend, override_size: Option<&str>) -> Model
         Some("tiny") => ModelSize::Tiny,
         _ => {
             let profile = crate::hardware::cached_profile();
-            select_model_size_from_profile(
-                backend.as_str(),
-                profile.vram_gb,
-                profile.ram_gb,
-            )
+            select_model_size_from_profile(backend.as_str(), profile.vram_gb, profile.ram_gb)
         }
     }
 }

@@ -34,44 +34,50 @@ pub fn get_downloaded_models(state: State<'_, AppState>) -> Vec<DownloadedModel>
     let active_size = select_model_size(active_backend, active_override.as_deref());
 
     let all: &[(&str, ModelSize)] = &[
-        ("tiny",       ModelSize::Tiny),
-        ("base",       ModelSize::Base),
-        ("small",      ModelSize::Small),
-        ("medium",     ModelSize::Medium),
-        ("large",      ModelSize::Large),
+        ("tiny", ModelSize::Tiny),
+        ("base", ModelSize::Base),
+        ("small", ModelSize::Small),
+        ("medium", ModelSize::Medium),
+        ("large", ModelSize::Large),
         ("large-full", ModelSize::LargeFull),
     ];
 
-    all.iter().filter_map(|(variant, size)| {
-        let path = state.models_dir.join(size.filename());
-        if !path.exists() { return None; }
-        let size_bytes = path.metadata().map(|m| m.len()).unwrap_or(0);
-        Some(DownloadedModel {
-            variant: variant.to_string(),
-            display_name: size.display_name().to_string(),
-            size_bytes,
-            is_active: *size == active_size,
+    all.iter()
+        .filter_map(|(variant, size)| {
+            let path = state.models_dir.join(size.filename());
+            if !path.exists() {
+                return None;
+            }
+            let size_bytes = path.metadata().map(|m| m.len()).unwrap_or(0);
+            Some(DownloadedModel {
+                variant: variant.to_string(),
+                display_name: size.display_name().to_string(),
+                size_bytes,
+                is_active: *size == active_size,
+            })
         })
-    }).collect()
+        .collect()
 }
 
 /// Delete a downloaded model file by variant ("tiny" | "base" | "small" | "medium" | "large").
 /// Refuses to delete the currently active model.
 #[tauri::command]
-pub async fn delete_model(
-    state: State<'_, AppState>,
-    variant: String,
-) -> Result<(), ApiError> {
+pub async fn delete_model(state: State<'_, AppState>, variant: String) -> Result<(), ApiError> {
     use crate::inference::provider::{detect_backend, select_model_size, ModelSize};
 
     let size = match variant.as_str() {
-        "tiny"       => ModelSize::Tiny,
-        "base"       => ModelSize::Base,
-        "small"      => ModelSize::Small,
-        "medium"     => ModelSize::Medium,
-        "large"      => ModelSize::Large,
+        "tiny" => ModelSize::Tiny,
+        "base" => ModelSize::Base,
+        "small" => ModelSize::Small,
+        "medium" => ModelSize::Medium,
+        "large" => ModelSize::Large,
         "large-full" => ModelSize::LargeFull,
-        _ => return Err(ApiError::new("invalid_variant", "variant must be tiny, base, small, medium, large, or large-full")),
+        _ => {
+            return Err(ApiError::new(
+                "invalid_variant",
+                "variant must be tiny, base, small, medium, large, or large-full",
+            ))
+        }
     };
 
     let active_override = state.load_model_override();
@@ -79,7 +85,10 @@ pub async fn delete_model(
     let active_size = select_model_size(active_backend, active_override.as_deref());
 
     if size == active_size {
-        return Err(ApiError::new("active_model", "cannot delete the currently active model"));
+        return Err(ApiError::new(
+            "active_model",
+            "cannot delete the currently active model",
+        ));
     }
 
     let path = state.models_dir.join(size.filename());
@@ -87,8 +96,7 @@ pub async fn delete_model(
         return Err(ApiError::new("not_found", "model file not found"));
     }
 
-    std::fs::remove_file(&path)
-        .map_err(|e| ApiError::new("io_error", e.to_string()))?;
+    std::fs::remove_file(&path).map_err(|e| ApiError::new("io_error", e.to_string()))?;
 
     // If deleted model was cached in engine, evict it
     *state.engine.lock().await = None;
@@ -107,7 +115,10 @@ pub async fn set_model_override(
     state: State<'_, AppState>,
     variant: String,
 ) -> Result<(), ApiError> {
-    if !matches!(variant.as_str(), "tiny" | "base" | "small" | "medium" | "large" | "large-full") {
+    if !matches!(
+        variant.as_str(),
+        "tiny" | "base" | "small" | "medium" | "large" | "large-full"
+    ) {
         return Err(ApiError::new(
             "invalid_variant",
             "variant must be 'tiny', 'base', 'small', 'medium', 'large', or 'large-full'",
@@ -253,7 +264,12 @@ pub async fn retry_model_download(
     let _ = app.emit("model-download-start", ());
 
     tauri::async_runtime::spawn_blocking(move || {
-        match crate::inference::downloader::download_whisper_model(&models_dir, model_size, &app, &dl_state) {
+        match crate::inference::downloader::download_whisper_model(
+            &models_dir,
+            model_size,
+            &app,
+            &dl_state,
+        ) {
             Ok(()) => {
                 dl_state.set_complete();
                 let _ = app.emit("model-download-complete", ());

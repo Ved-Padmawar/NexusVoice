@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event'
 import { COMMANDS } from '../lib/commands'
 import { EVENTS } from '../lib/events'
 import { extractErrorMessage } from '../lib/errors'
+import { logger } from '../lib/logger'
 import { UserSchema, AuthResponseSchema, AuthStateSchema, type User } from '../types'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
@@ -20,7 +21,10 @@ export type AuthSlice = {
 
 function onAuthSuccess(get: () => AppState): void {
   if (get().modelChosen) invoke(COMMANDS.RETRY_MODEL_DOWNLOAD).catch(() => {})
-  get().init()
+  // Each section owns its own fetch; kick them off in parallel.
+  get().loadTranscripts()
+  get().loadStats()
+  get().loadDictionary()
 }
 
 export const createAuthSlice: StateCreator<AppState, [], [], AuthSlice> = (set, get) => ({
@@ -40,7 +44,7 @@ export const createAuthSlice: StateCreator<AppState, [], [], AuthSlice> = (set, 
     })
     const unlistenUnauth = await listen<void>(EVENTS.AUTH_UNAUTHENTICATED, () => {
       if (!get().authChecking) return
-      set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null })
+      set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null, transcriptsStatus: 'idle', transcriptsError: null, dictionaryStatus: 'idle', dictionaryError: null, statsStatus: 'idle', statsError: null })
     })
 
     const MAX_ATTEMPTS = 10
@@ -53,10 +57,10 @@ export const createAuthSlice: StateCreator<AppState, [], [], AuthSlice> = (set, 
           set({ authChecking: false, user: { id: authState.userId, email: '' } })
           invoke<unknown>(COMMANDS.GET_CURRENT_USER)
             .then(u => { if (u) set({ user: UserSchema.parse(u) }) })
-            .catch(e => console.warn('[store] get_current_user failed:', e))
+            .catch(e => logger.warn('get_current_user failed', extractErrorMessage(e, String(e))))
           onAuthSuccess(get)
         } else {
-          set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null })
+          set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null, transcriptsStatus: 'idle', transcriptsError: null, dictionaryStatus: 'idle', dictionaryError: null, statsStatus: 'idle', statsError: null })
         }
         resolved = true
         break
@@ -65,7 +69,7 @@ export const createAuthSlice: StateCreator<AppState, [], [], AuthSlice> = (set, 
       }
     }
     if (!resolved) {
-      set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null })
+      set({ authChecking: false, user: null, transcripts: [], dictionary: [], stats: null, transcriptsStatus: 'idle', transcriptsError: null, dictionaryStatus: 'idle', dictionaryError: null, statsStatus: 'idle', statsError: null })
     }
 
     return () => { unlistenReady(); unlistenUnauth() }
@@ -112,6 +116,6 @@ export const createAuthSlice: StateCreator<AppState, [], [], AuthSlice> = (set, 
   logout: async () => {
     const token = get().refreshToken
     await invoke(COMMANDS.CLEAR_STORED_TOKEN, { refreshToken: token }).catch(() => {})
-    set({ user: null, refreshToken: null, transcripts: [], transcriptOffset: 0, transcriptHasMore: true, filterFrom: null, filterTo: null, filterSortAsc: false, searchQuery: '', searchResults: [], dictionary: [], stats: null })
+    set({ user: null, refreshToken: null, transcripts: [], transcriptOffset: 0, transcriptHasMore: true, filterFrom: null, filterTo: null, filterSortAsc: false, searchQuery: '', searchResults: [], dictionary: [], stats: null, transcriptsStatus: 'idle', transcriptsError: null, dictionaryStatus: 'idle', dictionaryError: null, statsStatus: 'idle', statsError: null })
   },
 })

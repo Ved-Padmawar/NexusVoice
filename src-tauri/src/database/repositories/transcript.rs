@@ -81,8 +81,10 @@ impl TranscriptRepository {
              LIMIT ? OFFSET ?"
         };
         sqlx::query_as::<_, Transcript>(sql)
-            .bind(from).bind(from)
-            .bind(to).bind(to)
+            .bind(from)
+            .bind(from)
+            .bind(to)
+            .bind(to)
             .bind(limit)
             .bind(offset)
             .fetch_all(&self.pool)
@@ -112,16 +114,30 @@ impl TranscriptRepository {
     ///   - Always includes the word itself and a prefix variant (word*)
     ///   - Uses `strsim::jaro_winkler` to find close matches from the user's vocabulary
     ///     (score >= 0.88 and not identical) and adds them as OR alternatives
+    ///
+    /// Every term is emitted as a **quoted FTS5 string literal** so user input
+    /// containing FTS syntax characters (`"`, `-`, `:`, `*`, `(`, `^`, etc.) is
+    /// treated as literal text instead of breaking the MATCH grammar.
     pub fn build_fts_query(query: &str, vocab: &[String]) -> String {
+        // Wrap a token as a quoted FTS5 literal, doubling embedded quotes.
+        fn quote(token: &str) -> String {
+            format!("\"{}\"", token.replace('"', "\"\""))
+        }
+
         let fts_terms: Vec<String> = query
             .split_whitespace()
-            .map(|w| {
+            .filter_map(|w| {
                 let w_lower = w.to_lowercase();
-                let mut variants: Vec<String> = vec![w_lower.clone()];
+                // Skip tokens with no FTS-meaningful characters (e.g. lone punctuation),
+                // which would otherwise produce an empty quoted literal.
+                if !w_lower.chars().any(char::is_alphanumeric) {
+                    return None;
+                }
+                let mut variants: Vec<String> = vec![quote(&w_lower)];
 
-                // Prefix match for partial typing
+                // Prefix match for partial typing — `*` must sit OUTSIDE the quotes.
                 if w_lower.len() >= 3 {
-                    variants.push(format!("{w_lower}*"));
+                    variants.push(format!("{}*", quote(&w_lower)));
                 }
 
                 // Fuzzy matches from user vocabulary via Jaro-Winkler
@@ -133,12 +149,12 @@ impl TranscriptRepository {
                         }
                         let score = strsim::jaro_winkler(&w_lower, &c_lower);
                         if score >= 0.88 {
-                            variants.push(c_lower);
+                            variants.push(quote(&c_lower));
                         }
                     }
                 }
 
-                variants.join(" OR ")
+                Some(variants.join(" OR "))
             })
             .collect();
 
@@ -176,8 +192,10 @@ impl TranscriptRepository {
         };
         sqlx::query_as::<_, Transcript>(sql)
             .bind(query)
-            .bind(from).bind(from)
-            .bind(to).bind(to)
+            .bind(from)
+            .bind(from)
+            .bind(to)
+            .bind(to)
             .bind(limit)
             .bind(offset)
             .fetch_all(&self.pool)

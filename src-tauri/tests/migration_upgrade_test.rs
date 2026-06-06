@@ -33,8 +33,12 @@ async fn test_migration_0003_upgrade_preserves_data() {
     sqlx::query("INSERT INTO users (email, password_hash, created_at) VALUES ('test@example.com', 'hash123', '2024-01-01')")
         .execute(&pool).await.unwrap();
 
-    sqlx::query("INSERT INTO transcripts (content, created_at) VALUES ('hello world', '2024-01-01')")
-        .execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO transcripts (content, created_at) VALUES ('hello world', '2024-01-01')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
 
     sqlx::query("INSERT INTO dictionary (term, replacement, created_at) VALUES ('teh', 'the', '2024-01-01')")
         .execute(&pool).await.unwrap();
@@ -52,22 +56,35 @@ async fn test_migration_0003_upgrade_preserves_data() {
 
     // ── 6. Assert all existing data survived ────────────────────────────────
     let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(user_count, 1, "user data should survive upgrade");
 
     let transcript_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM transcripts")
-        .fetch_one(&pool).await.unwrap();
-    assert_eq!(transcript_count, 1, "transcript data should survive upgrade");
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        transcript_count, 1,
+        "transcript data should survive upgrade"
+    );
 
     let dict_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM dictionary")
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(dict_count, 1, "dictionary data should survive upgrade");
 
     // ── 7. Assert word_frequency is functional ───────────────────────────────
     sqlx::query("INSERT INTO word_frequency (word, count, dismissed) VALUES ('nexus', 1, 0)")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     let word: String = sqlx::query_scalar("SELECT word FROM word_frequency WHERE word = 'nexus'")
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(word, "nexus");
 }
 
@@ -117,11 +134,15 @@ async fn test_migration_recovery_backup_and_recreate() {
 
     // Fresh DB is clean — all tables exist, no stale data
     let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(&fresh_pool).await.unwrap();
+        .fetch_one(&fresh_pool)
+        .await
+        .unwrap();
     assert_eq!(user_count, 0, "fresh DB has no user rows");
 
     let wf_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM word_frequency")
-        .fetch_one(&fresh_pool).await.unwrap();
+        .fetch_one(&fresh_pool)
+        .await
+        .unwrap();
     assert_eq!(wf_count, 0, "word_frequency table exists and is empty");
 
     // Backup contains the original data
@@ -129,6 +150,8 @@ async fn test_migration_recovery_backup_and_recreate() {
     let bak_opts = SqliteConnectOptions::from_str(&bak_url).unwrap();
     let bak_pool = SqlitePool::connect_with(bak_opts).await.unwrap();
     let bak_user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(&bak_pool).await.unwrap();
+        .fetch_one(&bak_pool)
+        .await
+        .unwrap();
     assert_eq!(bak_user_count, 1, "backup preserves original user data");
 }

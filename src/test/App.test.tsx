@@ -31,7 +31,6 @@ describe("App", () => {
       transcripts: [],
       dictionary: [],
       theme: "abyss",
-      isLoading: false,
       authChecking: false,
     });
   });

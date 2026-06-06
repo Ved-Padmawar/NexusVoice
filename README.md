@@ -37,13 +37,13 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 ## Features
 
 - **Push-to-talk** — hold any custom hotkey to record, release to transcribe and paste
+- **Dictation Mode** — a hands-free alternative: press a hotkey to start, then pause/resume and save from the pill or by hotkey — ideal for longer, uninterrupted dictation
 - **Low-latency streaming** — audio is processed in chunks mid-recording so only the tail needs processing on release
 - **100% local** — Whisper runs entirely on your machine, nothing is sent to the cloud
 - **GPU-accelerated** — auto-detects NVIDIA (CUDA), AMD/Intel (Vulkan), falls back to CPU
 - **Smart model selection** — picks the best Whisper model for your hardware automatically
 - **First-run model picker** — choose your model on first login with a hardware-aware recommendation, then download on demand
 - **Personal dictionary** — map spoken words to their correct form (e.g. "gonna" → "going to")
-- **Auto-learn** — tracks uncommon words from your transcriptions and suggests additions to your dictionary
 - **Smart formatting (optional)** — clean up punctuation and turn spoken lists into real lists using any OpenAI-compatible LLM. Off by default; works fully local with Ollama or LM Studio, or with a cloud provider (OpenAI, OpenRouter) if you prefer
 - **8 themes** — Abyss, Midnight, Steel, Pine (dark) + Canvas, Dawn, Breeze, Blossom (light)
 - **Compact pill overlay** — draggable recording indicator that stays on top while you work
@@ -164,11 +164,12 @@ npm run tauri dev
 ## Usage
 
 1. Launch NexusVoice — it appears in the system tray
-2. Go to **Settings → Audio** and set your recording hotkey
+2. Go to **Settings → Shortcuts** and set your recording hotkey (and, optionally, a separate Dictation hotkey)
 3. Choose your Whisper model in the first-run picker — the recommended one is pre-selected for your hardware
 4. Click into any text field in any app
-5. Hold your hotkey → speak → release
-6. Your transcribed text is pasted automatically
+5. **Push-to-talk:** hold your hotkey → speak → release
+6. **Dictation Mode:** press your dictation hotkey to start, pause/resume as needed, then save from the pill or the commit hotkey
+7. Your transcribed text is pasted automatically
 
 ---
 

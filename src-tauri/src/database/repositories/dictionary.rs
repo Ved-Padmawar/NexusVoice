@@ -90,11 +90,7 @@ impl DictionaryRepository {
         //         FROM hits WHERE dictionary.term = hits.term
         //
         // One statement, one lock, one fsync — O(distinct_terms) bind params.
-        let placeholders: String = counts
-            .keys()
-            .map(|_| "(?,?)")
-            .collect::<Vec<_>>()
-            .join(",");
+        let placeholders: String = counts.keys().map(|_| "(?,?)").collect::<Vec<_>>().join(",");
 
         let sql = format!(
             "WITH matched(term, n) AS (VALUES {placeholders}) \

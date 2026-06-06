@@ -12,21 +12,22 @@ fn stopwords() -> &'static HashSet<&'static str> {
     static SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
     SET.get_or_init(|| {
         [
-            "a","i","am","an","as","at","be","by","do","go","he","if","in","is","it",
-            "me","my","no","of","on","or","so","to","up","us","we","and","are","but",
-            "can","did","for","get","got","had","has","her","him","his","how","its",
-            "let","may","not","now","off","old","one","our","out","own","put","run",
-            "say","see","she","the","too","two","use","was","way","who","why","yet",
-            "you","your","they","them","then","than","that","this","with","have",
-            "from","been","will","were","when","what","said","just","also","into",
-            "over","more","some","time","very","here","even","know","back","only",
-            "come","like","make","most","much","need","same","such","take","well",
-            "went","which","would","could","should","there","their","about","after",
-            "where","these","those","being","doing","going","having","making","taking",
-            "every","other","right","might","shall","while","still","again","never",
-            "always","often","maybe","thing","think","great","small","large","first",
-            "last","next","many","each","both","few","already","before","between",
-        ].into()
+            "a", "i", "am", "an", "as", "at", "be", "by", "do", "go", "he", "if", "in", "is", "it",
+            "me", "my", "no", "of", "on", "or", "so", "to", "up", "us", "we", "and", "are", "but",
+            "can", "did", "for", "get", "got", "had", "has", "her", "him", "his", "how", "its",
+            "let", "may", "not", "now", "off", "old", "one", "our", "out", "own", "put", "run",
+            "say", "see", "she", "the", "too", "two", "use", "was", "way", "who", "why", "yet",
+            "you", "your", "they", "them", "then", "than", "that", "this", "with", "have", "from",
+            "been", "will", "were", "when", "what", "said", "just", "also", "into", "over", "more",
+            "some", "time", "very", "here", "even", "know", "back", "only", "come", "like", "make",
+            "most", "much", "need", "same", "such", "take", "well", "went", "which", "would",
+            "could", "should", "there", "their", "about", "after", "where", "these", "those",
+            "being", "doing", "going", "having", "making", "taking", "every", "other", "right",
+            "might", "shall", "while", "still", "again", "never", "always", "often", "maybe",
+            "thing", "think", "great", "small", "large", "first", "last", "next", "many", "each",
+            "both", "few", "already", "before", "between",
+        ]
+        .into()
     })
 }
 
@@ -71,9 +72,9 @@ impl DictionaryCorrectionEngine {
             let start = token
                 .find(|c: char| c.is_alphabetic())
                 .unwrap_or(token.len());
-            let end = token
-                .rfind(|c: char| c.is_alphabetic())
-                .map_or(0, |i| i + token[i..].chars().next().map_or(0, char::len_utf8));
+            let end = token.rfind(|c: char| c.is_alphabetic()).map_or(0, |i| {
+                i + token[i..].chars().next().map_or(0, char::len_utf8)
+            });
 
             if start >= end {
                 result.push(token.to_string());
@@ -131,7 +132,11 @@ impl DictionaryCorrectionEngine {
 
         // 6. Ratio-based max distance: min(2, floor(len * 0.35))
         //    len4→1, len5→1, len6→2, len7→2, len8→2, ...
-        #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[allow(
+            clippy::cast_precision_loss,
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss
+        )]
         let max_dist = 2.min((lower.len() as f32 * 0.35) as usize);
 
         let mut best: Option<(usize, &DictionaryEntry)> = None;
@@ -279,7 +284,10 @@ mod tests {
     fn stopwords_never_corrected() {
         let e = engine(vec![entry(1, "api", "API"), entry(2, "ui", "UI")]);
         for word in &["am", "on", "my", "the", "and", "in", "us", "go"] {
-            assert!(e.correct(word).is_none(), "stopword \"{word}\" should not correct");
+            assert!(
+                e.correct(word).is_none(),
+                "stopword \"{word}\" should not correct"
+            );
         }
     }
 
@@ -287,7 +295,10 @@ mod tests {
     fn short_words_no_fuzzy() {
         let e = engine(vec![entry(1, "api", "API"), entry(2, "pdf", "PDF")]);
         for word in &["py", "io", "pf"] {
-            assert!(e.correct(word).is_none(), "short \"{word}\" should not fuzzy");
+            assert!(
+                e.correct(word).is_none(),
+                "short \"{word}\" should not fuzzy"
+            );
         }
     }
 
@@ -345,8 +356,12 @@ mod tests {
             entry(3, "json", "JSON"),
             entry(4, "url", "URL"),
         ]);
-        let (text, _) = e.apply_to_text("so i was using the github api to fetch some json data from the url");
-        assert_eq!(text, "so i was using the GitHub API to fetch some JSON data from the URL");
+        let (text, _) =
+            e.apply_to_text("so i was using the github api to fetch some json data from the url");
+        assert_eq!(
+            text,
+            "so i was using the GitHub API to fetch some JSON data from the URL"
+        );
     }
 
     #[test]

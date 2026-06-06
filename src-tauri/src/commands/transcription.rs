@@ -1,10 +1,10 @@
-//! Transcription commands — thin endpoints over `crate::transcription`.
+//! Transcription commands: thin endpoints over `crate::transcription`.
 
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 
 use tauri::{AppHandle, Emitter, State};
 
-use crate::state::AppState;
+use crate::state::{AppState, RecordingMode, SessionPhase};
 use crate::transcription::{self, service::FinalizeContext};
 
 use super::error::ApiError;
@@ -15,7 +15,10 @@ pub async fn start_transcription(
     state: State<'_, AppState>,
 ) -> Result<bool, ApiError> {
     if state.current_user_id().await.is_none() {
-        return Err(ApiError::new("unauthenticated", "must be logged in to transcribe"));
+        return Err(ApiError::new(
+            "unauthenticated",
+            "must be logged in to transcribe",
+        ));
     }
 
     if !state.try_start_transcription() {
@@ -25,12 +28,11 @@ pub async fn start_transcription(
         ));
     }
 
-    {
-        let mut buf = state.audio_buffer.lock().expect("audio_buffer lock poisoned");
-        buf.clear();
-    }
+    state.set_recording_mode(RecordingMode::PushToTalk);
+    state.set_session_phase(SessionPhase::Idle);
+    state.capture_paused.store(false, Ordering::SeqCst);
+    clear_audio_buffer(&state);
 
-    // Install a fresh pipeline for this recording session.
     *state.pipeline.lock().await = Some(crate::pipeline::StreamingPipeline::new());
 
     let pool = state.db().await.clone();
@@ -44,6 +46,150 @@ pub async fn stop_transcription(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<bool, ApiError> {
+    if state.recording_mode() == RecordingMode::Dictation {
+        return Err(ApiError::new(
+            "dictation_running",
+            "dictation is running; use commit_dictation or cancel_dictation",
+        ));
+    }
+
+    finalize_current_recording(app, &state).await
+}
+
+#[tauri::command]
+pub async fn start_dictation(app: AppHandle, state: State<'_, AppState>) -> Result<bool, ApiError> {
+    if state.current_user_id().await.is_none() {
+        return Err(ApiError::new(
+            "unauthenticated",
+            "must be logged in to transcribe",
+        ));
+    }
+
+    if !state.try_start_transcription() {
+        return Err(ApiError::new(
+            "transcription_already_running",
+            "transcription already running",
+        ));
+    }
+
+    state.set_recording_mode(RecordingMode::Dictation);
+    state.set_session_phase(SessionPhase::Recording);
+    state.capture_paused.store(false, Ordering::SeqCst);
+    clear_audio_buffer(&state);
+
+    *state.pipeline.lock().await = Some(crate::pipeline::StreamingPipeline::new());
+
+    let pool = state.db().await.clone();
+    transcription::start_capture(&app, &state, pool);
+
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn pause_dictation(state: State<'_, AppState>) -> Result<bool, ApiError> {
+    ensure_dictation_active(&state)?;
+
+    if !state.transition_session_phase(SessionPhase::Recording, SessionPhase::Paused) {
+        return Err(ApiError::new(
+            "dictation_not_recording",
+            "dictation is not recording",
+        ));
+    }
+
+    state.capture_paused.store(true, Ordering::SeqCst);
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn resume_dictation(state: State<'_, AppState>) -> Result<bool, ApiError> {
+    ensure_dictation_active(&state)?;
+
+    if !state.transition_session_phase(SessionPhase::Paused, SessionPhase::Recording) {
+        return Err(ApiError::new(
+            "dictation_not_paused",
+            "dictation is not paused",
+        ));
+    }
+
+    state.capture_paused.store(false, Ordering::SeqCst);
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn commit_dictation(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, ApiError> {
+    ensure_dictation_active(&state)?;
+
+    match state.session_phase() {
+        SessionPhase::Recording | SessionPhase::Paused => {
+            state.set_session_phase(SessionPhase::Finalizing);
+            state.capture_paused.store(false, Ordering::SeqCst);
+            let result = finalize_current_recording(app, &state).await;
+            state.reset_recording_session();
+            result
+        }
+        SessionPhase::Finalizing => Err(ApiError::new(
+            "dictation_finalizing",
+            "dictation is already finalizing",
+        )),
+        SessionPhase::Idle => Err(ApiError::new(
+            "dictation_not_running",
+            "dictation is not running",
+        )),
+    }
+}
+
+#[tauri::command]
+pub async fn cancel_dictation(state: State<'_, AppState>) -> Result<bool, ApiError> {
+    ensure_dictation_active(&state)?;
+
+    state.capture_paused.store(false, Ordering::SeqCst);
+    let _ = state.try_stop_transcription();
+    wait_for_capture_done(&state).await;
+    clear_audio_buffer(&state);
+    *state.pipeline.lock().await = None;
+    state.reset_recording_session();
+
+    Ok(true)
+}
+
+fn clear_audio_buffer(state: &AppState) {
+    let mut buf = state
+        .audio_buffer
+        .lock()
+        .expect("audio_buffer lock poisoned");
+    buf.clear();
+}
+
+fn ensure_dictation_active(state: &AppState) -> Result<(), ApiError> {
+    if !state.transcription_running.load(Ordering::SeqCst)
+        || state.recording_mode() != RecordingMode::Dictation
+    {
+        return Err(ApiError::new(
+            "dictation_not_running",
+            "dictation is not running",
+        ));
+    }
+    Ok(())
+}
+
+async fn wait_for_capture_done(state: &AppState) {
+    let capture_done = Arc::clone(&state.capture_done);
+    tauri::async_runtime::spawn_blocking(move || {
+        let (lock, cvar) = &*capture_done;
+        let _guard = cvar
+            .wait_while(lock.lock().expect("capture_done lock poisoned"), |done| {
+                !*done
+            })
+            .expect("capture_done condvar poisoned");
+    })
+    .await
+    .ok();
+}
+
+async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<bool, ApiError> {
     const MIN_DURATION_SECS: f64 = 0.5;
 
     if !state.try_stop_transcription() {
@@ -53,38 +199,34 @@ pub async fn stop_transcription(
         ));
     }
 
-    // Wait for the capture thread to fully stop and drop the cpal stream.
-    // Uses a condvar instead of a fixed sleep — returns as soon as the thread signals done.
-    let capture_done = Arc::clone(&state.capture_done);
-    tauri::async_runtime::spawn_blocking(move || {
-        let (lock, cvar) = &*capture_done;
-        let _guard = cvar
-            .wait_while(lock.lock().expect("capture_done lock poisoned"), |done| !*done)
-            .expect("capture_done condvar poisoned");
-    })
-    .await
-    .ok();
+    wait_for_capture_done(state).await;
 
     let (samples, captured_rate) = {
-        let mut buf = state.audio_buffer.lock().expect("audio_buffer lock poisoned");
-        let rate = *state.native_sample_rate.lock().expect("native_sample_rate lock poisoned");
+        let mut buf = state
+            .audio_buffer
+            .lock()
+            .expect("audio_buffer lock poisoned");
+        let rate = *state
+            .native_sample_rate
+            .lock()
+            .expect("native_sample_rate lock poisoned");
         (std::mem::take(&mut *buf), rate)
     };
 
-    // Compute real recording duration from raw samples before any processing.
-    #[allow(clippy::cast_precision_loss)] // sample counts fit f64 mantissa at typical lengths
+    #[allow(clippy::cast_precision_loss)]
     let duration_seconds: Option<f64> = if captured_rate > 0 && !samples.is_empty() {
         Some(samples.len() as f64 / f64::from(captured_rate))
     } else {
         None
     };
 
-    // Reject empty or sub-0.5s recordings.
     #[allow(clippy::cast_precision_loss)]
     let too_short = samples.is_empty()
-        || (captured_rate > 0 && (samples.len() as f64 / f64::from(captured_rate)) < MIN_DURATION_SECS);
+        || (captured_rate > 0
+            && (samples.len() as f64 / f64::from(captured_rate)) < MIN_DURATION_SECS);
     if too_short {
         *state.pipeline.lock().await = None;
+        state.reset_recording_session();
         let _ = app.emit("transcription-complete", "");
         return Ok(false);
     }
@@ -94,16 +236,14 @@ pub async fn stop_transcription(
         Err(e) => {
             log::error!("engine load failed: {e}");
             *state.pipeline.lock().await = None;
+            state.reset_recording_session();
             let _ = app.emit("transcription-error", format!("model not ready: {e}"));
             return Ok(false);
         }
     };
 
-    // Take the pipeline out of state — finalize consumes it.
     let pipeline = state.pipeline.lock().await.take();
 
-    // Pass the formatter config only if it's enabled and usable; otherwise the
-    // finalize stage skips formatting and uses the raw transcript.
     let cfg = state.load_format_config();
     let format = cfg.is_usable().then_some(cfg);
 
@@ -122,6 +262,8 @@ pub async fn stop_transcription(
             format,
         },
     );
+
+    state.reset_recording_session();
 
     Ok(true)
 }

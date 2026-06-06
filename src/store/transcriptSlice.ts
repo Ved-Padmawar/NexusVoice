@@ -1,16 +1,18 @@
-import { invoke } from '@tauri-apps/api/core'
 import { z } from 'zod'
 import { COMMANDS } from '../lib/commands'
-import { TranscriptSchema, UsageStatsSchema, DictionaryEntrySchema, type Transcript, type UsageStats } from '../types'
+import { TranscriptSchema, UsageStatsSchema, type Transcript, type UsageStats } from '../types'
 import { invokeWithRefresh } from './invokeWithRefresh'
 import { toast } from 'sonner'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
+import type { AsyncStatus } from './asyncStatus'
 
 export type TranscriptSlice = {
   transcripts: Transcript[]
   transcriptOffset: number
   transcriptHasMore: boolean
+  transcriptsStatus: AsyncStatus
+  transcriptsError: string | null
   filterFrom: string | null
   filterTo: string | null
   filterSortAsc: boolean
@@ -18,9 +20,11 @@ export type TranscriptSlice = {
   searchResults: Transcript[]
   isSearching: boolean
   stats: UsageStats | null
-  isLoading: boolean
-  init: () => Promise<void>
-  fetchStats: () => Promise<void>
+  statsStatus: AsyncStatus
+  statsError: string | null
+  loadTranscripts: () => Promise<void>
+  loadStats: () => Promise<void>
+  retryTranscripts: () => Promise<void>
   setFilters: (from: string | null, to: string | null, sortAsc: boolean) => Promise<void>
   loadMoreTranscripts: () => Promise<void>
   searchTranscripts: (query: string) => Promise<void>
@@ -32,6 +36,8 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
   transcripts: [],
   transcriptOffset: 0,
   transcriptHasMore: true,
+  transcriptsStatus: 'idle',
+  transcriptsError: null,
   filterFrom: null,
   filterTo: null,
   filterSortAsc: false,
@@ -39,57 +45,63 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
   searchResults: [],
   isSearching: false,
   stats: null,
-  isLoading: false,
+  statsStatus: 'idle',
+  statsError: null,
 
-  init: async () => {
+  loadTranscripts: async () => {
     if (!get().user) return
-    set({ isLoading: true, transcriptOffset: 0, transcriptHasMore: true, filterFrom: null, filterTo: null, filterSortAsc: false, searchQuery: '', searchResults: [] })
+    set({
+      transcriptsStatus: 'loading',
+      transcriptsError: null,
+      transcriptOffset: 0,
+      transcriptHasMore: true,
+      filterFrom: null,
+      filterTo: null,
+      filterSortAsc: false,
+      searchQuery: '',
+      searchResults: [],
+    })
     try {
-      const [rawTranscripts, rawDictionary, hotkeys] = await Promise.all([
-        invokeWithRefresh<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: 0, from: null, to: null, sortAsc: false }),
-        invokeWithRefresh<unknown>(COMMANDS.GET_DICTIONARY),
-        invoke<string[]>(COMMANDS.GET_REGISTERED_HOTKEYS),
-      ])
-      const transcripts = z.array(TranscriptSchema).parse(rawTranscripts)
-      const dictionary = z.array(DictionaryEntrySchema).parse(rawDictionary)
-      invokeWithRefresh<unknown>(COMMANDS.GET_USAGE_STATS)
-        .then(raw => set({ stats: UsageStatsSchema.parse(raw) }))
-        .catch(e => console.warn('[store] get_usage_stats failed:', e))
-      set({ transcripts, transcriptOffset: transcripts.length, transcriptHasMore: transcripts.length === 50, dictionary, hasHotkey: hotkeys.length > 0 })
+      const transcripts = z.array(TranscriptSchema).parse(
+        await invokeWithRefresh<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: 0, from: null, to: null, sortAsc: false })
+      )
+      set({
+        transcripts,
+        transcriptOffset: transcripts.length,
+        transcriptHasMore: transcripts.length === 50,
+        transcriptsStatus: 'success',
+      })
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to load data')
-    } finally {
-      set({ isLoading: false })
+      const message = e instanceof Error ? e.message : 'Failed to load transcripts'
+      set({ transcriptsStatus: 'error', transcriptsError: message })
     }
   },
 
-  fetchStats: async () => {
+  loadStats: async () => {
+    if (!get().user) return
+    set({ statsStatus: 'loading', statsError: null })
     try {
       const raw = await invokeWithRefresh<unknown>(COMMANDS.GET_USAGE_STATS)
-      set({ stats: UsageStatsSchema.parse(raw) })
-    } catch {
-      set({ stats: null })
+      set({ stats: UsageStatsSchema.parse(raw), statsStatus: 'success' })
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to load usage stats'
+      set({ stats: null, statsStatus: 'error', statsError: message })
     }
   },
 
   setFilters: async (from, to, sortAsc) => {
-    set({ filterFrom: from, filterTo: to, filterSortAsc: sortAsc, transcriptOffset: 0, transcriptHasMore: true, transcripts: [] })
+    set({ filterFrom: from, filterTo: to, filterSortAsc: sortAsc, transcriptOffset: 0, transcriptHasMore: true, transcripts: [], transcriptsStatus: 'loading', transcriptsError: null })
     try {
       const items = z.array(TranscriptSchema).parse(
         await invokeWithRefresh<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: 0, from, to, sortAsc })
       )
-      set({ transcripts: items, transcriptOffset: items.length, transcriptHasMore: items.length === 50 })
-    } catch { /* ignore */ }
+      set({ transcripts: items, transcriptOffset: items.length, transcriptHasMore: items.length === 50, transcriptsStatus: 'success' })
+    } catch (e) {
+      set({ transcriptsStatus: 'error', transcriptsError: e instanceof Error ? e.message : 'Failed to load transcripts' })
+    }
     const { searchQuery } = get()
     if (searchQuery.trim()) {
-      set({ isSearching: true })
-      try {
-        const results = z.array(TranscriptSchema).parse(
-          await invokeWithRefresh<unknown>(COMMANDS.SEARCH_TRANSCRIPTS, { query: searchQuery, limit: 50, offset: 0, from, to, sortAsc })
-        )
-        set({ searchResults: results })
-      } catch { set({ searchResults: [] }) }
-      finally { set({ isSearching: false }) }
+      await get().searchTranscripts(searchQuery)
     }
   },
 
@@ -105,26 +117,40 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
         transcriptOffset: transcriptOffset + more.length,
         transcriptHasMore: more.length === 50,
       })
-    } catch { /* ignore */ }
+    } catch (e) {
+      // Pagination append: don't wipe the loaded feed — surface a transient error.
+      toast.error(e instanceof Error ? e.message : 'Failed to load more transcripts')
+    }
   },
 
   searchTranscripts: async (query: string) => {
     set({ searchQuery: query })
     if (!query.trim()) {
-      set({ searchResults: [], isSearching: false })
+      set({ searchResults: [], isSearching: false, transcriptsStatus: 'success', transcriptsError: null })
       return
     }
-    set({ isSearching: true })
+    set({ isSearching: true, transcriptsStatus: 'loading', transcriptsError: null })
     const { filterFrom, filterTo, filterSortAsc } = get()
     try {
       const results = z.array(TranscriptSchema).parse(
         await invokeWithRefresh<unknown>(COMMANDS.SEARCH_TRANSCRIPTS, { query, limit: 50, offset: 0, from: filterFrom, to: filterTo, sortAsc: filterSortAsc })
       )
-      set({ searchResults: results })
-    } catch {
-      set({ searchResults: [] })
+      set({ searchResults: results, transcriptsStatus: 'success' })
+    } catch (e) {
+      set({ searchResults: [], transcriptsStatus: 'error', transcriptsError: e instanceof Error ? e.message : 'Search failed' })
     } finally {
       set({ isSearching: false })
+    }
+  },
+
+  // Re-run the *current* view (search if active, else filtered list) — used by the
+  // feed's error-retry so it doesn't reset filters/search like loadTranscripts does.
+  retryTranscripts: async () => {
+    const { searchQuery, filterFrom, filterTo, filterSortAsc } = get()
+    if (searchQuery.trim()) {
+      await get().searchTranscripts(searchQuery)
+    } else {
+      await get().setFilters(filterFrom, filterTo, filterSortAsc)
     }
   },
 
@@ -147,7 +173,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     }))
     try {
       await invokeWithRefresh<boolean>(COMMANDS.DELETE_TRANSCRIPT, { id })
-      get().fetchStats()
+      get().loadStats()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to delete transcript')
     }

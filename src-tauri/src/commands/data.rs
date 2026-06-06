@@ -55,13 +55,15 @@ pub async fn get_transcripts(
     sort_asc: Option<bool>,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
     let repo = TranscriptRepository::new(state.db().await.clone());
-    let items = repo.list_paginated(
-        limit.unwrap_or(50),
-        offset.unwrap_or(0),
-        from.as_deref(),
-        to.as_deref(),
-        !sort_asc.unwrap_or(false),
-    ).await?;
+    let items = repo
+        .list_paginated(
+            limit.unwrap_or(50),
+            offset.unwrap_or(0),
+            from.as_deref(),
+            to.as_deref(),
+            !sort_asc.unwrap_or(false),
+        )
+        .await?;
     Ok(items.into_iter().map(TranscriptResponse::from).collect())
 }
 
@@ -88,23 +90,38 @@ pub async fn search_transcripts(
         return Ok(vec![]);
     }
 
-    // Load user vocabulary from word_frequency table for fuzzy matching
-    let vocab: Vec<String> = sqlx::query_scalar("SELECT word FROM word_frequency ORDER BY count DESC LIMIT 2000")
-        .fetch_all(state.db().await)
-        .await
-        .unwrap_or_default();
+    // Load user vocabulary from word_frequency table for fuzzy matching.
+    // Best-effort: fuzzy matching is an enhancement, so an empty vocab on failure
+    // just skips it — but log so the failure isn't fully silent.
+    let vocab: Vec<String> =
+        sqlx::query_scalar("SELECT word FROM word_frequency ORDER BY count DESC LIMIT 2000")
+            .fetch_all(state.db().await)
+            .await
+            .unwrap_or_else(|e| {
+                log::warn!("vocab load for fuzzy search failed: {e}");
+                Vec::new()
+            });
 
     let fts_query = TranscriptRepository::build_fts_query(&query, &vocab);
 
+    // An all-punctuation query can normalize to an empty FTS string — that's
+    // "no searchable terms", not an error.
+    if fts_query.trim().is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Propagate real DB/FTS errors instead of masking them as empty results.
     let repo = TranscriptRepository::new(state.db().await.clone());
-    let items = repo.search(
-        &fts_query,
-        limit.unwrap_or(50),
-        offset.unwrap_or(0),
-        from.as_deref(),
-        to.as_deref(),
-        !sort_asc.unwrap_or(false),
-    ).await.unwrap_or_default();
+    let items = repo
+        .search(
+            &fts_query,
+            limit.unwrap_or(50),
+            offset.unwrap_or(0),
+            from.as_deref(),
+            to.as_deref(),
+            !sort_asc.unwrap_or(false),
+        )
+        .await?;
     Ok(items.into_iter().map(TranscriptResponse::from).collect())
 }
 
@@ -114,20 +131,26 @@ pub async fn save_transcript(
     content: String,
 ) -> Result<TranscriptResponse, ApiError> {
     if content.trim().is_empty() {
-        return Err(ApiError::new("invalid_input", "transcript content cannot be empty"));
+        return Err(ApiError::new(
+            "invalid_input",
+            "transcript content cannot be empty",
+        ));
     }
     let repo = TranscriptRepository::new(state.db().await.clone());
     #[allow(clippy::cast_possible_wrap)]
     let word_count = content.split_whitespace().count() as i64;
-    let transcript = repo.create(CreateTranscript { content, word_count, duration_seconds: None }).await?;
+    let transcript = repo
+        .create(CreateTranscript {
+            content,
+            word_count,
+            duration_seconds: None,
+        })
+        .await?;
     Ok(transcript.into())
 }
 
 #[tauri::command]
-pub async fn delete_transcript(
-    state: State<'_, AppState>,
-    id: i64,
-) -> Result<bool, ApiError> {
+pub async fn delete_transcript(state: State<'_, AppState>, id: i64) -> Result<bool, ApiError> {
     let repo = TranscriptRepository::new(state.db().await.clone());
     Ok(repo.delete_by_id(id).await?)
 }
@@ -137,7 +160,11 @@ pub async fn get_dictionary(
     state: State<'_, AppState>,
 ) -> Result<Vec<DictionaryResponse>, ApiError> {
     let cache = state.dict_cache.read().await;
-    Ok(cache.values().cloned().map(DictionaryResponse::from).collect())
+    Ok(cache
+        .values()
+        .cloned()
+        .map(DictionaryResponse::from)
+        .collect())
 }
 
 #[tauri::command]
@@ -148,11 +175,18 @@ pub async fn update_dictionary(
 ) -> Result<DictionaryResponse, ApiError> {
     let repo = DictionaryRepository::new(state.db().await.clone());
     let entry = repo
-        .upsert(CreateDictionaryEntry { term: term.clone(), replacement })
+        .upsert(CreateDictionaryEntry {
+            term: term.clone(),
+            replacement,
+        })
         .await?;
 
     // Update in-memory cache: O(1) insert/replace via HashMap
-    state.dict_cache.write().await.insert(entry.term.clone(), entry.clone());
+    state
+        .dict_cache
+        .write()
+        .await
+        .insert(entry.term.clone(), entry.clone());
 
     Ok(entry.into())
 }
