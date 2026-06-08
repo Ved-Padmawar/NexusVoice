@@ -8,21 +8,27 @@ on:
 permissions:
   contents: write
 
-env:
-  CARGO_TARGET_DIR: C:\b
+# NOTE: macOS is intentionally NOT built/released here yet. The macOS code paths
+# (Metal GPU probe, Cmd paste modifier, platform-gated pill logic) are complete
+# in the tree, but shipping a macOS build requires an Apple Developer ID for
+# code signing + notarization (without it Gatekeeper blocks the app). When that
+# account exists, add one matrix line — { os: macos-14, variant: metal } — plus
+# an NSMicrophoneUsageDescription Info.plist entry and signing secrets.
 
 jobs:
   build:
-    name: Build (${{ matrix.variant }})
-    runs-on: windows-latest
+    name: Build (${{ matrix.os }} / ${{ matrix.variant }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - variant: standard
-            cuda: false
-          - variant: cuda
-            cuda: true
+          - { os: windows-latest, variant: standard, cuda: false }
+          - { os: windows-latest, variant: cuda,     cuda: true }
+          # Linux ships Vulkan-only: Vulkan GPU-accelerates NVIDIA/AMD/Intel
+          # alike, so one build covers every Linux GPU without the fragility of
+          # the CUDA toolchain + runtime-lib bundling. (Windows keeps CUDA.)
+          - { os: ubuntu-22.04,   variant: standard, cuda: false }
 
     steps:
       - uses: actions/checkout@v6
@@ -36,21 +42,82 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install CUDA Toolkit
-        if: matrix.cuda
+      # Windows only: build into a short path (C:\b) to avoid MSVC/CMake path-length
+      # limits. Linux uses the repo's configured .cargo-target dir — the
+      # artifact-collection and upload steps key their paths off this same OS split.
+      - name: Set short Cargo target dir (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo "CARGO_TARGET_DIR=C:\b" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # whisper-rs's bindgen (libclang) and cmake-rs need these located. They
+      # used to come from .cargo/config.toml's [env], but that applied on every
+      # OS and broke Linux — so they're now set per-OS here instead. LLVM and
+      # CMake are preinstalled at these paths on the windows-latest runner.
+      - name: Set libclang / cmake paths (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $llvm = "C:\Program Files\LLVM\bin"
+          $cmake = "C:\Program Files\CMake\bin\cmake.exe"
+          if (-not (Test-Path "$llvm\libclang.dll")) { throw "libclang.dll not found at $llvm" }
+          if (-not (Test-Path $cmake)) { throw "cmake not found at $cmake" }
+          echo "LIBCLANG_PATH=$llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "CMAKE=$cmake"        | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      # ── Linux system dependencies ────────────────────────────────────────────
+      # Built on Ubuntu 22.04 — the oldest base that ships WebKitGTK 4.1, which
+      # keeps the glibc floor low enough to run on older distros.
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libasound2-dev \
+            libxdo-dev \
+            patchelf \
+            libfuse2 \
+            file \
+            build-essential \
+            libssl-dev \
+            clang \
+            libclang-dev \
+            llvm-dev \
+            cmake \
+            pkg-config
+
+      # bindgen (via whisper-rs) can't always auto-discover libclang on the
+      # runner, so point LIBCLANG_PATH at the dir that actually holds
+      # libclang.so.* — resolved from the installed package rather than guessed.
+      - name: Set LIBCLANG_PATH (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          LIBCLANG_DIR=$(dirname "$(find /usr/lib /usr/lib64 -name 'libclang.so*' -print -quit)")
+          echo "Found libclang in: $LIBCLANG_DIR"
+          echo "LIBCLANG_PATH=$LIBCLANG_DIR" >> "$GITHUB_ENV"
+
+      # ── CUDA toolkit (Windows CUDA variant only) ─────────────────────────────
+      # Linux is Vulkan-only, so CUDA is installed only on the Windows CUDA job.
+      - name: Install CUDA Toolkit (Windows)
+        if: matrix.cuda && runner.os == 'Windows'
         uses: Jimver/cuda-toolkit@v0.2.30
         with:
           cuda: '12.9.1'
           method: network
           sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "visual_studio_integration"]'
 
-      - name: Add CUDA to PATH
-        if: matrix.cuda
+      - name: Add CUDA to PATH (Windows)
+        if: matrix.cuda && runner.os == 'Windows'
         shell: pwsh
         run: echo "$env:CUDA_PATH\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Install Vulkan SDK
-        if: "!matrix.cuda"
+      # ── Vulkan SDK (standard variant only) ───────────────────────────────────
+      - name: Install Vulkan SDK (Windows)
+        if: "!matrix.cuda && runner.os == 'Windows'"
         shell: pwsh
         run: |
           $url = "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-sdk.exe"
@@ -60,6 +127,22 @@ jobs:
           $sdkPath = (Get-ChildItem "C:\VulkanSDK" | Sort-Object Name -Descending | Select-Object -First 1).FullName
           echo "VULKAN_SDK=$sdkPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "$sdkPath\Bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install Vulkan SDK (Linux)
+        if: "!matrix.cuda && runner.os == 'Linux'"
+        run: |
+          # ggml-vulkan's CMake does find_package(Vulkan COMPONENTS glslc) to
+          # compile shaders. `glslc` (shaderc) is NOT packaged in Ubuntu 22.04's
+          # own repos, so install the LunarG Vulkan SDK — its `vulkan-sdk`
+          # meta-package bundles glslc + headers + loader, mirroring the Windows
+          # job. (Same jammy repo LunarG documents for 22.04.)
+          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
+            | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc >/dev/null
+          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list \
+            http://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
+          sudo apt-get update
+          sudo apt-get install -y vulkan-sdk
+          glslc --version
 
       - name: Install npm deps
         run: npm ci
@@ -72,8 +155,9 @@ jobs:
           sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
           sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
 
-      - name: Copy CUDA DLLs
-        if: matrix.cuda
+      # ── CUDA runtime libraries bundled with the app (Windows) ────────────────
+      - name: Copy CUDA DLLs (Windows)
+        if: matrix.cuda && runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path src-tauri/cuda
@@ -81,8 +165,8 @@ jobs:
           Copy-Item "$env:CUDA_PATH\bin\cublasLt64_12.dll" src-tauri/cuda/
           Copy-Item "$env:CUDA_PATH\bin\cudart64_12.dll"   src-tauri/cuda/
 
-      - name: Patch tauri.conf.json resources with CUDA DLLs
-        if: matrix.cuda
+      - name: Patch tauri.conf.json resources with CUDA DLLs (Windows)
+        if: matrix.cuda && runner.os == 'Windows'
         shell: python
         run: |
           import json, pathlib
@@ -101,8 +185,12 @@ jobs:
           conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
           print("patched tauri.conf.json resources")
 
-      - name: Patch installer name and updater target for CUDA build
-        if: matrix.cuda
+      # ── Updater target string for CUDA builds (Windows only) ─────────────────
+      # The Tauri updater on a CUDA install asks for "windows-x86_64-cuda"; the
+      # standard build keeps the default "windows-x86_64". (Linux has no CUDA
+      # variant and ships .deb/.rpm, which aren't updater targets.)
+      - name: Patch updater target for CUDA build
+        if: matrix.cuda && runner.os == 'Windows'
         shell: python
         run: |
           import json, pathlib
@@ -110,7 +198,7 @@ jobs:
           conf = json.loads(conf_path.read_text(encoding="utf-8"))
           conf.setdefault("plugins", {}).setdefault("updater", {})["target"] = "windows-x86_64-cuda"
           conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
-          print("patched productName and updater target for CUDA")
+          print("patched updater target -> windows-x86_64-cuda")
 
       - name: Enable whisper-rs GPU features in Cargo.toml
         shell: python
@@ -129,55 +217,94 @@ jobs:
           print(f"enabled features: {features}")
 
       - name: Cache Rust deps
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@v2.9.1
         with:
           workspaces: src-tauri
           cache-targets: false
 
-      - name: Build
+      # Windows builds all bundles (NSIS/MSI). Linux builds deb + rpm ONLY —
+      # the AppImage path (linuxdeploy) is unreliable on CI runners (needs FUSE;
+      # fails with "failed to run linuxdeploy"), while deb/rpm build cleanly and
+      # cover Debian/Ubuntu/Zorin/Fedora. AppImage can be revisited later.
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build
 
-      - name: Rename CUDA artifacts
-        if: matrix.cuda
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx tauri build --bundles deb,rpm
+
+      # ── Windows: collect the NSIS updater artifact (installer + .sig) ─────────
+      # Windows ships auto-updates via the NSIS installer. Linux ships .deb/.rpm
+      # which are not Tauri updater targets, so Linux has no updater artifact —
+      # Linux users update by reinstalling the package.
+      - name: Collect updater artifact (Windows)
+        if: runner.os == 'Windows'
         shell: python
         run: |
           import glob, pathlib, re
-          version = "${{ github.ref_name }}".lstrip("v")
-          for pattern in ["C:/b/release/bundle/nsis/*.exe", "C:/b/release/bundle/nsis/*.exe.sig", "C:/b/release/bundle/msi/*.msi", "C:/b/release/bundle/msi/*.msi.sig"]:
-            for src in glob.glob(pattern):
-              src = pathlib.Path(src)
-              new_name = re.sub(r'^NexusVoice', 'NexusVoice-CUDA', src.name)
-              src.rename(src.parent / new_name)
-              print(f"renamed {src.name} -> {new_name}")
 
-      - name: Save NSIS signature
-        shell: python
-        run: |
-          import glob, pathlib
-          exe = pathlib.Path(glob.glob("C:/b/release/bundle/nsis/*.exe")[0])
-          sig = pathlib.Path(f"{exe}.sig").read_text().strip()
-          pathlib.Path("nsis-sig.txt").write_text(sig)
-          pathlib.Path("nsis-name.txt").write_text(exe.name)
+          cuda = "${{ matrix.cuda }}" == "true"
+          target_dir = "C:/b"
+          patterns = [
+              f"{target_dir}/release/bundle/nsis/*.exe",
+              f"{target_dir}/release/bundle/nsis/*.exe.sig",
+              f"{target_dir}/release/bundle/msi/*.msi",
+              f"{target_dir}/release/bundle/msi/*.msi.sig",
+          ]
 
-      - name: Upload NSIS signature
-        uses: actions/upload-artifact@v7.0.0
+          # Rename CUDA artifacts so both variants can live in one release.
+          if cuda:
+              for pattern in patterns:
+                  for src in glob.glob(pattern):
+                      src = pathlib.Path(src)
+                      new_name = re.sub(r"^NexusVoice", "NexusVoice-CUDA", src.name)
+                      if new_name != src.name:
+                          src.rename(src.parent / new_name)
+                          print(f"renamed {src.name} -> {new_name}")
+
+          installer = pathlib.Path(sorted(glob.glob(patterns[0]))[0])
+          sig = pathlib.Path(f"{installer}.sig").read_text().strip()
+          pathlib.Path("updater-sig.txt").write_text(sig)
+          pathlib.Path("updater-name.txt").write_text(installer.name)
+          print(f"updater artifact: {installer.name}")
+
+      - name: Upload updater signature
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7.0.1
         with:
-          name: sig-${{ matrix.variant }}
+          name: sig-${{ matrix.os }}-${{ matrix.variant }}
           path: |
-            nsis-sig.txt
-            nsis-name.txt
+            updater-sig.txt
+            updater-name.txt
 
-      - name: Upload release artifacts
-        uses: softprops/action-gh-release@v2.6.1
+      - name: Upload release artifacts (Windows)
+        if: runner.os == 'Windows'
+        uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: ${{ github.ref_name }}
           fail_on_unmatched_files: false
           files: |
             C:/b/release/bundle/nsis/*.exe
             C:/b/release/bundle/msi/*.msi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release artifacts (Linux)
+        if: runner.os == 'Linux'
+        uses: softprops/action-gh-release@v3.0.0
+        with:
+          tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: false
+          files: |
+            .cargo-target/release/bundle/deb/*.deb
+            .cargo-target/release/bundle/rpm/*.rpm
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -198,17 +325,25 @@ jobs:
 
           version = os.environ["GITHUB_REF_NAME"].lstrip("v")
           tag = os.environ["GITHUB_REF_NAME"]
-          repo = "Ved-Padmawar/NexusVoice"
+          repo = os.environ["GITHUB_REPOSITORY"]
           base = f"https://github.com/{repo}/releases/download/{tag}"
           pub_date = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
+          # (artifact dir name, updater target triple). Only Windows ships an
+          # auto-updater artifact (NSIS). Linux distributes .deb/.rpm, which are
+          # not Tauri updater targets, so Linux is intentionally absent here.
+          variants = [
+            ("sig-windows-latest-standard", "windows-x86_64"),
+            ("sig-windows-latest-cuda",     "windows-x86_64-cuda"),
+          ]
+
           platforms = {}
-          for variant, target in [("standard", "windows-x86_64"), ("cuda", "windows-x86_64-cuda")]:
-            sig_dir = pathlib.Path(f"sig-{variant}")
+          for sig_dir_name, target in variants:
+            sig_dir = pathlib.Path(sig_dir_name)
             if sig_dir.exists():
-              sig = (sig_dir / "nsis-sig.txt").read_text().strip()
-              exe = (sig_dir / "nsis-name.txt").read_text().strip()
-              platforms[target] = {"signature": sig, "url": f"{base}/{exe}"}
+              sig = (sig_dir / "updater-sig.txt").read_text().strip()
+              name = (sig_dir / "updater-name.txt").read_text().strip()
+              platforms[target] = {"signature": sig, "url": f"{base}/{name}"}
 
           payload = {
             "version": version,
@@ -220,7 +355,7 @@ jobs:
           print(json.dumps(payload, indent=2))
 
       - name: Upload latest.json to release
-        uses: softprops/action-gh-release@v2.6.1
+        uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: ${{ github.ref_name }}
           files: latest.json

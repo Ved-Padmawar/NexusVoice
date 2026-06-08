@@ -1,103 +1,62 @@
 pub mod errors;
 pub mod service;
-pub mod session;
-pub mod tokens;
-
-use rand::RngCore;
 
 pub use errors::AuthError;
 pub use service::AuthService;
-pub use tokens::TokenPair;
-
-#[cfg(test)]
-pub use session::SessionState;
-
-/// Load the per-install JWT secret from `secret_path`, generating and persisting
-/// a new random 32-byte secret if none exists yet.
-///
-/// In development, `NEXUSVOICE_JWT_SECRET` env var takes precedence.
-pub fn load_or_create_jwt_secret(secret_path: &std::path::Path) -> std::io::Result<Vec<u8>> {
-    // Dev override
-    if let Ok(val) = std::env::var("NEXUSVOICE_JWT_SECRET") {
-        return Ok(val.into_bytes());
-    }
-
-    // Try loading existing secret
-    if let Ok(bytes) = std::fs::read(secret_path) {
-        if bytes.len() >= 32 {
-            return Ok(bytes);
-        }
-    }
-
-    // Generate new 32-byte random secret and persist it
-    let mut secret = vec![0u8; 32];
-    rand::rng().fill_bytes(&mut secret);
-    std::fs::write(secret_path, &secret)?;
-    Ok(secret)
-}
-
-#[cfg(test)]
-/// Test helper: returns a fixed 32-byte secret so tests don't need filesystem access.
-pub fn test_jwt_secret() -> Vec<u8> {
-    b"nexusvoice-test-secret-32-bytes!".to_vec()
-}
 
 #[cfg(test)]
 mod tests {
     use sqlx::sqlite::SqlitePoolOptions;
 
     use crate::database::connection::init_database;
-    use crate::database::repositories::token::TokenRepository;
+    use crate::database::repositories::session::SessionRepository;
     use crate::database::repositories::user::UserRepository;
 
-    use super::{test_jwt_secret, AuthError, AuthService, SessionState};
+    use super::{AuthError, AuthService};
 
-    fn make_secret() -> Vec<u8> {
-        test_jwt_secret()
-    }
-
-    #[tokio::test]
-    async fn register_and_login_flow() {
+    async fn make_service() -> (AuthService, sqlx::SqlitePool) {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
             .await
             .expect("pool");
         init_database(&pool).await.expect("migrations");
+        (AuthService::new(pool.clone()), pool)
+    }
 
-        let service = AuthService::new(pool, make_secret());
+    #[tokio::test]
+    async fn register_persists_session_and_login_restores_it() {
+        let (service, _pool) = make_service().await;
 
         let user = service
             .register("person@example.com", "secret")
             .await
             .expect("register");
-
         assert_eq!(user.email, "person@example.com");
 
-        let current = service.current_user().await.expect("session user");
+        // Registering signs the user in — current_user reflects the persisted row.
+        let current = service.current_user().await.expect("query").expect("user");
         assert_eq!(current.id, user.id);
 
-        service.logout().await;
-        assert!(service.current_user().await.is_none());
+        // Logout clears the persisted session.
+        service.logout().await.expect("logout");
+        assert!(service.current_user().await.expect("query").is_none());
 
+        // Login re-establishes it.
         let logged_in = service
             .login("person@example.com", "secret")
             .await
             .expect("login");
-
         assert_eq!(logged_in.id, user.id);
+        assert_eq!(
+            service.current_user().await.expect("query").expect("user").id,
+            user.id
+        );
     }
 
     #[tokio::test]
     async fn duplicate_email_rejected() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("pool");
-        init_database(&pool).await.expect("migrations");
-
-        let service = AuthService::new(pool, make_secret());
+        let (service, _pool) = make_service().await;
 
         service
             .register("dup@example.com", "secret")
@@ -108,23 +67,12 @@ mod tests {
             .register("dup@example.com", "secret")
             .await
             .expect_err("duplicate should fail");
-
-        match err {
-            AuthError::EmailTaken => {}
-            other => panic!("unexpected error: {other:?}"),
-        }
+        assert!(matches!(err, AuthError::EmailTaken));
     }
 
     #[tokio::test]
     async fn login_invalid_password() {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("pool");
-        init_database(&pool).await.expect("migrations");
-
-        let service = AuthService::new(pool, make_secret());
+        let (service, _pool) = make_service().await;
 
         service
             .register("invalid@example.com", "secret")
@@ -135,11 +83,17 @@ mod tests {
             .login("invalid@example.com", "wrong")
             .await
             .expect_err("login should fail");
+        assert!(matches!(err, AuthError::InvalidCredentials));
+    }
 
-        match err {
-            AuthError::InvalidCredentials => {}
-            other => panic!("unexpected error: {other:?}"),
-        }
+    #[tokio::test]
+    async fn login_unknown_email() {
+        let (service, _pool) = make_service().await;
+        let err = service
+            .login("nobody@example.com", "secret")
+            .await
+            .expect_err("should fail");
+        assert!(matches!(err, AuthError::InvalidCredentials));
     }
 
     #[tokio::test]
@@ -152,110 +106,13 @@ mod tests {
         init_database(&pool).await.expect("migrations");
 
         let users = UserRepository::new(pool.clone());
-        let tokens = TokenRepository::new(pool);
-        let session = SessionState::new();
-        let service = AuthService::with_dependencies(users, tokens, session, make_secret());
+        let session = SessionRepository::new(pool);
+        let service = AuthService::with_dependencies(users, session);
 
         let user = service
             .register("di@example.com", "secret")
             .await
             .expect("register");
         assert_eq!(user.email, "di@example.com");
-    }
-
-    async fn make_service() -> AuthService {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("pool");
-        init_database(&pool).await.expect("migrations");
-        AuthService::new(pool, make_secret())
-    }
-
-    #[tokio::test]
-    async fn login_with_tokens_returns_pair() {
-        let svc = make_service().await;
-        svc.register("tok@example.com", "pass123")
-            .await
-            .expect("register");
-        let (_user, pair) = svc
-            .login_with_tokens("tok@example.com", "pass123")
-            .await
-            .expect("login_with_tokens");
-        assert!(!pair.access_token.is_empty());
-        assert_eq!(pair.refresh_token.len(), 64);
-        assert!(pair.expires_in_seconds > 0);
-    }
-
-    #[tokio::test]
-    async fn token_rotation_works() {
-        let svc = make_service().await;
-        svc.register("rot@example.com", "pass123")
-            .await
-            .expect("register");
-        let (_user, pair1) = svc
-            .login_with_tokens("rot@example.com", "pass123")
-            .await
-            .expect("login");
-
-        let pair2 = svc
-            .refresh_tokens(&pair1.refresh_token)
-            .await
-            .expect("refresh");
-
-        let err = svc
-            .refresh_tokens(&pair1.refresh_token)
-            .await
-            .expect_err("should be revoked");
-        assert!(matches!(err, AuthError::TokenRevoked));
-
-        assert_ne!(pair1.refresh_token, pair2.refresh_token);
-        assert!(!pair2.access_token.is_empty());
-    }
-
-    #[tokio::test]
-    async fn revoke_token_invalidates_refresh() {
-        let svc = make_service().await;
-        svc.register("rev@example.com", "pass123")
-            .await
-            .expect("register");
-        let (_user, pair) = svc
-            .login_with_tokens("rev@example.com", "pass123")
-            .await
-            .expect("login");
-
-        svc.revoke_token(&pair.refresh_token).await.expect("revoke");
-
-        let err = svc
-            .refresh_tokens(&pair.refresh_token)
-            .await
-            .expect_err("should fail");
-        assert!(matches!(err, AuthError::TokenRevoked));
-    }
-
-    #[tokio::test]
-    async fn access_token_validates() {
-        let svc = make_service().await;
-        let user = svc
-            .register("val@example.com", "pass123")
-            .await
-            .expect("register");
-        let (_u, pair) = svc
-            .login_with_tokens("val@example.com", "pass123")
-            .await
-            .expect("login");
-
-        let user_id = svc.validate_token(&pair.access_token).expect("validate");
-        assert_eq!(user_id, user.id);
-    }
-
-    #[tokio::test]
-    async fn invalid_access_token_rejected() {
-        let svc = make_service().await;
-        let err = svc
-            .validate_token("not.a.real.token")
-            .expect_err("should fail");
-        assert!(matches!(err, AuthError::TokenInvalid));
     }
 }

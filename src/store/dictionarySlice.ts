@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { DictionaryEntrySchema, type DictionaryEntry } from '../types'
 import { COMMANDS } from '../lib/commands'
-import { invokeWithRefresh } from './invokeWithRefresh'
+import { invoke } from '@tauri-apps/api/core'
 import { toast } from 'sonner'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
@@ -26,7 +26,7 @@ export const createDictionarySlice: StateCreator<AppState, [], [], DictionarySli
     set({ dictionaryStatus: 'loading', dictionaryError: null })
     try {
       const dictionary = z.array(DictionaryEntrySchema).parse(
-        await invokeWithRefresh<unknown>(COMMANDS.GET_DICTIONARY)
+        await invoke<unknown>(COMMANDS.GET_DICTIONARY)
       )
       set({ dictionary, dictionaryStatus: 'success' })
     } catch (e) {
@@ -38,7 +38,7 @@ export const createDictionarySlice: StateCreator<AppState, [], [], DictionarySli
   updateDictionary: async (term, replacement) => {
     try {
       const newEntry = DictionaryEntrySchema.parse(
-        await invokeWithRefresh<unknown>(COMMANDS.UPDATE_DICTIONARY, { term, replacement })
+        await invoke<unknown>(COMMANDS.UPDATE_DICTIONARY, { term, replacement })
       )
       set((state) => {
         const index = state.dictionary.findIndex((d) => d.term === term)
@@ -56,7 +56,7 @@ export const createDictionarySlice: StateCreator<AppState, [], [], DictionarySli
 
   deleteDictionaryEntry: async (id) => {
     try {
-      await invokeWithRefresh<void>(COMMANDS.DELETE_DICTIONARY_ENTRY, { id })
+      await invoke<void>(COMMANDS.DELETE_DICTIONARY_ENTRY, { id })
       set((state) => ({ dictionary: state.dictionary.filter((d) => d.id !== id) }))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to delete entry')

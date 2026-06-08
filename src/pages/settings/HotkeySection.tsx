@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { Keyboard, Mic, Save, X, Pencil } from 'lucide-react'
 import { useAppStore } from '../../store/useAppStore'
 import { parseRegisteredHotkeys } from '../../store/modelSlice'
+import { SUPER_KEY_LABEL } from '../../lib/platform'
 import { Button } from '@/components/ui/button'
 
 type HotkeyKind = 'ptt' | 'dictation' | 'dictationCommit'
@@ -37,7 +38,9 @@ function getKeyName(key: string, code: string): string {
 }
 
 const KEY_DISPLAY: Record<string, string> = {
-  Ctrl: 'Ctrl', Super: 'Win', Return: 'Enter',
+  // Super is the Windows logo key on Win/Linux and Command on macOS — the
+  // internal accelerator token stays "Super" everywhere; only the label differs.
+  Ctrl: 'Ctrl', Super: SUPER_KEY_LABEL, Return: 'Enter',
   Backspace: 'Backspace', Delete: 'Del', Escape: 'Esc',
   ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
 }
@@ -48,8 +51,8 @@ function buildShortcut(keys: string[]): string {
   const mods: string[] = []
   let main = ''
   for (const k of keys) {
-    if (['Ctrl', 'Alt', 'Shift', 'Win'].includes(k)) {
-      mods.push(k === 'Win' ? 'Super' : k)
+    if (['Ctrl', 'Alt', 'Shift', 'Win', 'Cmd'].includes(k)) {
+      mods.push(k === 'Win' || k === 'Cmd' ? 'Super' : k)
     } else {
       main = k
     }

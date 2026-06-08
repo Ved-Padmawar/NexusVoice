@@ -7,7 +7,16 @@ const INTEL_VENDOR_ID: u32 = 0x8086;
 const APPLE_VENDOR_ID: u32 = 0x106B;
 
 pub fn detect_profile<P: HardwareInfoProvider>(provider: &P) -> HardwareProfile {
-    let gpus = provider.gpus();
+    // A probe *failure* is logged and treated as CPU so the app still runs — but
+    // it is no longer silently indistinguishable from a genuinely GPU-less
+    // machine (`Ok(empty)`), which is the legitimate CPU case.
+    let gpus = match provider.gpus() {
+        Ok(gpus) => gpus,
+        Err(e) => {
+            log::warn!("GPU probe failed ({e}) — falling back to CPU execution");
+            Vec::new()
+        }
+    };
     let ram_gb = provider.total_ram_gb();
 
     if gpus.is_empty() {
@@ -70,8 +79,8 @@ mod tests {
     }
 
     impl HardwareInfoProvider for MockProvider {
-        fn gpus(&self) -> Vec<GpuDescriptor> {
-            self.gpus.clone()
+        fn gpus(&self) -> Result<Vec<GpuDescriptor>, String> {
+            Ok(self.gpus.clone())
         }
         fn total_ram_gb(&self) -> f32 {
             self.ram_gb
@@ -89,6 +98,24 @@ mod tests {
         assert_eq!(profile.execution_provider, "cpu");
         assert_eq!(profile.vram_gb, 0.0);
         assert_eq!(profile.ram_gb, 16.0);
+    }
+
+    #[test]
+    fn probe_failure_falls_back_to_cpu_without_panicking() {
+        // A failed GPU probe (Err) must degrade to CPU — the app keeps running on
+        // a machine where the GPU API is unavailable — and still report RAM.
+        struct FailingProvider;
+        impl HardwareInfoProvider for FailingProvider {
+            fn gpus(&self) -> Result<Vec<GpuDescriptor>, String> {
+                Err("driver init failed".to_string())
+            }
+            fn total_ram_gb(&self) -> f32 {
+                8.0
+            }
+        }
+        let profile = detect_profile(&FailingProvider);
+        assert_eq!(profile.execution_provider, "cpu");
+        assert_eq!(profile.ram_gb, 8.0);
     }
 
     #[test]

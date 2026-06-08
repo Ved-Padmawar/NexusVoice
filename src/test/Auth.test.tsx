@@ -54,7 +54,7 @@ describe('Auth — login mode', () => {
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'password123' } })
     fireEvent.submit(screen.getByRole('button', { name: /sign in/i }))
     await waitFor(() => {
-      expect(mockLogin).toHaveBeenCalledWith('test@example.com', 'password123', false)
+      expect(mockLogin).toHaveBeenCalledWith('test@example.com', 'password123')
     })
   })
 

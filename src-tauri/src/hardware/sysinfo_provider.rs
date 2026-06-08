@@ -1,11 +1,24 @@
+//! Cross-platform hardware probe backing [`HardwareInfoProvider`].
+//!
+//! RAM is read via the `sysinfo` crate on every OS. GPU enumeration (name,
+//! vendor id, real VRAM) is delegated to a `cfg`-selected native backend in
+//! [`gpu`] — DXGI on Windows, Metal on macOS, Vulkan on Linux. There is one
+//! complete real implementation per OS; no target returns an empty/zero stub.
+//!
+//! VRAM matters functionally: `inference::provider` selects the Whisper model
+//! size from it, so a wrong/zero value silently downgrades transcription
+//! quality. That is why GPU memory is queried natively rather than via a
+//! lowest-common-denominator abstraction.
+
+use super::gpu;
 use super::profile::GpuDescriptor;
 use super::provider::HardwareInfoProvider;
 
 pub struct SysinfoProvider;
 
 impl HardwareInfoProvider for SysinfoProvider {
-    fn gpus(&self) -> Vec<GpuDescriptor> {
-        query_gpus_dxgi()
+    fn gpus(&self) -> Result<Vec<GpuDescriptor>, String> {
+        gpu::query_gpus()
     }
 
     fn total_ram_gb(&self) -> f32 {
@@ -13,93 +26,12 @@ impl HardwareInfoProvider for SysinfoProvider {
     }
 }
 
+/// Total physical RAM in GB (one decimal place), via `sysinfo`. Cross-OS.
 fn query_total_ram_gb() -> f32 {
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
-        let mut mem = MEMORYSTATUSEX {
-            #[allow(clippy::cast_possible_truncation)] // size_of::<MEMORYSTATUSEX>() is always < u32::MAX
-            dwLength: std::mem::size_of::<MEMORYSTATUSEX>() as u32,
-            ..Default::default()
-        };
-        if unsafe { GlobalMemoryStatusEx(std::ptr::addr_of_mut!(mem)) }.is_ok() {
-            #[allow(clippy::cast_precision_loss)] // RAM value fits f32 at GB scale
-            let gb = mem.ullTotalPhys as f32 / 1_073_741_824.0;
-            return (gb * 10.0).round() / 10.0;
-        }
-        0.0
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        0.0
-    }
-}
-
-/// Query GPU adapters via DXGI — works on all Windows 10/11 versions.
-/// Returns name, vendor ID, and dedicated video memory for each adapter.
-fn query_gpus_dxgi() -> Vec<GpuDescriptor> {
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::Graphics::Dxgi::{
-            CreateDXGIFactory1, IDXGIFactory1, DXGI_ERROR_NOT_FOUND,
-        };
-
-        let factory: IDXGIFactory1 = match unsafe { CreateDXGIFactory1() } {
-            Ok(f) => f,
-            Err(_) => return Vec::new(),
-        };
-
-        let mut gpus = Vec::new();
-        let mut i = 0u32;
-
-        loop {
-            let adapter = unsafe { factory.EnumAdapters1(i) };
-            match adapter {
-                Err(e) if e.code() == DXGI_ERROR_NOT_FOUND => break,
-                Err(_) => break,
-                Ok(adapter) => {
-                    let Ok(desc) = (unsafe { adapter.GetDesc1() }) else {
-                        i += 1;
-                        continue;
-                    };
-
-                    // Skip software/Microsoft Basic Render Driver (Flags bit 2 = DXGI_ADAPTER_FLAG_SOFTWARE)
-                    if desc.Flags & 2 != 0 {
-                        i += 1;
-                        continue;
-                    }
-
-                    let name = String::from_utf16_lossy(
-                        &desc
-                            .Description
-                            .iter()
-                            .copied()
-                            .take_while(|&c| c != 0)
-                            .collect::<Vec<u16>>(),
-                    );
-
-                    let name_lower = name.to_lowercase();
-                    if name_lower.contains("microsoft basic") || name_lower.contains("basic render")
-                    {
-                        i += 1;
-                        continue;
-                    }
-
-                    gpus.push(GpuDescriptor {
-                        name,
-                        vendor_id: Some(desc.VendorId),
-                        vram_bytes: desc.DedicatedVideoMemory as u64,
-                    });
-                }
-            }
-            i += 1;
-        }
-
-        gpus
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        Vec::new()
-    }
+    use sysinfo::System;
+    let mut sys = System::new();
+    sys.refresh_memory();
+    #[allow(clippy::cast_precision_loss)] // RAM value fits f32 at GB scale
+    let gb = sys.total_memory() as f32 / 1_073_741_824.0;
+    (gb * 10.0).round() / 10.0
 }

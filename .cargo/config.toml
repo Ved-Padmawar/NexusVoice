@@ -3,6 +3,10 @@
 [build]
 target-dir = ".cargo-target"
 
-[env]
-LIBCLANG_PATH = "C:\\Program Files\\LLVM\\bin"
-CMAKE = "C:\\Program Files\\CMake\\bin\\cmake.exe"
+# NOTE: LIBCLANG_PATH / CMAKE are intentionally NOT set here. Cargo's [env]
+# applies on every OS, so hardcoding Windows paths broke Linux/macOS builds
+# (they'd try to run C:\...\cmake.exe). These are now set per-OS:
+#   - CI: in the release workflow (Windows step sets the C:\ paths; Linux/macOS
+#     use system cmake/libclang on PATH).
+#   - Local Windows dev: ensure LLVM\bin and CMake\bin are on PATH, or set
+#     LIBCLANG_PATH / CMAKE as user environment variables.

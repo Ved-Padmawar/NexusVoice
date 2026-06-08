@@ -5,10 +5,6 @@ pub enum AuthError {
     EmailTaken,
     InvalidCredentials,
     PasswordHash,
-    TokenGeneration,
-    TokenExpired,
-    TokenInvalid,
-    TokenRevoked,
     Database(sqlx::Error),
 }
 
@@ -18,10 +14,6 @@ impl fmt::Display for AuthError {
             Self::EmailTaken => write!(f, "email already registered"),
             Self::InvalidCredentials => write!(f, "invalid credentials"),
             Self::PasswordHash => write!(f, "password hashing failed"),
-            Self::TokenGeneration => write!(f, "token generation failed"),
-            Self::TokenExpired => write!(f, "token expired"),
-            Self::TokenInvalid => write!(f, "token invalid"),
-            Self::TokenRevoked => write!(f, "token revoked"),
             Self::Database(_) => write!(f, "database error"),
         }
     }

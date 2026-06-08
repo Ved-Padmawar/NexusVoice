@@ -3,7 +3,6 @@
 
 use serde::Serialize;
 
-use crate::auth::TokenPair;
 use crate::database::models::{dictionary::DictionaryEntry, transcript::Transcript, user::User};
 
 #[derive(Debug, Serialize)]
@@ -66,31 +65,6 @@ impl From<DictionaryEntry> for DictionaryResponse {
             created_at: value.created_at.to_string(),
         }
     }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TokenPairResponse {
-    pub access_token: String,
-    pub refresh_token: String,
-    pub expires_in_seconds: i64,
-}
-
-impl From<TokenPair> for TokenPairResponse {
-    fn from(p: TokenPair) -> Self {
-        Self {
-            access_token: p.access_token,
-            refresh_token: p.refresh_token,
-            expires_in_seconds: p.expires_in_seconds,
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AuthResponse {
-    pub user: UserResponse,
-    pub tokens: TokenPairResponse,
 }
 
 #[derive(Debug, Serialize)]

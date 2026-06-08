@@ -25,6 +25,42 @@ fn session_id() -> &'static str {
     })
 }
 
+/// Grant the pill webview's `getUserMedia` (microphone) request.
+///
+/// The pill renders its live waveform from a Web Audio analyser fed by the
+/// webview's own mic stream. WebView2 (Windows) and WKWebView (macOS) allow this
+/// by default, but WebKitGTK (Linux) **denies** every `WebKitUserMediaPermissionRequest`
+/// unless an app handles the `permission-request` signal — so the Linux waveform
+/// stays flat. We hook that signal and allow user-media requests. No-op elsewhere.
+#[cfg(target_os = "linux")]
+fn grant_pill_media_permission(pill: &tauri::WebviewWindow) {
+    use glib::object::Cast;
+    use webkit2gtk::{PermissionRequestExt, UserMediaPermissionRequest, WebViewExt};
+
+    let result = pill.with_webview(|webview| {
+        // On Linux, the inner webview is a webkit2gtk::WebView.
+        let wv = webview.inner();
+        wv.connect_permission_request(|_wv, req| {
+            // Only auto-grant microphone/camera (user-media) requests; let any
+            // other permission type fall through to the default (deny).
+            if req.downcast_ref::<UserMediaPermissionRequest>().is_some() {
+                req.allow();
+                true
+            } else {
+                false
+            }
+        });
+    });
+    if let Err(e) = result {
+        log::warn!("could not attach pill media-permission handler: {e}");
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn grant_pill_media_permission(_pill: &tauri::WebviewWindow) {
+    // WebView2 / WKWebView grant getUserMedia without an explicit handler.
+}
+
 mod audio;
 mod auth;
 mod commands;
@@ -74,8 +110,11 @@ fn main() {
 
     tauri::Builder::default()
         .on_window_event(|window, event| {
-            // When a non-pill window gains focus (e.g. Alt+Tab to main), immediately
-            // re-promote the pill's Z-order so it stays visible above other apps.
+            // Windows-only: it demotes always-on-top windows when another app gains
+            // focus, so when a non-pill window is focused (e.g. Alt+Tab to main) we
+            // re-promote the pill's Z-order. macOS/Linux keep always-on-top sticky,
+            // so the toggle is unnecessary churn there.
+            #[cfg(windows)]
             if let tauri::WindowEvent::Focused(true) = event {
                 if window.label() != "pill" {
                     if let Some(pill) = window.app_handle().get_webview_window("pill") {
@@ -84,6 +123,11 @@ fn main() {
                         let _ = pill.show();
                     }
                 }
+            }
+            // Silence unused-variable warnings on non-Windows where the body is gone.
+            #[cfg(not(windows))]
+            {
+                let _ = (window, event);
             }
         })
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -120,7 +164,6 @@ fn main() {
             let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
             std::fs::create_dir_all(&app_data_dir)?;
 
-            let token_store_path = app_data_dir.join("refresh_token");
             let hotkey_store_path = app_data_dir.join("hotkey");
             let dictation_hotkey_store_path = app_data_dir.join("dictation_hotkey");
             let dictation_commit_hotkey_store_path = app_data_dir.join("dictation_commit_hotkey");
@@ -134,7 +177,6 @@ fn main() {
             // DB + auth are initialized asynchronously after setup returns.
             let app_state = state::AppState::new(
                 app_data_dir,
-                token_store_path,
                 hotkey_store_path,
                 dictation_hotkey_store_path,
                 dictation_commit_hotkey_store_path,
@@ -163,16 +205,7 @@ fn main() {
                     };
 
                     // Wire up pool + auth service
-                    let jwt_secret_path = state.app_data_dir.join("jwt_secret");
-                    let jwt_secret = match auth::load_or_create_jwt_secret(&jwt_secret_path) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            log::error!("jwt secret init failed: {e}");
-                            let _ = app_handle.emit("auth:unauthenticated", ());
-                            return;
-                        }
-                    };
-                    let auth_service = auth::AuthService::new(pool.clone(), jwt_secret);
+                    let auth_service = auth::AuthService::new(pool.clone());
                     state.set_pool(pool.clone());
                     state.set_auth(auth_service);
 
@@ -189,25 +222,17 @@ fn main() {
                             entries.into_iter().map(|e| (e.term.clone(), e)).collect();
                     }
 
-                    // Silent re-auth
-                    if let Some(raw_token) = state.load_refresh_token() {
-                        match state.auth().await.refresh_tokens(&raw_token).await {
-                            Ok(pair) => {
-                                if let Ok(user_id) =
-                                    state.auth().await.validate_token(&pair.access_token)
-                                {
-                                    state.set_auth_session(user_id, pair.access_token).await;
-                                    let _ = state.save_refresh_token(&pair.refresh_token);
-                                    let _ = app_handle.emit("auth:ready", user_id);
-                                    return;
-                                }
-                            }
-                            Err(_) => {
-                                state.delete_refresh_token();
-                            }
+                    // Restore the persisted session: if a user is recorded in
+                    // app_session, they stay signed in across restarts.
+                    match state.auth().await.current_user().await {
+                        Ok(Some(user)) => {
+                            state.set_auth_session(user.id).await;
+                            let _ = app_handle.emit("auth:ready", user.id);
+                        }
+                        _ => {
+                            let _ = app_handle.emit("auth:unauthenticated", ());
                         }
                     }
-                    let _ = app_handle.emit("auth:unauthenticated", ());
                 });
             }
 
@@ -345,6 +370,13 @@ fn main() {
                             .and_then(tauri::WebviewWindowBuilder::build)
                         {
                             Ok(pill) => {
+                                // The pill drives its live waveform from the webview's own
+                                // getUserMedia() mic stream. WebKitGTK denies that request by
+                                // default (unlike WebView2/WKWebView), so on Linux we grant
+                                // user-media permission requests explicitly — otherwise the
+                                // waveform stays flat even though transcription works.
+                                grant_pill_media_permission(&pill);
+
                                 // Position: centered horizontally, near bottom of primary monitor
                                 if let Some(monitor) = pill.primary_monitor().ok().flatten() {
                                     let screen = monitor.size();
@@ -374,6 +406,8 @@ fn main() {
             // when fullscreen apps appear, after Alt+Tab cycling between other apps,
             // and on virtual-desktop switches. set_always_on_top(true) is a no-op when
             // already true — must toggle false→true to actually re-promote Z-order.
+            // macOS/Linux keep always-on-top sticky, so this loop is Windows-only.
+            #[cfg(windows)]
             {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
@@ -397,14 +431,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_auth_state,
             commands::get_current_user,
-            commands::store_refresh_token,
-            commands::clear_stored_token,
             commands::register,
             commands::login,
-            commands::login_with_tokens,
-            commands::register_with_tokens,
-            commands::refresh_token,
-            commands::logout_token,
+            commands::logout,
             commands::start_transcription,
             commands::stop_transcription,
             commands::start_dictation,

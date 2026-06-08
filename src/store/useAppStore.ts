@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { setStoreRef } from './invokeWithRefresh'
 import { createAuthSlice, type AuthSlice } from './authSlice'
 import { createTranscriptSlice, type TranscriptSlice } from './transcriptSlice'
 import { createDictionarySlice, type DictionarySlice } from './dictionarySlice'
@@ -42,6 +41,3 @@ export const useAppStore = create<AppState>()(
     }
   )
 )
-
-// Wire the store reference into invokeWithRefresh so it can access/mutate auth state
-setStoreRef(useAppStore)

@@ -2,6 +2,7 @@
 ///
 /// 1. Normal upgrade: 0001+0002 → add 0003, data survives
 /// 2. Recovery: simulate inconsistent migration state, verify backup+recreate path works
+use serial_test::serial;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 
@@ -15,7 +16,10 @@ async fn apply_sql(pool: &SqlitePool, sql: &str) {
     }
 }
 
+// These two tests each open an on-disk SQLite database; run them serially so
+// they never contend on file locks when the test harness parallelizes.
 #[tokio::test]
+#[serial]
 async fn test_migration_0003_upgrade_preserves_data() {
     // ── 1. Open an in-memory DB ──────────────────────────────────────────────
     let opts = SqliteConnectOptions::from_str("sqlite::memory:")
@@ -89,6 +93,7 @@ async fn test_migration_0003_upgrade_preserves_data() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_migration_recovery_backup_and_recreate() {
     // Verify the recovery strategy: if migration state is inconsistent,
     // backup the DB file and recreate from scratch with all migrations.

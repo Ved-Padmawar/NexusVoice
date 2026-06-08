@@ -60,7 +60,6 @@ impl SessionPhase {
 #[derive(Debug, Default)]
 pub struct AuthSession {
     pub user_id: Option<i64>,
-    pub access_token: Option<String>,
 }
 
 /// Model download state tracked in `AppState` so the frontend can poll via command.
@@ -121,7 +120,6 @@ pub struct AppState {
     /// Auth service — initialized after the DB is ready.
     auth_cell: OnceCell<AuthService>,
     pub app_data_dir: PathBuf,
-    pub token_store_path: PathBuf,
     pub hotkey_store_path: PathBuf,
     pub dictation_hotkey_store_path: PathBuf,
     pub dictation_commit_hotkey_store_path: PathBuf,
@@ -156,7 +154,6 @@ impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         app_data_dir: PathBuf,
-        token_store_path: PathBuf,
         hotkey_store_path: PathBuf,
         dictation_hotkey_store_path: PathBuf,
         dictation_commit_hotkey_store_path: PathBuf,
@@ -169,7 +166,6 @@ impl AppState {
             db: OnceCell::new(),
             auth_cell: OnceCell::new(),
             app_data_dir,
-            token_store_path,
             hotkey_store_path,
             dictation_hotkey_store_path,
             dictation_commit_hotkey_store_path,
@@ -224,10 +220,7 @@ impl AppState {
         self.auth_cell
             .get_or_init(|| async {
                 let pool = self.db().await.clone();
-                let jwt_secret_path = self.app_data_dir.join("jwt_secret");
-                let jwt_secret = crate::auth::load_or_create_jwt_secret(&jwt_secret_path)
-                    .expect("fallback jwt secret init failed");
-                AuthService::new(pool, jwt_secret)
+                AuthService::new(pool)
             })
             .await
     }
@@ -258,31 +251,14 @@ impl AppState {
         self.auth_session.lock().await.user_id
     }
 
-    pub async fn set_auth_session(&self, user_id: i64, access_token: String) {
-        let mut session = self.auth_session.lock().await;
-        session.user_id = Some(user_id);
-        session.access_token = Some(access_token);
+    /// Mirror the signed-in user id in memory (the persisted source of truth is
+    /// the `app_session` table, written by `AuthService`).
+    pub async fn set_auth_session(&self, user_id: i64) {
+        self.auth_session.lock().await.user_id = Some(user_id);
     }
 
     pub async fn clear_auth_session(&self) {
-        let mut session = self.auth_session.lock().await;
-        session.user_id = None;
-        session.access_token = None;
-    }
-
-    pub fn save_refresh_token(&self, raw: &str) -> std::io::Result<()> {
-        std::fs::write(&self.token_store_path, raw)
-    }
-
-    pub fn load_refresh_token(&self) -> Option<String> {
-        std::fs::read_to_string(&self.token_store_path)
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    }
-
-    pub fn delete_refresh_token(&self) {
-        let _ = std::fs::remove_file(&self.token_store_path);
+        self.auth_session.lock().await.user_id = None;
     }
 
     pub fn save_hotkey(&self, hotkey: &str) -> std::io::Result<()> {

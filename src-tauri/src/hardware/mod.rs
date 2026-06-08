@@ -1,4 +1,5 @@
 pub mod detector;
+mod gpu;
 pub mod profile;
 pub mod provider;
 pub mod sysinfo_provider;

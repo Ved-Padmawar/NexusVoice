@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { COMMANDS } from '../lib/commands'
 import { TranscriptSchema, UsageStatsSchema, type Transcript, type UsageStats } from '../types'
-import { invokeWithRefresh } from './invokeWithRefresh'
+import { invoke } from '@tauri-apps/api/core'
 import { toast } from 'sonner'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
@@ -63,7 +63,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     })
     try {
       const transcripts = z.array(TranscriptSchema).parse(
-        await invokeWithRefresh<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: 0, from: null, to: null, sortAsc: false })
+        await invoke<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: 0, from: null, to: null, sortAsc: false })
       )
       set({
         transcripts,
@@ -81,7 +81,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     if (!get().user) return
     set({ statsStatus: 'loading', statsError: null })
     try {
-      const raw = await invokeWithRefresh<unknown>(COMMANDS.GET_USAGE_STATS)
+      const raw = await invoke<unknown>(COMMANDS.GET_USAGE_STATS)
       set({ stats: UsageStatsSchema.parse(raw), statsStatus: 'success' })
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to load usage stats'
@@ -93,7 +93,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     set({ filterFrom: from, filterTo: to, filterSortAsc: sortAsc, transcriptOffset: 0, transcriptHasMore: true, transcripts: [], transcriptsStatus: 'loading', transcriptsError: null })
     try {
       const items = z.array(TranscriptSchema).parse(
-        await invokeWithRefresh<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: 0, from, to, sortAsc })
+        await invoke<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: 0, from, to, sortAsc })
       )
       set({ transcripts: items, transcriptOffset: items.length, transcriptHasMore: items.length === 50, transcriptsStatus: 'success' })
     } catch (e) {
@@ -110,7 +110,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     if (!transcriptHasMore) return
     try {
       const more = z.array(TranscriptSchema).parse(
-        await invokeWithRefresh<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: transcriptOffset, from: filterFrom, to: filterTo, sortAsc: filterSortAsc })
+        await invoke<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: transcriptOffset, from: filterFrom, to: filterTo, sortAsc: filterSortAsc })
       )
       set({
         transcripts: [...transcripts, ...more],
@@ -133,7 +133,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     const { filterFrom, filterTo, filterSortAsc } = get()
     try {
       const results = z.array(TranscriptSchema).parse(
-        await invokeWithRefresh<unknown>(COMMANDS.SEARCH_TRANSCRIPTS, { query, limit: 50, offset: 0, from: filterFrom, to: filterTo, sortAsc: filterSortAsc })
+        await invoke<unknown>(COMMANDS.SEARCH_TRANSCRIPTS, { query, limit: 50, offset: 0, from: filterFrom, to: filterTo, sortAsc: filterSortAsc })
       )
       set({ searchResults: results, transcriptsStatus: 'success' })
     } catch (e) {
@@ -157,7 +157,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
   addTranscript: async (content) => {
     try {
       const newTranscript = TranscriptSchema.parse(
-        await invokeWithRefresh<unknown>(COMMANDS.SAVE_TRANSCRIPT, { content })
+        await invoke<unknown>(COMMANDS.SAVE_TRANSCRIPT, { content })
       )
       set((state) => ({ transcripts: [newTranscript, ...state.transcripts] }))
     } catch (e) {
@@ -172,7 +172,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
       transcriptOffset: Math.max(0, state.transcriptOffset - 1),
     }))
     try {
-      await invokeWithRefresh<boolean>(COMMANDS.DELETE_TRANSCRIPT, { id })
+      await invoke<boolean>(COMMANDS.DELETE_TRANSCRIPT, { id })
       get().loadStats()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to delete transcript')

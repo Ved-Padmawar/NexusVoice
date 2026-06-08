@@ -16,7 +16,6 @@ type Mode = 'login' | 'register'
 const loginSchema = z.object({
   email: z.string().email('Enter a valid email address'),
   password: z.string().min(1, 'Password is required'),
-  rememberMe: z.boolean(),
 })
 
 const registerSchema = z.object({
@@ -26,7 +25,6 @@ const registerSchema = z.object({
     .min(8, 'At least 8 characters')
     .regex(/[A-Z]/, 'One uppercase letter required')
     .regex(/[0-9]/, 'One number required'),
-  rememberMe: z.boolean(),
 })
 
 type FormValues = z.infer<typeof registerSchema>
@@ -53,13 +51,13 @@ export function Auth() {
     setError: setFieldError,
   } = useForm<FormValues>({
     resolver: zodResolver(mode === 'login' ? loginSchema : registerSchema),
-    defaultValues: { email: '', password: '', rememberMe: false },
+    defaultValues: { email: '', password: '' },
   })
 
   const onSubmit = async (data: FormValues) => {
     try {
-      if (mode === 'login') await login(data.email, data.password, data.rememberMe)
-      else await register(data.email, data.password, data.rememberMe)
+      if (mode === 'login') await login(data.email, data.password)
+      else await register(data.email, data.password)
       navigate(from, { replace: true })
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Authentication failed. Please try again.'
@@ -70,7 +68,7 @@ export function Auth() {
   const switchMode = (next: Mode) => {
     setMode(next)
     setShowPassword(false)
-    reset({ email: '', password: '', rememberMe: false })
+    reset({ email: '', password: '' })
   }
 
   const win = getCurrentWindow()
@@ -202,19 +200,6 @@ export function Auth() {
                 {mode === 'register' && !errors.password && (
                   <p className="text-[11px] text-muted-foreground m-0">Min. 8 chars · 1 uppercase · 1 number</p>
                 )}
-              </div>
-
-              <div className="flex items-center gap-1.75">
-                <input
-                  id="auth-remember"
-                  type="checkbox"
-                  className="w-3.5 h-3.5 rounded-(--r-xs) border-[1.5px] border-(--border) bg-(--surface) cursor-pointer shrink-0 accent-(--accent)"
-                  disabled={isSubmitting}
-                  {...formRegister('rememberMe')}
-                />
-                <Label htmlFor="auth-remember" className="text-[11px] font-normal text-(--fg-2) cursor-pointer tracking-normal normal-case">
-                  Keep me signed in
-                </Label>
               </div>
 
               <Button type="submit" className="w-full mt-1" disabled={isSubmitting}>

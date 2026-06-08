@@ -20,7 +20,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 <br/>
 
-![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?style=flat-square&logo=windows)
+![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Version](https://img.shields.io/github/v/release/Ved-Padmawar/NexusVoice?style=flat-square&color=violet)
 
@@ -123,17 +123,30 @@ Use a small **instruct** model (e.g. `qwen2.5-3b-instruct`) — not a reasoning/
 
 ## Installation
 
-Download the latest installer from [Releases](../../releases/latest):
+Download the latest build for your platform from [Releases](../../releases/latest):
+
+**Windows**
 
 | Installer | Who it's for |
 |-----------|-------------|
 | `NexusVoice_x.x.x_x64-setup.exe` | Everyone — CPU + Vulkan (Intel, AMD, NVIDIA) |
 | `NexusVoice-CUDA_x.x.x_x64-setup.exe` | NVIDIA GPU users who want maximum performance |
 
-If you're unsure, download the standard installer — it works on all machines.
+**Linux** (`.deb` for Debian/Ubuntu/Zorin; `.rpm` for Fedora/RHEL)
 
-**Requirements:** Windows 10 1803+ or Windows 11 (WebView2 is pre-installed).
+| Build | Who it's for |
+|-------|-------------|
+| `NexusVoice_x.x.x_amd64.deb` / `.rpm` | Everyone — CPU + Vulkan (Intel, AMD, **and NVIDIA**) |
+
+On Linux, Vulkan GPU-accelerates NVIDIA, AMD, and Intel alike, so a single build covers every GPU — no separate CUDA download needed.
+
+**Requirements:**
+- **Windows:** Windows 10 1803+ or Windows 11 (WebView2 is pre-installed).
+- **Linux:** WebKitGTK 4.1 (`libwebkit2gtk-4.1`) and `libxdo3`, both pulled in automatically by the `.deb`/`.rpm`. For GPU acceleration, install your distro's Vulkan driver (Mesa for AMD/Intel, the NVIDIA driver for NVIDIA).
+
 No Rust, Node, CMake, or any dev tools needed on the target machine.
+
+> _macOS support is implemented in the codebase but not yet distributed — macOS builds require Apple code-signing/notarization, which is planned for a future release._
 
 ---
 

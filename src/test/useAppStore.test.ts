@@ -11,7 +11,6 @@ beforeEach(() => {
   mockInvoke.mockReset()
   useAppStore.setState({
     user: null,
-    refreshToken: null,
     transcripts: [],
     transcriptOffset: 0,
     transcriptHasMore: true,
@@ -47,52 +46,43 @@ describe('useAppStore — theme', () => {
 })
 
 describe('useAppStore — login', () => {
-  it('sets user on success with rememberMe=true', async () => {
+  it('sets user on success', async () => {
     mockInvoke.mockImplementation((cmd) => {
-      if (cmd === 'login_with_tokens') return Promise.resolve({
-        user: { id: 1, email: 'test@example.com' },
-        tokens: { accessToken: 'access', refreshToken: 'refresh', expiresInSeconds: 3600 },
-      })
+      if (cmd === 'login') return Promise.resolve({ id: 1, email: 'test@example.com' })
       return Promise.resolve(undefined)
     })
 
-    await useAppStore.getState().login('test@example.com', 'password', true)
+    await useAppStore.getState().login('test@example.com', 'password')
     const state = useAppStore.getState()
     expect(state.user?.email).toBe('test@example.com')
-    expect(state.refreshToken).toBe('refresh')
   })
 
-  it('does not store refreshToken when rememberMe=false', async () => {
+  it('calls the login command with email and password', async () => {
     mockInvoke.mockImplementation((cmd) => {
-      if (cmd === 'login_with_tokens') return Promise.resolve({
-        user: { id: 1, email: 'test@example.com' },
-        tokens: { accessToken: 'access', refreshToken: 'refresh', expiresInSeconds: 3600 },
-      })
+      if (cmd === 'login') return Promise.resolve({ id: 1, email: 'test@example.com' })
       return Promise.resolve(undefined)
     })
 
-    await useAppStore.getState().login('test@example.com', 'password', false)
-    expect(useAppStore.getState().refreshToken).toBeNull()
+    await useAppStore.getState().login('test@example.com', 'password')
+    expect(mockInvoke).toHaveBeenCalledWith('login', { email: 'test@example.com', password: 'password' })
   })
 
   it('throws on failed login', async () => {
     mockInvoke.mockRejectedValue({ message: 'Invalid credentials' })
-    await expect(useAppStore.getState().login('bad@example.com', 'wrong', false)).rejects.toThrow()
+    await expect(useAppStore.getState().login('bad@example.com', 'wrong')).rejects.toThrow()
   })
 })
 
 describe('useAppStore — logout', () => {
-  it('clears user, tokens and data', async () => {
+  it('clears user and data', async () => {
     useAppStore.setState({
       user: { id: 1, email: 'test@example.com' },
-      refreshToken: 'token',
       transcripts: [{ id: 1, content: 'hello', wordCount: 1, durationSeconds: null, createdAt: '' }],
     })
     mockInvoke.mockResolvedValue(undefined)
     await useAppStore.getState().logout()
     const state = useAppStore.getState()
     expect(state.user).toBeNull()
-    expect(state.refreshToken).toBeNull()
     expect(state.transcripts).toHaveLength(0)
   })
 })

@@ -33,10 +33,6 @@ impl From<AuthError> for ApiError {
                 Self::new("invalid_credentials", "invalid credentials")
             }
             AuthError::PasswordHash => Self::new("password_hash_failed", "password hashing failed"),
-            AuthError::TokenGeneration => Self::new("token_error", "token generation failed"),
-            AuthError::TokenExpired => Self::new("token_expired", "token expired"),
-            AuthError::TokenInvalid => Self::new("token_invalid", "token invalid"),
-            AuthError::TokenRevoked => Self::new("token_revoked", "token revoked or not found"),
             AuthError::Database(err) => Self::new("database_error", map_db_error(&err)),
         }
     }

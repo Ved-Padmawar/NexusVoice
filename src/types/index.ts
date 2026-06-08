@@ -28,17 +28,6 @@ export const UsageStatsSchema = z.object({
   avgPaceWpm: z.number(),
 })
 
-export const TokenPairResponseSchema = z.object({
-  accessToken: z.string(),
-  refreshToken: z.string(),
-  expiresInSeconds: z.number(),
-})
-
-export const AuthResponseSchema = z.object({
-  user: UserSchema,
-  tokens: TokenPairResponseSchema,
-})
-
 export const AuthStateSchema = z.object({
   authenticated: z.boolean(),
   userId: z.number().nullable(),

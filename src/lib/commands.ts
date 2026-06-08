@@ -3,14 +3,12 @@
  * Use these instead of raw string literals so renames are caught at compile time.
  */
 export const COMMANDS = {
-  // Auth
-  LOGIN_WITH_TOKENS:    'login_with_tokens',
-  REGISTER_WITH_TOKENS: 'register_with_tokens',
-  STORE_REFRESH_TOKEN:  'store_refresh_token',
-  CLEAR_STORED_TOKEN:   'clear_stored_token',
+  // Auth (local-profile model — no tokens)
+  LOGIN:                'login',
+  REGISTER:             'register',
+  LOGOUT:               'logout',
   GET_AUTH_STATE:       'get_auth_state',
   GET_CURRENT_USER:     'get_current_user',
-  REFRESH_TOKEN:        'refresh_token',
 
   // Transcription
   START_TRANSCRIPTION: 'start_transcription',
