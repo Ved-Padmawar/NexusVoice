@@ -6,6 +6,8 @@ use std::sync::{
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::SampleFormat;
 
+use crate::audio::WaveformMeter;
+
 /// Conversion helper: normalize any cpal sample type to f32 in [-1.0, 1.0].
 pub trait ToF32 {
     fn to_f32(self) -> f32;
@@ -38,6 +40,7 @@ pub fn capture_microphone(
     paused: Arc<AtomicBool>,
     buffer: Arc<Mutex<Vec<f32>>>,
     native_rate: Arc<Mutex<u32>>,
+    waveform: Arc<WaveformMeter>,
     done: Arc<(Mutex<bool>, Condvar)>,
 ) -> Result<(), String> {
     let host = cpal::default_host();
@@ -55,6 +58,7 @@ pub fn capture_microphone(
     let stream_config: cpal::StreamConfig = config.into();
 
     *native_rate.lock().expect("native_rate lock poisoned") = sample_rate;
+    waveform.reset(sample_rate);
 
     let stream = match sample_format {
         SampleFormat::F32 => build_stream::<f32>(
@@ -64,6 +68,7 @@ pub fn capture_microphone(
             Arc::clone(&buffer),
             Arc::clone(&running),
             Arc::clone(&paused),
+            Arc::clone(&waveform),
             Arc::clone(&done),
         )?,
         SampleFormat::I16 => build_stream::<i16>(
@@ -73,6 +78,7 @@ pub fn capture_microphone(
             Arc::clone(&buffer),
             Arc::clone(&running),
             Arc::clone(&paused),
+            Arc::clone(&waveform),
             Arc::clone(&done),
         )?,
         SampleFormat::U16 => build_stream::<u16>(
@@ -82,6 +88,7 @@ pub fn capture_microphone(
             Arc::clone(&buffer),
             Arc::clone(&running),
             Arc::clone(&paused),
+            Arc::clone(&waveform),
             Arc::clone(&done),
         )?,
         fmt => return Err(format!("unsupported sample format: {fmt:?}")),
@@ -105,6 +112,7 @@ pub fn capture_microphone(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_stream<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
@@ -112,6 +120,7 @@ fn build_stream<T>(
     buffer: Arc<Mutex<Vec<f32>>>,
     running: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
+    waveform: Arc<WaveformMeter>,
     done: Arc<(Mutex<bool>, Condvar)>,
 ) -> Result<cpal::Stream, String>
 where
@@ -125,19 +134,21 @@ where
                 if !running.load(Ordering::SeqCst) || paused.load(Ordering::SeqCst) {
                     return;
                 }
-                let mono: Vec<f32> = if channels == 1 {
-                    data.iter().map(|s| s.to_f32()).collect()
-                } else {
-                    data.chunks(channels)
-                        .map(|frame| {
+                // Downmix straight into the shared buffer (a persistent Vec, so
+                // this only amortizes growth — no per-callback allocation), then
+                // hand the newly appended slice to the waveform meter.
+                if let Ok(mut buf) = buffer.lock() {
+                    let start = buf.len();
+                    if channels == 1 {
+                        buf.extend(data.iter().map(|s| s.to_f32()));
+                    } else {
+                        buf.extend(data.chunks(channels).map(|frame| {
                             #[allow(clippy::cast_precision_loss)]
                             let n = channels as f32; // channels ≤ 8 in practice, no real precision loss
                             frame.iter().map(|s| s.to_f32()).sum::<f32>() / n
-                        })
-                        .collect()
-                };
-                if let Ok(mut buf) = buffer.lock() {
-                    buf.extend_from_slice(&mono);
+                        }));
+                    }
+                    waveform.push(&buf[start..]);
                 }
             },
             move |err| {

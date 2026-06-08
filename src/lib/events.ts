@@ -30,6 +30,7 @@ export const EVENTS = {
 
   // Pill
   PILL_THEME_CHANGED: 'pill:theme-changed',
+  PILL_WAVEFORM: 'pill:waveform',
 } as const
 
 export type AppEvent = typeof EVENTS[keyof typeof EVENTS]

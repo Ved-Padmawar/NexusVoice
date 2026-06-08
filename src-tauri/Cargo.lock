@@ -3265,7 +3265,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexusvoice"
-version = "1.8.0"
+version = "1.8.1"
 dependencies = [
  "argon2",
  "ash",
@@ -3273,7 +3273,6 @@ dependencies = [
  "cpal",
  "enigo",
  "futures-util",
- "glib",
  "log",
  "metal",
  "nnnoiseless",
@@ -3282,6 +3281,7 @@ dependencies = [
  "reqwest",
  "rphonetic",
  "rubato",
+ "rustfft",
  "serde",
  "serde_json",
  "serial_test",
@@ -3299,7 +3299,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "voice_activity_detector",
- "webkit2gtk",
  "whisper-rs",
  "windows 0.62.2",
 ]
@@ -7255,6 +7254,7 @@ version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2088172d00f936c348d6a72f488dc2660ab3f507263a195df308a3c2383229f6"
 dependencies = [
+ "log",
  "whisper-rs-sys",
 ]
 

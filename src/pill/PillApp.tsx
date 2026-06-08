@@ -28,22 +28,7 @@ type PillState = 'idle' | 'recording' | 'dictation' | 'dictation-paused' | 'proc
 
 const MIN_H = 3
 const MAX_H = 16
-const ANALYSER_FFT_SIZE = 256
-
-// Map each bar to a frequency bin range — speech sits in 80Hz–3kHz
-const BIN_RANGES: [number, number][] = [
-  [1, 2],
-  [2, 3],
-  [3, 5],
-  [5, 7],
-  [7, 10],
-  [10, 14],
-  [14, 20],
-  [20, 28],
-]
-
-// Bell-curve weights — center bars are naturally tallest
-const BELL = [0.4, 0.65, 0.85, 1.0, 1.0, 0.85, 0.65, 0.4]
+const FLAT_BARS = [3, 3, 3, 3, 3, 3, 3, 3]
 
 const SPINNER_COLORS: Record<PillTheme, { proc: [string, string]; dl: [string, string] }> = {
   dark:  { proc: ['rgba(120,162,244,0.15)', 'rgba(120,162,244,0.9)'],  dl: ['rgba(245,158,11,0.15)', 'rgba(251,191,36,0.9)'] },
@@ -70,12 +55,8 @@ export function PillApp() {
   const modelReadyRef = useRef(false)
   const [tooltip, setTooltip] = useState('')
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [barHeights, setBarHeights] = useState([3, 3, 3, 3, 3, 3, 3, 3])
+  const [barHeights, setBarHeights] = useState(FLAT_BARS)
   const [pillTheme, setPillTheme] = useState<PillTheme>(readPillTheme)
-  const audioCtxRef = useRef<AudioContext | null>(null)
-  const analyserRef = useRef<AnalyserNode | null>(null)
-  const rafRef = useRef<number | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
   const stateRef = useRef<PillState>('idle')
 
   useEffect(() => {
@@ -92,62 +73,23 @@ export function PillApp() {
     void getCurrentWindow().startDragging()
   }, [])
 
-  const startAudio = useCallback(() => {
-    if (audioCtxRef.current) return // already running
-    navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then(stream => {
-      streamRef.current = stream
-      const ctx = new AudioContext()
-      audioCtxRef.current = ctx
-      const source = ctx.createMediaStreamSource(stream)
-      const analyser = ctx.createAnalyser()
-      analyser.fftSize = ANALYSER_FFT_SIZE
-      analyser.smoothingTimeConstant = 0.6
-      source.connect(analyser)
-      analyserRef.current = analyser
-
-      const data = new Uint8Array(analyser.frequencyBinCount)
-      const tick = () => {
-        if (!analyserRef.current) return
-        analyserRef.current.getByteFrequencyData(data)
-        const heights = BIN_RANGES.map(([start, end], i) => {
-          let sum = 0
-          for (let b = start; b < end; b++) sum += data[b]
-          const avg = sum / (end - start)
-          const norm = Math.min(avg / 180, 1) * BELL[i]
-          return Math.max(MIN_H, Math.round(MIN_H + (MAX_H - MIN_H) * norm))
-        })
-        setBarHeights(heights)
-        rafRef.current = requestAnimationFrame(tick)
-      }
-
-      rafRef.current = requestAnimationFrame(tick)
-    }).catch(() => { /* no mic permission */ })
-  }, [])
-
-  const stopAudio = useCallback((resetBars = true) => {
-    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null }
-    if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null }
-    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null }
-    analyserRef.current = null
-    if (resetBars) requestAnimationFrame(() => setBarHeights([3, 3, 3, 3, 3, 3, 3, 3]))
-  }, [])
-
-  // Cleanup on unmount
+  // Waveform bars are driven by the Rust capture thread via `pill:waveform`
+  // (8 spectrum levels, 0–1). The backend stops emitting and sends a zeroed
+  // frame on stop, so the bars settle flat on their own.
   useEffect(() => {
-    return () => { stopAudio() }
-  }, [stopAudio])
-
-  // Start/stop audio based on recording state. Dictation pause freezes the last waveform frame.
-  const isRecording = state === 'recording' || state === 'dictation'
-  useEffect(() => {
-    if (isRecording) {
-      startAudio()
-    } else if (state === 'dictation-paused') {
-      stopAudio(false)
-    } else {
-      stopAudio()
-    }
-  }, [isRecording, state, startAudio, stopAudio])
+    let cancelled = false
+    let unlisten: (() => void) | undefined
+    listen<number[]>(EVENTS.PILL_WAVEFORM, (e) => {
+      if (cancelled) return
+      const levels = e.payload
+      if (levels.length !== FLAT_BARS.length) return
+      setBarHeights(levels.map((lvl) => {
+        const norm = Math.min(Math.max(lvl, 0), 1)
+        return Math.max(MIN_H, Math.round(MIN_H + (MAX_H - MIN_H) * norm))
+      }))
+    }).then(fn => { if (!cancelled) unlisten = fn; else fn() })
+    return () => { cancelled = true; unlisten?.() }
+  }, [])
 
   // Ensure pill stays above the Windows taskbar at runtime
   useEffect(() => {

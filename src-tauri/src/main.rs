@@ -25,42 +25,6 @@ fn session_id() -> &'static str {
     })
 }
 
-/// Grant the pill webview's `getUserMedia` (microphone) request.
-///
-/// The pill renders its live waveform from a Web Audio analyser fed by the
-/// webview's own mic stream. WebView2 (Windows) and WKWebView (macOS) allow this
-/// by default, but WebKitGTK (Linux) **denies** every `WebKitUserMediaPermissionRequest`
-/// unless an app handles the `permission-request` signal — so the Linux waveform
-/// stays flat. We hook that signal and allow user-media requests. No-op elsewhere.
-#[cfg(target_os = "linux")]
-fn grant_pill_media_permission(pill: &tauri::WebviewWindow) {
-    use glib::object::Cast;
-    use webkit2gtk::{PermissionRequestExt, UserMediaPermissionRequest, WebViewExt};
-
-    let result = pill.with_webview(|webview| {
-        // On Linux, the inner webview is a webkit2gtk::WebView.
-        let wv = webview.inner();
-        wv.connect_permission_request(|_wv, req| {
-            // Only auto-grant microphone/camera (user-media) requests; let any
-            // other permission type fall through to the default (deny).
-            if req.downcast_ref::<UserMediaPermissionRequest>().is_some() {
-                req.allow();
-                true
-            } else {
-                false
-            }
-        });
-    });
-    if let Err(e) = result {
-        log::warn!("could not attach pill media-permission handler: {e}");
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-fn grant_pill_media_permission(_pill: &tauri::WebviewWindow) {
-    // WebView2 / WKWebView grant getUserMedia without an explicit handler.
-}
-
 mod audio;
 mod auth;
 mod commands;
@@ -76,6 +40,10 @@ mod transcription;
 
 #[allow(clippy::too_many_lines)] // Tauri setup is inherently long — splitting adds no clarity
 fn main() {
+    // Route whisper.cpp/GGML's verbose stderr output through `log` so our level
+    // filter controls it instead of it flooding stdout. Safe to call once.
+    whisper_rs::install_logging_hooks();
+
     // Panic hook — writes panic info to log before crashing.
     // Note: only active in debug builds since release profile uses panic = "abort".
     #[cfg(debug_assertions)]
@@ -140,6 +108,8 @@ fn main() {
             tauri_plugin_log::Builder::new()
                 .targets(log_targets)
                 .level(log_level)
+                // whisper.cpp/GGML per-token tracing is extremely verbose; mute it.
+                .level_for("whisper_rs", log::LevelFilter::Warn)
                 .max_file_size(LOG_MAX_SIZE)
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
                 // Structured (JSON-line) output: one object per record with a stable
@@ -370,12 +340,6 @@ fn main() {
                             .and_then(tauri::WebviewWindowBuilder::build)
                         {
                             Ok(pill) => {
-                                // The pill drives its live waveform from the webview's own
-                                // getUserMedia() mic stream. WebKitGTK denies that request by
-                                // default (unlike WebView2/WKWebView), so on Linux we grant
-                                // user-media permission requests explicitly — otherwise the
-                                // waveform stays flat even though transcription works.
-                                grant_pill_media_permission(&pill);
 
                                 // Position: centered horizontally, near bottom of primary monitor
                                 if let Some(monitor) = pill.primary_monitor().ok().flatten() {

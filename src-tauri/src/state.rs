@@ -136,6 +136,8 @@ pub struct AppState {
     pub current_dictation_commit_hotkey: Mutex<Option<String>>,
     pub audio_buffer: AudioBuffer,
     pub native_sample_rate: NativeSampleRate,
+    /// Spectrum meter for the pill waveform, fed by the capture thread.
+    pub waveform: Arc<crate::audio::WaveformMeter>,
     pub models_dir: PathBuf,
     /// Cached whisper engine — loaded once, reused across recordings.
     /// Wrapped in Arc so it can be captured by the spawn closure in `stop_transcription`.
@@ -182,6 +184,7 @@ impl AppState {
             current_dictation_commit_hotkey: Mutex::new(None),
             audio_buffer: Arc::new(std::sync::Mutex::new(Vec::new())),
             native_sample_rate: Arc::new(std::sync::Mutex::new(44100)),
+            waveform: Arc::new(crate::audio::WaveformMeter::new(44100)),
             models_dir,
             engine: Arc::new(Mutex::new(None)),
             model_download: Arc::new(ModelDownloadState::new()),

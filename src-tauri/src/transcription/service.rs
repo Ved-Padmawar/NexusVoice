@@ -38,6 +38,7 @@ pub fn start_capture(app: &AppHandle, state: &AppState, pool: sqlx::SqlitePool) 
     let paused = Arc::clone(&state.capture_paused);
     let audio_buffer = Arc::clone(&state.audio_buffer);
     let native_rate = Arc::clone(&state.native_sample_rate);
+    let waveform = Arc::clone(&state.waveform);
     let capture_done = Arc::clone(&state.capture_done);
     let recording_mode = Arc::clone(&state.recording_mode);
     let session_phase = Arc::clone(&state.session_phase);
@@ -46,12 +47,15 @@ pub fn start_capture(app: &AppHandle, state: &AppState, pool: sqlx::SqlitePool) 
     // Reset the done flag before starting a new capture session.
     *capture_done.0.lock().expect("capture_done lock poisoned") = false;
 
+    spawn_waveform_emitter(app, state);
+
     std::thread::spawn(move || {
         if let Err(e) = crate::audio::capture_microphone(
             Arc::clone(&running),
             Arc::clone(&paused),
             audio_buffer,
             native_rate,
+            waveform,
             Arc::clone(&capture_done),
         ) {
             log::error!("microphone capture error: {e}");
@@ -70,6 +74,22 @@ pub fn start_capture(app: &AppHandle, state: &AppState, pool: sqlx::SqlitePool) 
     });
 
     spawn_chunk_poller(state, pool);
+}
+
+/// Emit pill waveform levels at ~30 Hz from the spectrum meter while recording.
+fn spawn_waveform_emitter(app: &AppHandle, state: &AppState) {
+    let running = Arc::clone(&state.transcription_running);
+    let waveform = Arc::clone(&state.waveform);
+    let app = app.clone();
+
+    tauri::async_runtime::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_millis(33));
+        while running.load(Ordering::SeqCst) {
+            tick.tick().await;
+            let _ = app.emit("pill:waveform", waveform.levels());
+        }
+        let _ = app.emit("pill:waveform", [0.0_f32; crate::audio::waveform::BANDS]);
+    });
 }
 
 /// Background poller that fires pipeline chunks while recording. Wakes every 2 s,
