@@ -38,7 +38,7 @@ describe("App", () => {
   it("renders NexusVoice title after load", async () => {
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByText(/NexusVoice/i)).toBeInTheDocument();
+      expect(screen.getByText("NexusVoice")).toBeInTheDocument();
     });
   });
 });

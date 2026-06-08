@@ -34,13 +34,13 @@ describe('Auth — login mode', () => {
   it('renders sign in form by default', () => {
     renderAuth()
     expect(screen.getByText('Welcome back')).toBeInTheDocument()
-    expect(screen.getByLabelText(/email/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
+    expect(screen.getByLabelText('Email address')).toBeInTheDocument()
+    expect(screen.getByLabelText('Password')).toBeInTheDocument()
   })
 
   it('shows validation error for invalid email', async () => {
     renderAuth()
-    fireEvent.input(screen.getByLabelText(/email/i), { target: { value: 'notanemail' } })
+    fireEvent.input(screen.getByLabelText('Email address'), { target: { value: 'notanemail' } })
     fireEvent.submit(screen.getByRole('button', { name: /sign in/i }))
     await waitFor(() => {
       expect(screen.getByText(/valid email/i)).toBeInTheDocument()
@@ -50,19 +50,19 @@ describe('Auth — login mode', () => {
   it('calls login with email and password', async () => {
     mockLogin.mockResolvedValue(undefined)
     renderAuth()
-    fireEvent.input(screen.getByLabelText(/email/i), { target: { value: 'test@example.com' } })
-    fireEvent.input(screen.getByLabelText(/password/i), { target: { value: 'password123' } })
+    fireEvent.input(screen.getByLabelText('Email address'), { target: { value: 'test@example.com' } })
+    fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'password123' } })
     fireEvent.submit(screen.getByRole('button', { name: /sign in/i }))
     await waitFor(() => {
-      expect(mockLogin).toHaveBeenCalledWith('test@example.com', 'password123')
+      expect(mockLogin).toHaveBeenCalledWith('test@example.com', 'password123', false)
     })
   })
 
   it('shows error banner on failed login', async () => {
     mockLogin.mockRejectedValue(new Error('Invalid credentials'))
     renderAuth()
-    fireEvent.input(screen.getByLabelText(/email/i), { target: { value: 'test@example.com' } })
-    fireEvent.input(screen.getByLabelText(/password/i), { target: { value: 'wrong' } })
+    fireEvent.input(screen.getByLabelText('Email address'), { target: { value: 'test@example.com' } })
+    fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'wrong' } })
     fireEvent.submit(screen.getByRole('button', { name: /sign in/i }))
     await waitFor(() => {
       expect(screen.getByText(/invalid credentials/i)).toBeInTheDocument()
@@ -88,8 +88,8 @@ describe('Auth — register mode', () => {
   it('validates password requirements on register', async () => {
     renderAuth()
     fireEvent.click(screen.getByText('Create one'))
-    fireEvent.input(screen.getByLabelText(/email/i), { target: { value: 'test@example.com' } })
-    fireEvent.input(screen.getByLabelText(/password/i), { target: { value: 'weak' } })
+    fireEvent.input(screen.getByLabelText('Email address'), { target: { value: 'test@example.com' } })
+    fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'weak' } })
     fireEvent.submit(screen.getByRole('button', { name: /create account/i }))
     await waitFor(() => {
       expect(screen.getByText(/at least 8/i)).toBeInTheDocument()
