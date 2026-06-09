@@ -203,18 +203,38 @@ jobs:
       - name: Enable whisper-rs GPU features in Cargo.toml
         shell: python
         run: |
-          import pathlib, re
+          import pathlib, re, sys
           cuda = "${{ matrix.cuda }}" == "true"
           cargo = pathlib.Path("src-tauri/Cargo.toml")
           text = cargo.read_text(encoding="utf-8")
-          features = '"cuda"' if cuda else '"vulkan"'
-          text = re.sub(
-              r'whisper-rs\s*=\s*"([^"]+)"',
-              f'whisper-rs = {{ version = "\\1", features = [{features}] }}',
-              text,
-          )
+          gpu = "cuda" if cuda else "vulkan"
+
+          # Bare-string form:  whisper-rs = "0.16"
+          bare = re.compile(r'whisper-rs\s*=\s*"([^"]+)"')
+          # Object form:       whisper-rs = { version = "0.16", features = ["log_backend"] }
+          obj = re.compile(r'(whisper-rs\s*=\s*\{[^}]*?features\s*=\s*\[)([^\]]*)(\])')
+
+          def add_to_array(m):
+              prefix, inner, suffix = m.group(1), m.group(2), m.group(3)
+              feats = [f.strip() for f in inner.split(",") if f.strip()]
+              if f'"{gpu}"' not in feats:
+                  feats.append(f'"{gpu}"')
+              return prefix + ", ".join(feats) + suffix
+
+          if bare.search(text):
+              text = bare.sub(
+                  f'whisper-rs = {{ version = "\\1", features = ["{gpu}"] }}',
+                  text,
+              )
+          elif obj.search(text):
+              text = obj.sub(add_to_array, text)
+          else:
+              sys.exit("ERROR: could not locate whisper-rs dependency to add GPU feature")
+
           cargo.write_text(text, encoding="utf-8")
-          print(f"enabled features: {features}")
+          if f'"{gpu}"' not in cargo.read_text(encoding="utf-8"):
+              sys.exit(f'ERROR: GPU feature "{gpu}" was not added to whisper-rs')
+          print(f"enabled GPU feature: {gpu}")
 
       - name: Cache Rust deps
         uses: Swatinem/rust-cache@v2.9.1
