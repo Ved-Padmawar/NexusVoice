@@ -121,7 +121,17 @@ async fn test_migration_recovery_backup_and_recreate() {
 
     // ── 2. Backup + delete + recreate (mirrors open_database recovery path) ──
     std::fs::copy(&db_path, &bak_path).unwrap();
-    std::fs::remove_file(&db_path).unwrap();
+    // Windows holds the SQLite file handle briefly after pool.close() —
+    // deleting immediately races it (os error 32), so retry with backoff.
+    let mut delete_result = std::fs::remove_file(&db_path);
+    for _ in 0..20 {
+        if delete_result.is_ok() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        delete_result = std::fs::remove_file(&db_path);
+    }
+    delete_result.unwrap();
 
     assert!(bak_path.exists(), "backup should exist");
     assert!(!db_path.exists(), "original should be deleted");

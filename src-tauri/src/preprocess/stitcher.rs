@@ -54,14 +54,20 @@ fn merge_pair(prev: &str, next: &str) -> String {
     let prev_tail = &prev_words[prev_words.len() - pw..];
     let next_head = &next_words[..nw];
 
-    // Find longest overlap: suffix of prev_tail == prefix of next_head
+    // Find longest overlap: suffix of prev_tail == prefix of next_head.
     // Normalize for comparison only: trim boundary punctuation + lowercase.
     // Output words are taken from the originals, not the normalized form.
+    // Matches of ≥4 words tolerate one substitution — Whisper frequently
+    // transcribes a boundary word differently in the two chunks, and an
+    // exact-run requirement would miss the overlap entirely.
     let mut best_len = 0usize;
     for len in 1..=pw.min(nw) {
-        let tail = prev_tail[pw - len..].iter().map(|w| normalize(w));
-        let head = next_head[..len].iter().map(|w| normalize(w));
-        if tail.eq(head) {
+        let mismatches = prev_tail[pw - len..]
+            .iter()
+            .zip(&next_head[..len])
+            .filter(|(a, b)| normalize(a) != normalize(b))
+            .count();
+        if mismatches == 0 || (len >= 4 && mismatches <= 1) {
             best_len = len;
         }
     }
@@ -107,5 +113,33 @@ mod tests {
     fn stitch_single_part_returns_as_is() {
         let result = stitch_transcripts(&["only one".to_string()]);
         assert_eq!(result, "only one");
+    }
+
+    #[test]
+    fn stitch_tolerates_one_word_mismatch_in_long_overlap() {
+        // Whisper transcribed the boundary word differently in each chunk
+        // ("test" vs "text") — fuzzy alignment must still find the overlap.
+        let a = "hello world this is a test of stitching".to_string();
+        let b = "this is a text of stitching and more words".to_string();
+        let result = stitch_transcripts(&[a, b]);
+        assert!(
+            result.contains("and more words"),
+            "tail missing: {result}"
+        );
+        assert_eq!(
+            result.matches("of stitching").count(),
+            1,
+            "overlap not deduplicated: {result}"
+        );
+    }
+
+    #[test]
+    fn stitch_short_overlap_still_requires_exact_match() {
+        // A 1-word fuzzy "match" would merge unrelated text — short overlaps
+        // must stay exact.
+        let a = "the quick brown".to_string();
+        let b = "crown jumped over".to_string();
+        let result = stitch_transcripts(&[a, b]);
+        assert_eq!(result, "the quick brown crown jumped over");
     }
 }

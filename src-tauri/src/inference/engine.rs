@@ -106,6 +106,14 @@ impl WhisperEngine {
         // Segments with high token entropy are likely hallucinations (e.g. "Thank you for watching").
         // 2.4 is the community-validated threshold — pairs with the no_speech_probability guard below.
         params.set_entropy_thold(2.4);
+        // Temperature fallback (whisper.cpp built-in): a decode that fails the
+        // entropy/logprob thresholds is retried at t = 0.2, 0.4, … — this
+        // rescues chunks that would otherwise come back garbled or looping.
+        // Pinned explicitly so we don't depend on upstream defaults.
+        params.set_temperature(0.0);
+        params.set_temperature_inc(0.2);
+        params.set_logprob_thold(-1.0);
+        params.set_suppress_blank(true);
         if !prompt.is_empty() {
             params.set_initial_prompt(prompt);
         }
@@ -129,22 +137,83 @@ impl WhisperEngine {
                     continue;
                 }
                 if let Ok(s) = seg.to_str_lossy() {
-                    // Drop hallucination tokens — Whisper emits these on silence/noise segments
-                    let trimmed = s.trim();
-                    if trimmed.eq_ignore_ascii_case("[blank_audio]")
-                        || trimmed.eq_ignore_ascii_case("[silence]")
-                        || trimmed.eq_ignore_ascii_case("[noise]")
-                        || trimmed.eq_ignore_ascii_case("[music]")
-                        || trimmed.eq_ignore_ascii_case("(music)")
-                        || trimmed.contains('♪')
-                    {
+                    // Music-note segments are sung/noise content — drop whole segment
+                    if s.contains('♪') {
                         continue;
                     }
-                    text.push_str(&s);
+                    // Strip hallucination tokens — Whisper emits these on
+                    // silence/noise, sometimes embedded inside a real segment
+                    // ("[BLANK_AUDIO] so anyway…"), so removal must be
+                    // substring-based, not whole-segment matching.
+                    let cleaned = strip_hallucination_tokens(&s);
+                    if cleaned.trim().is_empty() {
+                        continue;
+                    }
+                    text.push_str(&cleaned);
                 }
             }
         }
 
         Ok(text.trim().to_string())
+    }
+}
+
+/// Remove Whisper's silence/noise hallucination tokens wherever they appear
+/// in a segment (case-insensitive). Collapses the doubled space left behind.
+fn strip_hallucination_tokens(segment: &str) -> String {
+    const TOKENS: [&str; 5] = [
+        "[blank_audio]",
+        "[silence]",
+        "[noise]",
+        "[music]",
+        "(music)",
+    ];
+
+    let mut out = segment.to_string();
+    for token in TOKENS {
+        loop {
+            let lower = out.to_ascii_lowercase();
+            let Some(pos) = lower.find(token) else { break };
+            out.replace_range(pos..pos + token.len(), "");
+        }
+    }
+    // Token removal can leave "word  word" — collapse runs of spaces.
+    while out.contains("  ") {
+        out = out.replace("  ", " ");
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_hallucination_tokens;
+
+    #[test]
+    fn strips_embedded_blank_audio_token() {
+        assert_eq!(
+            strip_hallucination_tokens("[Blank_Audio] so anyway we continue"),
+            " so anyway we continue"
+        );
+    }
+
+    #[test]
+    fn strips_token_only_segment_to_empty() {
+        assert!(strip_hallucination_tokens(" [BLANK_AUDIO] ")
+            .trim()
+            .is_empty());
+    }
+
+    #[test]
+    fn strips_multiple_tokens_and_collapses_spaces() {
+        assert_eq!(
+            strip_hallucination_tokens("hello [noise] world [SILENCE]"),
+            "hello world "
+        );
+    }
+
+    #[test]
+    fn leaves_normal_text_untouched() {
+        let s = "the audio was blank but fine";
+        assert_eq!(strip_hallucination_tokens(s), s);
     }
 }

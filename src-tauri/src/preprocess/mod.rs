@@ -6,6 +6,13 @@ use crate::audio::resample;
 
 /// Full preprocessing pipeline: `native_rate` → DC offset removal → 48k denoise → 16k VAD → peak normalize → speech only.
 pub fn preprocess(samples: &[f32], native_rate: u32) -> Vec<f32> {
+    splice_normalize(&to_16k_denoised(samples, native_rate))
+}
+
+/// Stage 1: resample → DC removal → denoise → 16 kHz. No VAD splicing, so
+/// sample indices still map linearly back to native-rate time — required by
+/// the streaming pipeline's split/cursor math.
+pub fn to_16k_denoised(samples: &[f32], native_rate: u32) -> Vec<f32> {
     // 1. Resample to 48 kHz for nnnoiseless
     let at_48k = resample(samples, native_rate, 48_000);
 
@@ -20,10 +27,15 @@ pub fn preprocess(samples: &[f32], native_rate: u32) -> Vec<f32> {
     let denoised = denoise::denoise(&at_48k);
 
     // 4. Resample to 16 kHz for Whisper + VAD
-    let at_16k = resample(&denoised, 48_000, 16_000);
+    resample(&denoised, 48_000, 16_000)
+}
 
+/// Stage 2: VAD speech splicing + peak normalization — produces the buffer
+/// fed to Whisper. Splicing removes/shortens silence, so indices in the
+/// output no longer correspond to input time.
+pub fn splice_normalize(at_16k: &[f32]) -> Vec<f32> {
     // 5. VAD — keep only speech frames
-    let speech = vad::extract_speech(&at_16k);
+    let speech = vad::extract_speech(at_16k);
 
     // 6. Peak normalization — target –3 dBFS (peak ≈ 0.707).
     //    Whisper's mel spectrogram extraction is sensitive to signal level;

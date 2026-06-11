@@ -35,8 +35,7 @@ pub async fn start_transcription(
 
     *state.pipeline.lock().await = Some(crate::pipeline::StreamingPipeline::new());
 
-    let pool = state.db().await.clone();
-    transcription::start_capture(&app, &state, pool);
+    transcription::start_capture(&app, &state);
 
     Ok(true)
 }
@@ -79,8 +78,7 @@ pub async fn start_dictation(app: AppHandle, state: State<'_, AppState>) -> Resu
 
     *state.pipeline.lock().await = Some(crate::pipeline::StreamingPipeline::new());
 
-    let pool = state.db().await.clone();
-    transcription::start_capture(&app, &state, pool);
+    transcription::start_capture(&app, &state);
 
     Ok(true)
 }

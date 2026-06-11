@@ -15,25 +15,12 @@ use crate::llm::FormatConfig;
 use crate::postprocess::DictionaryCorrectionEngine;
 use crate::state::{AppState, DictCache};
 
-/// Build the Whisper `initial_prompt` from the user's most recent transcripts,
-/// oldest-first, so the model is biased toward the user's vocabulary/style.
-async fn recent_transcripts_prompt(repo: &TranscriptRepository) -> String {
-    repo.list_recent(5)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .rev()
-        .map(|t| t.content)
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 /// Spawn the microphone capture thread and the mid-recording chunk poller.
 ///
 /// Capture runs on a dedicated OS thread (cpal stream); the poller wakes every
 /// 2 s and commits a pipeline chunk if enough audio has accumulated, so most of
 /// the transcription work is done before the user releases the hotkey.
-pub fn start_capture(app: &AppHandle, state: &AppState, pool: sqlx::SqlitePool) {
+pub fn start_capture(app: &AppHandle, state: &AppState) {
     let running = Arc::clone(&state.transcription_running);
     let paused = Arc::clone(&state.capture_paused);
     let audio_buffer = Arc::clone(&state.audio_buffer);
@@ -73,7 +60,7 @@ pub fn start_capture(app: &AppHandle, state: &AppState, pool: sqlx::SqlitePool) 
         }
     });
 
-    spawn_chunk_poller(state, pool);
+    spawn_chunk_poller(state);
 }
 
 /// Emit pill waveform levels at ~30 Hz from the spectrum meter while recording.
@@ -93,9 +80,9 @@ fn spawn_waveform_emitter(app: &AppHandle, state: &AppState) {
 }
 
 /// Background poller that fires pipeline chunks while recording. Wakes every 2 s,
-/// snapshots the audio buffer, and transcribes the next chunk if the engine is
-/// loaded — so finalize only needs to process the tail.
-fn spawn_chunk_poller(state: &AppState, pool: sqlx::SqlitePool) {
+/// snapshots the uncommitted tail of the audio buffer, and transcribes the next
+/// chunk if the engine is loaded — so finalize only needs to process the tail.
+fn spawn_chunk_poller(state: &AppState) {
     let running = Arc::clone(&state.transcription_running);
     let audio_buffer = Arc::clone(&state.audio_buffer);
     let native_rate_arc = Arc::clone(&state.native_sample_rate);
@@ -111,11 +98,25 @@ fn spawn_chunk_poller(state: &AppState, pool: sqlx::SqlitePool) {
                 break;
             }
 
-            // Snapshot buffer + rate under lock, then release immediately.
-            let (buffer_snapshot, captured_rate) = {
+            let captured_rate = *native_rate_arc.lock().expect("native_rate lock poisoned");
+
+            // Where the next snapshot must start (committed cursor − overlap).
+            let snapshot_start = {
+                let guard = pipeline_arc.lock().await;
+                match guard.as_ref() {
+                    Some(pl) => pl.snapshot_start(captured_rate),
+                    None => continue,
+                }
+            };
+
+            // Copy only the uncommitted tail — cloning the full buffer here
+            // blocked the real-time cpal callback for the whole copy.
+            let tail_snapshot = {
                 let buf = audio_buffer.lock().expect("audio_buffer lock poisoned");
-                let rate = *native_rate_arc.lock().expect("native_rate lock poisoned");
-                (buf.clone(), rate)
+                if snapshot_start >= buf.len() {
+                    continue;
+                }
+                buf[snapshot_start..].to_vec()
             };
 
             // Get engine — skip this tick if not loaded yet.
@@ -124,12 +125,6 @@ fn spawn_chunk_poller(state: &AppState, pool: sqlx::SqlitePool) {
                 guard.as_ref().map(Arc::clone)
             };
             let Some(engine) = engine else { continue };
-
-            // Build prompt from recent transcripts for this chunk.
-            let prompt = {
-                let repo = TranscriptRepository::new(pool.clone());
-                recent_transcripts_prompt(&repo).await
-            };
 
             let committed = tauri::async_runtime::spawn_blocking({
                 let engine = Arc::clone(&engine);
@@ -141,13 +136,15 @@ fn spawn_chunk_poller(state: &AppState, pool: sqlx::SqlitePool) {
                         // Mid-recording chunks use the Balanced beam size (5);
                         // the configured beam size is applied on finalize.
                         let did_commit = pl.try_commit_chunk(
-                            &buffer_snapshot,
+                            &tail_snapshot,
+                            snapshot_start,
                             captured_rate,
                             &engine,
-                            &prompt,
                             5,
                         );
-                        if did_commit && engine.is_poisoned() {
+                        // Check poison regardless of commit outcome — a failed
+                        // tick can also leave the engine mutex poisoned.
+                        if engine.is_poisoned() {
                             log::error!(
                                 "WhisperEngine mutex poisoned during streaming chunk — evicting"
                             );
@@ -165,8 +162,16 @@ fn spawn_chunk_poller(state: &AppState, pool: sqlx::SqlitePool) {
 
             match committed {
                 Ok(Ok(true)) => log::debug!("streaming: mid-recording chunk committed"),
-                Ok(Err("engine_poisoned")) => break,
-                _ => {}
+                Ok(Err(_)) => break,
+                Ok(Ok(false)) => {}
+                // spawn_blocking join error means the chunk task panicked while
+                // holding the engine mutex: the mutex is poisoned and every
+                // later chunk would silently fail. Evict and stop polling.
+                Err(e) => {
+                    log::error!("streaming chunk task panicked ({e}) — evicting engine");
+                    *engine_cache.lock().await = None;
+                    break;
+                }
             }
         }
     });
@@ -207,11 +212,6 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
     } = ctx;
 
     tauri::async_runtime::spawn(async move {
-        let prompt = {
-            let repo = TranscriptRepository::new(pool.clone());
-            recent_transcripts_prompt(&repo).await
-        };
-
         // finalize() preprocesses only the tail (audio since last committed chunk)
         // and stitches with previously committed chunk texts — fast path when
         // mid-recording chunks already covered most of the speech.
@@ -221,7 +221,7 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
             move || -> Result<String, String> {
                 let pl = pipeline.unwrap_or_else(crate::pipeline::StreamingPipeline::new);
                 let Ok(text) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    pl.finalize(&samples, captured_rate, &engine, &prompt, beam_size)
+                    pl.finalize(&samples, captured_rate, &engine, beam_size)
                 })) else {
                     log::error!("WhisperEngine panicked during finalize — evicting");
                     *engine_cache.blocking_lock() = None;

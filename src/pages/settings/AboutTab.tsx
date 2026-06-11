@@ -19,6 +19,17 @@ import type { BeamSize } from '../../store/uiSlice'
 
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
 
+/** Icon per model size — mirrors the model selector grid so the active-model
+ * badge matches the picker. */
+const MODEL_BADGE_ICONS: Record<ModelOverride, typeof Box> = {
+  tiny: Wind,
+  base: Server,
+  small: Cpu,
+  medium: Layers,
+  large: Box,
+  'large-full': Gem,
+}
+
 export function AboutTab() {
   const [profile, setProfile] = useState<HardwareProfile | null>(null)
   const [selected, setSelected] = useState<ModelOverride>('large')
@@ -148,11 +159,16 @@ export function AboutTab() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {activeModelName && (
-              <span className="text-[10px] font-semibold text-[var(--accent)] bg-[var(--accent-soft)] border border-[var(--accent-soft)] px-[6px] py-px rounded-[var(--r-sm)]">
-                {MODEL_OPTIONS.find(m => m.value === modelNameToOverride(activeModelName))?.label ?? activeModelName}
-              </span>
-            )}
+            {activeModelName && (() => {
+              const opt = MODEL_OPTIONS.find(m => m.value === modelNameToOverride(activeModelName))
+              const ModelIcon = MODEL_BADGE_ICONS[modelNameToOverride(activeModelName)] ?? Box
+              return (
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-[var(--accent)] bg-[var(--accent-soft)] border border-[var(--accent-soft)] px-[6px] py-px rounded-[var(--r-sm)]">
+                  <ModelIcon size={10} strokeWidth={1.75} />
+                  {opt?.label ?? activeModelName}
+                </span>
+              )
+            })()}
           </div>
         </div>
 

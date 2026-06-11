@@ -4,6 +4,7 @@
 //! Ollama, `OpenAI`, `OpenRouter`, and any compatible endpoint. The API key is
 //! sent as a bearer token only when present.
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -58,6 +59,12 @@ pub async fn format_transcript(cfg: &FormatConfig, raw: &str) -> Result<String, 
         return Ok(String::new());
     }
 
+    // Cap generation relative to input size: formatting roughly preserves
+    // length, so ~2× the input tokens (≈ len/4 chars each) plus headroom is
+    // plenty. Without a cap, a looping local model generates until the 60 s
+    // timeout and the user waits the full minute before the raw fallback.
+    let max_tokens = u32::try_from(raw.len() / 2 + 256).unwrap_or(u32::MAX);
+
     let system = build_system_prompt();
     let body = ChatRequest {
         model: cfg.model.trim(),
@@ -73,7 +80,7 @@ pub async fn format_transcript(cfg: &FormatConfig, raw: &str) -> Result<String, 
         ],
         temperature: 0.3,
         stream: false,
-        max_tokens: None,
+        max_tokens: Some(max_tokens),
     };
 
     let text = send_chat(cfg, &body, REQUEST_TIMEOUT).await?;
@@ -108,12 +115,12 @@ async fn send_chat(
     body: &ChatRequest<'_>,
     timeout: Duration,
 ) -> Result<String, String> {
-    let client = reqwest::Client::builder()
-        .timeout(timeout)
-        .build()
-        .map_err(|e| format!("http client init: {e}"))?;
+    // One shared client (connection pool + TLS config) for the process;
+    // the timeout differs per call so it is applied per request.
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    let client = CLIENT.get_or_init(reqwest::Client::new);
 
-    let mut req = client.post(cfg.endpoint()).json(body);
+    let mut req = client.post(cfg.endpoint()).json(body).timeout(timeout);
     let key = cfg.api_key.trim();
     if !key.is_empty() {
         req = req.bearer_auth(key);

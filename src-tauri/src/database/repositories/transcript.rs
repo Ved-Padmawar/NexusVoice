@@ -46,16 +46,6 @@ impl TranscriptRepository {
         Ok((row.0, row.1, row.2.unwrap_or(0.0)))
     }
 
-    pub async fn list_recent(&self, limit: i64) -> Result<Vec<Transcript>, sqlx::Error> {
-        sqlx::query_as::<_, Transcript>(
-            "SELECT id, content, word_count, duration_seconds, created_at
-             FROM transcripts ORDER BY created_at DESC LIMIT ?",
-        )
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await
-    }
-
     /// Paginated fetch with optional date range and sort order.
     pub async fn list_paginated(
         &self,

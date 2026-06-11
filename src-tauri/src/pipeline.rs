@@ -23,7 +23,14 @@ const CHUNK_SECS: f64 = 8.0;
 const MIN_NEW_SECS: f64 = 6.0;
 /// Overlap in seconds added to the start of each chunk from the end of the
 /// previous one — gives the stitcher word-level context to deduplicate.
-const OVERLAP_SECS: f64 = 0.4;
+/// ~1.5 s spans several words, so the stitcher can still find a common run
+/// when Whisper transcribes the boundary word differently in the two chunks
+/// (0.4 s was ~one word and caused boundary duplications/drops).
+const OVERLAP_SECS: f64 = 1.5;
+/// Max words from already-transcribed chunks fed back as Whisper's
+/// `initial_prompt` for the next chunk — gives the decoder real continuity
+/// (casing, sentence state, vocabulary) within the current session.
+const PROMPT_TAIL_WORDS: usize = 30;
 /// VAD frame size at 16 kHz (Silero V5 constraint).
 const VAD_CHUNK_16K: usize = 512;
 /// VAD silence threshold for finding a split boundary (higher = only clear gaps).
@@ -46,24 +53,51 @@ impl StreamingPipeline {
         }
     }
 
+    /// Whisper `initial_prompt` for the next chunk: the tail of what this
+    /// session has already transcribed. Empty for the first chunk — priming
+    /// with anything else (old transcripts, dictionary terms) biases the
+    /// decoder and invites hallucination loops.
+    fn context_prompt(&self) -> String {
+        let words: Vec<&str> = self
+            .completed_texts
+            .iter()
+            .flat_map(|t| t.split_whitespace())
+            .collect();
+        let start = words.len().saturating_sub(PROMPT_TAIL_WORDS);
+        words[start..].join(" ")
+    }
+
+    /// First buffer index the poller needs to snapshot: the committed cursor
+    /// minus the stitch overlap. Lets the poller copy only the uncommitted
+    /// tail instead of cloning the whole recording.
+    pub fn snapshot_start(&self, native_rate: u32) -> usize {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let overlap_native = (OVERLAP_SECS * f64::from(native_rate)) as usize;
+        self.committed_cursor.saturating_sub(overlap_native)
+    }
+
     /// Called periodically while recording. Checks if enough new audio has
     /// accumulated and a VAD silence boundary is nearby. If so, preprocesses
     /// and transcribes the chunk synchronously (this runs on a blocking thread).
     ///
+    /// `tail` is the buffer slice starting at absolute index `tail_start`
+    /// (from `snapshot_start`) — the poller no longer copies the full buffer.
+    ///
     /// Returns `true` if a chunk was committed, `false` if nothing was done.
     pub fn try_commit_chunk(
         &mut self,
-        buffer: &[f32],
+        tail: &[f32],
+        tail_start: usize,
         native_rate: u32,
         engine: &Arc<Mutex<WhisperEngine>>,
-        prompt: &str,
         beam_size: i32,
     ) -> bool {
-        if native_rate == 0 {
+        if native_rate == 0 || tail_start > self.committed_cursor {
             return false;
         }
 
-        let new_samples = buffer.len().saturating_sub(self.committed_cursor);
+        let buffer_len = tail_start + tail.len();
+        let new_samples = buffer_len.saturating_sub(self.committed_cursor);
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let min_new = (MIN_NEW_SECS * f64::from(native_rate)) as usize;
 
@@ -76,17 +110,26 @@ impl StreamingPipeline {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let overlap_native = (OVERLAP_SECS * f64::from(native_rate)) as usize;
 
-        // Ideal end of chunk in the raw buffer
-        let ideal_end = (self.committed_cursor + chunk_samples_native).min(buffer.len());
+        // Cursor and ideal chunk end relative to the tail slice
+        let rel_cursor = self.committed_cursor - tail_start;
+        let ideal_end_rel = (rel_cursor + chunk_samples_native).min(tail.len());
+        let chunk_start_rel = rel_cursor.saturating_sub(overlap_native);
 
-        // Preprocess the candidate slice to 16 kHz so we can run VAD on it
-        let candidate = &buffer[self.committed_cursor..ideal_end];
-        let preprocessed = crate::preprocess::preprocess(candidate, native_rate);
+        // Resample + denoise once to 16 kHz, *without* VAD splicing — indices
+        // in this buffer map linearly back to native-rate time, so the split
+        // found here translates exactly to a cursor position.
+        let candidate = &tail[chunk_start_rel..ideal_end_rel];
+        let denoised_16k = crate::preprocess::to_16k_denoised(candidate, native_rate);
 
-        // Find a VAD silence boundary near the end of the preprocessed audio
-        let split_16k = find_vad_split(&preprocessed);
+        if denoised_16k.is_empty() {
+            return false;
+        }
 
-        // Map the 16 kHz split back to native-rate samples
+        // Find a VAD silence boundary near the end of the denoised audio
+        let split_16k = find_vad_split(&denoised_16k);
+
+        // Map the 16 kHz split back to native-rate samples (relative to the
+        // candidate start). Exact because the audio above is not spliced.
         let ratio = f64::from(native_rate) / 16_000.0;
         #[allow(
             clippy::cast_possible_truncation,
@@ -95,26 +138,26 @@ impl StreamingPipeline {
         )]
         let split_native = (split_16k as f64 * ratio) as usize;
 
-        // The chunk to transcribe is from the start to the split (native rate)
-        let chunk_end_native = (self.committed_cursor + split_native).min(buffer.len());
+        let chunk_end_abs = (tail_start + chunk_start_rel + split_native).min(buffer_len);
 
-        if chunk_end_native <= self.committed_cursor {
+        if chunk_end_abs <= self.committed_cursor {
             return false;
         }
 
-        // Take with overlap prepended from previous committed position
-        let chunk_start_native = self.committed_cursor.saturating_sub(overlap_native);
-        let raw_chunk = &buffer[chunk_start_native..chunk_end_native];
-        let has_overlap = chunk_start_native < self.committed_cursor;
-
-        let resampled = crate::preprocess::preprocess(raw_chunk, native_rate);
-
-        if resampled.is_empty() {
+        // Whisper input: speech-splice + normalize only the audio up to the split.
+        let inference_input = crate::preprocess::splice_normalize(
+            &denoised_16k[..split_16k.min(denoised_16k.len())],
+        );
+        if inference_input.is_empty() {
+            // Nothing speech-like before the split (e.g. pure silence) — still
+            // advance the cursor so silence doesn't get re-scanned every tick.
+            self.committed_cursor = chunk_end_abs;
             return false;
         }
 
+        let prompt = self.context_prompt();
         let text = if let Ok(guard) = engine.lock() {
-            match guard.transcribe(&resampled, prompt, beam_size) {
+            match guard.transcribe(&inference_input, &prompt, beam_size) {
                 Ok(t) => t,
                 Err(e) => {
                     log::warn!("streaming chunk inference failed: {e}");
@@ -126,17 +169,13 @@ impl StreamingPipeline {
             return false;
         };
 
-        log::debug!(
-            "streaming chunk committed: {} chars (overlap={})",
-            text.len(),
-            has_overlap
-        );
+        log::debug!("streaming chunk committed: {} chars", text.len());
 
         if !text.is_empty() {
             self.completed_texts.push(text);
         }
 
-        self.committed_cursor = chunk_end_native;
+        self.committed_cursor = chunk_end_abs;
         true
     }
 
@@ -147,22 +186,20 @@ impl StreamingPipeline {
         buffer: &[f32],
         native_rate: u32,
         engine: &Arc<Mutex<WhisperEngine>>,
-        prompt: &str,
         beam_size: i32,
     ) -> String {
         if native_rate == 0 || buffer.is_empty() {
             return stitch_transcripts(&self.completed_texts);
         }
 
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let overlap_native = (OVERLAP_SECS * f64::from(native_rate)) as usize;
-        let tail_start = self.committed_cursor.saturating_sub(overlap_native);
+        let tail_start = self.snapshot_start(native_rate);
 
         if tail_start < buffer.len() {
             let tail = &buffer[tail_start..];
             let resampled = crate::preprocess::preprocess(tail, native_rate);
 
             if !resampled.is_empty() {
+                let prompt = self.context_prompt();
                 let text = engine.lock().map_or_else(
                     |_| {
                         log::error!("WhisperEngine mutex poisoned during finalize");
@@ -170,7 +207,7 @@ impl StreamingPipeline {
                     },
                     |guard| {
                         guard
-                            .transcribe(&resampled, prompt, beam_size)
+                            .transcribe(&resampled, &prompt, beam_size)
                             .unwrap_or_default()
                     },
                 );

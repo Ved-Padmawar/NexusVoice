@@ -23,8 +23,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: windows-latest, variant: standard, cuda: false }
-          - { os: windows-latest, variant: cuda,     cuda: true }
+          # Pinned to windows-2022 (Visual Studio 2022). windows-latest moved to
+          # VS 18 / 2026, which the bundled whisper.cpp + CUDA toolchain can't
+          # target (cmake-rs requests the "Visual Studio 18 2026" generator;
+          # CUDA 12.9 has no VS18 integration). VS 2022 is the environment the
+          # last several CUDA releases built on. Revisit when whisper-rs/CUDA
+          # gain VS18 support.
+          - { os: windows-2022, variant: standard, cuda: false }
+          - { os: windows-2022, variant: cuda,     cuda: true }
           # Linux ships Vulkan-only: Vulkan GPU-accelerates NVIDIA/AMD/Intel
           # alike, so one build covers every Linux GPU without the fragility of
           # the CUDA toolchain + runtime-lib bundling. (Windows keeps CUDA.)
@@ -53,7 +59,7 @@ jobs:
       # whisper-rs's bindgen (libclang) and cmake-rs need these located. They
       # used to come from .cargo/config.toml's [env], but that applied on every
       # OS and broke Linux — so they're now set per-OS here instead. LLVM and
-      # CMake are preinstalled at these paths on the windows-latest runner.
+      # CMake are preinstalled at these paths on the windows-2022 runner.
       - name: Set libclang / cmake paths (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -353,8 +359,8 @@ jobs:
           # auto-updater artifact (NSIS). Linux distributes .deb/.rpm, which are
           # not Tauri updater targets, so Linux is intentionally absent here.
           variants = [
-            ("sig-windows-latest-standard", "windows-x86_64"),
-            ("sig-windows-latest-cuda",     "windows-x86_64-cuda"),
+            ("sig-windows-2022-standard", "windows-x86_64"),
+            ("sig-windows-2022-cuda",     "windows-x86_64-cuda"),
           ]
 
           platforms = {}
