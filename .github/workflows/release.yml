@@ -206,41 +206,44 @@ jobs:
           conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
           print("patched updater target -> windows-x86_64-cuda")
 
-      - name: Enable whisper-rs GPU features in Cargo.toml
+      - name: Enable GPU features in Cargo.toml
         shell: python
         run: |
           import pathlib, re, sys
           cuda = "${{ matrix.cuda }}" == "true"
+          windows = "${{ runner.os }}" == "Windows"
           cargo = pathlib.Path("src-tauri/Cargo.toml")
           text = cargo.read_text(encoding="utf-8")
-          gpu = "cuda" if cuda else "vulkan"
 
-          # Bare-string form:  whisper-rs = "0.16"
-          bare = re.compile(r'whisper-rs\s*=\s*"([^"]+)"')
-          # Object form:       whisper-rs = { version = "0.16", features = ["log_backend"] }
-          obj = re.compile(r'(whisper-rs\s*=\s*\{[^}]*?features\s*=\s*\[)([^\]]*)(\])')
-
-          def add_to_array(m):
-              prefix, inner, suffix = m.group(1), m.group(2), m.group(3)
-              feats = [f.strip() for f in inner.split(",") if f.strip()]
-              if f'"{gpu}"' not in feats:
-                  feats.append(f'"{gpu}"')
-              return prefix + ", ".join(feats) + suffix
-
-          if bare.search(text):
-              text = bare.sub(
-                  f'whisper-rs = {{ version = "\\1", features = ["{gpu}"] }}',
-                  text,
+          def add_feature(dep, feature):
+              """Append `feature` to `dep`'s features array (object form only)."""
+              global text
+              obj = re.compile(
+                  r'(' + re.escape(dep) + r'\s*=\s*\{[^}]*?features\s*=\s*\[)([^\]]*)(\])'
               )
-          elif obj.search(text):
-              text = obj.sub(add_to_array, text)
-          else:
-              sys.exit("ERROR: could not locate whisper-rs dependency to add GPU feature")
+              def repl(m):
+                  prefix, inner, suffix = m.group(1), m.group(2), m.group(3)
+                  feats = [f.strip() for f in inner.split(",") if f.strip()]
+                  if f'"{feature}"' not in feats:
+                      feats.append(f'"{feature}"')
+                  return prefix + ", ".join(feats) + suffix
+              new = obj.sub(repl, text)
+              if new == text or f'"{feature}"' not in new:
+                  sys.exit(f'ERROR: could not add feature "{feature}" to {dep}')
+              text = new
+              print(f'enabled {dep} feature: {feature}')
+
+          # whisper-rs: CUDA build → cuda, otherwise Vulkan.
+          add_feature("whisper-rs", "cuda" if cuda else "vulkan")
+
+          # transcribe-rs (Parakeet/ONNX): CUDA build → ort-cuda; Windows standard
+          # → ort-directml. Linux standard stays CPU (no Vulkan/WebGPU EP in ort).
+          if cuda:
+              add_feature("transcribe-rs", "ort-cuda")
+          elif windows:
+              add_feature("transcribe-rs", "ort-directml")
 
           cargo.write_text(text, encoding="utf-8")
-          if f'"{gpu}"' not in cargo.read_text(encoding="utf-8"):
-              sys.exit(f'ERROR: GPU feature "{gpu}" was not added to whisper-rs')
-          print(f"enabled GPU feature: {gpu}")
 
       - name: Cache Rust deps
         uses: Swatinem/rust-cache@v2.9.1
@@ -252,6 +255,14 @@ jobs:
       # the AppImage path (linuxdeploy) is unreliable on CI runners (needs FUSE;
       # fails with "failed to run linuxdeploy"), while deb/rpm build cleanly and
       # cover Debian/Ubuntu/Zorin/Fedora. AppImage can be revisited later.
+      #
+      # Parakeet (transcribe-rs/ort) pulls onnxruntime via ort's default
+      # `download-binaries` + `copy-dylibs`, which place the ONNX Runtime DLLs
+      # next to the built exe. VERIFY ON FIRST RUN that the DirectML-enabled
+      # onnxruntime DLLs are present beside the binary and bundled into the
+      # installer; if the bundler drops them, add them to tauri.conf bundle
+      # resources. Parakeet is Windows-only (UI-gated), so this affects the
+      # Windows builds exclusively.
       - name: Build (Windows)
         if: runner.os == 'Windows'
         env:

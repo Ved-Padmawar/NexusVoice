@@ -50,6 +50,9 @@ export const COMMANDS = {
   SET_BEAM_SIZE:           'set_beam_size',
   GET_DOWNLOADED_MODELS:   'get_downloaded_models',
   DELETE_MODEL:            'delete_model',
+  GET_ACTIVE_ENGINE:       'get_active_engine',
+  SET_ACTIVE_ENGINE:       'set_active_engine',
+  DOWNLOAD_PARAKEET:       'download_parakeet',
 
   // Formatting LLM (OpenAI-compatible HTTP endpoint)
   GET_FORMAT_CONFIG:       'get_format_config',

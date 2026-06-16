@@ -1,5 +1,7 @@
 export type ModelOverride = 'tiny' | 'base' | 'small' | 'medium' | 'large' | 'large-full'
 
+export type Engine = 'whisper' | 'parakeet'
+
 export type ModelOption = {
   value: ModelOverride
   label: string

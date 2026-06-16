@@ -32,6 +32,7 @@ mod database;
 mod hardware;
 mod inference;
 mod llm;
+mod parakeet;
 mod pipeline;
 mod postprocess;
 mod preprocess;
@@ -138,6 +139,7 @@ fn main() {
             let dictation_hotkey_store_path = app_data_dir.join("dictation_hotkey");
             let dictation_commit_hotkey_store_path = app_data_dir.join("dictation_commit_hotkey");
             let model_override_path = app_data_dir.join("model_override");
+            let active_engine_path = app_data_dir.join("active_engine");
             let beam_size_path = app_data_dir.join("beam_size");
             let format_config_path = app_data_dir.join("format_config.json");
             let models_dir = app_data_dir.join("models");
@@ -151,6 +153,7 @@ fn main() {
                 dictation_hotkey_store_path,
                 dictation_commit_hotkey_store_path,
                 model_override_path,
+                active_engine_path,
                 beam_size_path,
                 format_config_path,
                 models_dir,
@@ -430,6 +433,9 @@ fn main() {
             commands::cancel_model_download,
             commands::set_model_override,
             commands::clear_model_override,
+            commands::get_active_engine,
+            commands::set_active_engine,
+            commands::download_parakeet,
             commands::get_beam_size,
             commands::set_beam_size,
             commands::get_hardware_profile,

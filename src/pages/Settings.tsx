@@ -1,17 +1,16 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../lib/commands'
-import { Palette, Info, Settings2, FolderOpen, Database, Keyboard } from 'lucide-react'
+import { Palette, Info, Settings2, FolderOpen, Keyboard, Boxes } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { SETTINGS_TABS, type SettingsTab } from '../lib/routes'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { GeneralTab } from './settings/GeneralTab'
+import { ModelsTab } from './settings/ModelsTab'
 import { AboutTab } from './settings/AboutTab'
 import { HotkeySection } from './settings/HotkeySection'
 import { PillTab } from './settings/PillTab'
-import { ModelManagerModal } from '../components/ModelManagerModal'
-import { AnimatePresence } from 'framer-motion'
 export function Settings() {
   const { activeSettingsTab, setActiveSettingsTab } = useAppStore()
   const location = useLocation()
@@ -25,7 +24,6 @@ export function Settings() {
     }
   }, [setActiveSettingsTab])
 
-  const [modelManagerOpen, setModelManagerOpen] = useState(false)
   // Normalize a stale persisted value ('pill' was renamed to 'shortcuts').
   const tab: SettingsTab = activeSettingsTab === ('pill' as SettingsTab) ? 'shortcuts' : activeSettingsTab
   const setTab = (v: string) => setActiveSettingsTab(v as SettingsTab)
@@ -54,6 +52,10 @@ export function Settings() {
               <Palette size={12} strokeWidth={1.75} />
               General
             </TabsTrigger>
+            <TabsTrigger value="models" className="gap-1.25! text-[12px]!">
+              <Boxes size={12} strokeWidth={1.75} />
+              Models
+            </TabsTrigger>
             <TabsTrigger value="shortcuts" className="gap-1.25! text-[12px]!">
               <Keyboard size={12} strokeWidth={1.75} />
               Shortcuts
@@ -65,15 +67,6 @@ export function Settings() {
           </TabsList>
           {tab === 'about' && (
             <div className="flex items-center gap-1 self-start mt-0.75">
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.25 px-2.5 h-9 rounded-(--r-md) bg-(--surface) border-none text-(--fg-2) text-[12px] font-medium cursor-pointer transition-[background,color] duration-(--t-fast) hover:text-(--fg)"
-                onClick={() => setModelManagerOpen(true)}
-                title="Manage downloaded models"
-              >
-                <Database size={12} strokeWidth={1.75} />
-                Models
-              </button>
               <button
                 type="button"
                 className="inline-flex items-center gap-1.25 px-2.5 h-9 rounded-(--r-md) bg-(--surface) border-none text-(--fg-2) text-[12px] font-medium cursor-pointer transition-[background,color] duration-(--t-fast) hover:text-(--fg)"
@@ -93,6 +86,10 @@ export function Settings() {
           <PillTab />
         </TabsContent>
 
+        <TabsContent value="models" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 mt-0!">
+          <ModelsTab />
+        </TabsContent>
+
         <TabsContent value="shortcuts" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 mt-0!">
           <HotkeySection />
         </TabsContent>
@@ -101,12 +98,6 @@ export function Settings() {
           <AboutTab />
         </TabsContent>
       </Tabs>
-
-      <AnimatePresence>
-        {modelManagerOpen && (
-          <ModelManagerModal onClose={() => setModelManagerOpen(false)} />
-        )}
-      </AnimatePresence>
     </div>
   )
 }

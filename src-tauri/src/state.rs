@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use crate::auth::AuthService;
 use crate::database::models::dictionary::DictionaryEntry;
-use crate::inference::WhisperEngine;
+use crate::inference::{TranscriptionEngine, WhisperEngine};
 use crate::llm::FormatConfig;
 use crate::pipeline::StreamingPipeline;
 
@@ -20,6 +20,36 @@ pub type DictCache = Arc<RwLock<HashMap<String, DictionaryEntry>>>;
 
 pub type AudioBuffer = Arc<std::sync::Mutex<Vec<f32>>>;
 pub type NativeSampleRate = Arc<std::sync::Mutex<u32>>;
+
+/// A loaded engine, shared across the poller and finalize task.
+pub type SharedEngine = Arc<std::sync::Mutex<dyn TranscriptionEngine>>;
+/// The cached engine slot — `None` until first load, evicted on model switch.
+pub type EngineCache = Arc<Mutex<Option<SharedEngine>>>;
+
+/// Which speech-to-text engine is active. Persisted as a file; selected at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Engine {
+    #[default]
+    Whisper,
+    Parakeet,
+}
+
+impl Engine {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.trim() {
+            "whisper" => Some(Self::Whisper),
+            "parakeet" => Some(Self::Parakeet),
+            _ => None,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Whisper => "whisper",
+            Self::Parakeet => "parakeet",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -124,6 +154,7 @@ pub struct AppState {
     pub dictation_hotkey_store_path: PathBuf,
     pub dictation_commit_hotkey_store_path: PathBuf,
     pub model_override_path: PathBuf,
+    pub active_engine_path: PathBuf,
     pub beam_size_path: PathBuf,
     pub format_config_path: PathBuf,
     pub auth_session: Mutex<AuthSession>,
@@ -139,9 +170,8 @@ pub struct AppState {
     /// Spectrum meter for the pill waveform, fed by the capture thread.
     pub waveform: Arc<crate::audio::WaveformMeter>,
     pub models_dir: PathBuf,
-    /// Cached whisper engine — loaded once, reused across recordings.
-    /// Wrapped in Arc so it can be captured by the spawn closure in `stop_transcription`.
-    pub engine: Arc<Mutex<Option<Arc<std::sync::Mutex<WhisperEngine>>>>>,
+    /// Cached engine (Whisper or Parakeet) — loaded once, reused across recordings.
+    pub engine: EngineCache,
     pub model_download: Arc<ModelDownloadState>,
     /// In-memory dictionary cache — loaded at startup, mutated on add/delete.
     pub dict_cache: DictCache,
@@ -160,6 +190,7 @@ impl AppState {
         dictation_hotkey_store_path: PathBuf,
         dictation_commit_hotkey_store_path: PathBuf,
         model_override_path: PathBuf,
+        active_engine_path: PathBuf,
         beam_size_path: PathBuf,
         format_config_path: PathBuf,
         models_dir: PathBuf,
@@ -172,6 +203,7 @@ impl AppState {
             dictation_hotkey_store_path,
             dictation_commit_hotkey_store_path,
             model_override_path,
+            active_engine_path,
             beam_size_path,
             format_config_path,
             auth_session: Mutex::new(AuthSession::default()),
@@ -228,26 +260,35 @@ impl AppState {
             .await
     }
 
-    /// Get or load the cached `WhisperEngine`.
+    /// Get or load the cached engine for the active model.
     /// Returns Err if the model file is missing (not yet downloaded).
-    pub async fn get_or_load_engine(&self) -> Result<Arc<std::sync::Mutex<WhisperEngine>>, String> {
+    pub async fn get_or_load_engine(&self) -> Result<SharedEngine, String> {
         let mut guard = self.engine.lock().await;
         if let Some(engine) = guard.as_ref() {
             return Ok(Arc::clone(engine));
         }
+        let arc: SharedEngine = match self.load_active_engine() {
+            Engine::Whisper => Arc::new(std::sync::Mutex::new(self.load_whisper_engine()?)),
+            Engine::Parakeet => Arc::new(std::sync::Mutex::new(self.load_parakeet_engine()?)),
+        };
+        *guard = Some(Arc::clone(&arc));
+        drop(guard);
+        Ok(arc)
+    }
+
+    fn load_whisper_engine(&self) -> Result<WhisperEngine, String> {
         let override_size = self.load_model_override();
         let backend = crate::inference::provider::detect_backend();
         let model_size =
             crate::inference::provider::select_model_size(backend, override_size.as_deref());
-        let model_path = self.models_dir.join(model_size.filename());
-        if !model_path.exists() {
+        if !self.models_dir.join(model_size.filename()).exists() {
             return Err("model not downloaded yet".to_string());
         }
-        let engine = WhisperEngine::new(&self.models_dir, override_size.as_deref())?;
-        let arc = Arc::new(std::sync::Mutex::new(engine));
-        *guard = Some(Arc::clone(&arc));
-        drop(guard);
-        Ok(arc)
+        WhisperEngine::new(&self.models_dir, override_size.as_deref())
+    }
+
+    fn load_parakeet_engine(&self) -> Result<crate::parakeet::ParakeetEngine, String> {
+        crate::parakeet::ParakeetEngine::new(&self.models_dir)
     }
 
     pub async fn current_user_id(&self) -> Option<i64> {
@@ -322,6 +363,17 @@ impl AppState {
 
     pub fn delete_model_override(&self) {
         let _ = std::fs::remove_file(&self.model_override_path);
+    }
+
+    pub fn load_active_engine(&self) -> Engine {
+        std::fs::read_to_string(&self.active_engine_path)
+            .ok()
+            .and_then(|s| Engine::from_str(&s))
+            .unwrap_or_default()
+    }
+
+    pub fn save_active_engine(&self, engine: Engine) -> std::io::Result<()> {
+        std::fs::write(&self.active_engine_path, engine.as_str())
     }
 
     /// Beam size preset: 2 = Fast, 5 = Balanced (default), 8 = Accurate

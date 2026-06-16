@@ -11,7 +11,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::inference::WhisperEngine;
+use crate::inference::TranscriptionEngine;
 use crate::preprocess::stitcher::stitch_transcripts;
 
 // Native-rate samples — all thresholds are in raw samples at whatever rate the
@@ -89,7 +89,7 @@ impl StreamingPipeline {
         tail: &[f32],
         tail_start: usize,
         native_rate: u32,
-        engine: &Arc<Mutex<WhisperEngine>>,
+        engine: &Arc<Mutex<dyn TranscriptionEngine>>,
         beam_size: i32,
     ) -> bool {
         if native_rate == 0 || tail_start > self.committed_cursor {
@@ -165,7 +165,7 @@ impl StreamingPipeline {
                 }
             }
         } else {
-            log::error!("WhisperEngine mutex poisoned during streaming chunk");
+            log::error!("engine mutex poisoned during streaming chunk");
             return false;
         };
 
@@ -185,7 +185,7 @@ impl StreamingPipeline {
         mut self,
         buffer: &[f32],
         native_rate: u32,
-        engine: &Arc<Mutex<WhisperEngine>>,
+        engine: &Arc<Mutex<dyn TranscriptionEngine>>,
         beam_size: i32,
     ) -> String {
         if native_rate == 0 || buffer.is_empty() {
@@ -202,7 +202,7 @@ impl StreamingPipeline {
                 let prompt = self.context_prompt();
                 let text = engine.lock().map_or_else(
                     |_| {
-                        log::error!("WhisperEngine mutex poisoned during finalize");
+                        log::error!("engine mutex poisoned during finalize");
                         String::new()
                     },
                     |guard| {

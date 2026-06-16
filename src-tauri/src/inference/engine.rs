@@ -3,6 +3,7 @@ use std::path::Path;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 use crate::inference::provider::{detect_backend, select_model_size, Backend, ModelSize};
+use crate::inference::TranscriptionEngine;
 
 pub struct WhisperEngine {
     ctx: WhisperContext,
@@ -55,10 +56,10 @@ impl WhisperEngine {
 
         Ok(engine)
     }
+}
 
-    /// Transcribe 16 kHz mono f32 samples. `prompt` biases recognition.
-    /// `beam_size` controls the quality/speed tradeoff: 2=Fast, 5=Balanced, 8=Accurate.
-    pub fn transcribe(
+impl TranscriptionEngine for WhisperEngine {
+    fn transcribe(
         &self,
         samples_16k: &[f32],
         prompt: &str,
@@ -155,6 +156,10 @@ impl WhisperEngine {
         }
 
         Ok(text.trim().to_string())
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
     }
 }
 

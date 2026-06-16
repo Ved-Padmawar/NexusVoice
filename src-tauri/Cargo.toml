@@ -35,6 +35,11 @@ voice_activity_detector = "0.2.1"
 # log_backend routes whisper.cpp/GGML's stderr spam through `log` so our level
 # filter can mute it (see install_logging_hooks in main.rs).
 whisper-rs = { version = "0.16", features = ["log_backend"] }
+# Parakeet engine (ONNX Runtime). Pinned to 0.3.1 so its `ort` (rc.10) matches
+# the version voice_activity_detector already pins — newer transcribe-rs wants a
+# different exact `ort` and conflicts. GPU accelerator features (ort-directml /
+# ort-cuda) are injected per build variant in CI; base is CPU.
+transcribe-rs = { version = "=0.3.1", features = ["onnx"] }
 rubato = "0.16.2"
 rphonetic = "3.0.6"
 rustfft = "6.4.1"

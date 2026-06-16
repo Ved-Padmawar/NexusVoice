@@ -9,6 +9,7 @@ export type AppRoute = typeof ROUTES[keyof typeof ROUTES]
 
 export const SETTINGS_TABS = {
   GENERAL: 'general',
+  MODELS: 'models',
   SHORTCUTS: 'shortcuts',
   ABOUT: 'about',
 } as const

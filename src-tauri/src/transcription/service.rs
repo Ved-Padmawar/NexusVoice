@@ -10,10 +10,9 @@ use crate::database::dto::transcript::CreateTranscript;
 use crate::database::repositories::{
     dictionary::DictionaryRepository, transcript::TranscriptRepository,
 };
-use crate::inference::WhisperEngine;
 use crate::llm::FormatConfig;
 use crate::postprocess::DictionaryCorrectionEngine;
-use crate::state::{AppState, DictCache};
+use crate::state::{AppState, DictCache, EngineCache, SharedEngine};
 
 /// Spawn the microphone capture thread and the mid-recording chunk poller.
 ///
@@ -126,6 +125,11 @@ fn spawn_chunk_poller(state: &AppState) {
             };
             let Some(engine) = engine else { continue };
 
+            // One-shot engines (Parakeet) do all work in finalize.
+            if !engine.lock().map_or(true, |e| e.supports_streaming()) {
+                continue;
+            }
+
             let committed = tauri::async_runtime::spawn_blocking({
                 let engine = Arc::clone(&engine);
                 let engine_cache = Arc::clone(&engine_cache);
@@ -146,7 +150,7 @@ fn spawn_chunk_poller(state: &AppState) {
                         // tick can also leave the engine mutex poisoned.
                         if engine.is_poisoned() {
                             log::error!(
-                                "WhisperEngine mutex poisoned during streaming chunk — evicting"
+                                "engine mutex poisoned during streaming chunk — evicting"
                             );
                             drop(pl_guard);
                             *engine_cache.blocking_lock() = None;
@@ -182,8 +186,8 @@ fn spawn_chunk_poller(state: &AppState) {
 pub struct FinalizeContext {
     pub pool: sqlx::SqlitePool,
     pub dict_cache: DictCache,
-    pub engine: Arc<std::sync::Mutex<WhisperEngine>>,
-    pub engine_cache: Arc<tokio::sync::Mutex<Option<Arc<std::sync::Mutex<WhisperEngine>>>>>,
+    pub engine: SharedEngine,
+    pub engine_cache: EngineCache,
     pub pipeline: Option<crate::pipeline::StreamingPipeline>,
     pub samples: Vec<f32>,
     pub captured_rate: u32,
@@ -223,13 +227,13 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
                 let Ok(text) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     pl.finalize(&samples, captured_rate, &engine, beam_size)
                 })) else {
-                    log::error!("WhisperEngine panicked during finalize — evicting");
+                    log::error!("engine panicked during finalize — evicting");
                     *engine_cache.blocking_lock() = None;
                     return Err("engine_poisoned".to_string());
                 };
                 // Also evict if Mutex was poisoned during finalize
                 if engine.is_poisoned() {
-                    log::error!("WhisperEngine mutex poisoned after finalize — evicting");
+                    log::error!("engine mutex poisoned after finalize — evicting");
                     *engine_cache.blocking_lock() = None;
                 }
                 Ok(text)

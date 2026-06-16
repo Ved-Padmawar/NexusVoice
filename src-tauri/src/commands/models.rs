@@ -42,7 +42,10 @@ pub fn get_downloaded_models(state: State<'_, AppState>) -> Vec<DownloadedModel>
         ("large-full", ModelSize::LargeFull),
     ];
 
-    all.iter()
+    let active_engine = state.load_active_engine();
+
+    let mut models: Vec<DownloadedModel> = all
+        .iter()
         .filter_map(|(variant, size)| {
             let path = state.models_dir.join(size.filename());
             if !path.exists() {
@@ -53,10 +56,30 @@ pub fn get_downloaded_models(state: State<'_, AppState>) -> Vec<DownloadedModel>
                 variant: variant.to_string(),
                 display_name: size.display_name().to_string(),
                 size_bytes,
-                is_active: *size == active_size,
+                is_active: active_engine == crate::state::Engine::Whisper && *size == active_size,
             })
         })
-        .collect()
+        .collect();
+
+    if parakeet_downloaded(&state) {
+        models.push(DownloadedModel {
+            variant: "parakeet".to_string(),
+            display_name: "Parakeet v3".to_string(),
+            size_bytes: parakeet_size_bytes(&state),
+            is_active: active_engine == crate::state::Engine::Parakeet,
+        });
+    }
+
+    models
+}
+
+/// Total on-disk size of the Parakeet model files.
+fn parakeet_size_bytes(state: &AppState) -> u64 {
+    let dir = state.models_dir.join(crate::parakeet::MODEL_DIR_NAME);
+    ["encoder-model.int8.onnx", "decoder_joint-model.int8.onnx", "nemo128.onnx", "vocab.txt"]
+        .iter()
+        .filter_map(|f| dir.join(f).metadata().ok().map(|m| m.len()))
+        .sum()
 }
 
 /// Delete a downloaded model file by variant ("tiny" | "base" | "small" | "medium" | "large").
@@ -64,6 +87,22 @@ pub fn get_downloaded_models(state: State<'_, AppState>) -> Vec<DownloadedModel>
 #[tauri::command]
 pub async fn delete_model(state: State<'_, AppState>, variant: String) -> Result<(), ApiError> {
     use crate::inference::provider::{detect_backend, select_model_size, ModelSize};
+
+    if variant == "parakeet" {
+        if state.load_active_engine() == crate::state::Engine::Parakeet {
+            return Err(ApiError::new(
+                "active_model",
+                "cannot delete the currently active model",
+            ));
+        }
+        let dir = state.models_dir.join(crate::parakeet::MODEL_DIR_NAME);
+        if !dir.exists() {
+            return Err(ApiError::new("not_found", "model file not found"));
+        }
+        std::fs::remove_dir_all(&dir).map_err(|e| ApiError::new("io_error", e.to_string()))?;
+        *state.engine.lock().await = None;
+        return Ok(());
+    }
 
     let size = match variant.as_str() {
         "tiny" => ModelSize::Tiny,
@@ -101,6 +140,35 @@ pub async fn delete_model(state: State<'_, AppState>, variant: String) -> Result
     // If deleted model was cached in engine, evict it
     *state.engine.lock().await = None;
 
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Active engine (Whisper / Parakeet)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn get_active_engine(state: State<'_, AppState>) -> String {
+    state.load_active_engine().as_str().to_string()
+}
+
+/// Switch the active engine. Refuses to activate an engine whose model is not
+/// yet on disk, so a recording can't start against a missing model. Evicts the
+/// cached engine so the next recording loads the chosen one.
+#[tauri::command]
+pub async fn set_active_engine(state: State<'_, AppState>, engine: String) -> Result<(), ApiError> {
+    let parsed = crate::state::Engine::from_str(&engine)
+        .ok_or_else(|| ApiError::new("invalid_engine", "engine must be 'whisper' or 'parakeet'"))?;
+    if parsed == crate::state::Engine::Parakeet && !parakeet_downloaded(&state) {
+        return Err(ApiError::new(
+            "model_not_downloaded",
+            "Parakeet model is not downloaded yet",
+        ));
+    }
+    state
+        .save_active_engine(parsed)
+        .map_err(|e| ApiError::new("io_error", e.to_string()))?;
+    *state.engine.lock().await = None;
     Ok(())
 }
 
@@ -212,22 +280,32 @@ pub struct ModelInfoResponse {
 pub async fn get_model_info(state: State<'_, AppState>) -> Result<ModelInfoResponse, ApiError> {
     use crate::inference::provider::{detect_backend, select_model_size};
 
-    let override_size = state.load_model_override();
-    let backend = detect_backend();
-    let model_size = select_model_size(backend, override_size.as_deref());
-    let model_path = state.models_dir.join(model_size.filename());
-
     let dl = &state.model_download;
     let status = dl.status.load(Ordering::SeqCst);
     let progress = *dl.progress.lock().expect("progress lock poisoned");
     let error = dl.error.lock().expect("error lock poisoned").clone();
 
+    let (downloaded, model_name) = match state.load_active_engine() {
+        crate::state::Engine::Parakeet => (parakeet_downloaded(&state), "Parakeet v3".to_string()),
+        crate::state::Engine::Whisper => {
+            let override_size = state.load_model_override();
+            let model_size = select_model_size(detect_backend(), override_size.as_deref());
+            (
+                state.models_dir.join(model_size.filename()).exists(),
+                model_size.display_name().to_string(),
+            )
+        }
+    };
+
     Ok(ModelInfoResponse {
-        downloaded: model_path.exists() || status == 2,
+        // On-disk presence is authoritative and per-engine; the global download
+        // status flag is not (a prior Whisper completion must not mark a missing
+        // Parakeet as ready).
+        downloaded,
         downloading: status == 1,
         download_progress: progress,
         download_error: error,
-        model_name: model_size.display_name().to_string(),
+        model_name,
     })
 }
 
@@ -270,6 +348,58 @@ pub async fn retry_model_download(
             &app,
             &dl_state,
         ) {
+            Ok(()) => {
+                dl_state.set_complete();
+                let _ = app.emit("model-download-complete", ());
+            }
+            Err(e) if e == "download_cancelled" => {
+                dl_state.set_cancelled();
+                let _ = app.emit("model-download-cancelled", ());
+            }
+            Err(e) => {
+                dl_state.set_error(e.clone());
+                let _ = app.emit("model-download-error", e);
+            }
+        }
+    });
+
+    Ok(true)
+}
+
+/// Whether the Parakeet model is fully present on disk.
+fn parakeet_downloaded(state: &AppState) -> bool {
+    let dir = state.models_dir.join(crate::parakeet::MODEL_DIR_NAME);
+    ["encoder-model.int8.onnx", "decoder_joint-model.int8.onnx", "nemo128.onnx", "vocab.txt"]
+        .iter()
+        .all(|f| dir.join(f).exists())
+}
+
+/// Download (or resume) the Parakeet ONNX model set.
+#[tauri::command]
+pub async fn download_parakeet(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, ApiError> {
+    let dl = &state.model_download;
+    if dl.status.load(Ordering::SeqCst) == 1 {
+        return Err(ApiError::new(
+            "already_downloading",
+            "model download already in progress",
+        ));
+    }
+
+    if parakeet_downloaded(&state) {
+        dl.set_complete();
+        return Ok(true);
+    }
+
+    let dl_state = Arc::clone(&state.model_download);
+    let models_dir = state.models_dir.clone();
+    dl_state.set_downloading();
+    let _ = app.emit("model-download-start", ());
+
+    tauri::async_runtime::spawn_blocking(move || {
+        match crate::inference::downloader::download_parakeet_model(&models_dir, &app, &dl_state) {
             Ok(()) => {
                 dl_state.set_complete();
                 let _ = app.emit("model-download-complete", ());
