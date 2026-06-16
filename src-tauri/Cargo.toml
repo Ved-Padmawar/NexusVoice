@@ -1,7 +1,14 @@
 [package]
 name = "nexusvoice"
-version = "1.9.0"
+version = "1.10.0-2"
 edition = "2021"
+
+# Parakeet GPU accelerators. Enabled per build variant in CI; selecting one both
+# turns on the transcribe-rs ort EP and lets the engine request that accelerator
+# explicitly (transcribe-rs's Auto excludes DirectML, so it must be explicit).
+[features]
+parakeet-directml = ["transcribe-rs/ort-directml"]
+parakeet-cuda = ["transcribe-rs/ort-cuda"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

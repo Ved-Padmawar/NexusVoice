@@ -82,19 +82,14 @@ fn parakeet_size_bytes(state: &AppState) -> u64 {
         .sum()
 }
 
-/// Delete a downloaded model file by variant ("tiny" | "base" | "small" | "medium" | "large").
-/// Refuses to delete the currently active model.
+/// Delete a downloaded model by variant ("parakeet" | "tiny" | … | "large-full").
+/// Any model may be deleted, including the active one — a recording started with
+/// no model present fails gracefully ("model not ready"), prompting re-download.
 #[tauri::command]
 pub async fn delete_model(state: State<'_, AppState>, variant: String) -> Result<(), ApiError> {
-    use crate::inference::provider::{detect_backend, select_model_size, ModelSize};
+    use crate::inference::provider::ModelSize;
 
     if variant == "parakeet" {
-        if state.load_active_engine() == crate::state::Engine::Parakeet {
-            return Err(ApiError::new(
-                "active_model",
-                "cannot delete the currently active model",
-            ));
-        }
         let dir = state.models_dir.join(crate::parakeet::MODEL_DIR_NAME);
         if !dir.exists() {
             return Err(ApiError::new("not_found", "model file not found"));
@@ -119,17 +114,6 @@ pub async fn delete_model(state: State<'_, AppState>, variant: String) -> Result
         }
     };
 
-    let active_override = state.load_model_override();
-    let active_backend = detect_backend();
-    let active_size = select_model_size(active_backend, active_override.as_deref());
-
-    if size == active_size {
-        return Err(ApiError::new(
-            "active_model",
-            "cannot delete the currently active model",
-        ));
-    }
-
     let path = state.models_dir.join(size.filename());
     if !path.exists() {
         return Err(ApiError::new("not_found", "model file not found"));
@@ -137,7 +121,7 @@ pub async fn delete_model(state: State<'_, AppState>, variant: String) -> Result
 
     std::fs::remove_file(&path).map_err(|e| ApiError::new("io_error", e.to_string()))?;
 
-    // If deleted model was cached in engine, evict it
+    // Evict the cached engine in case the deleted model was the loaded one.
     *state.engine.lock().await = None;
 
     Ok(())

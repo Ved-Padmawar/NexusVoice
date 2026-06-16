@@ -1,8 +1,8 @@
 //! Parakeet engine (NVIDIA Parakeet-TDT v3, ONNX via transcribe-rs).
 //!
 //! One-shot: the whole clip is transcribed on finalize (no streaming). The GPU
-//! accelerator (`DirectML` / CUDA) is chosen at build time via `transcribe-rs`
-//! `ort` features; `Auto` falls back to CPU when no GPU provider is compiled in.
+//! accelerator is selected per build feature: `DirectML` on Windows standard,
+//! CUDA on CUDA builds, CPU otherwise.
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -17,6 +17,21 @@ use crate::inference::TranscriptionEngine;
 /// (`encoder-model*`, `decoder_joint-model*`, `nemo128.onnx`, `vocab.txt`).
 pub const MODEL_DIR_NAME: &str = "parakeet-tdt-0.6b-v3-int8";
 
+/// Pick the ORT accelerator matching the compiled-in feature.
+///
+/// `Auto` deliberately excludes `DirectML` in `transcribe-rs` (it needs special
+/// session flags), so `DirectML` must be requested explicitly or Parakeet would
+/// silently run on CPU on the Windows standard build.
+fn accelerator() -> OrtAccelerator {
+    if cfg!(feature = "parakeet-cuda") {
+        OrtAccelerator::Cuda
+    } else if cfg!(feature = "parakeet-directml") {
+        OrtAccelerator::DirectMl
+    } else {
+        OrtAccelerator::Auto
+    }
+}
+
 pub struct ParakeetEngine {
     model: Mutex<ParakeetModel>,
 }
@@ -28,9 +43,10 @@ impl ParakeetEngine {
             return Err("model not downloaded yet".to_string());
         }
 
-        // Auto picks the best compiled-in ORT provider (DirectML/CUDA) and falls
-        // back to CPU. Must be set before the model's sessions are created.
-        set_ort_accelerator(OrtAccelerator::Auto);
+        // Must be set before the model's sessions are created.
+        let accel = accelerator();
+        log::info!("Parakeet ORT accelerator: {accel}");
+        set_ort_accelerator(accel);
 
         let model = ParakeetModel::load(&dir, &Quantization::Int8)
             .map_err(|e| format!("failed to load Parakeet model: {e}"))?;

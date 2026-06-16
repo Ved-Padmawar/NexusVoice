@@ -165,8 +165,10 @@ export function ModelsTab() {
       finally { setBusy(false) }
     }
     const fail = () => { stopWatching(); toast.error('Parakeet download failed'); setBusy(false) }
+    const cancelled = () => { stopWatching(); setBusy(false) }
     listen(EVENTS.MODEL_DOWNLOAD_COMPLETE, done).then(u => downloadWatchers.current.push(u))
     listen(EVENTS.MODEL_DOWNLOAD_ERROR, fail).then(u => downloadWatchers.current.push(u))
+    listen(EVENTS.MODEL_DOWNLOAD_CANCELLED, cancelled).then(u => downloadWatchers.current.push(u))
     invoke(COMMANDS.DOWNLOAD_PARAKEET).catch(() => fail())
   }
 
@@ -182,7 +184,7 @@ export function ModelsTab() {
   }
 
   const deleteCard = async (c: Card) => {
-    if (busy || isActive(c)) return
+    if (busy) return
     setBusy(true)
     try {
       await invoke(COMMANDS.DELETE_MODEL, { variant: c.id })
@@ -277,8 +279,8 @@ export function ModelsTab() {
                     <button
                       type="button"
                       className="w-[26px] h-[26px] rounded-[var(--r-md)] flex items-center justify-center bg-transparent border border-[var(--border)] text-[var(--muted)] cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed enabled:hover:bg-[var(--danger)] enabled:hover:border-[var(--danger)] enabled:hover:text-white"
-                      disabled={active}
-                      title={active ? "Active model — can't be deleted" : 'Delete model'}
+                      disabled={busy}
+                      title="Delete model"
                       onClick={(e) => { e.stopPropagation(); deleteCard(c) }}
                     >
                       <Trash2 size={13} strokeWidth={1.75} />

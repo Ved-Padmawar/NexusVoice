@@ -206,44 +206,42 @@ jobs:
           conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
           print("patched updater target -> windows-x86_64-cuda")
 
-      - name: Enable GPU features in Cargo.toml
+      - name: Enable whisper-rs GPU feature in Cargo.toml
         shell: python
         run: |
           import pathlib, re, sys
           cuda = "${{ matrix.cuda }}" == "true"
-          windows = "${{ runner.os }}" == "Windows"
+          gpu = "cuda" if cuda else "vulkan"
           cargo = pathlib.Path("src-tauri/Cargo.toml")
           text = cargo.read_text(encoding="utf-8")
 
-          def add_feature(dep, feature):
-              """Append `feature` to `dep`'s features array (object form only)."""
-              global text
-              obj = re.compile(
-                  r'(' + re.escape(dep) + r'\s*=\s*\{[^}]*?features\s*=\s*\[)([^\]]*)(\])'
-              )
-              def repl(m):
-                  prefix, inner, suffix = m.group(1), m.group(2), m.group(3)
-                  feats = [f.strip() for f in inner.split(",") if f.strip()]
-                  if f'"{feature}"' not in feats:
-                      feats.append(f'"{feature}"')
-                  return prefix + ", ".join(feats) + suffix
-              new = obj.sub(repl, text)
-              if new == text or f'"{feature}"' not in new:
-                  sys.exit(f'ERROR: could not add feature "{feature}" to {dep}')
-              text = new
-              print(f'enabled {dep} feature: {feature}')
+          obj = re.compile(r'(whisper-rs\s*=\s*\{[^}]*?features\s*=\s*\[)([^\]]*)(\])')
+          def repl(m):
+              prefix, inner, suffix = m.group(1), m.group(2), m.group(3)
+              feats = [f.strip() for f in inner.split(",") if f.strip()]
+              if f'"{gpu}"' not in feats:
+                  feats.append(f'"{gpu}"')
+              return prefix + ", ".join(feats) + suffix
+          new = obj.sub(repl, text)
+          if new == text or f'"{gpu}"' not in new:
+              sys.exit(f'ERROR: could not add whisper-rs feature "{gpu}"')
+          cargo.write_text(new, encoding="utf-8")
+          print(f'enabled whisper-rs feature: {gpu}')
 
-          # whisper-rs: CUDA build → cuda, otherwise Vulkan.
-          add_feature("whisper-rs", "cuda" if cuda else "vulkan")
-
-          # transcribe-rs (Parakeet/ONNX): CUDA build → ort-cuda; Windows standard
-          # → ort-directml. Linux standard stays CPU (no Vulkan/WebGPU EP in ort).
-          if cuda:
-              add_feature("transcribe-rs", "ort-cuda")
-          elif windows:
-              add_feature("transcribe-rs", "ort-directml")
-
-          cargo.write_text(text, encoding="utf-8")
+      # Parakeet accelerator: passed to `tauri build --features` so the engine can
+      # request DirectML/CUDA explicitly (transcribe-rs's Auto excludes DirectML).
+      # CUDA build → parakeet-cuda; Windows standard → parakeet-directml;
+      # Linux standard → none (no Vulkan/WebGPU ORT EP, runs CPU).
+      - name: Select Parakeet accelerator feature
+        shell: bash
+        run: |
+          if [ "${{ matrix.cuda }}" = "true" ]; then
+            echo "PARAKEET_FEATURE=parakeet-cuda" >> "$GITHUB_ENV"
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            echo "PARAKEET_FEATURE=parakeet-directml" >> "$GITHUB_ENV"
+          else
+            echo "PARAKEET_FEATURE=" >> "$GITHUB_ENV"
+          fi
 
       - name: Cache Rust deps
         uses: Swatinem/rust-cache@v2.9.1
@@ -265,17 +263,29 @@ jobs:
       # Windows builds exclusively.
       - name: Build (Windows)
         if: runner.os == 'Windows'
+        shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build
+        run: |
+          if [ -n "$PARAKEET_FEATURE" ]; then
+            npx tauri build --features "$PARAKEET_FEATURE"
+          else
+            npx tauri build
+          fi
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
+        shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build --bundles deb,rpm
+        run: |
+          if [ -n "$PARAKEET_FEATURE" ]; then
+            npx tauri build --bundles deb,rpm --features "$PARAKEET_FEATURE"
+          else
+            npx tauri build --bundles deb,rpm
+          fi
 
       # ── Windows: collect the NSIS updater artifact (installer + .sig) ─────────
       # Windows ships auto-updates via the NSIS installer. Linux ships .deb/.rpm
