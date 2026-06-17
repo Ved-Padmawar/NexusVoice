@@ -55,6 +55,30 @@ export const MODEL_OPTIONS: ModelOption[] = [
   },
 ]
 
+/** A choice in the first-run picker: a Whisper size or the Parakeet engine. */
+export type PickerChoice =
+  | { engine: 'whisper'; value: ModelOverride; label: string; description: string; detail: string; sizeLabel: string }
+  | { engine: 'parakeet'; value: 'parakeet'; label: string; description: string; detail: string; sizeLabel: string }
+
+export const PARAKEET_PICKER_OPTION: PickerChoice = {
+  engine: 'parakeet',
+  value: 'parakeet',
+  label: 'Parakeet v3',
+  description: 'Fast and accurate. Auto-detects 25 European languages (incl. English). GPU-accelerated on Windows, CPU elsewhere.',
+  detail: 'Auto-detects across 25 European languages (incl. English). GPU-accelerated on Windows, CPU elsewhere.',
+  sizeLabel: '~2.4 GB',
+}
+
+/** Whisper tiers for the first-run picker grid. */
+export const WHISPER_PICKER_OPTIONS: PickerChoice[] =
+  MODEL_OPTIONS.map((m): PickerChoice => ({ engine: 'whisper', ...m }))
+
+/** All first-run picker options (Whisper tiers, then Parakeet). */
+export const PICKER_OPTIONS: PickerChoice[] = [
+  ...WHISPER_PICKER_OPTIONS,
+  PARAKEET_PICKER_OPTION,
+]
+
 /** Map any backend model name/display string → ModelOverride key (case-insensitive) */
 export function modelNameToOverride(name: string): ModelOverride {
   const n = name.toLowerCase()

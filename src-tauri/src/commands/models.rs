@@ -310,6 +310,38 @@ pub async fn retry_model_download(
         ));
     }
 
+    // Ensure the *active engine's* model exists — not always a Whisper tier.
+    // With Parakeet active we must check the Parakeet set, otherwise startup
+    // would re-download a Whisper model the user never selected.
+    if state.load_active_engine() == crate::state::Engine::Parakeet {
+        if parakeet_downloaded(&state) {
+            dl.set_complete();
+            return Ok(true);
+        }
+        let dl_state = Arc::clone(&state.model_download);
+        let models_dir = state.models_dir.clone();
+        dl_state.set_downloading();
+        let _ = app.emit("model-download-start", ());
+        tauri::async_runtime::spawn_blocking(move || {
+            match crate::inference::downloader::download_parakeet_model(&models_dir, &app, &dl_state)
+            {
+                Ok(()) => {
+                    dl_state.set_complete();
+                    let _ = app.emit("model-download-complete", ());
+                }
+                Err(e) if e == "download_cancelled" => {
+                    dl_state.set_cancelled();
+                    let _ = app.emit("model-download-cancelled", ());
+                }
+                Err(e) => {
+                    dl_state.set_error(e.clone());
+                    let _ = app.emit("model-download-error", e);
+                }
+            }
+        });
+        return Ok(true);
+    }
+
     let override_size = state.load_model_override();
     let backend = detect_backend();
     let model_size = select_model_size(backend, override_size.as_deref());

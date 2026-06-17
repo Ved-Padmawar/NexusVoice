@@ -231,7 +231,8 @@ jobs:
       # Parakeet accelerator: passed to `tauri build --features` so the engine can
       # request DirectML/CUDA explicitly (transcribe-rs's Auto excludes DirectML).
       # CUDA build → parakeet-cuda; Windows standard → parakeet-directml;
-      # Linux standard → none (no Vulkan/WebGPU ORT EP, runs CPU).
+      # Linux standard → none (no Vulkan/WebGPU ORT EP, runs CPU). Parakeet ships
+      # on every platform now (UI is no longer Windows-gated); Linux is CPU-only.
       - name: Select Parakeet accelerator feature
         shell: bash
         run: |
@@ -259,8 +260,8 @@ jobs:
       # next to the built exe. VERIFY ON FIRST RUN that the DirectML-enabled
       # onnxruntime DLLs are present beside the binary and bundled into the
       # installer; if the bundler drops them, add them to tauri.conf bundle
-      # resources. Parakeet is Windows-only (UI-gated), so this affects the
-      # Windows builds exclusively.
+      # resources. (Linux pulls the CPU onnxruntime .so the same way; verify it's
+      # bundled into the deb/rpm on first run.)
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: bash

@@ -10,13 +10,14 @@ import {
 } from 'lucide-react'
 import { COMMANDS } from '../../lib/commands'
 import { EVENTS } from '../../lib/events'
-import { detectPlatform } from '../../lib/platform'
 import { recommendedToOverride, type ModelOverride, type Engine } from '../../lib/models'
 import type { HardwareProfile } from '../../types'
 import { useAppStore } from '../../store/useAppStore'
 import type { BeamSize } from '../../store/uiSlice'
 
-const PARAKEET_SUPPORTED = detectPlatform() === 'windows'
+// Parakeet runs on every platform: GPU-accelerated (DirectML/CUDA) on Windows,
+// CPU elsewhere. Kept as a constant in case a platform ever needs gating again.
+const PARAKEET_SUPPORTED = true
 
 type Card = {
   id: string
@@ -33,7 +34,7 @@ type Card = {
 
 const PARAKEET_CARD: Card = {
   id: 'parakeet', engine: 'parakeet', Icon: Bird, name: 'Parakeet', file: 'Parakeet v3',
-  size: '2.4 GB', desc: 'Fast and accurate. Multilingual, auto-detected.',
+  size: '2.4 GB', desc: 'Fast and accurate. 25 European languages (incl. English), auto-detected.',
 }
 
 const WHISPER_CARDS: Card[] = [

@@ -14,6 +14,8 @@ export type ModelSlice = {
   modelDownloading: boolean
   downloadProgress: number
   downloadError: string | null
+  /** Active STT engine, used to label the download banner. */
+  activeEngine: 'whisper' | 'parakeet'
   updateAvailable: string | null
   /** The model override that was active before the current download started — restored on cancel. */
   downloadingFromModel: string | null
@@ -30,6 +32,7 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
   modelDownloading: false,
   downloadProgress: 0,
   downloadError: null,
+  activeEngine: 'whisper',
   updateAvailable: null,
   downloadingFromModel: null,
 
@@ -56,6 +59,11 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
     } catch { /* ignore */ }
 
     try {
+      const engine = await invoke<string>(COMMANDS.GET_ACTIVE_ENGINE)
+      set({ activeEngine: engine === 'parakeet' ? 'parakeet' : 'whisper' })
+    } catch { /* ignore */ }
+
+    try {
       const info = await invoke<ModelInfo>(COMMANDS.GET_MODEL_INFO)
       if (info.downloaded) {
         set({ modelReady: true, modelDownloading: false, downloadProgress: 100, downloadError: null })
@@ -68,6 +76,9 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
 
     const u1 = await listen(EVENTS.MODEL_DOWNLOAD_START, () => {
       set({ modelDownloading: true, modelReady: false, downloadProgress: 0, downloadError: null })
+      invoke<string>(COMMANDS.GET_ACTIVE_ENGINE)
+        .then(engine => set({ activeEngine: engine === 'parakeet' ? 'parakeet' : 'whisper' }))
+        .catch(() => {})
     })
     const u2 = await listen<number>(EVENTS.MODEL_DOWNLOAD_PROGRESS, (e) => {
       set({ downloadProgress: e.payload, modelDownloading: true })

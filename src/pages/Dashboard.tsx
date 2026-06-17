@@ -311,7 +311,7 @@ export function Dashboard() {
             <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-(--r-lg) text-[12px] leading-[1.4] shrink-0 text-(--fg-2)" style={{ background: 'var(--warning-soft)', border: '1px solid oklch(from var(--warning) l c h / 0.25)' }}>
               <AlertCircle size={14} strokeWidth={2} className="shrink-0 text-(--warning)" />
               <span className="flex-1">No hotkey set — NexusVoice won't record until you configure one.</span>
-              <Button size="sm" onClick={() => navigate(ROUTES.SETTINGS, { state: { tab: 'general' } })} className="shrink-0">
+              <Button size="sm" onClick={() => navigate(ROUTES.SETTINGS, { state: { tab: 'shortcuts' } })} className="shrink-0">
                 <Settings2 size={12} strokeWidth={2} />
                 Set hotkey
               </Button>
