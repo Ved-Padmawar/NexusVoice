@@ -58,7 +58,7 @@ fn download_set(
     let mut file_sizes: Vec<u64> = Vec::with_capacity(files.len());
     for (dest, url) in files {
         if dest.exists() {
-            file_sizes.push(dest.metadata().map(|m| m.len()).unwrap_or(0));
+            file_sizes.push(dest.metadata().map_or(0, |m| m.len()));
         } else {
             let size = client
                 .head(url)
@@ -129,8 +129,9 @@ fn download_file(
         file.write_all(&buf[..n])
             .map_err(|e| format!("write file failed: {e}"))?;
         *downloaded_total += n as u64;
-        if total_bytes > 0 {
-            let pct = ((*downloaded_total * 100) / total_bytes).min(100) as u8;
+        if let Some(raw_pct) = (*downloaded_total * 100).checked_div(total_bytes) {
+            // Bounded to 0..=100, so the u8 conversion is infallible.
+            let pct = u8::try_from(raw_pct.min(100)).unwrap_or(100);
             if pct != last_pct {
                 last_pct = pct;
                 dl_state.set_progress(pct);

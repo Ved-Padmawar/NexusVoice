@@ -15,7 +15,7 @@ use super::prompt::build_system_prompt;
 /// Upper bound on a formatting request. Local models can be slow; cloud is fast.
 /// Kept generous so a slow local model doesn't spuriously fail, but bounded so a
 /// hung endpoint can't block the transcript paste forever.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 
 #[derive(Serialize)]
 struct ChatRequest<'a> {

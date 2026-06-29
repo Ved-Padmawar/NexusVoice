@@ -26,12 +26,14 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
     let native_rate = Arc::clone(&state.native_sample_rate);
     let waveform = Arc::clone(&state.waveform);
     let capture_done = Arc::clone(&state.capture_done);
+    let capture_ready = Arc::clone(&state.capture_ready);
     let recording_mode = Arc::clone(&state.recording_mode);
     let session_phase = Arc::clone(&state.session_phase);
     let app_handle = app.clone();
 
-    // Reset the done flag before starting a new capture session.
+    // Reset the done + ready flags before starting a new capture session.
     *capture_done.0.lock().expect("capture_done lock poisoned") = false;
+    *capture_ready.0.lock().expect("capture_ready lock poisoned") = false;
 
     spawn_waveform_emitter(app, state);
 
@@ -43,6 +45,7 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
             native_rate,
             waveform,
             Arc::clone(&capture_done),
+            Arc::clone(&capture_ready),
         ) {
             log::error!("microphone capture error: {e}");
             running.store(false, Ordering::SeqCst);
@@ -52,9 +55,12 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
                 Ordering::SeqCst,
             );
             session_phase.store(crate::state::SessionPhase::Idle as u8, Ordering::SeqCst);
-            // Signal done even on error so stop_transcription doesn't wait forever.
+            // Signal done + ready even on error so neither stop_transcription
+            // nor start_transcription's ready wait blocks forever.
             *capture_done.0.lock().expect("capture_done lock poisoned") = true;
             capture_done.1.notify_one();
+            *capture_ready.0.lock().expect("capture_ready lock poisoned") = true;
+            capture_ready.1.notify_one();
             let _ = app_handle.emit("transcription-error", e);
         }
     });

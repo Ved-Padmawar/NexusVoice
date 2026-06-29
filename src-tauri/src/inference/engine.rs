@@ -81,8 +81,7 @@ impl TranscriptionEngine for WhisperEngine {
         #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
         // clamp(1,4) guarantees the value fits i32 on any platform
         let n_threads = (std::thread::available_parallelism()
-            .map(std::num::NonZero::get)
-            .unwrap_or(4)
+            .map_or(4, std::num::NonZero::get)
             / 2)
         .clamp(1, 4) as i32;
 

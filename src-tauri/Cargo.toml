@@ -1,6 +1,6 @@
 [package]
 name = "nexusvoice"
-version = "1.10.0-3"
+version = "1.10.0-4"
 edition = "2021"
 
 # Parakeet GPU accelerators. Enabled per build variant in CI; selecting one both

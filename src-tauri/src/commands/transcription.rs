@@ -37,6 +37,10 @@ pub async fn start_transcription(
 
     transcription::start_capture(&app, &state);
 
+    // Don't report "started" until the mic is actually delivering audio —
+    // otherwise the first ~100–300ms of speech is lost to cpal warm-up.
+    wait_for_capture_ready(&state).await;
+
     Ok(true)
 }
 
@@ -79,6 +83,10 @@ pub async fn start_dictation(app: AppHandle, state: State<'_, AppState>) -> Resu
     *state.pipeline.lock().await = Some(crate::pipeline::StreamingPipeline::new());
 
     transcription::start_capture(&app, &state);
+
+    // Don't report "started" until the mic is actually delivering audio —
+    // otherwise the first ~100–300ms of speech is lost to cpal warm-up.
+    wait_for_capture_ready(&state).await;
 
     Ok(true)
 }
@@ -171,6 +179,25 @@ fn ensure_dictation_active(state: &AppState) -> Result<(), ApiError> {
         ));
     }
     Ok(())
+}
+
+/// Block until the capture callback has delivered its first sample (or the
+/// timeout elapses). Lets `start_transcription` report "started" only once the
+/// mic is actually producing audio, so leading speech isn't clipped during the
+/// cpal stream warm-up. The timeout guards against a device that never delivers.
+async fn wait_for_capture_ready(state: &AppState) {
+    const READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+    let capture_ready = Arc::clone(&state.capture_ready);
+    tauri::async_runtime::spawn_blocking(move || {
+        let (lock, cvar) = &*capture_ready;
+        let _ = cvar.wait_timeout_while(
+            lock.lock().expect("capture_ready lock poisoned"),
+            READY_TIMEOUT,
+            |ready| !*ready,
+        );
+    })
+    .await
+    .ok();
 }
 
 async fn wait_for_capture_done(state: &AppState) {

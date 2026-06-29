@@ -51,7 +51,7 @@ pub fn get_downloaded_models(state: State<'_, AppState>) -> Vec<DownloadedModel>
             if !path.exists() {
                 return None;
             }
-            let size_bytes = path.metadata().map(|m| m.len()).unwrap_or(0);
+            let size_bytes = path.metadata().map_or(0, |m| m.len());
             Some(DownloadedModel {
                 variant: variant.to_string(),
                 display_name: size.display_name().to_string(),
