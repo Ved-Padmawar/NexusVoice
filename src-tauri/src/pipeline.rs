@@ -33,10 +33,18 @@ const OVERLAP_SECS: f64 = 1.5;
 const PROMPT_TAIL_WORDS: usize = 30;
 /// VAD frame size at 16 kHz (Silero V5 constraint).
 const VAD_CHUNK_16K: usize = 512;
-/// VAD silence threshold for finding a split boundary (higher = only clear gaps).
-const VAD_SPLIT_THRESHOLD: f32 = 0.45;
-/// Minimum run of silent frames to accept as a split point (~5 × 32ms = 160ms).
-const MIN_SILENCE_FRAMES: usize = 5;
+/// Enter-speech threshold: prob ≥ this starts a speech region (Silero default 0.5).
+const VAD_SPEECH_ENTER: f32 = 0.5;
+/// Exit-speech threshold: once in speech, prob must drop below this to return to
+/// silence (Silero's `neg_threshold` = enter − 0.15). The gap is hysteresis — a
+/// single frame flickering between the two thresholds no longer fragments a run.
+const VAD_SPEECH_EXIT: f32 = 0.35;
+/// Minimum silent frames to treat a gap as a real pause (~100ms, Silero default).
+/// One 512-sample frame at 16 kHz is 32ms, so 3 frames ≈ 96ms.
+const MIN_SILENCE_FRAMES: usize = 3;
+/// Frames of padding kept between a split point and the adjacent speech, so the
+/// cut doesn't clip a word's tail/onset (Silero `speech_pad_ms` ≈ 30ms ≈ 1 frame).
+const VAD_PAD_FRAMES: usize = 1;
 
 pub struct StreamingPipeline {
     /// How many raw (native-rate) samples we have already committed to inference.
@@ -222,8 +230,13 @@ impl StreamingPipeline {
 }
 
 /// Find the best VAD silence boundary near the end of `samples` (16 kHz).
-/// Scans the last 4 seconds for the deepest silence run and returns the
-/// sample index of its midpoint. Falls back to `samples.len()` if none found.
+///
+/// Runs a two-threshold hysteresis state machine over the Silero probabilities
+/// (enter speech at `VAD_SPEECH_ENTER`, exit only below `VAD_SPEECH_EXIT`) so a
+/// single flickering frame can't fragment a silence run. Among the silence
+/// regions in the last 4 s, picks the longest one ≥ `MIN_SILENCE_FRAMES` and
+/// splits at its centre, padded by `VAD_PAD_FRAMES` away from the surrounding
+/// speech so the cut doesn't clip a word. Falls back to `samples.len()`.
 fn find_vad_split(samples: &[f32]) -> usize {
     use voice_activity_detector::{IteratorExt, VoiceActivityDetector};
 
@@ -247,29 +260,54 @@ fn find_vad_split(samples: &[f32]) -> usize {
         return samples.len();
     }
 
-    // Search only the last 4 s worth of frames — we want a split near the end
+    // Search only the last 4 s worth of frames — we want a split near the end.
     let search_frames = (4 * 16_000 / VAD_CHUNK_16K).min(n);
     let search_start = n.saturating_sub(search_frames);
 
-    let mut best_split: Option<usize> = None;
-    let mut best_run = 0usize;
+    // Hysteresis state machine: collect silence regions as [start, end) frame
+    // ranges. `in_speech` only flips to silence below the exit threshold and
+    // back to speech above the enter threshold — the band between them is dead
+    // zone, which is what stops a borderline frame from splitting a pause.
+    let mut in_speech = true; // assume we begin mid-utterance
+    let mut silence_start: Option<usize> = None;
+    let mut best: Option<(usize, usize)> = None; // (run_len, mid_frame)
 
-    let mut i = search_start;
-    while i < n {
-        if predictions[i] < VAD_SPLIT_THRESHOLD {
-            let run_start = i;
-            while i < n && predictions[i] < VAD_SPLIT_THRESHOLD {
-                i += 1;
+    // Record a silence region [start, end) if it's long enough and the longest seen.
+    let mut consider = |start: usize, end: usize| {
+        let run_len = end - start;
+        if run_len >= MIN_SILENCE_FRAMES && best.is_none_or(|(b, _)| run_len > b) {
+            best = Some((run_len, start + run_len / 2));
+        }
+    };
+
+    for (i, &p) in predictions.iter().enumerate().skip(search_start) {
+        if in_speech {
+            if p < VAD_SPEECH_EXIT {
+                in_speech = false;
+                silence_start = Some(i);
             }
-            let run_len = i - run_start;
-            if run_len >= MIN_SILENCE_FRAMES && run_len > best_run {
-                best_run = run_len;
-                best_split = Some((run_start + run_len / 2) * VAD_CHUNK_16K);
+        } else if p >= VAD_SPEECH_ENTER {
+            in_speech = true;
+            if let Some(start) = silence_start.take() {
+                consider(start, i);
             }
-        } else {
-            i += 1;
         }
     }
+    // Trailing silence that runs to the end of the buffer.
+    if let Some(start) = silence_start {
+        consider(start, n);
+    }
 
-    best_split.unwrap_or(samples.len()).min(samples.len())
+    let Some((run_len, mid_frame)) = best else {
+        return samples.len();
+    };
+
+    // Split at the silence centre, then nudge back toward the preceding speech
+    // by the padding so the *next* utterance keeps its onset (Silero pads speech
+    // on both sides; here we bias the cut to preserve the leading word). Clamped
+    // to stay within the silence region, never into the prior speech.
+    let pad = VAD_PAD_FRAMES.min(run_len / 2);
+    let split_frame = mid_frame.saturating_sub(pad);
+
+    (split_frame * VAD_CHUNK_16K).min(samples.len())
 }

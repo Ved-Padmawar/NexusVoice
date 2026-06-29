@@ -148,6 +148,10 @@ pub struct AppState {
     /// Signalled by the capture thread when it has fully stopped and dropped the stream.
     /// `stop_transcription` waits on this instead of sleeping a fixed duration.
     pub capture_done: Arc<(std::sync::Mutex<bool>, Condvar)>,
+    /// Signalled by the capture callback on its first sample, so
+    /// `start_transcription` doesn't report "started" until the mic is producing
+    /// audio (cpal warms up after `play()`, clipping leading speech otherwise).
+    pub capture_ready: Arc<(std::sync::Mutex<bool>, Condvar)>,
     /// Active streaming pipeline — Some while recording, None otherwise.
     pub pipeline: Arc<Mutex<Option<StreamingPipeline>>>,
 }
@@ -190,6 +194,7 @@ impl AppState {
             model_download: Arc::new(ModelDownloadState::new()),
             dict_cache: Arc::new(RwLock::new(HashMap::new())),
             capture_done: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
+            capture_ready: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
             pipeline: Arc::new(Mutex::new(None)),
         }
     }

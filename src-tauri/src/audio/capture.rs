@@ -42,6 +42,7 @@ pub fn capture_microphone(
     native_rate: Arc<Mutex<u32>>,
     waveform: Arc<WaveformMeter>,
     done: Arc<(Mutex<bool>, Condvar)>,
+    ready: Arc<(Mutex<bool>, Condvar)>,
 ) -> Result<(), String> {
     let host = cpal::default_host();
     let device = host
@@ -60,6 +61,11 @@ pub fn capture_microphone(
     *native_rate.lock().expect("native_rate lock poisoned") = sample_rate;
     waveform.reset(sample_rate);
 
+    // The callback gates on `capturing`, not `running`: when the user releases
+    // the hotkey `running` flips false immediately, but we keep accepting samples
+    // through a short post-roll so trailing speech isn't clipped before teardown.
+    let capturing = Arc::new(AtomicBool::new(true));
+
     let stream = match sample_format {
         SampleFormat::F32 => build_stream::<f32>(
             &device,
@@ -70,6 +76,8 @@ pub fn capture_microphone(
             Arc::clone(&paused),
             Arc::clone(&waveform),
             Arc::clone(&done),
+            Arc::clone(&ready),
+            Arc::clone(&capturing),
         )?,
         SampleFormat::I16 => build_stream::<i16>(
             &device,
@@ -80,6 +88,8 @@ pub fn capture_microphone(
             Arc::clone(&paused),
             Arc::clone(&waveform),
             Arc::clone(&done),
+            Arc::clone(&ready),
+            Arc::clone(&capturing),
         )?,
         SampleFormat::U16 => build_stream::<u16>(
             &device,
@@ -90,6 +100,8 @@ pub fn capture_microphone(
             Arc::clone(&paused),
             Arc::clone(&waveform),
             Arc::clone(&done),
+            Arc::clone(&ready),
+            Arc::clone(&capturing),
         )?,
         fmt => return Err(format!("unsupported sample format: {fmt:?}")),
     };
@@ -102,6 +114,11 @@ pub fn capture_microphone(
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 
+    // Post-roll: keep the callback accepting samples briefly after release so
+    // trailing speech (and cpal's in-flight buffer) lands before teardown.
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    capturing.store(false, Ordering::SeqCst);
+
     drop(stream); // flush final cpal callback before signalling
 
     // Notify stop_transcription that the stream is fully stopped and buffer is ready.
@@ -112,7 +129,7 @@ pub fn capture_microphone(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)] // Arcs moved into the stream closures
 fn build_stream<T>(
     device: &cpal::Device,
     config: &cpal::StreamConfig,
@@ -122,6 +139,8 @@ fn build_stream<T>(
     paused: Arc<AtomicBool>,
     waveform: Arc<WaveformMeter>,
     done: Arc<(Mutex<bool>, Condvar)>,
+    ready: Arc<(Mutex<bool>, Condvar)>,
+    capturing: Arc<AtomicBool>,
 ) -> Result<cpal::Stream, String>
 where
     T: cpal::Sample + cpal::SizedSample + ToF32,
@@ -131,8 +150,16 @@ where
         .build_input_stream(
             config,
             move |data: &[T], _| {
-                if !running.load(Ordering::SeqCst) || paused.load(Ordering::SeqCst) {
+                if !capturing.load(Ordering::SeqCst) || paused.load(Ordering::SeqCst) {
                     return;
+                }
+                // First real sample — unblock start_transcription's ready wait.
+                let (rlock, rcvar) = &*ready;
+                if let Ok(mut r) = rlock.lock() {
+                    if !*r {
+                        *r = true;
+                        rcvar.notify_all();
+                    }
                 }
                 // Downmix straight into the shared buffer (a persistent Vec, so
                 // this only amortizes growth — no per-callback allocation), then

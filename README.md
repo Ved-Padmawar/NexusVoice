@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/github/v/release/Ved-Padmawar/NexusVoice?style=flat-square&color=violet)
+![Version](https://img.shields.io/badge/Version-v1.9.1-violet?style=flat-square)
 
 </div>
 
@@ -56,11 +56,16 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 
 ```
 App launch       →  Whisper model loaded and warmed up in the background
-Hotkey held      →  cpal captures mic audio
+Hotkey held      →  cpal captures mic audio (capture starts before "recording"
+                    is reported, so the first words aren't clipped)
                  →  VAD-gated chunks processed mid-recording (every ~8s)
-                 →  silence boundaries detected to avoid cutting words
-Hotkey released  →  only the final tail segment (~last 6s) is transcribed
-                 →  chunks stitched together with overlap deduplication
+                 →  hysteresis-based silence detection splits at real pauses
+                    without cutting words
+Hotkey released  →  a brief post-roll captures trailing speech, then only the
+                    final tail segment (~last 6s) is transcribed
+                 →  chunks stitched together with offset-aligned overlap
+                    deduplication (handles boundary words Whisper heard
+                    differently, never drops your words)
                  →  (optional) transcript reformatted by your chosen LLM
                  →  text written to clipboard + Ctrl+V pasted
 ```
