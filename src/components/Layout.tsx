@@ -66,8 +66,7 @@ function SlideBanner({ visible, children }: { visible: boolean; children: ReactN
 }
 
 function ModelBanner() {
-  const { modelDownloading, downloadProgress, downloadError, modelReady, modelChosen, activeEngine, cancelDownload } = useAppStore()
-  const engineLabel = activeEngine === 'parakeet' ? 'Parakeet' : 'Whisper'
+  const { modelDownloading, downloadProgress, downloadError, modelReady, modelChosen, cancelDownload } = useAppStore()
   const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Suppress banner during first-run modal — modal handles its own progress display
   const bannerActive = modelChosen && modelDownloading
@@ -87,7 +86,7 @@ function ModelBanner() {
       <SlideBanner visible={bannerActive}>
         <div className="flex items-center gap-2.5 px-3.5 py-1.75 shrink-0 text-[12px] border-b border-(--accent) bg-(--accent-soft) text-(--fg)">
           <div className="flex items-center gap-2.5 flex-1 min-w-0">
-            <span className="whitespace-nowrap overflow-hidden text-ellipsis text-(--fg-2)">Downloading {engineLabel} model… {downloadProgress}%</span>
+            <span className="whitespace-nowrap overflow-hidden text-ellipsis text-(--fg-2)">Downloading NVIDIA model… {downloadProgress}%</span>
             <div className="flex-1 h-0.75 rounded-full bg-(--border) overflow-hidden min-w-15">
               <div className="h-full rounded-full bg-(--accent) transition-[width] duration-300 ease-linear" style={{ width: `${downloadProgress}%` }} />
             </div>

@@ -24,11 +24,10 @@ jobs:
       matrix:
         include:
           # Pinned to windows-2022 (Visual Studio 2022). windows-latest moved to
-          # VS 18 / 2026, which the bundled whisper.cpp + CUDA toolchain can't
+          # VS 18 / 2026, which the CUDA toolchain cannot yet target reliably
           # target (cmake-rs requests the "Visual Studio 18 2026" generator;
           # CUDA 12.9 has no VS18 integration). VS 2022 is the environment the
-          # last several CUDA releases built on. Revisit when whisper-rs/CUDA
-          # gain VS18 support.
+          # with CMake. VS 2022 is the validated release environment.
           - { os: windows-2022, variant: standard, cuda: false }
           - { os: windows-2022, variant: cuda,     cuda: true }
           # Linux ships Vulkan-only: Vulkan GPU-accelerates NVIDIA/AMD/Intel
@@ -38,6 +37,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -56,19 +57,12 @@ jobs:
         shell: pwsh
         run: echo "CARGO_TARGET_DIR=C:\b" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      # whisper-rs's bindgen (libclang) and cmake-rs need these located. They
-      # used to come from .cargo/config.toml's [env], but that applied on every
-      # OS and broke Linux — so they're now set per-OS here instead. LLVM and
-      # CMake are preinstalled at these paths on the windows-2022 runner.
-      - name: Set libclang / cmake paths (Windows)
+      - name: Set cmake path (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $llvm = "C:\Program Files\LLVM\bin"
           $cmake = "C:\Program Files\CMake\bin\cmake.exe"
-          if (-not (Test-Path "$llvm\libclang.dll")) { throw "libclang.dll not found at $llvm" }
           if (-not (Test-Path $cmake)) { throw "cmake not found at $cmake" }
-          echo "LIBCLANG_PATH=$llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "CMAKE=$cmake"        | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       # ── Linux system dependencies ────────────────────────────────────────────
@@ -90,27 +84,14 @@ jobs:
             file \
             build-essential \
             libssl-dev \
-            clang \
-            libclang-dev \
-            llvm-dev \
             cmake \
             pkg-config
-
-      # bindgen (via whisper-rs) can't always auto-discover libclang on the
-      # runner, so point LIBCLANG_PATH at the dir that actually holds
-      # libclang.so.* — resolved from the installed package rather than guessed.
-      - name: Set LIBCLANG_PATH (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          LIBCLANG_DIR=$(dirname "$(find /usr/lib /usr/lib64 -name 'libclang.so*' -print -quit)")
-          echo "Found libclang in: $LIBCLANG_DIR"
-          echo "LIBCLANG_PATH=$LIBCLANG_DIR" >> "$GITHUB_ENV"
 
       # ── CUDA toolkit (Windows CUDA variant only) ─────────────────────────────
       # Linux is Vulkan-only, so CUDA is installed only on the Windows CUDA job.
       - name: Install CUDA Toolkit (Windows)
         if: matrix.cuda && runner.os == 'Windows'
-        uses: Jimver/cuda-toolkit@v0.2.30
+        uses: Jimver/cuda-toolkit@v0.2.35
         with:
           cuda: '12.9.1'
           method: network
@@ -206,43 +187,50 @@ jobs:
           conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
           print("patched updater target -> windows-x86_64-cuda")
 
-      - name: Enable whisper-rs GPU feature in Cargo.toml
+      - name: Build parakeet.cpp (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $backend = if ('${{ matrix.cuda }}' -eq 'true') { 'CUDA' } else { 'VULKAN' }
+          # ggml-cuda is vendored upstream code we don't maintain, and its nvcc
+          # warnings (177/221/550/... plus multi-line template instantiation
+          # traces) flood the CI log by the thousands. Disable nvcc warnings
+          # wholesale with -w rather than chasing individual diag codes; also
+          # silence the old-arch deprecation notice.
+          $cudaFlags = if ('${{ matrix.cuda }}' -eq 'true') { '-DCMAKE_CUDA_FLAGS=-w -Wno-deprecated-gpu-targets' } else { '-DGGML_NATIVE=OFF' }
+          cmake -S vendor/parakeet.cpp -B native-build -DPARAKEET_SHARED=ON -DPARAKEET_BUILD_CLI=OFF -DPARAKEET_BUILD_SERVER=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DGGML_NATIVE=OFF "-DPARAKEET_GGML_$backend=ON" $cudaFlags
+          # /verbosity:minimal + /nologo stop MSBuild echoing the full nvcc command
+          # line for every .cu file, which is the bulk of the CUDA build log.
+          cmake --build native-build --config Release --target parakeet --parallel -- /verbosity:minimal /nologo
+          New-Item -ItemType Directory -Force src-tauri/native | Out-Null
+          $dll = Get-ChildItem native-build -Recurse -Filter parakeet.dll | Select-Object -First 1
+          if (-not $dll) { throw 'parakeet.dll was not produced' }
+          Copy-Item $dll.FullName src-tauri/native/parakeet.dll
+
+      - name: Build parakeet.cpp (Linux Vulkan)
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S vendor/parakeet.cpp -B native-build \
+            -DPARAKEET_SHARED=ON -DPARAKEET_BUILD_CLI=OFF \
+            -DPARAKEET_BUILD_SERVER=OFF -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DGGML_NATIVE=OFF \
+            -DPARAKEET_GGML_VULKAN=ON
+          cmake --build native-build --config Release --target parakeet --parallel
+          mkdir -p src-tauri/native
+          cp "$(find native-build -name libparakeet.so -print -quit)" src-tauri/native/libparakeet.so
+
+      - name: Bundle parakeet.cpp runtime
         shell: python
         run: |
-          import pathlib, re, sys
-          cuda = "${{ matrix.cuda }}" == "true"
-          gpu = "cuda" if cuda else "vulkan"
-          cargo = pathlib.Path("src-tauri/Cargo.toml")
-          text = cargo.read_text(encoding="utf-8")
-
-          obj = re.compile(r'(whisper-rs\s*=\s*\{[^}]*?features\s*=\s*\[)([^\]]*)(\])')
-          def repl(m):
-              prefix, inner, suffix = m.group(1), m.group(2), m.group(3)
-              feats = [f.strip() for f in inner.split(",") if f.strip()]
-              if f'"{gpu}"' not in feats:
-                  feats.append(f'"{gpu}"')
-              return prefix + ", ".join(feats) + suffix
-          new = obj.sub(repl, text)
-          if new == text or f'"{gpu}"' not in new:
-              sys.exit(f'ERROR: could not add whisper-rs feature "{gpu}"')
-          cargo.write_text(new, encoding="utf-8")
-          print(f'enabled whisper-rs feature: {gpu}')
-
-      # Parakeet accelerator: passed to `tauri build --features` so the engine can
-      # request DirectML/CUDA explicitly (transcribe-rs's Auto excludes DirectML).
-      # CUDA build → parakeet-cuda; Windows standard → parakeet-directml;
-      # Linux standard → none (no Vulkan/WebGPU ORT EP, runs CPU). Parakeet ships
-      # on every platform now (UI is no longer Windows-gated); Linux is CPU-only.
-      - name: Select Parakeet accelerator feature
-        shell: bash
-        run: |
-          if [ "${{ matrix.cuda }}" = "true" ]; then
-            echo "PARAKEET_FEATURE=parakeet-cuda" >> "$GITHUB_ENV"
-          elif [ "${{ runner.os }}" = "Windows" ]; then
-            echo "PARAKEET_FEATURE=parakeet-directml" >> "$GITHUB_ENV"
-          else
-            echo "PARAKEET_FEATURE=" >> "$GITHUB_ENV"
-          fi
+          import json, pathlib
+          conf_path = pathlib.Path("src-tauri/tauri.conf.json")
+          conf = json.loads(conf_path.read_text(encoding="utf-8"))
+          filename = "parakeet.dll" if "${{ runner.os }}" == "Windows" else "libparakeet.so"
+          resources = conf["bundle"].get("resources", {})
+          if isinstance(resources, list): resources = {}
+          resources[f"native/{filename}"] = filename
+          conf["bundle"]["resources"] = resources
+          conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
 
       - name: Cache Rust deps
         uses: Swatinem/rust-cache@v2.9.1
@@ -255,25 +243,15 @@ jobs:
       # fails with "failed to run linuxdeploy"), while deb/rpm build cleanly and
       # cover Debian/Ubuntu/Zorin/Fedora. AppImage can be revisited later.
       #
-      # Parakeet (transcribe-rs/ort) pulls onnxruntime via ort's default
-      # `download-binaries` + `copy-dylibs`, which place the ONNX Runtime DLLs
-      # next to the built exe. VERIFY ON FIRST RUN that the DirectML-enabled
-      # onnxruntime DLLs are present beside the binary and bundled into the
-      # installer; if the bundler drops them, add them to tauri.conf bundle
-      # resources. (Linux pulls the CPU onnxruntime .so the same way; verify it's
-      # bundled into the deb/rpm on first run.)
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          NEXUSVOICE_SKIP_NATIVE_BUILD: "1"
         run: |
-          if [ -n "$PARAKEET_FEATURE" ]; then
-            npx tauri build --features "$PARAKEET_FEATURE"
-          else
-            npx tauri build
-          fi
+          npx tauri build
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
@@ -281,12 +259,9 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          NEXUSVOICE_SKIP_NATIVE_BUILD: "1"
         run: |
-          if [ -n "$PARAKEET_FEATURE" ]; then
-            npx tauri build --bundles deb,rpm --features "$PARAKEET_FEATURE"
-          else
-            npx tauri build --bundles deb,rpm
-          fi
+          npx tauri build --bundles deb,rpm
 
       # ── Windows: collect the NSIS updater artifact (installer + .sig) ─────────
       # Windows ships auto-updates via the NSIS installer. Linux ships .deb/.rpm

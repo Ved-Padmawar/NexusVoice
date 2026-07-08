@@ -7,8 +7,8 @@ pub fn query_gpus() -> Result<Vec<GpuDescriptor>, String> {
     use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1, DXGI_ERROR_NOT_FOUND};
 
     // Factory creation failing is a probe failure (not "no GPU") — surface it.
-    let factory: IDXGIFactory1 =
-        unsafe { CreateDXGIFactory1() }.map_err(|e| format!("DXGI factory creation failed: {e}"))?;
+    let factory: IDXGIFactory1 = unsafe { CreateDXGIFactory1() }
+        .map_err(|e| format!("DXGI factory creation failed: {e}"))?;
 
     let mut gpus = Vec::new();
     let mut i = 0u32;

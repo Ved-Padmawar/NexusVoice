@@ -49,7 +49,12 @@ mod tests {
             .expect("login");
         assert_eq!(logged_in.id, user.id);
         assert_eq!(
-            service.current_user().await.expect("query").expect("user").id,
+            service
+                .current_user()
+                .await
+                .expect("query")
+                .expect("user")
+                .id,
             user.id
         );
     }

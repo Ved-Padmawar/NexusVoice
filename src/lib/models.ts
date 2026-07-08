@@ -1,9 +1,13 @@
-export type ModelOverride = 'tiny' | 'base' | 'small' | 'medium' | 'large' | 'large-full'
-
-export type Engine = 'whisper' | 'parakeet'
+export type ModelVariant =
+  | 'parakeet-tdt-ctc-110m'
+  | 'parakeet-realtime-eou-120m'
+  | 'parakeet-tdt-0.6b-v3'
+  | 'nemotron-3.5-asr-0.6b'
+  | 'parakeet-tdt-1.1b'
 
 export type ModelOption = {
-  value: ModelOverride
+  value: ModelVariant
+  tier: 'Tiny' | 'Small' | 'Medium' | 'Turbo' | 'Large'
   label: string
   description: string
   detail: string
@@ -11,84 +15,17 @@ export type ModelOption = {
 }
 
 export const MODEL_OPTIONS: ModelOption[] = [
-  {
-    value: 'tiny',
-    label: 'Whisper Tiny',
-    description: 'Fastest, lowest accuracy',
-    detail: 'Ultra-lightweight model for very low-end hardware. Best when speed matters more than accuracy.',
-    sizeLabel: '~75 MB',
-  },
-  {
-    value: 'base',
-    label: 'Whisper Base',
-    description: 'Fast, basic accuracy',
-    detail: 'Lightweight model for low-end hardware. Good for simple dictation where speed is preferred.',
-    sizeLabel: '~145 MB',
-  },
-  {
-    value: 'small',
-    label: 'Whisper Small',
-    description: 'Standard, lower accuracy',
-    detail: 'Best for low-end CPUs or machines with less than 3 GB VRAM. Good balance of speed and quality.',
-    sizeLabel: '~465 MB',
-  },
-  {
-    value: 'medium',
-    label: 'Whisper Medium',
-    description: 'Balanced performance',
-    detail: 'Great for most machines. Works well on integrated GPUs and CPUs with 8+ GB RAM.',
-    sizeLabel: '~1.5 GB',
-  },
-  {
-    value: 'large',
-    label: 'Whisper Large v3 Turbo',
-    description: 'Highest accuracy, fast',
-    detail: 'Recommended for GPUs with 6+ GB VRAM or systems with 16+ GB RAM. Highest transcription quality.',
-    sizeLabel: '~1.6 GB',
-  },
-  {
-    value: 'large-full',
-    label: 'Whisper Large v3',
-    description: 'Maximum accuracy',
-    detail: 'Full Large v3 model. Requires 10+ GB VRAM. Slower than Turbo but marginally more accurate.',
-    sizeLabel: '~3.1 GB',
-  },
+  { value: 'parakeet-tdt-ctc-110m', tier: 'Tiny', label: 'Parakeet TDT-CTC 110M', description: 'Fastest, lowest resource use', detail: 'Compact NVIDIA Parakeet model for low-latency transcription on modest hardware.', sizeLabel: '~143 MB' },
+  { value: 'parakeet-realtime-eou-120m', tier: 'Small', label: 'Parakeet Realtime EOU 120M', description: 'Realtime speech with endpoint detection', detail: 'Streaming-focused Parakeet model with end-of-utterance detection for responsive dictation.', sizeLabel: '~141 MB' },
+  { value: 'parakeet-tdt-0.6b-v3', tier: 'Medium', label: 'Parakeet TDT 0.6B v3', description: 'Balanced speed and accuracy', detail: 'The balanced multilingual Parakeet model for everyday transcription.', sizeLabel: '~742 MB' },
+  { value: 'nemotron-3.5-asr-0.6b', tier: 'Turbo', label: 'Nemotron 3.5 ASR 0.6B', description: 'Streaming, multilingual transcription', detail: 'Cache-aware NVIDIA Nemotron streaming ASR for responsive multilingual use.', sizeLabel: '~785 MB' },
+  { value: 'parakeet-tdt-1.1b', tier: 'Large', label: 'Parakeet TDT 1.1B', description: 'Maximum transcription quality', detail: 'The largest Parakeet option for accuracy-first transcription on capable hardware.', sizeLabel: '~1.2 GB' },
 ]
 
-/** A choice in the first-run picker: a Whisper size or the Parakeet engine. */
-export type PickerChoice =
-  | { engine: 'whisper'; value: ModelOverride; label: string; description: string; detail: string; sizeLabel: string }
-  | { engine: 'parakeet'; value: 'parakeet'; label: string; description: string; detail: string; sizeLabel: string }
-
-export const PARAKEET_PICKER_OPTION: PickerChoice = {
-  engine: 'parakeet',
-  value: 'parakeet',
-  label: 'Parakeet v3',
-  description: 'Fast and accurate. Auto-detects 25 European languages (incl. English). GPU-accelerated on Windows, CPU elsewhere.',
-  detail: 'Auto-detects across 25 European languages (incl. English). GPU-accelerated on Windows, CPU elsewhere.',
-  sizeLabel: '~2.4 GB',
+export function modelNameToVariant(name: string): ModelVariant {
+  const normalized = name.toLowerCase()
+  return MODEL_OPTIONS.find(({ value, label }) => normalized.includes(value) || normalized.includes(label.toLowerCase()))?.value
+    ?? 'parakeet-tdt-0.6b-v3'
 }
 
-/** Whisper tiers for the first-run picker grid. */
-export const WHISPER_PICKER_OPTIONS: PickerChoice[] =
-  MODEL_OPTIONS.map((m): PickerChoice => ({ engine: 'whisper', ...m }))
-
-/** All first-run picker options (Whisper tiers, then Parakeet). */
-export const PICKER_OPTIONS: PickerChoice[] = [
-  ...WHISPER_PICKER_OPTIONS,
-  PARAKEET_PICKER_OPTION,
-]
-
-/** Map any backend model name/display string → ModelOverride key (case-insensitive) */
-export function modelNameToOverride(name: string): ModelOverride {
-  const n = name.toLowerCase()
-  if (n.includes('large') && !n.includes('turbo')) return 'large-full'
-  if (n.includes('large')) return 'large'
-  if (n.includes('medium')) return 'medium'
-  if (n.includes('small')) return 'small'
-  if (n.includes('base')) return 'base'
-  return 'tiny'
-}
-
-/** Map backend recommendedModel string → ModelOverride key */
-export const recommendedToOverride = modelNameToOverride
+export const recommendedToVariant = modelNameToVariant

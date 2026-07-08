@@ -1,179 +1,102 @@
-/// Which whisper-rs backend to use for inference (auto-detected, not user-configurable).
+//! NVIDIA speech-model catalog used by both model management and inference.
+
+const REPO: &str = "https://huggingface.co/mudler/parakeet-cpp-gguf/resolve/main";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Backend {
-    Cuda,
-    Vulkan,
-    Cpu,
-}
-
-impl Backend {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Cuda => "cuda",
-            Self::Vulkan => "vulkan",
-            Self::Cpu => "cpu",
-        }
-    }
-
-    pub const fn has_gpu(self) -> bool {
-        matches!(self, Self::Cuda | Self::Vulkan)
-    }
-}
-
-/// Which model size to load.
-/// Auto-selected based on hardware; user can override.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModelSize {
-    /// ggml-large-v3 — maximum accuracy, requires GPU ≥10 GB VRAM
-    LargeFull,
-    /// ggml-large-v3-turbo — best accuracy, requires GPU ≥6 GB VRAM or ≥16 GB RAM
-    Large,
-    /// ggml-medium.en — good accuracy, GPU ≥3 GB VRAM or ≥8 GB RAM
-    Medium,
-    /// ggml-small.en — standard accuracy, moderate hardware
-    Small,
-    /// ggml-base.en — basic accuracy, low-end hardware
-    Base,
-    /// ggml-tiny.en — lowest accuracy, fastest inference
+pub enum Model {
     Tiny,
+    Small,
+    Medium,
+    Turbo,
+    Large,
 }
 
-impl ModelSize {
-    pub const fn filename(self) -> &'static str {
+pub const ALL_MODELS: [Model; 5] = [
+    Model::Tiny,
+    Model::Small,
+    Model::Medium,
+    Model::Turbo,
+    Model::Large,
+];
+
+impl Model {
+    pub const fn id(self) -> &'static str {
         match self {
-            Self::LargeFull => "ggml-large-v3.bin",
-            Self::Large => "ggml-large-v3-turbo.bin",
-            Self::Medium => "ggml-medium.en.bin",
-            Self::Small => "ggml-small.en.bin",
-            Self::Base => "ggml-base.en.bin",
-            Self::Tiny => "ggml-tiny.en.bin",
+            Self::Tiny => "parakeet-tdt-ctc-110m",
+            Self::Small => "parakeet-realtime-eou-120m",
+            Self::Medium => "parakeet-tdt-0.6b-v3",
+            Self::Turbo => "nemotron-3.5-asr-0.6b",
+            Self::Large => "parakeet-tdt-1.1b",
         }
     }
 
     pub const fn display_name(self) -> &'static str {
         match self {
-            Self::LargeFull => "Whisper Large v3",
-            Self::Large => "Whisper Large v3 Turbo",
-            Self::Medium => "Whisper Medium",
-            Self::Small => "Whisper Small",
-            Self::Base => "Whisper Base",
-            Self::Tiny => "Whisper Tiny",
+            Self::Tiny => "Tiny — Parakeet TDT-CTC 110M",
+            Self::Small => "Small — Parakeet Realtime EOU 120M",
+            Self::Medium => "Medium — Parakeet TDT 0.6B v3",
+            Self::Turbo => "Turbo — Nemotron 3.5 ASR 0.6B",
+            Self::Large => "Large — Parakeet TDT 1.1B",
         }
     }
 
-    pub const fn url(self) -> &'static str {
+    pub const fn filename(self) -> &'static str {
         match self {
-            Self::LargeFull => {
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin"
-            }
-            Self::Large => {
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"
-            }
-            Self::Medium => {
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin"
-            }
-            Self::Small => {
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"
-            }
-            Self::Base => {
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
-            }
-            Self::Tiny => {
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
-            }
+            Self::Tiny => "tdt_ctc-110m-q5_k.gguf",
+            Self::Small => "realtime_eou_120m-v1-q5_k.gguf",
+            Self::Medium => "tdt-0.6b-v3-q5_k.gguf",
+            Self::Turbo => "nemotron-3.5-asr-streaming-0.6b-q5_k.gguf",
+            Self::Large => "tdt-1.1b-q5_k.gguf",
         }
+    }
+
+    pub const fn size_bytes(self) -> u64 {
+        match self {
+            Self::Tiny => 143_290_496,
+            Self::Small => 141_151_648,
+            Self::Medium => 741_867_360,
+            Self::Turbo => 784_801_888,
+            Self::Large => 1_207_914_592,
+        }
+    }
+
+    pub fn url(self) -> String {
+        format!("{REPO}/{}", self.filename())
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        ALL_MODELS.into_iter().find(|model| model.id() == id)
     }
 }
 
-/// Detect backend from hardware.
-pub fn detect_backend() -> Backend {
+pub fn recommended_model() -> Model {
     let profile = crate::hardware::cached_profile();
-    match profile.execution_provider.as_str() {
-        "cuda" => Backend::Cuda,
-        "vulkan" => Backend::Vulkan,
-        _ => Backend::Cpu,
+    if profile.vram_gb >= 8.0 || (profile.vram_gb < 1.0 && profile.ram_gb >= 24.0) {
+        Model::Turbo
+    } else if profile.vram_gb >= 4.0 || profile.ram_gb >= 12.0 {
+        Model::Medium
+    } else {
+        Model::Tiny
     }
 }
 
-/// Select recommended model size based on hardware profile.
-///
-/// GPU path (VRAM reported correctly — discrete GPU):
-///   ≥6 GB → Large, ≥3 GB → Medium, <3 GB → Small
-///
-/// iGPU fallback (Vulkan but VRAM <1 GB — DXGI reports shared memory incorrectly):
-///   Use RAM thresholds: ≥16 GB → Large, else → Medium
-///
-/// CPU path:
-///   ≥16 GB → Large, ≥8 GB → Medium, <8 GB → Small
-pub fn recommend_model_size() -> ModelSize {
-    let profile = crate::hardware::cached_profile();
-    select_model_size_from_profile(
-        profile.execution_provider.as_str(),
-        profile.vram_gb,
-        profile.ram_gb,
-    )
+pub fn selected_model(override_id: Option<&str>) -> Model {
+    override_id
+        .and_then(Model::from_id)
+        .unwrap_or_else(recommended_model)
 }
 
-pub fn select_model_size_from_profile(
-    execution_provider: &str,
-    vram_gb: f32,
-    ram_gb: f32,
-) -> ModelSize {
-    match execution_provider {
-        "cuda" => {
-            if vram_gb >= 6.0 {
-                ModelSize::Large
-            } else if vram_gb >= 3.0 {
-                ModelSize::Medium
-            } else {
-                ModelSize::Small
-            }
-        }
-        "vulkan" => {
-            if vram_gb >= 1.0 {
-                // Discrete GPU with valid VRAM reading
-                if vram_gb >= 6.0 {
-                    ModelSize::Large
-                } else if vram_gb >= 3.0 {
-                    ModelSize::Medium
-                } else {
-                    ModelSize::Small
-                }
-            } else {
-                // iGPU — DXGI reports near-zero VRAM; fall back to RAM thresholds
-                if ram_gb >= 16.0 {
-                    ModelSize::Large
-                } else {
-                    ModelSize::Medium
-                }
-            }
-        }
-        _ => {
-            // CPU path
-            if ram_gb >= 16.0 {
-                ModelSize::Large
-            } else if ram_gb >= 8.0 {
-                ModelSize::Medium
-            } else {
-                ModelSize::Small
-            }
-        }
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// Resolve final model size: apply user override if set, else recommend from hardware.
-/// `override_size` accepts "large-full" | "large" | "medium" | "small" | "base" | "tiny".
-pub fn select_model_size(backend: Backend, override_size: Option<&str>) -> ModelSize {
-    match override_size {
-        Some("large-full") => ModelSize::LargeFull,
-        Some("large") => ModelSize::Large,
-        Some("medium") => ModelSize::Medium,
-        Some("small") => ModelSize::Small,
-        Some("base") => ModelSize::Base,
-        Some("tiny") => ModelSize::Tiny,
-        _ => {
-            let profile = crate::hardware::cached_profile();
-            select_model_size_from_profile(backend.as_str(), profile.vram_gb, profile.ram_gb)
+    #[test]
+    fn ids_and_filenames_are_unique() {
+        for (index, model) in ALL_MODELS.iter().enumerate() {
+            assert!(Model::from_id(model.id()).is_some());
+            assert!(ALL_MODELS[index + 1..]
+                .iter()
+                .all(|other| { other.id() != model.id() && other.filename() != model.filename() }));
         }
     }
 }

@@ -31,7 +31,7 @@ type FormValues = z.infer<typeof registerSchema>
 
 const FEATURES = [
   'Hold a hotkey, speak naturally, release to paste',
-  'On-device Whisper AI — no data leaves your machine',
+  'On-device NVIDIA speech AI — no data leaves your machine',
   'Custom dictionary for technical terms & names',
 ]
 

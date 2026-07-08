@@ -33,7 +33,6 @@ mod hardware;
 mod inference;
 mod llm;
 mod parakeet;
-mod pipeline;
 mod postprocess;
 mod preprocess;
 mod state;
@@ -41,10 +40,6 @@ mod transcription;
 
 #[allow(clippy::too_many_lines)] // Tauri setup is inherently long — splitting adds no clarity
 fn main() {
-    // Route whisper.cpp/GGML's verbose stderr output through `log` so our level
-    // filter controls it instead of it flooding stdout. Safe to call once.
-    whisper_rs::install_logging_hooks();
-
     // Panic hook — writes panic info to log before crashing.
     // Note: only active in debug builds since release profile uses panic = "abort".
     #[cfg(debug_assertions)]
@@ -109,8 +104,6 @@ fn main() {
             tauri_plugin_log::Builder::new()
                 .targets(log_targets)
                 .level(log_level)
-                // whisper.cpp/GGML per-token tracing is extremely verbose; mute it.
-                .level_for("whisper_rs", log::LevelFilter::Warn)
                 .max_file_size(LOG_MAX_SIZE)
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
                 // Structured (JSON-line) output: one object per record with a stable
@@ -139,10 +132,9 @@ fn main() {
             let dictation_hotkey_store_path = app_data_dir.join("dictation_hotkey");
             let dictation_commit_hotkey_store_path = app_data_dir.join("dictation_commit_hotkey");
             let model_override_path = app_data_dir.join("model_override");
-            let active_engine_path = app_data_dir.join("active_engine");
-            let beam_size_path = app_data_dir.join("beam_size");
             let format_config_path = app_data_dir.join("format_config.json");
             let models_dir = app_data_dir.join("models");
+            let resource_dir = app.path().resource_dir().map_err(std::io::Error::other)?;
             std::fs::create_dir_all(&models_dir)?;
 
             // Create state immediately with NO blocking I/O.
@@ -153,10 +145,9 @@ fn main() {
                 dictation_hotkey_store_path,
                 dictation_commit_hotkey_store_path,
                 model_override_path,
-                active_engine_path,
-                beam_size_path,
                 format_config_path,
                 models_dir,
+                resource_dir,
             );
             app.manage(app_state);
 
@@ -215,18 +206,18 @@ fn main() {
                 tauri::async_runtime::spawn(async move {
                     use hardware::detector::detect_profile;
                     use hardware::sysinfo_provider::SysinfoProvider;
-                    use inference::provider::recommend_model_size;
+                    use inference::provider::recommended_model;
 
                     let (hw, recommended) = tokio::task::spawn_blocking(|| {
                         let hw = detect_profile(&SysinfoProvider);
-                        let recommended = recommend_model_size();
+                        let recommended = recommended_model();
                         (hw, recommended)
                     })
                     .await
                     .unwrap_or_else(|_| {
                         (
                             hardware::profile::HardwareProfile::default(),
-                            inference::provider::ModelSize::Small,
+                            inference::provider::Model::Tiny,
                         )
                     });
 
@@ -262,16 +253,16 @@ fn main() {
                 });
             }
 
-            // Spawn: eagerly pre-load the Whisper engine so the first transcription is instant.
-            // Runs after DB init (model selection may depend on override stored on disk).
+            // Eagerly load the selected parakeet.cpp model so the first recording
+            // does not pay native-library and GGUF initialization latency.
             // If the model isn't downloaded yet this is a no-op — get_or_load_engine returns Err.
             {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     let state = app_handle.state::<state::AppState>();
                     match state.get_or_load_engine().await {
-                        Ok(_) => log::info!("whisper engine pre-loaded and warmed up"),
-                        Err(e) => log::info!("whisper engine pre-load skipped: {e}"),
+                        Ok(_) => log::info!("parakeet.cpp model pre-loaded"),
+                        Err(e) => log::info!("parakeet.cpp pre-load skipped: {e}"),
                     }
                 });
             }
@@ -343,7 +334,6 @@ fn main() {
                             .and_then(tauri::WebviewWindowBuilder::build)
                         {
                             Ok(pill) => {
-
                                 // Position: centered horizontally, near bottom of primary monitor
                                 if let Some(monitor) = pill.primary_monitor().ok().flatten() {
                                     let screen = monitor.size();
@@ -433,11 +423,6 @@ fn main() {
             commands::cancel_model_download,
             commands::set_model_override,
             commands::clear_model_override,
-            commands::get_active_engine,
-            commands::set_active_engine,
-            commands::download_parakeet,
-            commands::get_beam_size,
-            commands::set_beam_size,
             commands::get_hardware_profile,
             commands::get_downloaded_models,
             commands::delete_model,

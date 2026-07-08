@@ -18,7 +18,7 @@ const VAD_PAD_FRAMES: usize = 12;
 const MIN_SILENCE_FRAMES: usize = 15;
 
 /// Apply Silero VAD V5: classify each 32ms frame, collect speech segments with
-/// padding, and concatenate into a single buffer ready for Whisper.
+/// padding, and concatenate into a single buffer ready for parakeet.cpp.
 /// Falls back to the full buffer if VAD init fails.
 pub fn extract_speech(samples: &[f32]) -> Vec<f32> {
     let Ok(mut vad) = VoiceActivityDetector::builder()

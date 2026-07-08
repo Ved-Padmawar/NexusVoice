@@ -33,8 +33,6 @@ pub async fn start_transcription(
     state.capture_paused.store(false, Ordering::SeqCst);
     clear_audio_buffer(&state);
 
-    *state.pipeline.lock().await = Some(crate::pipeline::StreamingPipeline::new());
-
     transcription::start_capture(&app, &state);
 
     // Don't report "started" until the mic is actually delivering audio —
@@ -79,8 +77,6 @@ pub async fn start_dictation(app: AppHandle, state: State<'_, AppState>) -> Resu
     state.set_session_phase(SessionPhase::Recording);
     state.capture_paused.store(false, Ordering::SeqCst);
     clear_audio_buffer(&state);
-
-    *state.pipeline.lock().await = Some(crate::pipeline::StreamingPipeline::new());
 
     transcription::start_capture(&app, &state);
 
@@ -155,7 +151,6 @@ pub async fn cancel_dictation(state: State<'_, AppState>) -> Result<bool, ApiErr
     let _ = state.try_stop_transcription();
     wait_for_capture_done(&state).await;
     clear_audio_buffer(&state);
-    *state.pipeline.lock().await = None;
     state.reset_recording_session();
 
     Ok(true)
@@ -250,7 +245,6 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
         || (captured_rate > 0
             && (samples.len() as f64 / f64::from(captured_rate)) < MIN_DURATION_SECS);
     if too_short {
-        *state.pipeline.lock().await = None;
         state.reset_recording_session();
         let _ = app.emit("transcription-complete", "");
         return Ok(false);
@@ -260,14 +254,11 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
         Ok(e) => e,
         Err(e) => {
             log::error!("engine load failed: {e}");
-            *state.pipeline.lock().await = None;
             state.reset_recording_session();
             let _ = app.emit("transcription-error", format!("model not ready: {e}"));
             return Ok(false);
         }
     };
-
-    let pipeline = state.pipeline.lock().await.take();
 
     let cfg = state.load_format_config();
     let format = cfg.is_usable().then_some(cfg);
@@ -279,10 +270,8 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
             dict_cache: Arc::clone(&state.dict_cache),
             engine,
             engine_cache: Arc::clone(&state.engine),
-            pipeline,
             samples,
             captured_rate,
-            beam_size: state.load_beam_size(),
             duration_seconds,
             format,
         },

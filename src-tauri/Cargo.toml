@@ -1,14 +1,7 @@
 [package]
 name = "nexusvoice"
-version = "1.10.0-4"
+version = "1.10.0-5"
 edition = "2021"
-
-# Parakeet GPU accelerators. Enabled per build variant in CI; selecting one both
-# turns on the transcribe-rs ort EP and lets the engine request that accelerator
-# explicitly (transcribe-rs's Auto excludes DirectML, so it must be explicit).
-[features]
-parakeet-directml = ["transcribe-rs/ort-directml"]
-parakeet-cuda = ["transcribe-rs/ort-cuda"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -38,15 +31,7 @@ reqwest = { version = "0.13", features = ["blocking", "stream"] }
 futures-util = "0.3"
 nnnoiseless = "0.5.2"
 voice_activity_detector = "0.2.1"
-
-# log_backend routes whisper.cpp/GGML's stderr spam through `log` so our level
-# filter can mute it (see install_logging_hooks in main.rs).
-whisper-rs = { version = "0.16", features = ["log_backend"] }
-# Parakeet engine (ONNX Runtime). Pinned to 0.3.1 so its `ort` (rc.10) matches
-# the version voice_activity_detector already pins — newer transcribe-rs wants a
-# different exact `ort` and conflicts. GPU accelerator features (ort-directml /
-# ort-cuda) are injected per build variant in CI; base is CPU.
-transcribe-rs = { version = "=0.3.1", features = ["onnx"] }
+libloading = "0.8"
 rubato = "0.16.2"
 rphonetic = "3.0.6"
 rustfft = "6.4.1"

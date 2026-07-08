@@ -106,8 +106,12 @@ pub async fn unregister_dictation_hotkey(
     let ptt_hotkey = state.current_hotkey.lock().await.clone();
     let prev_dictation = state.current_dictation_hotkey.lock().await.clone();
     let dictation_commit_hotkey = state.current_dictation_commit_hotkey.lock().await.clone();
-    if let Err(e) = register_shortcuts(&app, ptt_hotkey.clone(), None, dictation_commit_hotkey.clone())
-    {
+    if let Err(e) = register_shortcuts(
+        &app,
+        ptt_hotkey.clone(),
+        None,
+        dictation_commit_hotkey.clone(),
+    ) {
         let _ = register_shortcuts(&app, ptt_hotkey, prev_dictation, dictation_commit_hotkey);
         return Err(e);
     }
@@ -132,9 +136,12 @@ pub async fn register_dictation_commit_hotkey(
         [ptt_hotkey.as_deref(), dictation_hotkey.as_deref()],
     )?;
 
-    if let Err(e) =
-        register_shortcuts(&app, ptt_hotkey.clone(), dictation_hotkey.clone(), Some(hotkey.clone()))
-    {
+    if let Err(e) = register_shortcuts(
+        &app,
+        ptt_hotkey.clone(),
+        dictation_hotkey.clone(),
+        Some(hotkey.clone()),
+    ) {
         let prev_commit = state.current_dictation_commit_hotkey.lock().await.clone();
         let _ = register_shortcuts(&app, ptt_hotkey, dictation_hotkey, prev_commit);
         return Err(e);

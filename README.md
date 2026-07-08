@@ -6,7 +6,9 @@
 
 **Hold a hotkey. Speak. Text appears wherever your cursor is.**
 
-A lightweight, privacy-first voice-to-text desktop app. Transcription runs entirely on your machine — no cloud, no subscriptions, no data leaving your device.
+A lightweight, privacy-first voice-to-text desktop app powered by NVIDIA speech
+models. Transcription runs entirely on your machine—no cloud, subscriptions, or
+audio leaving your device.
 
 <br/>
 
@@ -14,9 +16,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 ![Rust](https://img.shields.io/badge/Rust-CE422B?style=for-the-badge&logo=rust&logoColor=white)
 ![React](https://img.shields.io/badge/React_19-61DAFB?style=for-the-badge&logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
-![Tailwind](https://img.shields.io/badge/Tailwind_v4-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white)
-![SQLite](https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
-![Whisper](https://img.shields.io/badge/Whisper_AI-412991?style=for-the-badge&logo=openai&logoColor=white)
+![NVIDIA](https://img.shields.io/badge/NVIDIA_Parakeet_%2B_Nemotron-76B900?style=for-the-badge&logo=nvidia&logoColor=white)
 
 <br/>
 
@@ -30,167 +30,137 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ## What is NexusVoice?
 
-NexusVoice is a push-to-talk voice transcription tool that lives in your system tray. Press your hotkey, speak, release — your words are transcribed locally by OpenAI's Whisper model and pasted directly into whatever app has focus. No internet required after the model downloads.
+NexusVoice is a push-to-talk voice transcription tool that lives in your system
+tray. Press your hotkey, speak, release, and the result is pasted directly into
+the focused application. NVIDIA Parakeet and Nemotron models run locally through
+`parakeet.cpp`; no connection is required after the selected model downloads.
 
 ---
 
 ## Features
 
-- **Push-to-talk** — hold any custom hotkey to record, release to transcribe and paste
-- **Dictation Mode** — a hands-free alternative: press a hotkey to start, then pause/resume and save from the pill or by hotkey — ideal for longer, uninterrupted dictation
-- **Low-latency streaming** — audio is processed in chunks mid-recording so only the tail needs processing on release
-- **100% local** — Whisper runs entirely on your machine, nothing is sent to the cloud
-- **GPU-accelerated** — auto-detects NVIDIA (CUDA), AMD/Intel (Vulkan), falls back to CPU
-- **Smart model selection** — picks the best Whisper model for your hardware automatically
-- **First-run model picker** — choose your model on first login with a hardware-aware recommendation, then download on demand
-- **Personal dictionary** — map spoken words to their correct form (e.g. "gonna" → "going to")
-- **Smart formatting (optional)** — clean up punctuation and turn spoken lists into real lists using any OpenAI-compatible LLM. Off by default; works fully local with Ollama or LM Studio, or with a cloud provider (OpenAI, OpenRouter) if you prefer
-- **8 themes** — Abyss, Midnight, Steel, Pine (dark) + Canvas, Dawn, Breeze, Blossom (light)
-- **Compact pill overlay** — draggable recording indicator that stays on top while you work
-- **Dashboard** — transcription history, word count, session stats
-- **System tray** — runs silently in the background
+- **Push-to-talk** — hold any custom hotkey to record, then release to transcribe
+- **Dictation mode** — start, pause, resume, and commit longer recordings
+- **100% local audio processing** — microphone audio never leaves the machine
+- **GPU acceleration** — Vulkan standard builds, a Windows CUDA build, and CPU fallback
+- **Five NVIDIA model tiers** — from a 110M lightweight model to a 1.1B accuracy model
+- **Hardware-aware recommendation** — sensible default based on available RAM and VRAM
+- **Personal dictionary** — map spoken terms to their preferred written form
+- **Smart formatting (optional)** — use any OpenAI-compatible LLM endpoint
+- **Eight themes** — four dark and four light visual themes
+- **Compact pill overlay** — an always-on-top recording and processing indicator
+- **Local dashboard** — searchable transcript history and usage statistics
 
 ---
 
 ## How It Works
 
-```
-App launch       →  Whisper model loaded and warmed up in the background
-Hotkey held      →  cpal captures mic audio
-                 →  VAD-gated chunks processed mid-recording (every ~8s)
-                 →  silence boundaries detected to avoid cutting words
-Hotkey released  →  only the final tail segment (~last 6s) is transcribed
-                 →  chunks stitched together with overlap deduplication
-                 →  (optional) transcript reformatted by your chosen LLM
-                 →  text written to clipboard + Ctrl+V pasted
+```text
+App launch       → selected GGUF model loaded once through parakeet.cpp
+Hotkey held      → cpal captures microphone audio
+Hotkey released  → denoise → resample to 16 kHz → VAD → normalize
+                 → Parakeet or Nemotron transcribes direct float PCM
+                 → personal dictionary corrections applied
+                 → optional smart formatting applied
+                 → text copied and pasted into the focused application
 ```
 
-For short recordings the pipeline is transparent — everything processes on release as before. For longer recordings latency is significantly reduced since most of the audio is already transcribed by the time you let go of the hotkey. The engine pre-loads at launch so the first transcription is instant.
-
-If **Smart Formatting** is enabled, the stitched transcript is sent to your configured LLM endpoint for cleanup before pasting; otherwise the raw transcript is pasted as-is. If the formatter is unreachable or errors, it transparently falls back to the raw transcript.
+The generic audio capture and preprocessing stages remain shared across every
+model. Model decoding, language prompting, and CPU/GPU execution are handled by
+the pinned `parakeet.cpp` runtime.
 
 ---
 
 ## Models
 
-| Model | Size | Used When | Notes |
-|-------|------|-----------|-------|
-| Whisper Large v3 Turbo | ~1.6 GB | GPU with 6GB+ VRAM or 16GB+ RAM | Best accuracy, fast on GPU |
-| Whisper Medium | ~1.5 GB | Mid-range GPU or 8GB+ RAM | Great accuracy, runs well on CPU |
-| Whisper Small | ~465 MB | Moderate hardware or 4GB+ RAM | Good balance of speed and quality |
-| Whisper Base | ~145 MB | Low-end hardware | Basic accuracy, fast inference |
-| Whisper Tiny | ~75 MB | Ultra-low-end hardware | Fastest, lowest accuracy |
+| Tier | NVIDIA model | Download | Best for |
+|---|---|---:|---|
+| Tiny | Parakeet TDT-CTC 110M | 143 MB | Fastest startup and low-resource machines |
+| Small | Parakeet Realtime EOU 120M | 141 MB | Endpoint-aware streaming workloads |
+| Medium | Parakeet TDT 0.6B v3 | 742 MB | Accurate multilingual dictation |
+| Turbo | Nemotron 3.5 ASR 0.6B | 785 MB | Cache-aware streaming across 40+ locales |
+| Large | Parakeet TDT 1.1B | 1.21 GB | Maximum English transcription accuracy |
 
-On first login a model picker modal lets you choose your model — the app recommends the best one for your hardware. You can change it anytime in Settings → About. Models download from HuggingFace and are cached locally.
+The application uses upstream Q5_K GGUF artifacts from
+[`mudler/parakeet-cpp-gguf`](https://huggingface.co/mudler/parakeet-cpp-gguf),
+downloaded on demand and cached locally. Models can be changed or removed from
+Settings at any time.
 
 ---
 
 ## Smart Formatting (optional)
 
-By default NexusVoice pastes the raw transcription. Enable **Smart Formatting** (Settings → About) to have an LLM clean up punctuation and infer structure — e.g. turning a spoken "first… second… third…" into a real numbered list — before pasting.
-
-It connects to any **OpenAI-compatible** chat endpoint. Presets prefill the base URL; you supply the model name and (where needed) an API key:
-
-| Provider | Local? | Notes |
-|----------|--------|-------|
-| Ollama | ✅ | `http://localhost:11434/v1`, no key needed |
-| LM Studio | ✅ | `http://localhost:1234/v1`, no key needed |
-| OpenAI | ☁️ | requires API key |
-| OpenRouter | ☁️ | requires API key |
-| Custom | — | any other OpenAI-compatible endpoint |
-
-Use a small **instruct** model (e.g. `qwen2.5-3b-instruct`) — not a reasoning/thinking model — for the best speed and most faithful formatting. The feature is off by default; with Ollama or LM Studio it stays fully on-device.
+By default, NexusVoice pastes the raw local transcription. Smart Formatting can
+clean punctuation and infer structure through an OpenAI-compatible chat endpoint.
+It supports local Ollama or LM Studio servers as well as cloud providers. If the
+formatter is unavailable, NexusVoice safely falls back to the raw transcript.
 
 ---
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
+|---|---|
 | Desktop runtime | Tauri 2 |
 | Backend | Rust |
 | Audio capture | cpal |
-| Transcription | whisper-rs (ggml) |
-| GPU inference | CUDA (NVIDIA) / Vulkan (AMD, Intel) |
-| Smart formatting | Any OpenAI-compatible LLM (Ollama, LM Studio, OpenAI, OpenRouter) over HTTP |
+| Speech runtime | parakeet.cpp + GGML |
+| Models | NVIDIA Parakeet and Nemotron ASR |
+| GPU inference | Vulkan / CUDA, with CPU fallback |
+| Audio preprocessing | RNNoise, VAD, rubato resampling |
 | Database | SQLite via sqlx |
-| Frontend | React 19 + TypeScript |
-| Styling | Tailwind CSS v4 + shadcn/ui |
+| Frontend | React 19 + TypeScript + Tailwind CSS v4 |
 | State | Zustand |
-| Icons | lucide-react |
 
 ---
 
 ## Installation
 
-Download the latest build for your platform from [Releases](../../releases/latest):
+Download the latest Windows or Linux build from [Releases](../../releases/latest).
 
-**Windows**
+- **Standard build:** Vulkan acceleration across supported NVIDIA, AMD, and Intel GPUs
+- **Windows CUDA build:** optimized NVIDIA acceleration
+- **Fallback:** every build retains portable CPU execution
 
-| Installer | Who it's for |
-|-----------|-------------|
-| `NexusVoice_x.x.x_x64-setup.exe` | Everyone — CPU + Vulkan (Intel, AMD, NVIDIA) |
-| `NexusVoice-CUDA_x.x.x_x64-setup.exe` | NVIDIA GPU users who want maximum performance |
-
-**Linux** (`.deb` for Debian/Ubuntu/Zorin; `.rpm` for Fedora/RHEL)
-
-| Build | Who it's for |
-|-------|-------------|
-| `NexusVoice_x.x.x_amd64.deb` / `.rpm` | Everyone — CPU + Vulkan (Intel, AMD, **and NVIDIA**) |
-
-On Linux, Vulkan GPU-accelerates NVIDIA, AMD, and Intel alike, so a single build covers every GPU — no separate CUDA download needed.
-
-**Requirements:**
-- **Windows:** Windows 10 1803+ or Windows 11 (WebView2 is pre-installed).
-- **Linux:** WebKitGTK 4.1 (`libwebkit2gtk-4.1`) and `libxdo3`, both pulled in automatically by the `.deb`/`.rpm`. For GPU acceleration, install your distro's Vulkan driver (Mesa for AMD/Intel, the NVIDIA driver for NVIDIA).
-
-No Rust, Node, CMake, or any dev tools needed on the target machine.
-
-> _macOS support is implemented in the codebase but not yet distributed — macOS builds require Apple code-signing/notarization, which is planned for a future release._
+Windows requires WebView2. Linux requires WebKitGTK 4.1, `libxdo3`, and a Vulkan
+driver for GPU acceleration. No development tools are needed on target machines.
 
 ---
 
 ## Building from Source
 
-**Prerequisites:**
-- [Rust](https://rustup.rs/) (stable)
-- [Node.js](https://nodejs.org/) 18+
-- [CMake](https://cmake.org/) 3.28+
-- [LLVM/Clang](https://releases.llvm.org/) 17+
+Prerequisites: stable Rust, Node.js 24+, CMake 3.18+, and the platform packages
+required by Tauri.
 
 ```bash
-git clone https://github.com/Ved-Padmawar/NexusVoice.git
+git clone --recursive https://github.com/Ved-Padmawar/NexusVoice.git
 cd NexusVoice
 npm install
-npm run tauri build
-```
-
-Installer output: `src-tauri/target/release/bundle/`
-
-**Dev server:**
-```bash
 npm run tauri dev
 ```
+
+Development builds compile a portable CPU `parakeet.cpp` runtime by default.
+Set `NEXUSVOICE_PARAKEET_BACKEND=vulkan` or `cuda` before building to test a GPU
+backend. Release automation builds and bundles the correct native library.
 
 ---
 
 ## Usage
 
-1. Launch NexusVoice — it appears in the system tray
-2. Go to **Settings → Shortcuts** and set your recording hotkey (and, optionally, a separate Dictation hotkey)
-3. Choose your Whisper model in the first-run picker — the recommended one is pre-selected for your hardware
-4. Click into any text field in any app
-5. **Push-to-talk:** hold your hotkey → speak → release
-6. **Dictation Mode:** press your dictation hotkey to start, pause/resume as needed, then save from the pill or the commit hotkey
-7. Your transcribed text is pasted automatically
+1. Launch NexusVoice and sign in to the local profile.
+2. Choose an NVIDIA speech model; the hardware recommendation is preselected.
+3. Configure push-to-talk and optional dictation hotkeys.
+4. Focus any text field, hold the recording hotkey, speak, and release.
+5. The local transcription is pasted automatically.
 
 ---
 
 ## Privacy
 
-All **audio processing and transcription happen locally** on your device — audio is never transmitted anywhere. The only network request in the default setup is the one-time Whisper model download from HuggingFace.
-
-**Smart Formatting** is the one optional exception, and it's **off by default**. When enabled, your transcript text (never the audio) is sent to whichever LLM endpoint you configure. Point it at a local server (Ollama or LM Studio) to keep everything on-device, or at a cloud provider (OpenAI, OpenRouter) if you choose — in which case the transcript text is sent to that provider. The choice, and whether to enable it at all, is entirely yours.
+All audio capture, preprocessing, and speech recognition happen locally. The only
+default network operation is downloading a selected model. Smart Formatting is
+optional and disabled by default; when enabled, only transcript text is sent to
+the configured endpoint. Point it at a local server to keep that stage offline.
 
 ---
 

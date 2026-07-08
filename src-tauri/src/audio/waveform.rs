@@ -109,7 +109,9 @@ impl WaveformMeter {
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let lo = ((BAND_EDGES[b] / bin_hz) as usize).max(1);
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let hi = ((BAND_EDGES[b + 1] / bin_hz) as usize).min(nyquist_bin).max(lo + 1);
+            let hi = ((BAND_EDGES[b + 1] / bin_hz) as usize)
+                .min(nyquist_bin)
+                .max(lo + 1);
 
             let mut sum = 0.0_f32;
             for bin in &buf[lo..hi] {

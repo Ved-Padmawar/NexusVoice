@@ -5,7 +5,7 @@
 //! [`gpu`] — DXGI on Windows, Metal on macOS, Vulkan on Linux. There is one
 //! complete real implementation per OS; no target returns an empty/zero stub.
 //!
-//! VRAM matters functionally: `inference::provider` selects the Whisper model
+//! VRAM matters functionally: `inference::provider` selects the NVIDIA model
 //! size from it, so a wrong/zero value silently downgrades transcription
 //! quality. That is why GPU memory is queried natively rather than via a
 //! lowest-common-denominator abstraction.

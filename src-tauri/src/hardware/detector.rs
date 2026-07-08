@@ -142,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn intel_maps_to_directml() {
+    fn intel_maps_to_vulkan() {
         let provider = MockProvider {
             gpus: vec![GpuDescriptor {
                 name: "Intel".to_string(),

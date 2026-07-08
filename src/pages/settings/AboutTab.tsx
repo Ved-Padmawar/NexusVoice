@@ -1,11 +1,8 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { invoke } from '@tauri-apps/api/core'
-import { COMMANDS } from '../../lib/commands'
-import type { Engine } from '../../lib/models'
 import {
   AlertCircle, CheckCircle2,
-  RefreshCw, Download, ArrowUpCircle, Cpu, Shield, Globe, Bird,
+  RefreshCw, Download, ArrowUpCircle, Shield, Globe, Bird,
 } from 'lucide-react'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
@@ -15,19 +12,11 @@ import { FormattingToggle } from '../../components/FormattingToggle'
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
 
 export function AboutTab() {
-  const [engine, setEngine] = useState<Engine>('whisper')
-
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
   const [updateVersion, setUpdateVersion] = useState<string | null>(null)
   const [downloadProgress, setDownloadProgress] = useState(0)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const updaterRef = useRef<Awaited<ReturnType<typeof check>> | null>(null)
-
-  useEffect(() => {
-    invoke<string>(COMMANDS.GET_ACTIVE_ENGINE).then(e => {
-      if (e === 'whisper' || e === 'parakeet') setEngine(e)
-    }).catch(() => {})
-  }, [])
 
   const checkForUpdate = useCallback(async () => {
     setUpdateStatus('checking')
@@ -72,17 +61,11 @@ export function AboutTab() {
     }
   }, [])
 
-  const pills = engine === 'parakeet'
-    ? [
-      { Icon: Bird,   label: 'Parakeet v3 (ONNX)' },
-      { Icon: Globe,  label: 'Multilingual' },
-      { Icon: Shield, label: '100% on-device' },
-    ]
-    : [
-      { Icon: Cpu,    label: 'whisper-rs (ggml)' },
-      { Icon: Globe,  label: 'English' },
-      { Icon: Shield, label: '100% on-device' },
-    ]
+  const pills = [
+    { Icon: Bird,   label: 'Parakeet.cpp' },
+    { Icon: Globe,  label: 'NVIDIA multilingual ASR' },
+    { Icon: Shield, label: '100% on-device' },
+  ]
 
   return (
     <div className="flex flex-col gap-4">
