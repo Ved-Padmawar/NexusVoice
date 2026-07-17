@@ -114,8 +114,8 @@ export const createAuthSlice: StateCreator<AppState, [], [], AuthSlice> = (set, 
     await invoke(COMMANDS.LOGOUT).catch(() => {})
     set({
       ...SIGNED_OUT_RESET,
-      transcriptOffset: 0,
       transcriptHasMore: true,
+      transcriptLoadingMore: false,
       filterFrom: null,
       filterTo: null,
       filterSortAsc: false,

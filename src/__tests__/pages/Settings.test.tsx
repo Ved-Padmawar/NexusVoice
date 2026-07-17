@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { Settings } from '../pages/Settings'
-import { useAppStore } from '../store/useAppStore'
+import { Settings } from '../../pages/Settings'
+import { useAppStore } from '../../store/useAppStore'
 import { invoke } from '@tauri-apps/api/core'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))

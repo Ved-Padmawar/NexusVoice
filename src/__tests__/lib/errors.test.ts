@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractErrorMessage, isErrorCode, ERROR_CODES } from '../lib/errors'
+import { extractErrorMessage, isErrorCode, ERROR_CODES } from '../../lib/errors'
 
 describe('extractErrorMessage', () => {
   it('reads .message from a Rust ApiError-shaped object', () => {

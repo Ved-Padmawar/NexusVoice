@@ -1,14 +1,38 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { Dashboard } from '../pages/Dashboard'
-import { useAppStore } from '../store/useAppStore'
+import { Dashboard } from '../../pages/Dashboard'
+import { useAppStore } from '../../store/useAppStore'
 import { invoke } from '@tauri-apps/api/core'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+
+// downloadBlob clicks an anchor; jsdom can't navigate and logs about it.
+vi.mock('../../lib/utils', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/utils')>()),
+  downloadBlob: vi.fn(),
+}))
 
 const mockInvoke = vi.mocked(invoke)
+
+// jsdom has no IntersectionObserver; this one records observed nodes.
+const observed = new Set<Element>()
+let fireIntersect: (() => void) | null = null
+
+class MockIntersectionObserver {
+  constructor(cb: IntersectionObserverCallback) {
+    fireIntersect = () => {
+      for (const el of observed) {
+        cb([{ isIntersecting: true, target: el } as IntersectionObserverEntry], this as never)
+      }
+    }
+  }
+  observe(el: Element) { observed.add(el) }
+  unobserve(el: Element) { observed.delete(el) }
+  disconnect() { observed.clear() }
+}
+vi.stubGlobal('IntersectionObserver', MockIntersectionObserver)
 
 const sampleTranscripts = [
   { id: 1, content: 'Hello world', wordCount: 2, durationSeconds: 5, createdAt: new Date().toISOString() },
@@ -29,7 +53,7 @@ beforeEach(() => {
   useAppStore.setState({
     transcripts: [],
     transcriptHasMore: false,
-    transcriptOffset: 0,
+    transcriptLoadingMore: false,
     searchResults: [],
     isSearching: false,
     searchQuery: '',
@@ -163,5 +187,43 @@ describe('Dashboard — filter', () => {
     // In specific day mode there is only one date input
     const dateInputs = screen.getAllByDisplayValue('')
     expect(dateInputs.length).toBeGreaterThan(0)
+  })
+})
+
+describe('Dashboard — infinite scroll sentinel', () => {
+  it('observes the sentinel that appears after the loading skeleton clears', async () => {
+    // The skeleton means no sentinel on first mount; an effect keyed on
+    // hasMore/searchMode would read a null ref and never re-run.
+    useAppStore.setState({
+      transcripts: [],
+      transcriptHasMore: true,
+      transcriptsStatus: 'loading',
+    })
+    renderDashboard()
+    expect(observed.size).toBe(0)
+
+    act(() => {
+      useAppStore.setState({
+        transcripts: sampleTranscripts,
+        transcriptsStatus: 'success',
+      })
+    })
+
+    await waitFor(() => expect(observed.size).toBeGreaterThan(0))
+  })
+
+  it('loads more when the sentinel scrolls into view', async () => {
+    useAppStore.setState({
+      transcripts: sampleTranscripts,
+      transcriptHasMore: true,
+      transcriptsStatus: 'success',
+    })
+    const spy = vi.spyOn(useAppStore.getState(), 'loadMoreTranscripts').mockResolvedValue()
+    renderDashboard()
+    await waitFor(() => expect(observed.size).toBeGreaterThan(0))
+
+    act(() => fireIntersect?.())
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
   })
 })

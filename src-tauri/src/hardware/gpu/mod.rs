@@ -6,19 +6,19 @@
 //! they never win model-size selection. The `compile_error!` guard makes an
 //! unsupported target fail to build rather than silently degrade.
 
-#[cfg(target_os = "windows")]
-mod windows;
-#[cfg(target_os = "macos")]
-mod macos;
 #[cfg(target_os = "linux")]
 mod linux;
-
-#[cfg(target_os = "windows")]
-pub use windows::query_gpus;
 #[cfg(target_os = "macos")]
-pub use macos::query_gpus;
+mod macos;
+#[cfg(target_os = "windows")]
+mod windows;
+
 #[cfg(target_os = "linux")]
 pub use linux::query_gpus;
+#[cfg(target_os = "macos")]
+pub use macos::query_gpus;
+#[cfg(target_os = "windows")]
+pub use windows::query_gpus;
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 compile_error!("NexusVoice supports Windows, macOS, and Linux only");

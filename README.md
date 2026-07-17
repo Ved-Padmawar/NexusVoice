@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.9.1-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.10.0-violet?style=flat-square)
 
 </div>
 
@@ -58,21 +58,24 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 App launch       →  Whisper model loaded and warmed up in the background
 Hotkey held      →  cpal captures mic audio (capture starts before "recording"
                     is reported, so the first words aren't clipped)
-                 →  VAD-gated chunks processed mid-recording (every ~8s)
-                 →  hysteresis-based silence detection splits at real pauses
-                    without cutting words
+                 →  VAD-gated chunks decoded mid-recording (every ~3s), with
+                    hysteresis-based silence detection splitting at real pauses
+                 →  overlapping decodes are stabilised by LocalAgreement-2:
+                    a word is committed once two consecutive passes agree on it
+                    at the same point in the audio
 Hotkey released  →  a brief post-roll captures trailing speech, then only the
-                    final tail segment (~last 6s) is transcribed
-                 →  chunks stitched together with offset-aligned overlap
-                    deduplication (handles boundary words Whisper heard
-                    differently, never drops your words)
+                    unresolved tail is decoded
+                 →  any still-tentative words are committed (nothing more is
+                    coming to confirm them, so the paste stays instant)
                  →  (optional) transcript reformatted by your chosen LLM
                  →  text written to clipboard + Ctrl+V pasted
 ```
 
 For short recordings the pipeline is transparent — everything processes on release as before. For longer recordings latency is significantly reduced since most of the audio is already transcribed by the time you let go of the hotkey. The engine pre-loads at launch so the first transcription is instant.
 
-If **Smart Formatting** is enabled, the stitched transcript is sent to your configured LLM endpoint for cleanup before pasting; otherwise the raw transcript is pasted as-is. If the formatter is unreachable or errors, it transparently falls back to the raw transcript.
+Because agreement is aligned on word timestamps rather than matched as text, a phrase you genuinely said twice survives while a duplicate at a chunk boundary does not.
+
+If **Smart Formatting** is enabled, the transcript is sent to your configured LLM endpoint for cleanup before pasting; otherwise the raw transcript is pasted as-is. If the formatter is unreachable or errors, it transparently falls back to the raw transcript.
 
 ---
 

@@ -153,6 +153,25 @@ jobs:
       - name: Install npm deps
         run: npm ci
 
+      # Gate the release on the same checks run locally. A tag whose code fails
+      # type-check, lint, tests, formatting or Clippy must not publish.
+      - name: Frontend checks (type, lint, unit tests)
+        run: |
+          npm run build
+          npm run lint
+          npm test
+
+      # Release profile so the artifacts match what tauri-action builds with —
+      # the build then reuses them instead of recompiling the dependency tree.
+      # whisper-rs still recompiles once, since the GPU feature is patched in
+      # after this step.
+      - name: Backend checks (format, Clippy, tests)
+        working-directory: src-tauri
+        run: |
+          cargo fmt --check
+          cargo clippy --release --all-targets -- -W clippy::pedantic -D warnings
+          cargo test --release
+
       - name: Set version from tag
         shell: bash
         run: |

@@ -1,19 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
-import { useAppStore } from '../store/useAppStore'
+import { useAppStore } from '../../store/useAppStore'
+import { PAGE_SIZE } from '../../store/transcriptSlice'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }))
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
 const mockInvoke = vi.mocked(invoke)
+
+const page = (start: number, count: number) =>
+  Array.from({ length: count }, (_, i) => ({
+    id: start + i + 1,
+    content: `t${start + i}`,
+    wordCount: 1,
+    durationSeconds: null,
+    createdAt: `2026-01-01T00:00:${String(start + i + 1).padStart(2, '0')}`,
+  }))
 
 beforeEach(() => {
   mockInvoke.mockReset()
   useAppStore.setState({
     user: null,
     transcripts: [],
-    transcriptOffset: 0,
     transcriptHasMore: true,
+    transcriptLoadingMore: false,
     filterFrom: null,
     filterTo: null,
     filterSortAsc: false,
@@ -107,15 +118,10 @@ describe('useAppStore — searchTranscripts', () => {
 })
 
 describe('useAppStore — loadMoreTranscripts', () => {
-  it('appends transcripts and updates offset', async () => {
-    const batch = Array.from({ length: 3 }, (_, i) => ({ id: i + 1, content: `t${i}`, wordCount: 1, durationSeconds: null, createdAt: '' }))
-    mockInvoke.mockImplementation((cmd) => {
-      if (cmd === 'get_transcripts') return Promise.resolve(batch)
-      return Promise.resolve(undefined)
-    })
+  it('appends a short page and marks the end', async () => {
+    mockInvoke.mockImplementation((cmd) => cmd === 'get_transcripts' ? Promise.resolve(page(0, 3)) : Promise.resolve(undefined))
     await useAppStore.getState().loadMoreTranscripts()
     expect(useAppStore.getState().transcripts).toHaveLength(3)
-    expect(useAppStore.getState().transcriptOffset).toBe(3)
     expect(useAppStore.getState().transcriptHasMore).toBe(false)
   })
 
@@ -123,6 +129,67 @@ describe('useAppStore — loadMoreTranscripts', () => {
     useAppStore.setState({ transcriptHasMore: false })
     await useAppStore.getState().loadMoreTranscripts()
     expect(mockInvoke).not.toHaveBeenCalled()
+  })
+
+  it('keeps hasMore true on a full page', async () => {
+    mockInvoke.mockImplementation((cmd) => cmd === 'get_transcripts' ? Promise.resolve(page(0, PAGE_SIZE)) : Promise.resolve(undefined))
+    await useAppStore.getState().loadMoreTranscripts()
+    expect(useAppStore.getState().transcriptHasMore).toBe(true)
+  })
+
+  it('sends the last loaded row as the cursor', async () => {
+    useAppStore.setState({ transcripts: page(0, 3) })
+    mockInvoke.mockImplementation((cmd) => cmd === 'get_transcripts' ? Promise.resolve([]) : Promise.resolve(undefined))
+    await useAppStore.getState().loadMoreTranscripts()
+    expect(mockInvoke).toHaveBeenCalledWith('get_transcripts', {
+      page: expect.objectContaining({ cursorCreatedAt: '2026-01-01T00:00:03', cursorId: 3 }),
+    })
+  })
+
+  it('sends a null cursor when the feed is empty', async () => {
+    mockInvoke.mockImplementation((cmd) => cmd === 'get_transcripts' ? Promise.resolve([]) : Promise.resolve(undefined))
+    await useAppStore.getState().loadMoreTranscripts()
+    expect(mockInvoke).toHaveBeenCalledWith('get_transcripts', {
+      page: expect.objectContaining({ cursorCreatedAt: null, cursorId: null }),
+    })
+  })
+
+  // The stuck-spinner bug: the sentinel refires while visible, so concurrent calls
+  // all fetch the same page and hasMore never settles.
+  it('ignores overlapping calls while a fetch is in flight', async () => {
+    useAppStore.setState({ transcripts: page(0, PAGE_SIZE) })
+    let calls = 0
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd !== 'get_transcripts') return Promise.resolve(undefined)
+      calls++
+      return new Promise(resolve => setTimeout(() => resolve(page(PAGE_SIZE, 5)), 10))
+    })
+
+    await Promise.all([
+      useAppStore.getState().loadMoreTranscripts(),
+      useAppStore.getState().loadMoreTranscripts(),
+      useAppStore.getState().loadMoreTranscripts(),
+    ])
+
+    expect(calls).toBe(1)
+    expect(useAppStore.getState().transcripts).toHaveLength(PAGE_SIZE + 5)
+    expect(useAppStore.getState().transcriptHasMore).toBe(false)
+    expect(useAppStore.getState().transcriptLoadingMore).toBe(false)
+  })
+
+  it('does not append rows already in the feed', async () => {
+    useAppStore.setState({ transcripts: page(0, 3) })
+    mockInvoke.mockImplementation((cmd) => cmd === 'get_transcripts' ? Promise.resolve(page(2, 3)) : Promise.resolve(undefined))
+    await useAppStore.getState().loadMoreTranscripts()
+    const ids = useAppStore.getState().transcripts.map(t => t.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('clears the in-flight flag on failure so the next scroll retries', async () => {
+    mockInvoke.mockRejectedValue({ message: 'boom' })
+    await useAppStore.getState().loadMoreTranscripts()
+    expect(useAppStore.getState().transcriptLoadingMore).toBe(false)
+    expect(useAppStore.getState().transcripts).toHaveLength(0)
   })
 })
 
@@ -174,17 +241,15 @@ describe('useAppStore — deleteDictionaryEntry', () => {
 })
 
 describe('useAppStore — setFilters', () => {
-  it('resets offset and fetches with new filters', async () => {
-    const items = [{ id: 1, content: 'hello', wordCount: 1, durationSeconds: null, createdAt: '2026-01-01' }]
-    mockInvoke.mockImplementation((cmd) => {
-      if (cmd === 'get_transcripts') return Promise.resolve(items)
-      return Promise.resolve(undefined)
-    })
+  it('restarts the feed from a null cursor with new filters', async () => {
+    mockInvoke.mockImplementation((cmd) => cmd === 'get_transcripts' ? Promise.resolve(page(0, 1)) : Promise.resolve(undefined))
     await useAppStore.getState().setFilters('2026-01-01', '2026-01-31', false)
     expect(useAppStore.getState().filterFrom).toBe('2026-01-01')
     expect(useAppStore.getState().filterTo).toBe('2026-01-31')
     expect(useAppStore.getState().transcripts).toHaveLength(1)
-    expect(useAppStore.getState().transcriptOffset).toBe(1)
+    expect(mockInvoke).toHaveBeenCalledWith('get_transcripts', {
+      page: expect.objectContaining({ cursorCreatedAt: null, cursorId: null, from: '2026-01-01' }),
+    })
   })
 
   it('resets filters when called with nulls', async () => {

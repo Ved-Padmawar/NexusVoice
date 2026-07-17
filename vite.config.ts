@@ -27,10 +27,12 @@ export default defineConfig({
       },
     },
   },
+  // Tests live under `src/__tests__/`, organized by domain, mirroring the backend
+  // `src-tauri/tests/unit/`.
   test: {
     globals: true,
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
-    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    include: ["src/__tests__/**/*.{test,spec}.{ts,tsx}"],
   },
 });

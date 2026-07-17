@@ -72,6 +72,9 @@ unsafe fn query_gpus_inner() -> Result<Vec<GpuDescriptor>, String> {
 /// Convert a fixed-size NUL-terminated C char array (Vulkan device name) to a
 /// `String`, stopping at the first NUL.
 fn c_str_to_string(buf: &[std::os::raw::c_char]) -> String {
+    // c_char is i8 here; the bit pattern is the point, and from_utf8_lossy
+    // validates it. Not cast_unsigned() — c_char is unsigned on ARM.
+    #[allow(clippy::cast_sign_loss)]
     let bytes: Vec<u8> = buf
         .iter()
         .take_while(|&&c| c != 0)

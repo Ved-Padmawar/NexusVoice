@@ -3,6 +3,17 @@ use sqlx::SqlitePool;
 use crate::database::dto::transcript::CreateTranscript;
 use crate::database::models::transcript::Transcript;
 
+/// Last row of a page — identifies a row, not an index.
+///
+/// `created_at` must be `SQLite`'s `YYYY-MM-DD HH:MM:SS` text form, which is what
+/// [`TranscriptResponse`](crate::commands::dto::TranscriptResponse) emits, so a
+/// cursor echoed back by the frontend compares lexicographically against the column.
+#[derive(Debug, Clone, Copy)]
+pub struct Cursor<'a> {
+    pub created_at: &'a str,
+    pub id: i64,
+}
+
 #[derive(Clone)]
 pub struct TranscriptRepository {
     pool: SqlitePool,
@@ -46,39 +57,65 @@ impl TranscriptRepository {
         Ok((row.0, row.1, row.2.unwrap_or(0.0)))
     }
 
-    /// Paginated fetch with optional date range and sort order.
-    pub async fn list_paginated(
+    /// Keyset-paginated fetch: returns rows strictly after `cursor`, ordered by the
+    /// `(created_at, id)` tuple. Unlike LIMIT/OFFSET, a cursor names a row, so an
+    /// insert or delete mid-scroll can't shift the window into repeats or skips.
+    pub async fn list_keyset(
         &self,
         limit: i64,
-        offset: i64,
+        cursor: Option<Cursor<'_>>,
         from: Option<&str>,
         to: Option<&str>,
         sort_desc: bool,
     ) -> Result<Vec<Transcript>, sqlx::Error> {
-        let sql = if sort_desc {
-            "SELECT id, content, word_count, duration_seconds, created_at
-             FROM transcripts
-             WHERE (? IS NULL OR created_at >= ?)
-               AND (? IS NULL OR created_at <= ?)
-             ORDER BY created_at DESC
-             LIMIT ? OFFSET ?"
-        } else {
-            "SELECT id, content, word_count, duration_seconds, created_at
-             FROM transcripts
-             WHERE (? IS NULL OR created_at >= ?)
-               AND (? IS NULL OR created_at <= ?)
-             ORDER BY created_at ASC
-             LIMIT ? OFFSET ?"
+        // Tuple comparison spelled out rather than a row value: past created_at, or
+        // the same second with an id past the cursor's.
+        let sql = match (sort_desc, cursor.is_some()) {
+            (true, true) => {
+                "SELECT id, content, word_count, duration_seconds, created_at
+                 FROM transcripts
+                 WHERE (? IS NULL OR created_at >= ?)
+                   AND (? IS NULL OR created_at <= ?)
+                   AND (created_at < ? OR (created_at = ? AND id < ?))
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT ?"
+            }
+            (false, true) => {
+                "SELECT id, content, word_count, duration_seconds, created_at
+                 FROM transcripts
+                 WHERE (? IS NULL OR created_at >= ?)
+                   AND (? IS NULL OR created_at <= ?)
+                   AND (created_at > ? OR (created_at = ? AND id > ?))
+                 ORDER BY created_at ASC, id ASC
+                 LIMIT ?"
+            }
+            (true, false) => {
+                "SELECT id, content, word_count, duration_seconds, created_at
+                 FROM transcripts
+                 WHERE (? IS NULL OR created_at >= ?)
+                   AND (? IS NULL OR created_at <= ?)
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT ?"
+            }
+            (false, false) => {
+                "SELECT id, content, word_count, duration_seconds, created_at
+                 FROM transcripts
+                 WHERE (? IS NULL OR created_at >= ?)
+                   AND (? IS NULL OR created_at <= ?)
+                 ORDER BY created_at ASC, id ASC
+                 LIMIT ?"
+            }
         };
-        sqlx::query_as::<_, Transcript>(sql)
+
+        let mut q = sqlx::query_as::<_, Transcript>(sql)
             .bind(from)
             .bind(from)
             .bind(to)
-            .bind(to)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
-            .await
+            .bind(to);
+        if let Some(c) = cursor {
+            q = q.bind(c.created_at).bind(c.created_at).bind(c.id);
+        }
+        q.bind(limit).fetch_all(&self.pool).await
     }
 
     pub async fn delete_by_id(&self, id: i64) -> Result<bool, sqlx::Error> {
@@ -152,43 +189,76 @@ impl TranscriptRepository {
     }
 
     /// FTS5 search with optional date range and sort order.
+    ///
+    /// Results are ordered by date (not BM25 rank), so the same `(created_at, id)`
+    /// cursor as `list_keyset` applies.
     pub async fn search(
         &self,
         query: &str,
         limit: i64,
-        offset: i64,
+        cursor: Option<Cursor<'_>>,
         from: Option<&str>,
         to: Option<&str>,
         sort_desc: bool,
     ) -> Result<Vec<Transcript>, sqlx::Error> {
-        let sql = if sort_desc {
-            "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.created_at
-             FROM transcripts_fts
-             JOIN transcripts t ON transcripts_fts.rowid = t.id
-             WHERE transcripts_fts MATCH ?
-               AND (? IS NULL OR t.created_at >= ?)
-               AND (? IS NULL OR t.created_at <= ?)
-             ORDER BY t.created_at DESC
-             LIMIT ? OFFSET ?"
-        } else {
-            "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.created_at
-             FROM transcripts_fts
-             JOIN transcripts t ON transcripts_fts.rowid = t.id
-             WHERE transcripts_fts MATCH ?
-               AND (? IS NULL OR t.created_at >= ?)
-               AND (? IS NULL OR t.created_at <= ?)
-             ORDER BY t.created_at ASC
-             LIMIT ? OFFSET ?"
+        let sql = match (sort_desc, cursor.is_some()) {
+            (true, true) => {
+                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.created_at
+                 FROM transcripts_fts
+                 JOIN transcripts t ON transcripts_fts.rowid = t.id
+                 WHERE transcripts_fts MATCH ?
+                   AND (? IS NULL OR t.created_at >= ?)
+                   AND (? IS NULL OR t.created_at <= ?)
+                   AND (t.created_at < ? OR (t.created_at = ? AND t.id < ?))
+                 ORDER BY t.created_at DESC, t.id DESC
+                 LIMIT ?"
+            }
+            (false, true) => {
+                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.created_at
+                 FROM transcripts_fts
+                 JOIN transcripts t ON transcripts_fts.rowid = t.id
+                 WHERE transcripts_fts MATCH ?
+                   AND (? IS NULL OR t.created_at >= ?)
+                   AND (? IS NULL OR t.created_at <= ?)
+                   AND (t.created_at > ? OR (t.created_at = ? AND t.id > ?))
+                 ORDER BY t.created_at ASC, t.id ASC
+                 LIMIT ?"
+            }
+            (true, false) => {
+                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.created_at
+                 FROM transcripts_fts
+                 JOIN transcripts t ON transcripts_fts.rowid = t.id
+                 WHERE transcripts_fts MATCH ?
+                   AND (? IS NULL OR t.created_at >= ?)
+                   AND (? IS NULL OR t.created_at <= ?)
+                 ORDER BY t.created_at DESC, t.id DESC
+                 LIMIT ?"
+            }
+            (false, false) => {
+                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.created_at
+                 FROM transcripts_fts
+                 JOIN transcripts t ON transcripts_fts.rowid = t.id
+                 WHERE transcripts_fts MATCH ?
+                   AND (? IS NULL OR t.created_at >= ?)
+                   AND (? IS NULL OR t.created_at <= ?)
+                 ORDER BY t.created_at ASC, t.id ASC
+                 LIMIT ?"
+            }
         };
-        sqlx::query_as::<_, Transcript>(sql)
+
+        let mut q = sqlx::query_as::<_, Transcript>(sql)
             .bind(query)
             .bind(from)
             .bind(from)
             .bind(to)
-            .bind(to)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
-            .await
+            .bind(to);
+        if let Some(c) = cursor {
+            q = q.bind(c.created_at).bind(c.created_at).bind(c.id);
+        }
+        q.bind(limit).fetch_all(&self.pool).await
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/database/repositories/transcript.rs"]
+mod tests;

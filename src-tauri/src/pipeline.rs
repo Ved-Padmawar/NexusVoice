@@ -1,35 +1,31 @@
 //! Streaming transcription pipeline.
 //!
-//! While the user holds the hotkey, audio accumulates in the shared buffer.
-//! A background poller calls `try_commit_chunk` every ~2 s. When ≥ `CHUNK_SECS`
-//! of new audio has accumulated *and* a VAD silence boundary is found near the
-//! target split point, that chunk is preprocessed and transcribed immediately.
+//! While the user holds the hotkey, audio accumulates in the shared buffer and a
+//! poller decodes bounded windows of it. Each decode is folded into a
+//! `Stabilizer`, which confirms only words two consecutive hypotheses agree on.
 //!
-//! On hotkey release, `finalize` preprocesses + transcribes only the tail
-//! (audio since the last committed chunk), then stitches everything together.
-//! Because most of the work was done mid-recording, finalize returns quickly.
+//! On release, `finalize` decodes just the unresolved tail and commits whatever is
+//! still tentative — most of the work is already done, so it returns quickly.
 
 use std::sync::{Arc, Mutex};
 
 use crate::inference::WhisperEngine;
-use crate::preprocess::stitcher::stitch_transcripts;
+use crate::preprocess::agreement::Stabilizer;
 
-// Native-rate samples — all thresholds are in raw samples at whatever rate the
-// mic reports. We convert to seconds using the captured sample rate.
+// All sample thresholds are at the mic's native rate, converted using the captured
+// sample rate.
 
-/// Target chunk size in seconds. We look for a VAD silence boundary near here.
-const CHUNK_SECS: f64 = 8.0;
+/// Target chunk size in seconds — whisper.cpp's `step_ms` default. At 8s chunks
+/// were near-disjoint, so agreement rarely had a second opinion to compare.
+const CHUNK_SECS: f64 = 3.0;
 /// Minimum seconds of new audio before we bother checking for a split.
-const MIN_NEW_SECS: f64 = 6.0;
-/// Overlap in seconds added to the start of each chunk from the end of the
-/// previous one — gives the stitcher word-level context to deduplicate.
-/// ~1.5 s spans several words, so the stitcher can still find a common run
-/// when Whisper transcribes the boundary word differently in the two chunks
-/// (0.4 s was ~one word and caused boundary duplications/drops).
+const MIN_NEW_SECS: f64 = 2.0;
+/// Audio re-decoded from before the cursor. Overlapping decodes are what give
+/// `LocalAgreement` a second opinion on the same words.
 const OVERLAP_SECS: f64 = 1.5;
-/// Max words from already-transcribed chunks fed back as Whisper's
-/// `initial_prompt` for the next chunk — gives the decoder real continuity
-/// (casing, sentence state, vocabulary) within the current session.
+/// Max confirmed words fed back as Whisper's `initial_prompt` — continuity of
+/// casing, sentence state and vocabulary. Only text whose audio has left the
+/// window qualifies; see `Stabilizer::prompt_before`.
 const PROMPT_TAIL_WORDS: usize = 30;
 /// VAD frame size at 16 kHz (Silero V5 constraint).
 const VAD_CHUNK_16K: usize = 512;
@@ -49,34 +45,26 @@ const VAD_PAD_FRAMES: usize = 1;
 pub struct StreamingPipeline {
     /// How many raw (native-rate) samples we have already committed to inference.
     committed_cursor: usize,
-    /// Transcribed text from each committed chunk, in order.
-    completed_texts: Vec<String>,
+    /// Confirmed/tentative word buffers, fed by each decode.
+    stabilizer: Stabilizer,
 }
 
 impl StreamingPipeline {
     pub const fn new() -> Self {
         Self {
             committed_cursor: 0,
-            completed_texts: Vec::new(),
+            stabilizer: Stabilizer::new(),
         }
     }
 
-    /// Whisper `initial_prompt` for the next chunk: the tail of what this
-    /// session has already transcribed. Empty for the first chunk — priming
-    /// with anything else (old transcripts, dictionary terms) biases the
-    /// decoder and invites hallucination loops.
-    fn context_prompt(&self) -> String {
-        let words: Vec<&str> = self
-            .completed_texts
-            .iter()
-            .flat_map(|t| t.split_whitespace())
-            .collect();
-        let start = words.len().saturating_sub(PROMPT_TAIL_WORDS);
-        words[start..].join(" ")
+    /// Convert a native-rate sample index to milliseconds on the session clock.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    fn samples_to_ms(samples: usize, native_rate: u32) -> i64 {
+        (samples as f64 / f64::from(native_rate) * 1000.0) as i64
     }
 
     /// First buffer index the poller needs to snapshot: the committed cursor
-    /// minus the stitch overlap. Lets the poller copy only the uncommitted
+    /// minus the decode overlap. Lets the poller copy only the uncommitted
     /// tail instead of cloning the whole recording.
     pub fn snapshot_start(&self, native_rate: u32) -> usize {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -152,21 +140,27 @@ impl StreamingPipeline {
             return false;
         }
 
-        // Whisper input: speech-splice + normalize only the audio up to the split.
-        let inference_input = crate::preprocess::splice_normalize(
-            &denoised_16k[..split_16k.min(denoised_16k.len())],
-        );
+        // Unspliced: VAD splicing shortens silence, so word timestamps would no
+        // longer map to the session clock the stabilizer aligns on. Level the audio
+        // for whisper's mel extraction without touching the timeline.
+        let inference_input =
+            crate::preprocess::normalize_level(&denoised_16k[..split_16k.min(denoised_16k.len())]);
         if inference_input.is_empty() {
-            // Nothing speech-like before the split (e.g. pure silence) — still
-            // advance the cursor so silence doesn't get re-scanned every tick.
             self.committed_cursor = chunk_end_abs;
             return false;
         }
 
-        let prompt = self.context_prompt();
-        let text = if let Ok(guard) = engine.lock() {
-            match guard.transcribe(&inference_input, &prompt, beam_size) {
-                Ok(t) => t,
+        // The window starts at the overlap, not the cursor — words are timestamped
+        // from there.
+        let window_start_abs = tail_start + chunk_start_rel;
+        let window_offset_ms = Self::samples_to_ms(window_start_abs, native_rate);
+        let prompt = self
+            .stabilizer
+            .prompt_before(window_offset_ms, PROMPT_TAIL_WORDS);
+
+        let hypothesis = if let Ok(guard) = engine.lock() {
+            match guard.transcribe_words(&inference_input, &prompt, beam_size, window_offset_ms) {
+                Ok(h) => h,
                 Err(e) => {
                     log::warn!("streaming chunk inference failed: {e}");
                     return false;
@@ -177,18 +171,16 @@ impl StreamingPipeline {
             return false;
         };
 
-        log::debug!("streaming chunk committed: {} chars", text.len());
-
-        if !text.is_empty() {
-            self.completed_texts.push(text);
-        }
+        log::debug!("streaming chunk: {} words", hypothesis.words.len());
+        self.stabilizer.observe(&hypothesis, window_offset_ms);
 
         self.committed_cursor = chunk_end_abs;
         true
     }
 
-    /// Called once after the capture thread stops. Preprocesses + transcribes
-    /// the remaining tail audio, stitches all chunks, and returns the final text.
+    /// Called once after the capture thread stops. Decodes the unresolved tail,
+    /// then commits every tentative word — nothing further will arrive to confirm
+    /// them, and waiting for agreement would drop the end of the dictation.
     pub fn finalize(
         mut self,
         buffer: &[f32],
@@ -197,35 +189,37 @@ impl StreamingPipeline {
         beam_size: i32,
     ) -> String {
         if native_rate == 0 || buffer.is_empty() {
-            return stitch_transcripts(&self.completed_texts);
+            return self.stabilizer.finish();
         }
 
         let tail_start = self.snapshot_start(native_rate);
 
         if tail_start < buffer.len() {
             let tail = &buffer[tail_start..];
-            let resampled = crate::preprocess::preprocess(tail, native_rate);
+            let denoised = crate::preprocess::to_16k_denoised(tail, native_rate);
+            let leveled = crate::preprocess::normalize_level(&denoised);
 
-            if !resampled.is_empty() {
-                let prompt = self.context_prompt();
-                let text = engine.lock().map_or_else(
+            if !leveled.is_empty() {
+                let window_offset_ms = Self::samples_to_ms(tail_start, native_rate);
+                let prompt = self
+                    .stabilizer
+                    .prompt_before(window_offset_ms, PROMPT_TAIL_WORDS);
+                let hypothesis = engine.lock().map_or_else(
                     |_| {
                         log::error!("WhisperEngine mutex poisoned during finalize");
-                        String::new()
+                        crate::inference::Hypothesis::default()
                     },
                     |guard| {
                         guard
-                            .transcribe(&resampled, &prompt, beam_size)
+                            .transcribe_words(&leveled, &prompt, beam_size, window_offset_ms)
                             .unwrap_or_default()
                     },
                 );
-                if !text.is_empty() {
-                    self.completed_texts.push(text);
-                }
+                self.stabilizer.observe(&hypothesis, window_offset_ms);
             }
         }
 
-        stitch_transcripts(&self.completed_texts)
+        self.stabilizer.finish()
     }
 }
 
@@ -261,7 +255,12 @@ fn find_vad_split(samples: &[f32]) -> usize {
     }
 
     // Search only the last 4 s worth of frames — we want a split near the end.
-    let search_frames = (4 * 16_000 / VAD_CHUNK_16K).min(n);
+    // Search the last half of the chunk — a wider window could split behind the
+    // cursor, into audio already committed.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let search_secs = CHUNK_SECS / 2.0;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let search_frames = ((search_secs * 16_000.0) as usize / VAD_CHUNK_16K).min(n);
     let search_start = n.saturating_sub(search_frames);
 
     // Hysteresis state machine: collect silence regions as [start, end) frame

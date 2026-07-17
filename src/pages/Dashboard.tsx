@@ -257,23 +257,31 @@ export function Dashboard() {
   const {
     transcripts, transcriptHasMore, searchResults, isSearching, stats, hasHotkey,
     transcriptsStatus, transcriptsError, statsStatus, statsError,
-    loadStats, retryTranscripts, loadMoreTranscripts, searchTranscripts, deleteTranscript,
+    loadStats, retryTranscripts, searchTranscripts, deleteTranscript,
   } = useAppStore()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
-  const sentinelRef = useRef<HTMLDivElement>(null)
+  const observerRef = useRef<IntersectionObserver | null>(null)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Infinite scroll via IntersectionObserver
-  useEffect(() => {
-    if (!sentinelRef.current) return
-    const observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) loadMoreTranscripts() },
+  const isSearchMode = query.trim().length > 0
+  const displayItems = isSearchMode ? searchResults : transcripts
+
+  // A ref callback, not an effect: the sentinel mounts only after the feed's
+  // skeleton is replaced, which changes no effect dependency — an effect would
+  // read a null ref and never re-run. Reads the action off the store at fire time
+  // so the observer isn't rebuilt on every store update.
+  const sentinelRef = useCallback((node: HTMLDivElement | null) => {
+    observerRef.current?.disconnect()
+    if (!node) return
+    observerRef.current = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) void useAppStore.getState().loadMoreTranscripts() },
       { threshold: 0.1 }
     )
-    observer.observe(sentinelRef.current)
-    return () => observer.disconnect()
-  }, [loadMoreTranscripts])
+    observerRef.current.observe(node)
+  }, [])
+
+  useEffect(() => () => observerRef.current?.disconnect(), [])
 
   // Clear search timer on unmount to prevent state updates on unmounted component
   useEffect(() => () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }, [])
@@ -284,9 +292,6 @@ export function Dashboard() {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     searchTimerRef.current = setTimeout(() => searchTranscripts(value), 300)
   }, [searchTranscripts])
-
-  const isSearchMode = query.trim().length > 0
-  const displayItems = isSearchMode ? searchResults : transcripts
 
   return (
     <div className="flex flex-col h-full overflow-hidden px-8 pt-7 pb-4 gap-7">

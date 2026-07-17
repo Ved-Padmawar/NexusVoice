@@ -340,7 +340,6 @@ fn main() {
                             .and_then(tauri::WebviewWindowBuilder::build)
                         {
                             Ok(pill) => {
-
                                 // Position: centered horizontally, near bottom of primary monitor
                                 if let Some(monitor) = pill.primary_monitor().ok().flatten() {
                                     let screen = monitor.size();

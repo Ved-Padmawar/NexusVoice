@@ -3,6 +3,7 @@ use std::path::Path;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 use crate::inference::provider::{detect_backend, select_model_size, Backend, ModelSize};
+use crate::inference::transcript::{Hypothesis, Word};
 
 pub struct WhisperEngine {
     ctx: WhisperContext,
@@ -56,7 +57,7 @@ impl WhisperEngine {
         Ok(engine)
     }
 
-    /// Transcribe 16 kHz mono f32 samples. `prompt` biases recognition.
+    /// Transcribe 16 kHz mono f32 samples, returning plain text.
     /// `beam_size` controls the quality/speed tradeoff: 2=Fast, 5=Balanced, 8=Accurate.
     pub fn transcribe(
         &self,
@@ -64,6 +65,21 @@ impl WhisperEngine {
         prompt: &str,
         beam_size: i32,
     ) -> Result<String, String> {
+        Ok(self
+            .transcribe_words(samples_16k, prompt, beam_size, 0)?
+            .text())
+    }
+
+    /// Transcribe with per-word timestamps. `window_offset_ms` shifts Whisper's
+    /// window-relative times onto the session clock, so words from different
+    /// windows are comparable.
+    pub fn transcribe_words(
+        &self,
+        samples_16k: &[f32],
+        prompt: &str,
+        beam_size: i32,
+        window_offset_ms: i64,
+    ) -> Result<Hypothesis, String> {
         // whisper.cpp requires at least 1 second of audio at 16 kHz
         const MIN_SAMPLES: usize = 16_000;
         let padded;
@@ -79,10 +95,8 @@ impl WhisperEngine {
         };
         #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
         // clamp(1,4) guarantees the value fits i32 on any platform
-        let n_threads = (std::thread::available_parallelism()
-            .map_or(4, std::num::NonZero::get)
-            / 2)
-        .clamp(1, 4) as i32;
+        let n_threads = (std::thread::available_parallelism().map_or(4, std::num::NonZero::get) / 2)
+            .clamp(1, 4) as i32;
 
         let beam_size = beam_size.clamp(1, 8);
         let mut params = FullParams::new(SamplingStrategy::BeamSearch {
@@ -113,6 +127,8 @@ impl WhisperEngine {
         params.set_temperature_inc(0.2);
         params.set_logprob_thold(-1.0);
         params.set_suppress_blank(true);
+        // Per-token t0/t1 — the timing LocalAgreement and prompt scoping rely on.
+        params.set_token_timestamps(true);
         if !prompt.is_empty() {
             params.set_initial_prompt(prompt);
         }
@@ -128,33 +144,79 @@ impl WhisperEngine {
 
         let n = state.full_n_segments();
 
-        let mut text = String::new();
+        let mut words: Vec<Word> = Vec::new();
         for i in 0..n {
-            if let Some(seg) = state.get_segment(i) {
-                // Drop segments whisper flagged as silence/noise
-                if seg.no_speech_probability() > 0.6 {
+            let Some(seg) = state.get_segment(i) else {
+                continue;
+            };
+            // Drop segments whisper flagged as silence/noise
+            if seg.no_speech_probability() > 0.6 {
+                continue;
+            }
+            // Music-note segments are sung/noise content — drop whole segment
+            if seg.to_str_lossy().is_ok_and(|s| s.contains('♪')) {
+                continue;
+            }
+
+            for t in 0..seg.n_tokens() {
+                let Some(token) = seg.get_token(t) else {
+                    continue;
+                };
+                let Ok(raw) = token.to_str_lossy() else {
+                    continue;
+                };
+                // Special tokens (<|endoftext|>, timestamps) carry no text.
+                if raw.starts_with("[_") || raw.starts_with("<|") {
                     continue;
                 }
-                if let Ok(s) = seg.to_str_lossy() {
-                    // Music-note segments are sung/noise content — drop whole segment
-                    if s.contains('♪') {
-                        continue;
-                    }
-                    // Strip hallucination tokens — Whisper emits these on
-                    // silence/noise, sometimes embedded inside a real segment
-                    // ("[BLANK_AUDIO] so anyway…"), so removal must be
-                    // substring-based, not whole-segment matching.
-                    let cleaned = strip_hallucination_tokens(&s);
-                    if cleaned.trim().is_empty() {
-                        continue;
-                    }
-                    text.push_str(&cleaned);
+                // Strip hallucination tokens — Whisper emits these on silence/noise,
+                // sometimes embedded in a real segment ("[BLANK_AUDIO] so anyway…").
+                let cleaned = strip_hallucination_tokens(&raw);
+                if cleaned.trim().is_empty() {
+                    continue;
                 }
+
+                let data = token.token_data();
+                words.push(Word {
+                    text: cleaned,
+                    start_ms: window_offset_ms + centis_to_ms(data.t0),
+                    end_ms: window_offset_ms + centis_to_ms(data.t1),
+                    probability: token.token_probability(),
+                });
             }
         }
 
-        Ok(text.trim().to_string())
+        Ok(Hypothesis {
+            words: merge_subword_tokens(words),
+        })
     }
+}
+
+/// Whisper reports token times in centiseconds.
+const fn centis_to_ms(centis: i64) -> i64 {
+    centis * 10
+}
+
+/// Fold BPE fragments into words: "unbelievable" arrives as " unbe" + "lie" +
+/// "vable", and only a leading space marks a new word.
+fn merge_subword_tokens(tokens: Vec<Word>) -> Vec<Word> {
+    let mut out: Vec<Word> = Vec::with_capacity(tokens.len());
+    for tok in tokens {
+        let starts_word = tok.text.starts_with(' ') || out.is_empty();
+        if starts_word {
+            out.push(tok);
+        } else if let Some(prev) = out.last_mut() {
+            prev.text.push_str(&tok.text);
+            prev.end_ms = tok.end_ms;
+            // A word is only as sound as its least certain fragment.
+            prev.probability = prev.probability.min(tok.probability);
+        }
+    }
+    for w in &mut out {
+        w.text = w.text.trim().to_string();
+    }
+    out.retain(|w| !w.text.is_empty());
+    out
 }
 
 /// Remove Whisper's silence/noise hallucination tokens wherever they appear
@@ -184,35 +246,5 @@ fn strip_hallucination_tokens(segment: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::strip_hallucination_tokens;
-
-    #[test]
-    fn strips_embedded_blank_audio_token() {
-        assert_eq!(
-            strip_hallucination_tokens("[Blank_Audio] so anyway we continue"),
-            " so anyway we continue"
-        );
-    }
-
-    #[test]
-    fn strips_token_only_segment_to_empty() {
-        assert!(strip_hallucination_tokens(" [BLANK_AUDIO] ")
-            .trim()
-            .is_empty());
-    }
-
-    #[test]
-    fn strips_multiple_tokens_and_collapses_spaces() {
-        assert_eq!(
-            strip_hallucination_tokens("hello [noise] world [SILENCE]"),
-            "hello world "
-        );
-    }
-
-    #[test]
-    fn leaves_normal_text_untouched() {
-        let s = "the audio was blank but fine";
-        assert_eq!(strip_hallucination_tokens(s), s);
-    }
-}
+#[path = "../../tests/unit/inference/engine.rs"]
+mod tests;

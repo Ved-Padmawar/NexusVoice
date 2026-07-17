@@ -1,11 +1,12 @@
 //! Data commands: transcripts, usage stats, and dictionary CRUD.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::database::dto::{dictionary::CreateDictionaryEntry, transcript::CreateTranscript};
 use crate::database::repositories::{
-    dictionary::DictionaryRepository, transcript::TranscriptRepository,
+    dictionary::DictionaryRepository,
+    transcript::{Cursor, TranscriptRepository},
 };
 use crate::postprocess::DictionaryCorrectionEngine;
 use crate::state::AppState;
@@ -45,23 +46,55 @@ pub async fn get_usage_stats(state: State<'_, AppState>) -> Result<UsageStatsRes
     })
 }
 
-#[tauri::command]
-pub async fn get_transcripts(
-    state: State<'_, AppState>,
+const MAX_PAGE_SIZE: i64 = 200;
+const DEFAULT_PAGE_SIZE: i64 = 50;
+
+/// Pagination, cursor and filter args shared by the transcript list and search.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageQuery {
     limit: Option<i64>,
-    offset: Option<i64>,
+    cursor_created_at: Option<String>,
+    cursor_id: Option<i64>,
     from: Option<String>,
     to: Option<String>,
     sort_asc: Option<bool>,
+}
+
+impl PageQuery {
+    /// Clamped so a client can't pull the whole table into memory.
+    fn limit(&self) -> i64 {
+        self.limit
+            .unwrap_or(DEFAULT_PAGE_SIZE)
+            .clamp(1, MAX_PAGE_SIZE)
+    }
+
+    /// Both halves must be present; either alone is a client bug — treat as none.
+    fn cursor(&self) -> Option<Cursor<'_>> {
+        match (self.cursor_created_at.as_deref(), self.cursor_id) {
+            (Some(created_at), Some(id)) => Some(Cursor { created_at, id }),
+            _ => None,
+        }
+    }
+
+    fn sort_desc(&self) -> bool {
+        !self.sort_asc.unwrap_or(false)
+    }
+}
+
+#[tauri::command]
+pub async fn get_transcripts(
+    state: State<'_, AppState>,
+    page: PageQuery,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
     let repo = TranscriptRepository::new(state.db().await.clone());
     let items = repo
-        .list_paginated(
-            limit.unwrap_or(50),
-            offset.unwrap_or(0),
-            from.as_deref(),
-            to.as_deref(),
-            !sort_asc.unwrap_or(false),
+        .list_keyset(
+            page.limit(),
+            page.cursor(),
+            page.from.as_deref(),
+            page.to.as_deref(),
+            page.sort_desc(),
         )
         .await?;
     Ok(items.into_iter().map(TranscriptResponse::from).collect())
@@ -80,11 +113,7 @@ pub async fn export_transcripts(
 pub async fn search_transcripts(
     state: State<'_, AppState>,
     query: String,
-    limit: Option<i64>,
-    offset: Option<i64>,
-    from: Option<String>,
-    to: Option<String>,
-    sort_asc: Option<bool>,
+    page: PageQuery,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
     if query.trim().is_empty() {
         return Ok(vec![]);
@@ -115,11 +144,11 @@ pub async fn search_transcripts(
     let items = repo
         .search(
             &fts_query,
-            limit.unwrap_or(50),
-            offset.unwrap_or(0),
-            from.as_deref(),
-            to.as_deref(),
-            !sort_asc.unwrap_or(false),
+            page.limit(),
+            page.cursor(),
+            page.from.as_deref(),
+            page.to.as_deref(),
+            page.sort_desc(),
         )
         .await?;
     Ok(items.into_iter().map(TranscriptResponse::from).collect())

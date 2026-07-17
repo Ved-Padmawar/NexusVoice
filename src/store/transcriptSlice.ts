@@ -7,10 +7,20 @@ import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
 import type { AsyncStatus } from './asyncStatus'
 
+/// A full page implies more may exist; a short page is the last.
+export const PAGE_SIZE = 50
+
+/// Keyset cursor: resume strictly after the last loaded row. Stable across inserts
+/// and deletes, which offsets are not.
+const cursorOf = (rows: Transcript[]) => {
+  const last = rows.at(-1)
+  return last ? { cursorCreatedAt: last.createdAt, cursorId: last.id } : { cursorCreatedAt: null, cursorId: null }
+}
+
 export type TranscriptSlice = {
   transcripts: Transcript[]
-  transcriptOffset: number
   transcriptHasMore: boolean
+  transcriptLoadingMore: boolean
   transcriptsStatus: AsyncStatus
   transcriptsError: string | null
   filterFrom: string | null
@@ -34,8 +44,8 @@ export type TranscriptSlice = {
 
 export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSlice> = (set, get) => ({
   transcripts: [],
-  transcriptOffset: 0,
   transcriptHasMore: true,
+  transcriptLoadingMore: false,
   transcriptsStatus: 'idle',
   transcriptsError: null,
   filterFrom: null,
@@ -53,8 +63,8 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     set({
       transcriptsStatus: 'loading',
       transcriptsError: null,
-      transcriptOffset: 0,
       transcriptHasMore: true,
+      transcriptLoadingMore: false,
       filterFrom: null,
       filterTo: null,
       filterSortAsc: false,
@@ -63,12 +73,11 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     })
     try {
       const transcripts = z.array(TranscriptSchema).parse(
-        await invoke<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: 0, from: null, to: null, sortAsc: false })
+        await invoke<unknown>(COMMANDS.GET_TRANSCRIPTS, { page: { limit: PAGE_SIZE, cursorCreatedAt: null, cursorId: null, from: null, to: null, sortAsc: false } })
       )
       set({
         transcripts,
-        transcriptOffset: transcripts.length,
-        transcriptHasMore: transcripts.length === 50,
+        transcriptHasMore: transcripts.length === PAGE_SIZE,
         transcriptsStatus: 'success',
       })
     } catch (e) {
@@ -90,12 +99,12 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
   },
 
   setFilters: async (from, to, sortAsc) => {
-    set({ filterFrom: from, filterTo: to, filterSortAsc: sortAsc, transcriptOffset: 0, transcriptHasMore: true, transcripts: [], transcriptsStatus: 'loading', transcriptsError: null })
+    set({ filterFrom: from, filterTo: to, filterSortAsc: sortAsc, transcriptHasMore: true, transcriptLoadingMore: false, transcripts: [], transcriptsStatus: 'loading', transcriptsError: null })
     try {
       const items = z.array(TranscriptSchema).parse(
-        await invoke<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: 0, from, to, sortAsc })
+        await invoke<unknown>(COMMANDS.GET_TRANSCRIPTS, { page: { limit: PAGE_SIZE, cursorCreatedAt: null, cursorId: null, from, to, sortAsc } })
       )
-      set({ transcripts: items, transcriptOffset: items.length, transcriptHasMore: items.length === 50, transcriptsStatus: 'success' })
+      set({ transcripts: items, transcriptHasMore: items.length === PAGE_SIZE, transcriptsStatus: 'success' })
     } catch (e) {
       set({ transcriptsStatus: 'error', transcriptsError: e instanceof Error ? e.message : 'Failed to load transcripts' })
     }
@@ -105,20 +114,26 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     }
   },
 
+  // The scroll sentinel refires while visible, so admit one fetch at a time.
   loadMoreTranscripts: async () => {
-    const { transcriptOffset, transcriptHasMore, transcripts, filterFrom, filterTo, filterSortAsc } = get()
-    if (!transcriptHasMore) return
+    const { transcripts, transcriptHasMore, transcriptLoadingMore, filterFrom, filterTo, filterSortAsc } = get()
+    if (!transcriptHasMore || transcriptLoadingMore) return
+    set({ transcriptLoadingMore: true })
     try {
       const more = z.array(TranscriptSchema).parse(
-        await invoke<unknown>(COMMANDS.GET_TRANSCRIPTS, { limit: 50, offset: transcriptOffset, from: filterFrom, to: filterTo, sortAsc: filterSortAsc })
+        await invoke<unknown>(COMMANDS.GET_TRANSCRIPTS, { page: { limit: PAGE_SIZE, ...cursorOf(transcripts), from: filterFrom, to: filterTo, sortAsc: filterSortAsc } })
       )
-      set({
-        transcripts: [...transcripts, ...more],
-        transcriptOffset: transcriptOffset + more.length,
-        transcriptHasMore: more.length === 50,
+      set((state) => {
+        const seen = new Set(state.transcripts.map(t => t.id))
+        return {
+          transcripts: [...state.transcripts, ...more.filter(t => !seen.has(t.id))],
+          transcriptHasMore: more.length === PAGE_SIZE,
+          transcriptLoadingMore: false,
+        }
       })
     } catch (e) {
-      // Pagination append: don't wipe the loaded feed — surface a transient error.
+      // Don't wipe the loaded feed — surface a transient error.
+      set({ transcriptLoadingMore: false })
       toast.error(e instanceof Error ? e.message : 'Failed to load more transcripts')
     }
   },
@@ -133,7 +148,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     const { filterFrom, filterTo, filterSortAsc } = get()
     try {
       const results = z.array(TranscriptSchema).parse(
-        await invoke<unknown>(COMMANDS.SEARCH_TRANSCRIPTS, { query, limit: 50, offset: 0, from: filterFrom, to: filterTo, sortAsc: filterSortAsc })
+        await invoke<unknown>(COMMANDS.SEARCH_TRANSCRIPTS, { query, page: { limit: PAGE_SIZE, cursorCreatedAt: null, cursorId: null, from: filterFrom, to: filterTo, sortAsc: filterSortAsc } })
       )
       set({ searchResults: results, transcriptsStatus: 'success' })
     } catch (e) {
@@ -169,7 +184,6 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     set((state) => ({
       transcripts: state.transcripts.filter(t => t.id !== id),
       searchResults: state.searchResults.filter(t => t.id !== id),
-      transcriptOffset: Math.max(0, state.transcriptOffset - 1),
     }))
     try {
       await invoke<boolean>(COMMANDS.DELETE_TRANSCRIPT, { id })

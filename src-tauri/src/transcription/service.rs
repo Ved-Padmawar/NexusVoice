@@ -17,9 +17,9 @@ use crate::state::{AppState, DictCache};
 
 /// Spawn the microphone capture thread and the mid-recording chunk poller.
 ///
-/// Capture runs on a dedicated OS thread (cpal stream); the poller wakes every
-/// 2 s and commits a pipeline chunk if enough audio has accumulated, so most of
-/// the transcription work is done before the user releases the hotkey.
+/// Capture runs on a dedicated OS thread (cpal stream); the poller commits a
+/// pipeline chunk once enough audio has accumulated, so most of the transcription
+/// work is done before the user releases the hotkey.
 pub fn start_capture(app: &AppHandle, state: &AppState) {
     let running = Arc::clone(&state.transcription_running);
     let paused = Arc::clone(&state.capture_paused);
@@ -85,10 +85,13 @@ fn spawn_waveform_emitter(app: &AppHandle, state: &AppState) {
     });
 }
 
-/// Background poller that fires pipeline chunks while recording. Wakes every 2 s,
-/// snapshots the uncommitted tail of the audio buffer, and transcribes the next
-/// chunk if the engine is loaded — so finalize only needs to process the tail.
+/// Background poller that fires pipeline chunks while recording: snapshots the
+/// uncommitted tail of the audio buffer and decodes the next chunk if the engine
+/// is loaded, so finalize only needs to process the remaining tail.
 fn spawn_chunk_poller(state: &AppState) {
+    // Poll faster than CHUNK_SECS so a ready chunk isn't left waiting for the tick.
+    const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(750);
+
     let running = Arc::clone(&state.transcription_running);
     let audio_buffer = Arc::clone(&state.audio_buffer);
     let native_rate_arc = Arc::clone(&state.native_sample_rate);
@@ -98,7 +101,7 @@ fn spawn_chunk_poller(state: &AppState) {
 
     tauri::async_runtime::spawn(async move {
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            tokio::time::sleep(POLL_INTERVAL).await;
 
             if !running.load(Ordering::SeqCst) {
                 break;
@@ -195,12 +198,12 @@ pub struct FinalizeContext {
     pub captured_rate: u32,
     pub beam_size: i32,
     pub duration_seconds: Option<f64>,
-    /// Formatter config to apply after stitching. `None` when formatting is
+    /// Formatter config to apply to the final transcript. `None` when formatting is
     /// disabled or unconfigured — the raw transcript is then used unchanged.
     pub format: Option<FormatConfig>,
 }
 
-/// Spawn the finalize task: stitch the transcript, optionally LLM-format it,
+/// Spawn the finalize task: resolve the transcript, optionally LLM-format it,
 /// apply dictionary corrections, emit results to the frontend, and persist.
 #[allow(clippy::too_many_lines)] // cohesive single task — splitting adds no clarity
 pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
@@ -219,7 +222,7 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
 
     tauri::async_runtime::spawn(async move {
         // finalize() preprocesses only the tail (audio since last committed chunk)
-        // and stitches with previously committed chunk texts — fast path when
+        // and commits any words still tentative — fast path when
         // mid-recording chunks already covered most of the speech.
         let raw_text = tauri::async_runtime::spawn_blocking({
             let engine = Arc::clone(&engine);
@@ -262,7 +265,7 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
             .trim_start_matches(|c: char| c == '-' || c == '–' || c == '—' || c.is_whitespace())
             .to_string();
 
-        log::debug!("final stitched result: {} chars", raw_text.len());
+        log::debug!("final transcript: {} chars", raw_text.len());
 
         if raw_text.is_empty() {
             let _ = app.emit("transcription-complete", "");

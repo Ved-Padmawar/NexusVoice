@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { Dictionary } from '../pages/Dictionary'
-import { useAppStore } from '../store/useAppStore'
+import { Dictionary } from '../../pages/Dictionary'
+import { useAppStore } from '../../store/useAppStore'
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn() } }))
 
