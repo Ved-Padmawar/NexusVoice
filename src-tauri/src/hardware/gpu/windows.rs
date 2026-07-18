@@ -1,7 +1,11 @@
 //! Windows GPU enumeration via DXGI. Works on all Windows 10/11 versions and
-//! reports name, vendor id, and dedicated VRAM for every hardware adapter.
+//! reports name, vendor id, and usable video memory for every hardware adapter.
 
 use crate::hardware::profile::GpuDescriptor;
+
+/// Below this much dedicated VRAM, treat the adapter as an iGPU and report its
+/// shared-memory pool instead.
+const MIN_DEDICATED: u64 = 256 * 1024 * 1024;
 
 pub fn query_gpus() -> Result<Vec<GpuDescriptor>, String> {
     use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1, DXGI_ERROR_NOT_FOUND};
@@ -45,10 +49,18 @@ pub fn query_gpus() -> Result<Vec<GpuDescriptor>, String> {
                     continue;
                 }
 
+                // iGPUs report near-zero dedicated VRAM but draw from SharedSystemMemory.
+                let dedicated = desc.DedicatedVideoMemory as u64;
+                let vram_bytes = if dedicated < MIN_DEDICATED {
+                    (desc.SharedSystemMemory as u64).max(dedicated)
+                } else {
+                    dedicated
+                };
+
                 gpus.push(GpuDescriptor {
                     name,
                     vendor_id: Some(desc.VendorId),
-                    vram_bytes: desc.DedicatedVideoMemory as u64,
+                    vram_bytes,
                 });
             }
         }
