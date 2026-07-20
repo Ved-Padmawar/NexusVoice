@@ -13,6 +13,8 @@ export const COMMANDS = {
   // Transcription
   START_TRANSCRIPTION: 'start_transcription',
   STOP_TRANSCRIPTION:  'stop_transcription',
+  LIST_INPUT_DEVICES:  'list_input_devices',
+  SET_INPUT_DEVICE:    'set_input_device',
   START_DICTATION:     'start_dictation',
   PAUSE_DICTATION:     'pause_dictation',
   RESUME_DICTATION:    'resume_dictation',

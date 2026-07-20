@@ -41,12 +41,14 @@ pub enum ModelSize {
 impl ModelSize {
     pub const fn filename(self) -> &'static str {
         match self {
+            // LargeFull stays F16 as the multilingual anchor; turbo uses q8_0
+            // (near-lossless). .en tiers use q5 (medium has no q5_1 on HF).
             Self::LargeFull => "ggml-large-v3.bin",
-            Self::Large => "ggml-large-v3-turbo.bin",
-            Self::Medium => "ggml-medium.en.bin",
-            Self::Small => "ggml-small.en.bin",
-            Self::Base => "ggml-base.en.bin",
-            Self::Tiny => "ggml-tiny.en.bin",
+            Self::Large => "ggml-large-v3-turbo-q8_0.bin",
+            Self::Medium => "ggml-medium.en-q5_0.bin",
+            Self::Small => "ggml-small.en-q5_1.bin",
+            Self::Base => "ggml-base.en-q5_1.bin",
+            Self::Tiny => "ggml-tiny.en-q5_1.bin",
         }
     }
 
@@ -67,19 +69,19 @@ impl ModelSize {
                 "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin"
             }
             Self::Large => {
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin"
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin"
             }
             Self::Medium => {
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin"
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q5_0.bin"
             }
             Self::Small => {
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin"
             }
             Self::Base => {
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin"
             }
             Self::Tiny => {
-                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en-q5_1.bin"
             }
         }
     }
@@ -96,15 +98,8 @@ pub fn detect_backend() -> Backend {
 }
 
 /// Select recommended model size based on hardware profile.
-///
-/// GPU path (VRAM reported correctly — discrete GPU):
-///   ≥6 GB → Large, ≥3 GB → Medium, <3 GB → Small
-///
-/// iGPU fallback (Vulkan but VRAM <1 GB — DXGI reports shared memory incorrectly):
-///   Use RAM thresholds: ≥16 GB → Large, else → Medium
-///
-/// CPU path:
-///   ≥16 GB → Large, ≥8 GB → Medium, <8 GB → Small
+/// Thresholds are tuned for the quantized catalog plus compute headroom —
+/// GPU: ≥4 GB → Large, ≥2 GB → Medium, else Small. CPU: ≥12/≥6 GB RAM.
 pub fn recommend_model_size() -> ModelSize {
     let profile = crate::hardware::cached_profile();
     select_model_size_from_profile(
@@ -121,9 +116,9 @@ pub fn select_model_size_from_profile(
 ) -> ModelSize {
     match execution_provider {
         "cuda" => {
-            if vram_gb >= 6.0 {
+            if vram_gb >= 4.0 {
                 ModelSize::Large
-            } else if vram_gb >= 3.0 {
+            } else if vram_gb >= 2.0 {
                 ModelSize::Medium
             } else {
                 ModelSize::Small
@@ -132,16 +127,16 @@ pub fn select_model_size_from_profile(
         "vulkan" => {
             if vram_gb >= 1.0 {
                 // Discrete GPU with valid VRAM reading
-                if vram_gb >= 6.0 {
+                if vram_gb >= 4.0 {
                     ModelSize::Large
-                } else if vram_gb >= 3.0 {
+                } else if vram_gb >= 2.0 {
                     ModelSize::Medium
                 } else {
                     ModelSize::Small
                 }
             } else {
                 // iGPU — DXGI reports near-zero VRAM; fall back to RAM thresholds
-                if ram_gb >= 16.0 {
+                if ram_gb >= 12.0 {
                     ModelSize::Large
                 } else {
                     ModelSize::Medium
@@ -150,9 +145,9 @@ pub fn select_model_size_from_profile(
         }
         _ => {
             // CPU path
-            if ram_gb >= 16.0 {
+            if ram_gb >= 12.0 {
                 ModelSize::Large
-            } else if ram_gb >= 8.0 {
+            } else if ram_gb >= 6.0 {
                 ModelSize::Medium
             } else {
                 ModelSize::Small

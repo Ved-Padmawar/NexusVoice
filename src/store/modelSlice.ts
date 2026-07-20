@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { COMMANDS } from '../lib/commands'
 import { EVENTS } from '../lib/events'
+import { modelNameToOverride, type ModelOverride } from '../lib/models'
 import type { ModelInfo } from '../types'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
@@ -15,9 +16,15 @@ export type ModelSlice = {
   downloadProgress: number
   downloadError: string | null
   updateAvailable: string | null
+  /** Canonical active-model state (single source of truth for the main window). */
+  activeModelName: string | null
+  selectedModel: ModelOverride | null
+  activeModelDownloaded: boolean
   /** The model override that was active before the current download started — restored on cancel. */
   downloadingFromModel: string | null
   setDownloadingFromModel: (variant: string) => void
+  setSelectedModel: (variant: ModelOverride) => void
+  refreshModelInfo: () => Promise<void>
   cancelDownload: () => void
   listenForModelEvents: () => Promise<() => void>
 }
@@ -31,9 +38,29 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
   downloadProgress: 0,
   downloadError: null,
   updateAvailable: null,
+  activeModelName: null,
+  selectedModel: null,
+  activeModelDownloaded: false,
   downloadingFromModel: null,
 
   setDownloadingFromModel: (variant: string) => set({ downloadingFromModel: variant }),
+
+  setSelectedModel: (variant: ModelOverride) => set({ selectedModel: variant }),
+
+  refreshModelInfo: async () => {
+    try {
+      const info = await invoke<ModelInfo>(COMMANDS.GET_MODEL_INFO)
+      set({
+        activeModelName: info.modelName,
+        selectedModel: info.downloaded ? modelNameToOverride(info.modelName) : null,
+        activeModelDownloaded: info.downloaded,
+        modelReady: info.downloaded,
+        modelDownloading: info.downloading,
+        downloadProgress: info.downloaded ? 100 : info.downloadProgress,
+        downloadError: info.downloadError ?? null,
+      })
+    } catch { /* ignore */ }
+  },
 
   cancelDownload: () => {
     const prev = get().downloadingFromModel
@@ -55,16 +82,7 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
       })
     } catch { /* ignore */ }
 
-    try {
-      const info = await invoke<ModelInfo>(COMMANDS.GET_MODEL_INFO)
-      if (info.downloaded) {
-        set({ modelReady: true, modelDownloading: false, downloadProgress: 100, downloadError: null })
-      } else if (info.downloading) {
-        set({ modelDownloading: true, modelReady: false, downloadProgress: info.downloadProgress, downloadError: null })
-      } else if (info.downloadError) {
-        set({ modelDownloading: false, modelReady: false, downloadError: info.downloadError })
-      }
-    } catch { /* ignore */ }
+    await get().refreshModelInfo()
 
     const u1 = await listen(EVENTS.MODEL_DOWNLOAD_START, () => {
       set({ modelDownloading: true, modelReady: false, downloadProgress: 0, downloadError: null })
@@ -73,7 +91,8 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
       set({ downloadProgress: e.payload, modelDownloading: true })
     })
     const u3 = await listen(EVENTS.MODEL_DOWNLOAD_COMPLETE, () => {
-      set({ modelReady: true, modelDownloading: false, downloadProgress: 100, downloadError: null, downloadingFromModel: null })
+      set({ downloadingFromModel: null })
+      void get().refreshModelInfo()
     })
     const u4 = await listen<string>(EVENTS.MODEL_DOWNLOAD_ERROR, (e) => {
       set({ modelDownloading: false, downloadError: e.payload ?? 'Download failed', downloadingFromModel: null })
@@ -81,7 +100,13 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
     const u5 = await listen(EVENTS.MODEL_DOWNLOAD_CANCELLED, () => {
       set({ modelDownloading: false, downloadProgress: 0, downloadError: null, downloadingFromModel: null })
     })
-    return () => { u1(); u2(); u3(); u4(); u5() }
+    // Deleted active model: clear selection; keep modelChosen so the picker stays closed.
+    const u6 = await listen(EVENTS.MODEL_EVICTED, () => {
+      set({ modelReady: false, modelDownloading: false, downloadProgress: 0, downloadError: null, selectedModel: null, activeModelDownloaded: false })
+    })
+    // Deleted the active model but another is on disk: backend switched to it.
+    const u7 = await listen(EVENTS.MODEL_SWITCHED, () => { void get().refreshModelInfo() })
+    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7() }
   },
 })
 

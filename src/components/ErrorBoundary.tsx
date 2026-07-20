@@ -1,4 +1,5 @@
 import { Component, type ReactNode, type ErrorInfo } from 'react'
+import { AlertTriangle, RotateCcw } from 'lucide-react'
 import { logger } from '../lib/logger'
 
 interface Props {
@@ -37,38 +38,23 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div
           role="alert"
-          style={{
-            padding: '24px',
-            textAlign: 'center',
-            color: 'var(--fg-2)',
-            fontFamily: 'inherit',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '12px',
-          }}
+          className="flex h-full w-full flex-col items-center justify-center gap-4 p-6 text-center"
         >
-          <p style={{ margin: 0, color: 'var(--danger)', fontSize: '13px', fontWeight: 600 }}>
-            Something went wrong.
-          </p>
+          <div className="flex size-12 items-center justify-center rounded-(--r-xl) bg-(--danger-soft) text-(--danger)">
+            <AlertTriangle size={22} strokeWidth={1.75} />
+          </div>
+          <div className="flex flex-col gap-1">
+            <p className="m-0 text-[14px] font-semibold text-(--fg)">Something went wrong</p>
+            <p className="m-0 max-w-[280px] text-[12px] leading-relaxed text-(--muted)">
+              This section ran into an unexpected error. You can try loading it again.
+            </p>
+          </div>
           <button
             type="button"
             onClick={this.reset}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              height: '32px',
-              padding: '0 14px',
-              borderRadius: 'var(--r-md)',
-              border: '1px solid var(--border)',
-              background: 'var(--surface)',
-              color: 'var(--fg)',
-              fontSize: '12px',
-              fontWeight: 500,
-              cursor: 'pointer',
-            }}
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-(--r-md) border border-(--border-soft) bg-(--surface) text-(--fg) text-[12px] font-medium cursor-pointer transition-[background,border-color] duration-(--t-fast) hover:bg-(--surface-hover) hover:border-(--border)"
           >
+            <RotateCcw size={13} strokeWidth={1.75} />
             Try again
           </button>
         </div>

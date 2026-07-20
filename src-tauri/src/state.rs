@@ -13,7 +13,6 @@ use crate::auth::AuthService;
 use crate::database::models::dictionary::DictionaryEntry;
 use crate::inference::WhisperEngine;
 use crate::llm::FormatConfig;
-use crate::pipeline::StreamingPipeline;
 
 /// Dictionary cache keyed by term for O(1) lookup and deduplication.
 pub type DictCache = Arc<RwLock<HashMap<String, DictionaryEntry>>>;
@@ -126,6 +125,7 @@ pub struct AppState {
     pub model_override_path: PathBuf,
     pub beam_size_path: PathBuf,
     pub format_config_path: PathBuf,
+    pub input_device_path: PathBuf,
     pub auth_session: Mutex<AuthSession>,
     pub transcription_running: Arc<AtomicBool>,
     pub recording_mode: Arc<AtomicU8>,
@@ -152,8 +152,6 @@ pub struct AppState {
     /// `start_transcription` doesn't report "started" until the mic is producing
     /// audio (cpal warms up after `play()`, clipping leading speech otherwise).
     pub capture_ready: Arc<(std::sync::Mutex<bool>, Condvar)>,
-    /// Active streaming pipeline — Some while recording, None otherwise.
-    pub pipeline: Arc<Mutex<Option<StreamingPipeline>>>,
 }
 
 impl AppState {
@@ -166,6 +164,7 @@ impl AppState {
         model_override_path: PathBuf,
         beam_size_path: PathBuf,
         format_config_path: PathBuf,
+        input_device_path: PathBuf,
         models_dir: PathBuf,
     ) -> Self {
         Self {
@@ -178,6 +177,7 @@ impl AppState {
             model_override_path,
             beam_size_path,
             format_config_path,
+            input_device_path,
             auth_session: Mutex::new(AuthSession::default()),
             transcription_running: Arc::new(AtomicBool::new(false)),
             recording_mode: Arc::new(AtomicU8::new(RecordingMode::PushToTalk as u8)),
@@ -195,7 +195,6 @@ impl AppState {
             dict_cache: Arc::new(RwLock::new(HashMap::new())),
             capture_done: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
             capture_ready: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
-            pipeline: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -327,6 +326,22 @@ impl AppState {
 
     pub fn delete_model_override(&self) {
         let _ = std::fs::remove_file(&self.model_override_path);
+    }
+
+    /// Preferred input device by name. `None` means use the OS default.
+    pub fn save_input_device(&self, name: &str) -> std::io::Result<()> {
+        std::fs::write(&self.input_device_path, name)
+    }
+
+    pub fn load_input_device(&self) -> Option<String> {
+        std::fs::read_to_string(&self.input_device_path)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    pub fn delete_input_device(&self) {
+        let _ = std::fs::remove_file(&self.input_device_path);
     }
 
     /// Beam size preset: 2 = Fast, 5 = Balanced (default), 8 = Accurate

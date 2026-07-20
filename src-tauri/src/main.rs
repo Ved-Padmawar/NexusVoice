@@ -140,6 +140,7 @@ fn main() {
             let model_override_path = app_data_dir.join("model_override");
             let beam_size_path = app_data_dir.join("beam_size");
             let format_config_path = app_data_dir.join("format_config.json");
+            let input_device_path = app_data_dir.join("input_device");
             let models_dir = app_data_dir.join("models");
             std::fs::create_dir_all(&models_dir)?;
 
@@ -153,6 +154,7 @@ fn main() {
                 model_override_path,
                 beam_size_path,
                 format_config_path,
+                input_device_path,
                 models_dir,
             );
             app.manage(app_state);
@@ -399,6 +401,8 @@ fn main() {
             commands::logout,
             commands::start_transcription,
             commands::stop_transcription,
+            commands::list_input_devices,
+            commands::set_input_device,
             commands::start_dictation,
             commands::pause_dictation,
             commands::resume_dictation,

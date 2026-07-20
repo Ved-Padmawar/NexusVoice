@@ -9,7 +9,10 @@ import { Button } from '@/components/ui/button'
 import type { HardwareProfile, ModelInfo } from '../types'
 
 export function ModelPickerModal() {
-  const { setModelChosen, modelDownloading, downloadProgress } = useAppStore()
+  const setModelChosen = useAppStore(s => s.setModelChosen)
+  const modelDownloading = useAppStore(s => s.modelDownloading)
+  const downloadProgress = useAppStore(s => s.downloadProgress)
+  const refreshModelInfo = useAppStore(s => s.refreshModelInfo)
 
   const [profile, setProfile] = useState<HardwareProfile | null>(null)
   const [selected, setSelected] = useState<ModelOverride>('medium')
@@ -17,8 +20,7 @@ export function ModelPickerModal() {
   const [confirmed, setConfirmed] = useState(false)
 
   useEffect(() => {
-    // If model already downloaded (e.g. returning user whose modelChosen got reset),
-    // skip the modal immediately.
+    // Returning user whose modelChosen got reset but model is on disk: skip the modal.
     invoke<ModelInfo>(COMMANDS.GET_MODEL_INFO)
       .then(info => { if (info.downloaded) setModelChosen(true) })
       .catch(() => {})
@@ -35,9 +37,9 @@ export function ModelPickerModal() {
     setConfirming(true)
     try {
       await invoke(COMMANDS.SET_MODEL_OVERRIDE, { variant: selected })
-      // Check if model is already on disk (user picked same model that was previously downloaded)
-      const info = await invoke<ModelInfo>(COMMANDS.GET_MODEL_INFO)
-      if (info.downloaded) {
+      await refreshModelInfo()
+      // Already on disk (picked a previously-downloaded model): skip the download step.
+      if (useAppStore.getState().activeModelDownloaded) {
         setModelChosen(true)
         return
       }

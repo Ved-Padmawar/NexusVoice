@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../../lib/commands'
-import { MODEL_OPTIONS, modelNameToOverride, recommendedToOverride, type ModelOverride } from '../../lib/models'
+import { MODEL_OPTIONS, recommendedToOverride, type ModelOverride } from '../../lib/models'
 import { toast } from 'sonner'
 import {
   AlertCircle, CheckCircle2,
@@ -32,8 +32,6 @@ const MODEL_BADGE_ICONS: Record<ModelOverride, typeof Box> = {
 
 export function AboutTab() {
   const [profile, setProfile] = useState<HardwareProfile | null>(null)
-  const [selected, setSelected] = useState<ModelOverride>('large')
-  const [activeModelName, setActiveModelName] = useState<string | null>(null)
   const [modelSaving, setModelSaving] = useState(false)
 
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
@@ -44,39 +42,32 @@ export function AboutTab() {
 
   const beamSize = useAppStore(s => s.beamSize)
   const setBeamSize = useAppStore(s => s.setBeamSize)
-  const { modelDownloading, setDownloadingFromModel } = useAppStore()
+  const modelDownloading = useAppStore(s => s.modelDownloading)
+  const selected = useAppStore(s => s.selectedModel)
+  const activeModelName = useAppStore(s => s.activeModelName)
+  const activeModelDownloaded = useAppStore(s => s.activeModelDownloaded)
+  const setDownloadingFromModel = useAppStore(s => s.setDownloadingFromModel)
+  const setSelectedModel = useAppStore(s => s.setSelectedModel)
+  const refreshModelInfo = useAppStore(s => s.refreshModelInfo)
 
   useEffect(() => {
     invoke<HardwareProfile>(COMMANDS.GET_HARDWARE_PROFILE).then(setProfile).catch(() => {})
-    invoke<{ modelName: string }>(COMMANDS.GET_MODEL_INFO).then(info => {
-      setActiveModelName(info.modelName)
-      setSelected(modelNameToOverride(info.modelName))
-    }).catch(() => {})
+    void refreshModelInfo()
     invoke<number>(COMMANDS.GET_BEAM_SIZE).then(v => {
       const valid = (v === 2 || v === 5 || v === 8) ? v as BeamSize : 5
       setBeamSize(valid)
     }).catch(() => {})
-  }, [setBeamSize])
-
-  // When a download finishes or is cancelled, sync selected to the actual Rust override
-  useEffect(() => {
-    if (!modelDownloading) {
-      invoke<{ modelName: string }>(COMMANDS.GET_MODEL_INFO).then(info => {
-        setSelected(modelNameToOverride(info.modelName))
-      }).catch(() => {})
-    }
-  }, [modelDownloading])
+  }, [setBeamSize, refreshModelInfo])
 
   const handleModelChange = async (v: ModelOverride) => {
     if (modelDownloading) return
-    setDownloadingFromModel(selected)
-    setSelected(v)
+    setDownloadingFromModel(selected ?? v)
+    setSelectedModel(v)
     setModelSaving(true)
     try {
       await invoke(COMMANDS.SET_MODEL_OVERRIDE, { variant: v })
       invoke(COMMANDS.RETRY_MODEL_DOWNLOAD).catch(() => {})
-      const info = await invoke<{ modelName: string }>(COMMANDS.GET_MODEL_INFO)
-      setActiveModelName(info.modelName)
+      await refreshModelInfo()
       toast.success('Model updated')
     } catch { /* ignore */ }
     finally { setModelSaving(false) }
@@ -159,9 +150,9 @@ export function AboutTab() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {activeModelName && (() => {
-              const opt = MODEL_OPTIONS.find(m => m.value === modelNameToOverride(activeModelName))
-              const ModelIcon = MODEL_BADGE_ICONS[modelNameToOverride(activeModelName)] ?? Box
+            {selected && activeModelDownloaded && (() => {
+              const opt = MODEL_OPTIONS.find(m => m.value === selected)
+              const ModelIcon = MODEL_BADGE_ICONS[selected] ?? Box
               return (
                 <span className="flex items-center gap-1 text-[10px] font-semibold text-[var(--accent)] bg-[var(--accent-soft)] border border-[var(--accent-soft)] px-[6px] py-px rounded-[var(--r-sm)]">
                   <ModelIcon size={10} strokeWidth={1.75} />

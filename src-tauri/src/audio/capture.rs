@@ -31,10 +31,83 @@ impl ToF32 for u16 {
     }
 }
 
-/// Open the default input device and stream mono f32 samples into `buffer` until
-/// `running` is set to false. Signals `done` before returning so the caller
-/// can wait without sleeping a fixed duration.
-#[allow(clippy::needless_pass_by_value)] // Arcs are moved into the capture thread
+/// Name substrings for virtual/loopback endpoints. They capture system playback,
+/// not the mic, so selecting one records silence. Matched case-insensitively.
+const LOOPBACK_MARKERS: [&str; 7] = [
+    "stereo mix",
+    "what u hear",
+    "what you hear",
+    "wave out",
+    "loopback",
+    "virtual",
+    "line in",
+];
+
+/// True if `name` looks like a loopback/virtual endpoint rather than a mic.
+fn is_loopback(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    LOOPBACK_MARKERS.iter().any(|m| lower.contains(m))
+}
+
+/// A selectable input device: its name and whether it's the OS default.
+#[derive(Debug, Clone)]
+pub struct InputDevice {
+    pub name: String,
+    pub is_default: bool,
+}
+
+/// Enumerate usable input devices, excluding loopback/virtual endpoints. The OS
+/// default is always kept even if it matches a loopback marker.
+// cpal 0.17 deprecates `name()`, but the app matches devices by name end to end.
+#[allow(deprecated)]
+pub fn list_input_devices() -> Vec<InputDevice> {
+    let host = cpal::default_host();
+    let default_name = host.default_input_device().and_then(|d| d.name().ok());
+
+    let Ok(devices) = host.input_devices() else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for device in devices {
+        let Ok(name) = device.name() else { continue };
+        let is_default = default_name.as_deref() == Some(name.as_str());
+        if is_loopback(&name) && !is_default {
+            continue;
+        }
+        if seen.insert(name.clone()) {
+            out.push(InputDevice { name, is_default });
+        }
+    }
+    out
+}
+
+/// Resolve the device to capture from: the preferred one if still present,
+/// otherwise the OS default so recording never breaks when a mic is unplugged.
+#[allow(deprecated)] // name-based lookup; see `list_input_devices`
+fn resolve_input_device(
+    host: &cpal::Host,
+    preferred: Option<&str>,
+) -> Result<cpal::Device, String> {
+    if let Some(want) = preferred {
+        if let Ok(devices) = host.input_devices() {
+            for device in devices {
+                if device.name().as_deref() == Ok(want) {
+                    return Ok(device);
+                }
+            }
+        }
+        log::warn!("preferred input device '{want}' unavailable — using default");
+    }
+    host.default_input_device()
+        .ok_or_else(|| "no input device available".to_string())
+}
+
+/// Stream mono f32 samples from `preferred_device` (or the OS default) into
+/// `buffer` until `running` clears. Signals `done` before returning so the caller
+/// can wait without a fixed sleep.
+#[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)] // Arcs moved into the capture thread
 pub fn capture_microphone(
     running: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
@@ -43,11 +116,10 @@ pub fn capture_microphone(
     waveform: Arc<WaveformMeter>,
     done: Arc<(Mutex<bool>, Condvar)>,
     ready: Arc<(Mutex<bool>, Condvar)>,
+    preferred_device: Option<String>,
 ) -> Result<(), String> {
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| "no input device available".to_string())?;
+    let device = resolve_input_device(&host, preferred_device.as_deref())?;
 
     let config = device
         .default_input_config()
@@ -196,3 +268,7 @@ where
 
     Ok(stream)
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/audio/capture.rs"]
+mod tests;

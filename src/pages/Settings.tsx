@@ -6,9 +6,10 @@ import { Palette, Info, Settings2, FolderOpen, Database, Keyboard } from 'lucide
 import { useAppStore } from '../store/useAppStore'
 import { SETTINGS_TABS, type SettingsTab } from '../lib/routes'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { GeneralTab } from './settings/GeneralTab'
+import { AppearanceTab } from './settings/AppearanceTab'
 import { AboutTab } from './settings/AboutTab'
 import { HotkeySection } from './settings/HotkeySection'
+import { MicrophoneSection } from './settings/MicrophoneSection'
 import { PillTab } from './settings/PillTab'
 import { ModelManagerModal } from '../components/ModelManagerModal'
 import { AnimatePresence } from 'framer-motion'
@@ -26,8 +27,13 @@ export function Settings() {
   }, [setActiveSettingsTab])
 
   const [modelManagerOpen, setModelManagerOpen] = useState(false)
-  // Normalize a stale persisted value ('pill' was renamed to 'shortcuts').
-  const tab: SettingsTab = activeSettingsTab === ('pill' as SettingsTab) ? 'shortcuts' : activeSettingsTab
+  // Normalize stale persisted values ('pill' → 'shortcuts', 'general' → 'appearance').
+  const tab: SettingsTab =
+    activeSettingsTab === ('pill' as SettingsTab)
+      ? 'shortcuts'
+      : activeSettingsTab === ('general' as SettingsTab)
+        ? 'appearance'
+        : activeSettingsTab
   const setTab = (v: string) => setActiveSettingsTab(v as SettingsTab)
 
   return (
@@ -42,17 +48,14 @@ export function Settings() {
             <p className="text-[12px] text-muted-foreground mt-0.75 m-0">Configure hotkeys and appearance.</p>
           </div>
         </div>
-        <span className="text-[11px] font-semibold text-(--accent) bg-(--surface) border border-(--border-soft) px-2 py-0.75 rounded-(--r-sm) shrink-0">
-          v{__APP_VERSION__}
-        </span>
       </div>
 
       <Tabs value={tab} onValueChange={setTab} className="flex flex-col flex-1 min-h-0 gap-0!">
         <div className="flex items-center justify-between mb-4 shrink-0">
           <TabsList className="w-fit!">
-            <TabsTrigger value="general" className="gap-1.25! text-[12px]!">
+            <TabsTrigger value="appearance" className="gap-1.25! text-[12px]!">
               <Palette size={12} strokeWidth={1.75} />
-              General
+              Appearance
             </TabsTrigger>
             <TabsTrigger value="shortcuts" className="gap-1.25! text-[12px]!">
               <Keyboard size={12} strokeWidth={1.75} />
@@ -87,14 +90,16 @@ export function Settings() {
           )}
         </div>
 
-        <TabsContent value="general" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-6 mt-0!">
-          <GeneralTab />
+        <TabsContent value="appearance" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-6 mt-0!">
+          <AppearanceTab />
           <div className="h-px bg-(--border-soft)" />
           <PillTab />
         </TabsContent>
 
-        <TabsContent value="shortcuts" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 mt-0!">
+        <TabsContent value="shortcuts" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-5 mt-0!">
           <HotkeySection />
+          <div className="h-px bg-(--border-soft)" />
+          <MicrophoneSection />
         </TabsContent>
 
         <TabsContent value="about" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 mt-0!">

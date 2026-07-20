@@ -3,7 +3,7 @@ use std::path::Path;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 use crate::inference::provider::{detect_backend, select_model_size, Backend, ModelSize};
-use crate::inference::transcript::{Hypothesis, Word};
+use crate::inference::transcript::{join_words, Word};
 
 pub struct WhisperEngine {
     ctx: WhisperContext,
@@ -65,21 +65,6 @@ impl WhisperEngine {
         prompt: &str,
         beam_size: i32,
     ) -> Result<String, String> {
-        Ok(self
-            .transcribe_words(samples_16k, prompt, beam_size, 0)?
-            .text())
-    }
-
-    /// Transcribe with per-word timestamps. `window_offset_ms` shifts Whisper's
-    /// window-relative times onto the session clock, so words from different
-    /// windows are comparable.
-    pub fn transcribe_words(
-        &self,
-        samples_16k: &[f32],
-        prompt: &str,
-        beam_size: i32,
-        window_offset_ms: i64,
-    ) -> Result<Hypothesis, String> {
         // whisper.cpp requires at least 1 second of audio at 16 kHz
         const MIN_SAMPLES: usize = 16_000;
         let padded;
@@ -127,8 +112,6 @@ impl WhisperEngine {
         params.set_temperature_inc(0.2);
         params.set_logprob_thold(-1.0);
         params.set_suppress_blank(true);
-        // Per-token t0/t1 — the timing LocalAgreement and prompt scoping rely on.
-        params.set_token_timestamps(true);
         if !prompt.is_empty() {
             params.set_initial_prompt(prompt);
         }
@@ -169,32 +152,27 @@ impl WhisperEngine {
                 if raw.starts_with("[_") || raw.starts_with("<|") {
                     continue;
                 }
-                // Strip hallucination tokens — Whisper emits these on silence/noise,
-                // sometimes embedded in a real segment ("[BLANK_AUDIO] so anyway…").
-                let cleaned = strip_hallucination_tokens(&raw);
-                if cleaned.trim().is_empty() {
+                if raw.trim().is_empty() {
                     continue;
                 }
 
-                let data = token.token_data();
                 words.push(Word {
-                    text: cleaned,
-                    start_ms: window_offset_ms + centis_to_ms(data.t0),
-                    end_ms: window_offset_ms + centis_to_ms(data.t1),
-                    probability: token.token_probability(),
+                    text: raw.to_string(),
                 });
             }
         }
 
-        Ok(Hypothesis {
-            words: merge_subword_tokens(words),
-        })
-    }
-}
+        // Strip hallucination markers after merging, not before: whisper splits
+        // "[BLANK_AUDIO]" across several BPE tokens, so no single token matches
+        // the full marker and it survives into the transcript.
+        let mut words = merge_subword_tokens(words);
+        for w in &mut words {
+            w.text = strip_hallucination_tokens(&w.text).trim().to_string();
+        }
+        words.retain(|w| !w.text.is_empty());
 
-/// Whisper reports token times in centiseconds.
-const fn centis_to_ms(centis: i64) -> i64 {
-    centis * 10
+        Ok(join_words(&words))
+    }
 }
 
 /// Fold BPE fragments into words: "unbelievable" arrives as " unbe" + "lie" +
@@ -207,9 +185,6 @@ fn merge_subword_tokens(tokens: Vec<Word>) -> Vec<Word> {
             out.push(tok);
         } else if let Some(prev) = out.last_mut() {
             prev.text.push_str(&tok.text);
-            prev.end_ms = tok.end_ms;
-            // A word is only as sound as its least certain fragment.
-            prev.probability = prev.probability.min(tok.probability);
         }
     }
     for w in &mut out {

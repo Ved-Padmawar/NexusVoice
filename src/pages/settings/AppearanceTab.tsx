@@ -59,7 +59,7 @@ function ThemePreview({ bg, panel, accent, border, surface, muted }: {
   )
 }
 
-export const GeneralTab = memo(function GeneralTab() {
+export const AppearanceTab = memo(function AppearanceTab() {
   const { theme, setTheme } = useAppStore()
 
   return (

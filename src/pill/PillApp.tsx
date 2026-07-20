@@ -147,6 +147,7 @@ export function PillApp() {
       const um1 = await listen(EVENTS.MODEL_DOWNLOAD_START, () => {
         if (cancelled) return
         modelReadyRef.current = false
+        setDownloadPct(0)
         setState(s => s === 'idle' ? 'downloading' : s)
       })
       unlisteners.push(um1)
@@ -177,6 +178,21 @@ export function PillApp() {
         setDownloadPct(0)
       })
       unlisteners.push(um5)
+
+      // Active model deleted — block recording until one is downloaded again.
+      const um6 = await listen(EVENTS.MODEL_EVICTED, () => {
+        if (cancelled) return
+        modelReadyRef.current = false
+        setState(s => (s === 'recording' || s === 'dictation') ? s : 'idle')
+      })
+      unlisteners.push(um6)
+
+      // Deleted active model but another is on disk — that one is ready.
+      const um7 = await listen(EVENTS.MODEL_SWITCHED, () => {
+        if (cancelled) return
+        modelReadyRef.current = true
+      })
+      unlisteners.push(um7)
     }
 
     setup()
@@ -195,7 +211,7 @@ export function PillApp() {
         if (isRecordingRef.current || isDictationRef.current) return
         // Block recording if model not ready
         if (!modelReadyRef.current) {
-          showTooltip('Model downloading… please wait')
+          showTooltip(stateRef.current === 'downloading' ? 'Model downloading… please wait' : 'No model installed — download one in Settings')
           return
         }
         isRecordingRef.current = true
@@ -262,7 +278,7 @@ export function PillApp() {
       const u5 = await listen(EVENTS.DICTATION_HOTKEY_PRESSED, async () => {
         if (isRecordingRef.current || stateRef.current === 'processing' || stateRef.current === 'downloading') return
         if (!modelReadyRef.current && !isDictationRef.current) {
-          showTooltip('Model downloading... please wait')
+          showTooltip('No model installed — download one in Settings')
           return
         }
 

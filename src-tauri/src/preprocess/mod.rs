@@ -1,11 +1,9 @@
-pub mod agreement;
 pub mod denoise;
 
 use crate::audio::resample;
 
-/// Stage 1: resample → DC removal → denoise → 16 kHz. No VAD splicing, so
-/// sample indices still map linearly back to native-rate time — required by
-/// the streaming pipeline's split/cursor math.
+/// Resample → DC removal → denoise → 16 kHz. No VAD splicing, so sample indices
+/// still map linearly back to native-rate time.
 pub fn to_16k_denoised(samples: &[f32], native_rate: u32) -> Vec<f32> {
     // 1. Resample to 48 kHz for nnnoiseless
     let at_48k = resample(samples, native_rate, 48_000);

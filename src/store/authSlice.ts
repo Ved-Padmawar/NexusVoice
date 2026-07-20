@@ -32,7 +32,6 @@ const SIGNED_OUT_RESET: Partial<AppState> = {
 }
 
 function onAuthSuccess(get: () => AppState): void {
-  if (get().modelChosen) invoke(COMMANDS.RETRY_MODEL_DOWNLOAD).catch(() => {})
   // Each section owns its own fetch; kick them off in parallel.
   get().loadTranscripts()
   get().loadStats()

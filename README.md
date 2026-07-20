@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.10.1-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.11.0-violet?style=flat-square)
 
 </div>
 
@@ -38,7 +38,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 
 - **Push-to-talk** — hold any custom hotkey to record, release to transcribe and paste
 - **Dictation Mode** — a hands-free alternative: press a hotkey to start, then pause/resume and save from the pill or by hotkey — ideal for longer, uninterrupted dictation
-- **Low-latency streaming** — audio is processed in chunks mid-recording so only the tail needs processing on release
+- **Microphone selection** — pick which input device records your voice (Settings → Shortcuts); defaults to the system default and falls back to it automatically if your chosen mic is unplugged
 - **100% local** — Whisper runs entirely on your machine, nothing is sent to the cloud
 - **GPU-accelerated** — auto-detects NVIDIA (CUDA), AMD/Intel (Vulkan), falls back to CPU
 - **Smart model selection** — picks the best Whisper model for your hardware automatically
@@ -56,24 +56,18 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 
 ```
 App launch       →  Whisper model loaded and warmed up in the background
-Hotkey held      →  cpal captures mic audio (capture starts before "recording"
-                    is reported, so the first words aren't clipped)
-                 →  VAD-gated chunks decoded mid-recording (every ~3s), with
-                    hysteresis-based silence detection splitting at real pauses
-                 →  overlapping decodes are stabilised by LocalAgreement-2:
-                    a word is committed once two consecutive passes agree on it
-                    at the same point in the audio
-Hotkey released  →  a brief post-roll captures trailing speech, then only the
-                    unresolved tail is decoded
-                 →  any still-tentative words are committed (nothing more is
-                    coming to confirm them, so the paste stays instant)
+Hotkey held      →  cpal captures mic audio from your selected input device
+                    (capture starts before "recording" is reported, so the
+                    first words aren't clipped)
+Hotkey released  →  a brief post-roll captures trailing speech, then the whole
+                    recording is decoded in a single pass
+                 →  silent lead-in is trimmed and the audio is denoised and
+                    level-normalised before it reaches Whisper
                  →  (optional) transcript reformatted by your chosen LLM
                  →  text written to clipboard + Ctrl+V pasted
 ```
 
-For short recordings the pipeline is transparent — everything processes on release as before. For longer recordings latency is significantly reduced since most of the audio is already transcribed by the time you let go of the hotkey. The engine pre-loads at launch so the first transcription is instant.
-
-Because agreement is aligned on word timestamps rather than matched as text, a phrase you genuinely said twice survives while a duplicate at a chunk boundary does not.
+Your recording is transcribed on release, giving Whisper the full context of what you said for the most accurate result. The engine pre-loads at launch so the first transcription is instant.
 
 If **Smart Formatting** is enabled, the transcript is sent to your configured LLM endpoint for cleanup before pasting; otherwise the raw transcript is pasted as-is. If the formatter is unreachable or errors, it transparently falls back to the raw transcript.
 

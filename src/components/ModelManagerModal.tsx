@@ -49,9 +49,8 @@ export function ModelManagerModal({ onClose }: Props) {
       await invoke(COMMANDS.DELETE_MODEL, { variant })
       toast.success(`${displayName} deleted`)
       load()
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      toast.error(msg.includes('active_model') ? 'Cannot delete the active model' : 'Failed to delete model')
+    } catch {
+      toast.error('Failed to delete model')
     } finally {
       setDeleting(null)
     }
@@ -127,7 +126,7 @@ export function ModelManagerModal({ onClose }: Props) {
                   <button
                     type="button"
                     aria-label={`Delete ${model.displayName}`}
-                    disabled={model.isActive || deleting === model.variant}
+                    disabled={deleting === model.variant}
                     className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer transition-[color,background] duration-(--t-fast) hover:text-destructive hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed"
                     onClick={() => handleDelete(model.variant, model.displayName)}
                   >
@@ -141,7 +140,7 @@ export function ModelManagerModal({ onClose }: Props) {
 
         {/* Footer */}
         <div className="px-6 pb-5 pt-0">
-          <p className="text-[10px] text-muted-foreground">The active model cannot be deleted. Switch models in the Whisper Model section above.</p>
+          <p className="text-[10px] text-muted-foreground">Deleting the active model frees its memory; transcription will prompt you to pick a model again.</p>
         </div>
       </motion.div>
     </div>

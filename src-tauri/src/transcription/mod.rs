@@ -1,8 +1,7 @@
 //! Transcription orchestration service.
 //!
-//! Owns the streaming recording lifecycle: starting microphone capture, the
-//! mid-recording chunk poller, and finalizing the transcript on stop
-//! (preprocess → whisper → dictionary post-process → persist → emit).
+//! Owns the recording lifecycle: starting microphone capture and transcribing
+//! on stop (preprocess → whisper → dictionary post-process → persist → emit).
 //!
 //! The command layer (`commands::transcription`) only validates the running
 //! state and delegates here, so all the heavy logic lives in one place and is

@@ -1,4 +1,4 @@
-//! Streaming transcription orchestration extracted from the command layer.
+//! Transcription orchestration extracted from the command layer.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -15,11 +15,10 @@ use crate::llm::FormatConfig;
 use crate::postprocess::DictionaryCorrectionEngine;
 use crate::state::{AppState, DictCache};
 
-/// Spawn the microphone capture thread and the mid-recording chunk poller.
+/// Spawn the microphone capture thread.
 ///
-/// Capture runs on a dedicated OS thread (cpal stream); the poller commits a
-/// pipeline chunk once enough audio has accumulated, so most of the transcription
-/// work is done before the user releases the hotkey.
+/// Capture runs on a dedicated OS thread (cpal stream); the recording is
+/// transcribed in one pass on release.
 pub fn start_capture(app: &AppHandle, state: &AppState) {
     let running = Arc::clone(&state.transcription_running);
     let paused = Arc::clone(&state.capture_paused);
@@ -30,6 +29,7 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
     let capture_ready = Arc::clone(&state.capture_ready);
     let recording_mode = Arc::clone(&state.recording_mode);
     let session_phase = Arc::clone(&state.session_phase);
+    let preferred_device = state.load_input_device();
     let app_handle = app.clone();
 
     // Reset the done + ready flags before starting a new capture session.
@@ -47,6 +47,7 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
             waveform,
             Arc::clone(&capture_done),
             Arc::clone(&capture_ready),
+            preferred_device,
         ) {
             log::error!("microphone capture error: {e}");
             running.store(false, Ordering::SeqCst);
@@ -62,11 +63,12 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
             capture_done.1.notify_one();
             *capture_ready.0.lock().expect("capture_ready lock poisoned") = true;
             capture_ready.1.notify_one();
-            let _ = app_handle.emit("transcription-error", e);
+            let _ = app_handle.emit(
+                "transcription-error",
+                crate::audio::error::friendly_capture_error(&e),
+            );
         }
     });
-
-    spawn_chunk_poller(state);
 }
 
 /// Emit pill waveform levels at ~30 Hz from the spectrum meter while recording.
@@ -85,107 +87,6 @@ fn spawn_waveform_emitter(app: &AppHandle, state: &AppState) {
     });
 }
 
-/// Background poller that fires pipeline chunks while recording: snapshots the
-/// uncommitted tail of the audio buffer and decodes the next chunk if the engine
-/// is loaded, so finalize only needs to process the remaining tail.
-fn spawn_chunk_poller(state: &AppState) {
-    // Poll faster than CHUNK_SECS so a ready chunk isn't left waiting for the tick.
-    const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(750);
-
-    let running = Arc::clone(&state.transcription_running);
-    let audio_buffer = Arc::clone(&state.audio_buffer);
-    let native_rate_arc = Arc::clone(&state.native_sample_rate);
-    let pipeline_arc = Arc::clone(&state.pipeline);
-    let engine_arc = Arc::clone(&state.engine);
-    let engine_cache = Arc::clone(&state.engine);
-
-    tauri::async_runtime::spawn(async move {
-        loop {
-            tokio::time::sleep(POLL_INTERVAL).await;
-
-            if !running.load(Ordering::SeqCst) {
-                break;
-            }
-
-            let captured_rate = *native_rate_arc.lock().expect("native_rate lock poisoned");
-
-            // Where the next snapshot must start (committed cursor − overlap).
-            let snapshot_start = {
-                let guard = pipeline_arc.lock().await;
-                match guard.as_ref() {
-                    Some(pl) => pl.snapshot_start(captured_rate),
-                    None => continue,
-                }
-            };
-
-            // Copy only the uncommitted tail — cloning the full buffer here
-            // blocked the real-time cpal callback for the whole copy.
-            let tail_snapshot = {
-                let buf = audio_buffer.lock().expect("audio_buffer lock poisoned");
-                if snapshot_start >= buf.len() {
-                    continue;
-                }
-                buf[snapshot_start..].to_vec()
-            };
-
-            // Get engine — skip this tick if not loaded yet.
-            let engine = {
-                let guard = engine_arc.lock().await;
-                guard.as_ref().map(Arc::clone)
-            };
-            let Some(engine) = engine else { continue };
-
-            let committed = tauri::async_runtime::spawn_blocking({
-                let engine = Arc::clone(&engine);
-                let engine_cache = Arc::clone(&engine_cache);
-                let pipeline_arc = Arc::clone(&pipeline_arc);
-                move || {
-                    let mut pl_guard = pipeline_arc.blocking_lock();
-                    if let Some(pl) = pl_guard.as_mut() {
-                        // Mid-recording chunks use the Balanced beam size (5);
-                        // the configured beam size is applied on finalize.
-                        let did_commit = pl.try_commit_chunk(
-                            &tail_snapshot,
-                            snapshot_start,
-                            captured_rate,
-                            &engine,
-                            5,
-                        );
-                        // Check poison regardless of commit outcome — a failed
-                        // tick can also leave the engine mutex poisoned.
-                        if engine.is_poisoned() {
-                            log::error!(
-                                "WhisperEngine mutex poisoned during streaming chunk — evicting"
-                            );
-                            drop(pl_guard);
-                            *engine_cache.blocking_lock() = None;
-                            return Err("engine_poisoned");
-                        }
-                        Ok(did_commit)
-                    } else {
-                        Ok(false)
-                    }
-                }
-            })
-            .await;
-
-            match committed {
-                Ok(Ok(true)) => log::debug!("streaming: mid-recording chunk committed"),
-                Ok(Err(_)) => break,
-                Ok(Ok(false)) => {}
-                // spawn_blocking join error means the chunk task panicked while
-                // holding the engine mutex: the mutex is poisoned and every
-                // later chunk would silently fail. Evict and stop polling.
-                Err(e) => {
-                    log::error!("streaming chunk task panicked ({e}) — evicting engine");
-                    *engine_cache.lock().await = None;
-                    break;
-                }
-            }
-        }
-    });
-}
-
 /// Inputs captured from `AppState` for the finalize task. Gathered in the
 /// command (where `State` is available) and handed to the spawned task.
 pub struct FinalizeContext {
@@ -193,7 +94,6 @@ pub struct FinalizeContext {
     pub dict_cache: DictCache,
     pub engine: Arc<std::sync::Mutex<WhisperEngine>>,
     pub engine_cache: Arc<tokio::sync::Mutex<Option<Arc<std::sync::Mutex<WhisperEngine>>>>>,
-    pub pipeline: Option<crate::pipeline::StreamingPipeline>,
     pub samples: Vec<f32>,
     pub captured_rate: u32,
     pub beam_size: i32,
@@ -212,7 +112,6 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
         dict_cache,
         engine,
         engine_cache,
-        pipeline,
         samples,
         captured_rate,
         beam_size,
@@ -221,16 +120,17 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
     } = ctx;
 
     tauri::async_runtime::spawn(async move {
-        // finalize() preprocesses only the tail (audio since last committed chunk)
-        // and commits any words still tentative — fast path when
-        // mid-recording chunks already covered most of the speech.
         let raw_text = tauri::async_runtime::spawn_blocking({
             let engine = Arc::clone(&engine);
             let engine_cache = Arc::clone(&engine_cache);
             move || -> Result<String, String> {
-                let pl = pipeline.unwrap_or_else(crate::pipeline::StreamingPipeline::new);
                 let Ok(text) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    pl.finalize(&samples, captured_rate, &engine, beam_size)
+                    crate::pipeline::transcribe_recording(
+                        &samples,
+                        captured_rate,
+                        &engine,
+                        beam_size,
+                    )
                 })) else {
                     log::error!("WhisperEngine panicked during finalize — evicting");
                     *engine_cache.blocking_lock() = None;

@@ -4,4 +4,3 @@ pub mod provider;
 pub mod transcript;
 
 pub use engine::WhisperEngine;
-pub use transcript::{Hypothesis, Word};

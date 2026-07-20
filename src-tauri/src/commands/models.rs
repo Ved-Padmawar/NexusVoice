@@ -60,9 +60,14 @@ pub fn get_downloaded_models(state: State<'_, AppState>) -> Vec<DownloadedModel>
 }
 
 /// Delete a downloaded model file by variant ("tiny" | "base" | "small" | "medium" | "large").
-/// Refuses to delete the currently active model.
+/// Any model may be deleted, including the active one — transcription then surfaces
+/// a "no model" error until another is downloaded.
 #[tauri::command]
-pub async fn delete_model(state: State<'_, AppState>, variant: String) -> Result<(), ApiError> {
+pub async fn delete_model(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    variant: String,
+) -> Result<(), ApiError> {
     use crate::inference::provider::{detect_backend, select_model_size, ModelSize};
 
     let size = match variant.as_str() {
@@ -80,17 +85,6 @@ pub async fn delete_model(state: State<'_, AppState>, variant: String) -> Result
         }
     };
 
-    let active_override = state.load_model_override();
-    let active_backend = detect_backend();
-    let active_size = select_model_size(active_backend, active_override.as_deref());
-
-    if size == active_size {
-        return Err(ApiError::new(
-            "active_model",
-            "cannot delete the currently active model",
-        ));
-    }
-
     let path = state.models_dir.join(size.filename());
     if !path.exists() {
         return Err(ApiError::new("not_found", "model file not found"));
@@ -98,8 +92,36 @@ pub async fn delete_model(state: State<'_, AppState>, variant: String) -> Result
 
     std::fs::remove_file(&path).map_err(|e| ApiError::new("io_error", e.to_string()))?;
 
-    // If deleted model was cached in engine, evict it
+    // Nothing more to do unless we deleted the active model.
+    let active_size = select_model_size(detect_backend(), state.load_model_override().as_deref());
+    if size != active_size {
+        return Ok(());
+    }
+
     *state.engine.lock().await = None;
+
+    // Prefer another downloaded model over "no model": switch to the largest
+    // remaining file on disk; only go to "no model" when nothing is left.
+    let remaining: &[(&str, ModelSize)] = &[
+        ("large-full", ModelSize::LargeFull),
+        ("large", ModelSize::Large),
+        ("medium", ModelSize::Medium),
+        ("small", ModelSize::Small),
+        ("base", ModelSize::Base),
+        ("tiny", ModelSize::Tiny),
+    ];
+    let fallback = remaining
+        .iter()
+        .find(|(_, s)| *s != size && state.models_dir.join(s.filename()).exists());
+
+    if let Some((variant, _)) = fallback {
+        let _ = state.save_model_override(variant);
+        warm_engine_in_background(&app);
+        let _ = app.emit("model-switched", ());
+    } else {
+        state.delete_model_override();
+        let _ = app.emit("model-evicted", ());
+    }
 
     Ok(())
 }
@@ -109,9 +131,11 @@ pub async fn delete_model(state: State<'_, AppState>, variant: String) -> Result
 // ---------------------------------------------------------------------------
 
 /// Set model size override ("tiny" | "base" | "small" | "medium" | "large" | "large-full").
-/// Clears the cached engine so the next transcription reloads with the chosen model.
+/// Evicts the cached engine and eagerly warms the newly selected model in the
+/// background, so the first transcription after a switch isn't stalled by load.
 #[tauri::command]
 pub async fn set_model_override(
+    app: AppHandle,
     state: State<'_, AppState>,
     variant: String,
 ) -> Result<(), ApiError> {
@@ -128,15 +152,33 @@ pub async fn set_model_override(
         .save_model_override(&variant)
         .map_err(|e| ApiError::new("io_error", e.to_string()))?;
     *state.engine.lock().await = None;
+    warm_engine_in_background(&app);
     Ok(())
 }
 
 /// Clear the model size override, reverting to auto-selection based on hardware.
 #[tauri::command]
-pub async fn clear_model_override(state: State<'_, AppState>) -> Result<(), ApiError> {
+pub async fn clear_model_override(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), ApiError> {
     state.delete_model_override();
     *state.engine.lock().await = None;
+    warm_engine_in_background(&app);
     Ok(())
+}
+
+/// Rebuild + warm the active engine off the command path. A missing model is
+/// not an error here — transcription surfaces that later.
+fn warm_engine_in_background(app: &AppHandle) {
+    use tauri::Manager;
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        if let Err(e) = state.get_or_load_engine().await {
+            log::debug!("skipping eager warmup: {e}");
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -219,12 +261,22 @@ pub async fn get_model_info(state: State<'_, AppState>) -> Result<ModelInfoRespo
 
     let dl = &state.model_download;
     let status = dl.status.load(Ordering::SeqCst);
-    let progress = *dl.progress.lock().expect("progress lock poisoned");
+    let downloading = status == 1;
+    // File on disk is the truth for the selected model; download status/progress
+    // can be stale from a previous model, so only trust progress while downloading.
+    let on_disk = model_path.exists();
+    let progress = if downloading {
+        *dl.progress.lock().expect("progress lock poisoned")
+    } else if on_disk {
+        100
+    } else {
+        0
+    };
     let error = dl.error.lock().expect("error lock poisoned").clone();
 
     Ok(ModelInfoResponse {
-        downloaded: model_path.exists() || status == 2,
-        downloading: status == 1,
+        downloaded: on_disk,
+        downloading,
         download_progress: progress,
         download_error: error,
         model_name: model_size.display_name().to_string(),

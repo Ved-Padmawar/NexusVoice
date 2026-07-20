@@ -9,6 +9,8 @@ export const EVENTS = {
   MODEL_DOWNLOAD_COMPLETE:  'model-download-complete',
   MODEL_DOWNLOAD_ERROR:     'model-download-error',
   MODEL_DOWNLOAD_CANCELLED: 'model-download-cancelled',
+  MODEL_EVICTED:            'model-evicted',
+  MODEL_SWITCHED:           'model-switched',
 
   // Hotkey
   HOTKEY_PRESSED:  'hotkey-pressed',

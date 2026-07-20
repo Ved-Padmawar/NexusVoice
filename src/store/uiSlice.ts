@@ -25,7 +25,7 @@ export const createUiSlice: StateCreator<AppState, [], [], UiSlice> = (set) => (
   theme: 'abyss',
   pillTheme: 'dark',
   activeRoute: '/',
-  activeSettingsTab: 'general',
+  activeSettingsTab: 'appearance',
   modelChosen: false,
   beamSize: 5,
 
