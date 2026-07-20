@@ -79,14 +79,18 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
   }, [selected])
 
   const defaultLabel = devices.find(d => d.isDefault)?.name
-  const named = devices.filter(d => !d.isDefault)
   const currentLabel = selected === DEFAULT_VALUE
     ? (defaultLabel ? `Default — ${defaultLabel}` : 'Default')
     : selected
 
+  // The default device is represented by the "Default — <name>" sentinel, so
+  // list only the non-default devices by name (deduped) to avoid a duplicate row.
+  const seen = new Set<string>()
   const options = [
     { value: DEFAULT_VALUE, label: defaultLabel ? `Default — ${defaultLabel}` : 'Default' },
-    ...named.map(d => ({ value: d.name, label: d.name })),
+    ...devices
+      .filter(d => !d.isDefault && !d.name.startsWith('Default') && (seen.has(d.name) ? false : seen.add(d.name)))
+      .map(d => ({ value: d.name, label: d.name })),
   ]
 
   return (

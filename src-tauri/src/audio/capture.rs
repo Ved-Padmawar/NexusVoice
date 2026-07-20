@@ -3,7 +3,7 @@ use std::sync::{
     Arc, Condvar, Mutex,
 };
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::SampleFormat;
 
 use crate::audio::WaveformMeter;
@@ -31,24 +31,6 @@ impl ToF32 for u16 {
     }
 }
 
-/// Name substrings for virtual/loopback endpoints. They capture system playback,
-/// not the mic, so selecting one records silence. Matched case-insensitively.
-const LOOPBACK_MARKERS: [&str; 7] = [
-    "stereo mix",
-    "what u hear",
-    "what you hear",
-    "wave out",
-    "loopback",
-    "virtual",
-    "line in",
-];
-
-/// True if `name` looks like a loopback/virtual endpoint rather than a mic.
-fn is_loopback(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    LOOPBACK_MARKERS.iter().any(|m| lower.contains(m))
-}
-
 /// A selectable input device: its name and whether it's the OS default.
 #[derive(Debug, Clone)]
 pub struct InputDevice {
@@ -56,28 +38,66 @@ pub struct InputDevice {
     pub is_default: bool,
 }
 
-/// Enumerate usable input devices, excluding loopback/virtual endpoints. The OS
-/// default is always kept even if it matches a loopback marker.
-// cpal 0.17 deprecates `name()`, but the app matches devices by name end to end.
+/// True if the device can actually capture — the reliable signal, unlike
+/// name matching which is locale-dependent and drops real USB/headset mics.
 #[allow(deprecated)]
+fn is_capture_capable(device: &cpal::Device) -> bool {
+    use cpal::traits::DeviceTrait;
+    device.default_input_config().is_ok()
+        || device
+            .supported_input_configs()
+            .is_ok_and(|mut cfgs| cfgs.next().is_some())
+}
+
+/// cpal 0.18 device name (full WASAPI `FriendlyName` on Windows).
+fn device_name(device: &cpal::Device) -> Option<String> {
+    use cpal::traits::DeviceTrait;
+    device.description().ok().map(|d| d.name().to_string())
+}
+
+/// Enumerate usable input devices, validated by capability rather than name.
+/// The OS default is kept and marked; duplicate names (ALSA aliases) collapse.
 pub fn list_input_devices() -> Vec<InputDevice> {
+    use cpal::traits::HostTrait;
+
     let host = cpal::default_host();
-    let default_name = host.default_input_device().and_then(|d| d.name().ok());
+    let default_name = host.default_input_device().as_ref().and_then(device_name);
 
-    let Ok(devices) = host.input_devices() else {
-        return Vec::new();
-    };
+    let mut names = Vec::new();
+    if let Ok(devices) = host.input_devices() {
+        for device in devices {
+            let Some(name) = device_name(&device) else {
+                continue;
+            };
+            let is_default = default_name.as_deref() == Some(name.as_str());
+            // Keep the default unconditionally so the user's mic is never missing.
+            if is_default || is_capture_capable(&device) {
+                names.push(name);
+            }
+        }
+    }
 
+    collapse_devices(names, default_name.as_deref())
+}
+
+/// Build the deduped device list from raw names: collapse duplicate names (ALSA
+/// `hw:`/`plughw:` aliases), mark the OS default, and fail open to the default
+/// alone when nothing enumerated so the picker is never empty.
+fn collapse_devices(names: Vec<String>, default_name: Option<&str>) -> Vec<InputDevice> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for device in devices {
-        let Ok(name) = device.name() else { continue };
-        let is_default = default_name.as_deref() == Some(name.as_str());
-        if is_loopback(&name) && !is_default {
-            continue;
-        }
+    for name in names {
+        let is_default = default_name == Some(name.as_str());
         if seen.insert(name.clone()) {
             out.push(InputDevice { name, is_default });
+        }
+    }
+    if out.is_empty() {
+        if let Some(name) = default_name {
+            out.push(InputDevice {
+                name: name.to_string(),
+                is_default: true,
+            });
         }
     }
     out
@@ -85,15 +105,15 @@ pub fn list_input_devices() -> Vec<InputDevice> {
 
 /// Resolve the device to capture from: the preferred one if still present,
 /// otherwise the OS default so recording never breaks when a mic is unplugged.
-#[allow(deprecated)] // name-based lookup; see `list_input_devices`
 fn resolve_input_device(
     host: &cpal::Host,
     preferred: Option<&str>,
 ) -> Result<cpal::Device, String> {
+    use cpal::traits::HostTrait;
     if let Some(want) = preferred {
         if let Ok(devices) = host.input_devices() {
             for device in devices {
-                if device.name().as_deref() == Ok(want) {
+                if device_name(&device).as_deref() == Some(want) {
                     return Ok(device);
                 }
             }
@@ -220,7 +240,7 @@ where
     let running_err = Arc::clone(&running);
     let stream = device
         .build_input_stream(
-            config,
+            *config,
             move |data: &[T], _| {
                 if !capturing.load(Ordering::SeqCst) || paused.load(Ordering::SeqCst) {
                     return;

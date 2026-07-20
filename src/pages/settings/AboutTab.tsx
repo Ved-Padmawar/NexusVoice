@@ -45,7 +45,6 @@ export function AboutTab() {
   const modelDownloading = useAppStore(s => s.modelDownloading)
   const selected = useAppStore(s => s.selectedModel)
   const activeModelName = useAppStore(s => s.activeModelName)
-  const activeModelDownloaded = useAppStore(s => s.activeModelDownloaded)
   const setDownloadingFromModel = useAppStore(s => s.setDownloadingFromModel)
   const setSelectedModel = useAppStore(s => s.setSelectedModel)
   const refreshModelInfo = useAppStore(s => s.refreshModelInfo)
@@ -150,7 +149,7 @@ export function AboutTab() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {selected && activeModelDownloaded && (() => {
+            {selected && (() => {
               const opt = MODEL_OPTIONS.find(m => m.value === selected)
               const ModelIcon = MODEL_BADGE_ICONS[selected] ?? Box
               return (

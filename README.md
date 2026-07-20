@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.11.0-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.11.1-violet?style=flat-square)
 
 </div>
 
@@ -75,15 +75,16 @@ If **Smart Formatting** is enabled, the transcript is sent to your configured LL
 
 ## Models
 
-| Model | Size | Used When | Notes |
-|-------|------|-----------|-------|
-| Whisper Large v3 Turbo | ~1.6 GB | GPU with 6GB+ VRAM or 16GB+ RAM | Best accuracy, fast on GPU |
-| Whisper Medium | ~1.5 GB | Mid-range GPU or 8GB+ RAM | Great accuracy, runs well on CPU |
-| Whisper Small | ~465 MB | Moderate hardware or 4GB+ RAM | Good balance of speed and quality |
-| Whisper Base | ~145 MB | Low-end hardware | Basic accuracy, fast inference |
-| Whisper Tiny | ~75 MB | Ultra-low-end hardware | Fastest, lowest accuracy |
+| Model                  |   Size   | Used When                       | Notes                               |
+|------------------------|:--------:|---------------------------------|-------------------------------------|
+| Whisper Large v3       | 2.9&nbsp;GB | GPU with 6GB+ VRAM              | Maximum accuracy, full multilingual |
+| Whisper Large v3 Turbo | 834&nbsp;MB | GPU with 4GB+ VRAM or 12GB+ RAM | Best accuracy, fast on GPU          |
+| Whisper Medium         | 514&nbsp;MB | Mid-range GPU or 6GB+ RAM       | Great accuracy, runs well on CPU    |
+| Whisper Small          | 181&nbsp;MB | Moderate hardware or 2GB+ VRAM  | Good balance of speed and quality   |
+| Whisper Base           | 57&nbsp;MB  | Low-end hardware                | Basic accuracy, fast inference      |
+| Whisper Tiny           | 31&nbsp;MB  | Ultra-low-end hardware          | Fastest, lowest accuracy            |
 
-On first login a model picker modal lets you choose your model — the app recommends the best one for your hardware. You can change it anytime in Settings → About. Models download from HuggingFace and are cached locally.
+Models are quantized for smaller downloads and faster inference at near-identical accuracy (the full multilingual Large v3 is kept at full precision as the accuracy anchor). On first login a model picker modal lets you choose your model — the app recommends the best one for your hardware. You can change it anytime in Settings → About, where you can also delete downloaded models. Models download from HuggingFace and are cached locally.
 
 ---
 

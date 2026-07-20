@@ -52,7 +52,9 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
       const info = await invoke<ModelInfo>(COMMANDS.GET_MODEL_INFO)
       set({
         activeModelName: info.modelName,
-        selectedModel: info.downloaded ? modelNameToOverride(info.modelName) : null,
+        // The chosen model, regardless of download state — only model-evicted
+        // (delete-all) clears it. This keeps the pill visible while downloading.
+        selectedModel: modelNameToOverride(info.modelName),
         activeModelDownloaded: info.downloaded,
         modelReady: info.downloaded,
         modelDownloading: info.downloading,

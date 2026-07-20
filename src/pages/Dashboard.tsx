@@ -393,7 +393,7 @@ export function Dashboard() {
             </p>
           </div>
         ) : (
-          <div className="flex flex-col gap-0 overflow-y-auto overflow-x-hidden flex-1 min-h-0 pr-1.5">
+          <div className="flex flex-col gap-0 overflow-y-auto overflow-x-hidden overscroll-none flex-1 min-h-0 pr-1.5">
             <AnimatePresence initial={false}>
               {displayItems.map((item) => (
                 <motion.article
