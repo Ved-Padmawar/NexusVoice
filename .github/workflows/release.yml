@@ -334,6 +334,10 @@ jobs:
         uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: ${{ github.ref_name }}
+          # Dash-suffixed experimental tags (e.g. v1.12.0-1) publish as GitHub
+          # prereleases, which /releases/latest skips — the auto-updater never
+          # serves them.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: false
           files: |
             C:/b/release/bundle/nsis/*.exe
@@ -346,6 +350,7 @@ jobs:
         uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: false
           files: |
             .cargo-target/release/bundle/deb/*.deb
@@ -403,6 +408,7 @@ jobs:
         uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: latest.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
