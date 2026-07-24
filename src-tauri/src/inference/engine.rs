@@ -3,7 +3,7 @@ use std::path::Path;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 use crate::inference::provider::{detect_backend, select_model_size, Backend, ModelSize};
-use crate::inference::transcript::{join_words, Word};
+use crate::inference::transcript::{TimedSegment, Word};
 
 pub struct WhisperEngine {
     ctx: WhisperContext,
@@ -51,20 +51,20 @@ impl WhisperEngine {
         // Warmup pass — forces model weights into GPU/CPU memory so the first real
         // transcription is instant. Feed 1s of silence and discard the output.
         let silence = vec![0.0f32; 16_000];
-        let _ = engine.transcribe(&silence, "", 2);
+        let _ = engine.transcribe_segments(&silence, "", 2);
         log::info!("whisper engine warmed up");
 
         Ok(engine)
     }
 
-    /// Transcribe 16 kHz mono f32 samples, returning plain text.
+    /// Transcribe 16 kHz mono f32 samples into timed segments.
     /// `beam_size` controls the quality/speed tradeoff: 2=Fast, 5=Balanced, 8=Accurate.
-    pub fn transcribe(
+    pub fn transcribe_segments(
         &self,
         samples_16k: &[f32],
         prompt: &str,
         beam_size: i32,
-    ) -> Result<String, String> {
+    ) -> Result<Vec<TimedSegment>, String> {
         // whisper.cpp requires at least 1 second of audio at 16 kHz
         const MIN_SAMPLES: usize = 16_000;
         let padded;
@@ -127,7 +127,7 @@ impl WhisperEngine {
 
         let n = state.full_n_segments();
 
-        let mut words: Vec<Word> = Vec::new();
+        let mut segments: Vec<TimedSegment> = Vec::new();
         for i in 0..n {
             let Some(seg) = state.get_segment(i) else {
                 continue;
@@ -141,6 +141,7 @@ impl WhisperEngine {
                 continue;
             }
 
+            let mut words: Vec<Word> = Vec::new();
             for t in 0..seg.n_tokens() {
                 let Some(token) = seg.get_token(t) else {
                     continue;
@@ -160,18 +161,27 @@ impl WhisperEngine {
                     text: raw.to_string(),
                 });
             }
+
+            // Strip hallucination markers after merging, not before: whisper splits
+            // "[BLANK_AUDIO]" across several BPE tokens, so no single token matches
+            // the full marker and it survives into the transcript.
+            let mut words = merge_subword_tokens(words);
+            for w in &mut words {
+                w.text = strip_hallucination_tokens(&w.text).trim().to_string();
+            }
+            words.retain(|w| !w.text.is_empty());
+            if words.is_empty() {
+                continue;
+            }
+
+            segments.push(TimedSegment {
+                words,
+                // whisper timestamps are centiseconds
+                end_ms: seg.end_timestamp() * 10,
+            });
         }
 
-        // Strip hallucination markers after merging, not before: whisper splits
-        // "[BLANK_AUDIO]" across several BPE tokens, so no single token matches
-        // the full marker and it survives into the transcript.
-        let mut words = merge_subword_tokens(words);
-        for w in &mut words {
-            w.text = strip_hallucination_tokens(&w.text).trim().to_string();
-        }
-        words.retain(|w| !w.text.is_empty());
-
-        Ok(join_words(&words))
+        Ok(segments)
     }
 }
 
