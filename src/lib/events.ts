@@ -20,6 +20,7 @@ export const EVENTS = {
 
   // Transcription
   TRANSCRIPT_NEW:           'transcript:new',
+  TRANSCRIPTION_PARTIAL:    'transcription-partial',
   TRANSCRIPTION_COMPLETE:   'transcription-complete',
   TRANSCRIPTION_ERROR:      'transcription-error',
 
