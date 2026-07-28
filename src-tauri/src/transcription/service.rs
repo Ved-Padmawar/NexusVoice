@@ -15,10 +15,14 @@ use crate::llm::FormatConfig;
 use crate::postprocess::DictionaryCorrectionEngine;
 use crate::state::{AppState, DictCache};
 
-/// Spawn the microphone capture thread.
+/// Poll cadence of the stream worker. Decode frequency is governed by the
+/// pipeline's minimum-new-audio gate, not this; polling is just the check.
+const STREAM_POLL: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// Spawn the microphone capture thread and the streaming transcription worker.
 ///
-/// Capture runs on a dedicated OS thread (cpal stream); the recording is
-/// transcribed in one pass on release.
+/// Capture runs on a dedicated OS thread (cpal stream); the worker incrementally
+/// transcribes the growing recording so finalize only has the tail left to do.
 pub fn start_capture(app: &AppHandle, state: &AppState) {
     let running = Arc::clone(&state.transcription_running);
     let paused = Arc::clone(&state.capture_paused);
@@ -37,6 +41,7 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
     *capture_ready.0.lock().expect("capture_ready lock poisoned") = false;
 
     spawn_waveform_emitter(app, state);
+    spawn_stream_worker(app, state);
 
     std::thread::spawn(move || {
         if let Err(e) = crate::audio::capture_microphone(
@@ -71,6 +76,61 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
     });
 }
 
+/// Spawn the streaming worker: while recording, feed the growing buffer to the
+/// `StreamingSession` and emit preview text after each decode. Only streams once
+/// an engine is cached — it never triggers a load; without one the session stays
+/// untouched and finalize decodes everything in one pass.
+fn spawn_stream_worker(app: &AppHandle, state: &AppState) {
+    let running = Arc::clone(&state.transcription_running);
+    let audio_buffer = Arc::clone(&state.audio_buffer);
+    let native_rate = Arc::clone(&state.native_sample_rate);
+    let session_slot = Arc::clone(&state.stream_session);
+    let engine_cache = Arc::clone(&state.engine);
+    let app = app.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        while running.load(Ordering::SeqCst) {
+            std::thread::sleep(STREAM_POLL);
+            let Some(engine) = engine_cache.blocking_lock().clone() else {
+                continue;
+            };
+
+            // Lock order everywhere is session → audio buffer. Finalize takes
+            // the session first too, so it waits out an in-flight decode and
+            // the worker exits on the emptied slot.
+            let mut slot = session_slot.lock().expect("stream_session lock poisoned");
+            let Some(session) = slot.as_mut() else {
+                break;
+            };
+            let rate = *native_rate
+                .lock()
+                .expect("native_sample_rate lock poisoned");
+            let window: Vec<f32> = {
+                let buf = audio_buffer.lock().expect("audio_buffer lock poisoned");
+                buf[session.window_start().min(buf.len())..].to_vec()
+            };
+
+            let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                session.poll(&window, rate, &engine)
+            }));
+            match polled {
+                Ok(Some(preview)) => {
+                    let _ = app.emit("transcription-partial", preview);
+                }
+                Ok(None) => {}
+                Err(_) => {
+                    // Engine panicked mid-decode: evict it and drop the session
+                    // so finalize falls back to a clean single-pass decode.
+                    log::error!("WhisperEngine panicked during streaming — evicting");
+                    *slot = None;
+                    *engine_cache.blocking_lock() = None;
+                    break;
+                }
+            }
+        }
+    });
+}
+
 /// Emit pill waveform levels at ~30 Hz from the spectrum meter while recording.
 fn spawn_waveform_emitter(app: &AppHandle, state: &AppState) {
     let running = Arc::clone(&state.transcription_running);
@@ -94,6 +154,9 @@ pub struct FinalizeContext {
     pub dict_cache: DictCache,
     pub engine: Arc<std::sync::Mutex<WhisperEngine>>,
     pub engine_cache: Arc<tokio::sync::Mutex<Option<Arc<std::sync::Mutex<WhisperEngine>>>>>,
+    /// Streaming state accumulated while recording; `None` falls back to a
+    /// single-pass decode of the whole buffer.
+    pub session: Option<crate::pipeline::StreamingSession>,
     pub samples: Vec<f32>,
     pub captured_rate: u32,
     pub beam_size: i32,
@@ -112,6 +175,7 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
         dict_cache,
         engine,
         engine_cache,
+        session,
         samples,
         captured_rate,
         beam_size,
@@ -125,12 +189,7 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
             let engine_cache = Arc::clone(&engine_cache);
             move || -> Result<String, String> {
                 let Ok(text) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    crate::pipeline::transcribe_recording(
-                        &samples,
-                        captured_rate,
-                        &engine,
-                        beam_size,
-                    )
+                    crate::pipeline::finalize(session, &samples, captured_rate, &engine, beam_size)
                 })) else {
                     log::error!("WhisperEngine panicked during finalize — evicting");
                     *engine_cache.blocking_lock() = None;

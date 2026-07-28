@@ -142,6 +142,9 @@ pub struct AppState {
     /// Cached whisper engine — loaded once, reused across recordings.
     /// Wrapped in Arc so it can be captured by the spawn closure in `stop_transcription`.
     pub engine: Arc<Mutex<Option<Arc<std::sync::Mutex<WhisperEngine>>>>>,
+    /// Streaming transcription state for the recording in progress. Created on
+    /// start, advanced by the stream worker, consumed (taken) by finalize.
+    pub stream_session: Arc<std::sync::Mutex<Option<crate::pipeline::StreamingSession>>>,
     pub model_download: Arc<ModelDownloadState>,
     /// In-memory dictionary cache — loaded at startup, mutated on add/delete.
     pub dict_cache: DictCache,
@@ -191,6 +194,7 @@ impl AppState {
             waveform: Arc::new(crate::audio::WaveformMeter::new(44100)),
             models_dir,
             engine: Arc::new(Mutex::new(None)),
+            stream_session: Arc::new(std::sync::Mutex::new(None)),
             model_download: Arc::new(ModelDownloadState::new()),
             dict_cache: Arc::new(RwLock::new(HashMap::new())),
             capture_done: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
@@ -376,6 +380,24 @@ impl AppState {
         let json = serde_json::to_string_pretty(cfg)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         std::fs::write(&self.format_config_path, json)
+    }
+
+    /// Arm a fresh streaming session for the recording about to start.
+    pub fn begin_stream_session(&self) {
+        *self
+            .stream_session
+            .lock()
+            .expect("stream_session lock poisoned") =
+            Some(crate::pipeline::StreamingSession::new());
+    }
+
+    /// Take the streaming session for finalize (or to discard it on cancel).
+    /// Blocks until any in-flight stream decode releases the session.
+    pub fn take_stream_session(&self) -> Option<crate::pipeline::StreamingSession> {
+        self.stream_session
+            .lock()
+            .expect("stream_session lock poisoned")
+            .take()
     }
 
     pub fn try_start_transcription(&self) -> bool {

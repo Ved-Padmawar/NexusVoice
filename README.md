@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.11.1-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.12.0-violet?style=flat-square)
 
 </div>
 
@@ -37,6 +37,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 ## Features
 
 - **Push-to-talk** — hold any custom hotkey to record, release to transcribe and paste
+- **Live streaming transcription** — your speech is transcribed as you talk, so there's barely anything left to process when you release the hotkey
 - **Dictation Mode** — a hands-free alternative: press a hotkey to start, then pause/resume and save from the pill or by hotkey — ideal for longer, uninterrupted dictation
 - **Microphone selection** — pick which input device records your voice (Settings → Shortcuts); defaults to the system default and falls back to it automatically if your chosen mic is unplugged
 - **100% local** — Whisper runs entirely on your machine, nothing is sent to the cloud
@@ -59,15 +60,19 @@ App launch       →  Whisper model loaded and warmed up in the background
 Hotkey held      →  cpal captures mic audio from your selected input device
                     (capture starts before "recording" is reported, so the
                     first words aren't clipped)
-Hotkey released  →  a brief post-roll captures trailing speech, then the whole
-                    recording is decoded in a single pass
+While speaking   →  audio is transcribed continuously in the background; text
+                    only becomes final once two consecutive passes agree on it
                  →  silent lead-in is trimmed and the audio is denoised and
                     level-normalised before it reaches Whisper
+Hotkey released  →  a brief post-roll captures trailing speech, then only the
+                    undecoded tail is transcribed
                  →  (optional) transcript reformatted by your chosen LLM
                  →  text written to clipboard + Ctrl+V pasted
 ```
 
-Your recording is transcribed on release, giving Whisper the full context of what you said for the most accurate result. The engine pre-loads at launch so the first transcription is instant.
+Transcription runs while you speak rather than waiting until you finish, so releasing the hotkey only leaves the last few seconds to process — the longer you talk, the bigger the saving. Each pass re-reads the recent audio in full sentence context, and a word is only committed once two consecutive passes agree on it, so accuracy matches decoding everything at the end. Committed text is never revised, so what you see never rewrites itself.
+
+The engine pre-loads at launch so the first transcription is instant. If it isn't ready yet, or the clip is very short, the whole recording is simply decoded in one pass on release.
 
 If **Smart Formatting** is enabled, the transcript is sent to your configured LLM endpoint for cleanup before pasting; otherwise the raw transcript is pasted as-is. If the formatter is unreachable or errors, it transparently falls back to the raw transcript.
 
