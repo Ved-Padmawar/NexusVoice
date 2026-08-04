@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter } from 'react-router'
 import { Dashboard } from '../../pages/Dashboard'
 import { useAppStore } from '../../store/useAppStore'
 import { invoke } from '@tauri-apps/api/core'

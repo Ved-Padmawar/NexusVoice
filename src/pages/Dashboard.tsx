@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
+import { Popover } from 'radix-ui'
 import {
   Hash, Timer, Mic, Activity,
   AlertCircle, Copy, Check, Trash2,
@@ -12,7 +13,6 @@ import { toast } from 'sonner'
 import { useAppStore } from '../store/useAppStore'
 import { ROUTES } from '../lib/routes'
 import { fmtTime, fmtDate, downloadBlob } from '../lib/utils'
-import { useClickOutside } from '../lib/hooks'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { SectionState } from '../components/SectionState'
@@ -54,9 +54,6 @@ function FeedSkeleton() {
 function ExportButton() {
   const [open, setOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useClickOutside(ref, () => setOpen(false), open)
 
   const doExport = async (format: 'txt' | 'json') => {
     setOpen(false)
@@ -79,32 +76,45 @@ function ExportButton() {
   }
 
   return (
-    <div ref={ref} className="relative shrink-0">
-      <button
-        type="button"
-        onClick={() => setOpen(v => !v)}
-        disabled={exporting}
-        title="Export transcripts"
-        className="inline-flex items-center gap-1.25 h-7 px-2.5 rounded-(--r-md) border border-(--border) bg-(--panel) text-[11px] font-medium text-(--fg-2) hover:text-(--fg) hover:border-(--accent) transition-colors duration-(--t-fast) cursor-pointer disabled:opacity-50"
-      >
-        <Download size={11} strokeWidth={2} />
-        Export
-      </button>
-      {open && (
-        <div className="absolute right-0 top-[calc(100%+4px)] z-50 flex flex-col rounded-(--r-lg) border border-(--border) bg-(--panel) shadow-(--shadow-md) overflow-hidden min-w-37">
-          {(['txt', 'json'] as const).map(fmt => (
-            <button
-              key={fmt}
-              type="button"
-              onClick={() => doExport(fmt)}
-              className="px-3 py-1.75 text-left text-[12px] text-(--fg-2) hover:bg-accent hover:text-(--fg) transition-colors cursor-pointer bg-transparent border-none"
-            >
-              {fmt === 'txt' ? 'Plain text (.txt)' : 'JSON (.json)'}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          disabled={exporting}
+          title="Export transcripts"
+          className="inline-flex items-center gap-1.25 h-7 px-2.5 rounded-(--r-md) border border-(--border) bg-(--panel) text-[11px] font-medium text-(--fg-2) hover:text-(--fg) hover:border-(--accent) transition-colors duration-(--t-fast) cursor-pointer disabled:opacity-50 shrink-0"
+        >
+          <Download size={11} strokeWidth={2} />
+          Export
+        </button>
+      </Popover.Trigger>
+      <AnimatePresence>
+        {open && (
+          <Popover.Portal forceMount>
+            <Popover.Content align="end" sideOffset={4} asChild>
+              <motion.div
+                initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                transition={{ duration: 0.14, ease: 'easeOut' }}
+                className="z-50 flex flex-col rounded-(--r-lg) border border-(--border) bg-(--panel) shadow-(--shadow-md) overflow-hidden min-w-37 origin-top-right"
+              >
+                {(['txt', 'json'] as const).map(fmt => (
+                  <button
+                    key={fmt}
+                    type="button"
+                    onClick={() => doExport(fmt)}
+                    className="px-3 py-1.75 text-left text-[12px] text-(--fg-2) hover:bg-accent hover:text-(--fg) transition-colors cursor-pointer bg-transparent border-none"
+                  >
+                    {fmt === 'txt' ? 'Plain text (.txt)' : 'JSON (.json)'}
+                  </button>
+                ))}
+              </motion.div>
+            </Popover.Content>
+          </Popover.Portal>
+        )}
+      </AnimatePresence>
+    </Popover.Root>
   )
 }
 
@@ -151,17 +161,16 @@ function FilterDropdown() {
   const [to, setTo] = useState(filterTo ?? '')
   const [on, setOn] = useState('')
   const [sortAsc, setSortAsc] = useState(filterSortAsc)
-  const ref = useRef<HTMLDivElement>(null)
   const hasActive = !!filterFrom || !!filterTo || filterSortAsc
 
-  useClickOutside(ref, () => setOpen(false), open)
-
-  const openDropdown = () => {
-    setFrom(filterFrom ?? '')
-    setTo(filterTo ?? '')
-    setSortAsc(filterSortAsc)
-    setOn('')
-    setOpen(true)
+  const handleOpenChange = (next: boolean) => {
+    if (next) {
+      setFrom(filterFrom ?? '')
+      setTo(filterTo ?? '')
+      setSortAsc(filterSortAsc)
+      setOn('')
+    }
+    setOpen(next)
   }
 
   const apply = () => {
@@ -179,77 +188,90 @@ function FilterDropdown() {
   }
 
   return (
-    <div ref={ref} className="relative shrink-0">
-      <button
-        type="button"
-        onClick={() => open ? setOpen(false) : openDropdown()}
-        className={`inline-flex items-center gap-1.25 h-7 px-2.5 rounded-(--r-md) border text-[11px] font-medium transition-colors duration-(--t-fast) cursor-pointer ${hasActive ? 'border-(--accent) bg-(--accent-soft) text-(--accent)' : 'border-(--border) bg-(--panel) text-(--fg-2) hover:text-(--fg) hover:border-(--accent)'}`}
-      >
-        <SlidersHorizontal size={11} strokeWidth={2} />
-        Filter{hasActive ? ' ·' : ''}
-      </button>
-      {open && (
-        <div className="absolute right-0 top-[calc(100%+6px)] z-50 rounded-(--r-lg) border border-(--border) bg-(--panel) shadow-(--shadow-lg) p-3 w-70">
-          <div className="flex flex-col gap-3">
-            {/* Date mode toggle */}
-            <div className="flex flex-col gap-1.25">
-              <span className="text-[11px] font-medium text-muted-foreground">Date</span>
-              <div className="flex gap-1">
-                {(['range', 'on'] as const).map(mode => (
-                  <button key={mode} type="button" onClick={() => setDateMode(mode)}
-                    className={`flex-1 h-6.5 rounded-(--r-sm) text-[11px] font-medium border transition-colors cursor-pointer ${dateMode === mode ? 'border-(--accent) bg-(--accent-soft) text-(--accent)' : 'border-(--border) bg-transparent text-(--fg-2) hover:text-(--fg)'}`}>
-                    {mode === 'range' ? 'Range' : 'Specific day'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {/* Date inputs */}
-            {dateMode === 'on' ? (
-              <input type="date" value={on} onChange={e => setOn(e.target.value)}
-                className="nv-input h-7 text-[11px] px-2 w-full" />
-            ) : (
-              <div className="flex gap-2">
-                <div className="flex flex-col gap-1.25 flex-1">
-                  <span className="text-[11px] font-medium text-muted-foreground">From</span>
-                  <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-                    className="nv-input h-7 text-[11px] px-2 w-full" />
+    <Popover.Root open={open} onOpenChange={handleOpenChange}>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          className={`inline-flex items-center gap-1.25 h-7 px-2.5 rounded-(--r-md) border text-[11px] font-medium transition-colors duration-(--t-fast) cursor-pointer shrink-0 ${hasActive ? 'border-(--accent) bg-(--accent-soft) text-(--accent)' : 'border-(--border) bg-(--panel) text-(--fg-2) hover:text-(--fg) hover:border-(--accent)'}`}
+        >
+          <SlidersHorizontal size={11} strokeWidth={2} />
+          Filter{hasActive ? ' ·' : ''}
+        </button>
+      </Popover.Trigger>
+      <AnimatePresence>
+        {open && (
+          <Popover.Portal forceMount>
+            <Popover.Content align="end" sideOffset={6} asChild>
+              <motion.div
+                initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                transition={{ duration: 0.14, ease: 'easeOut' }}
+                className="z-50 rounded-(--r-lg) border border-(--border) bg-(--panel) shadow-(--shadow-lg) p-3 w-70 origin-top-right"
+              >
+                <div className="flex flex-col gap-3">
+                  {/* Date mode toggle */}
+                  <div className="flex flex-col gap-1.25">
+                    <span className="text-[11px] font-medium text-muted-foreground">Date</span>
+                    <div className="flex gap-1">
+                      {(['range', 'on'] as const).map(mode => (
+                        <button key={mode} type="button" onClick={() => setDateMode(mode)}
+                          className={`flex-1 h-6.5 rounded-(--r-sm) text-[11px] font-medium border transition-colors cursor-pointer ${dateMode === mode ? 'border-(--accent) bg-(--accent-soft) text-(--accent)' : 'border-(--border) bg-transparent text-(--fg-2) hover:text-(--fg)'}`}>
+                          {mode === 'range' ? 'Range' : 'Specific day'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Date inputs */}
+                  {dateMode === 'on' ? (
+                    <input type="date" value={on} onChange={e => setOn(e.target.value)}
+                      className="nv-input h-7 text-[11px] px-2 w-full" />
+                  ) : (
+                    <div className="flex gap-2">
+                      <div className="flex flex-col gap-1.25 flex-1">
+                        <span className="text-[11px] font-medium text-muted-foreground">From</span>
+                        <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+                          className="nv-input h-7 text-[11px] px-2 w-full" />
+                      </div>
+                      <div className="flex flex-col gap-1.25 flex-1">
+                        <span className="text-[11px] font-medium text-muted-foreground">To</span>
+                        <input type="date" value={to} onChange={e => setTo(e.target.value)}
+                          className="nv-input h-7 text-[11px] px-2 w-full" />
+                      </div>
+                    </div>
+                  )}
+                  {/* Sort */}
+                  <div className="flex flex-col gap-1.25">
+                    <span className="text-[11px] font-medium text-muted-foreground">Sort order</span>
+                    <div className="flex gap-1">
+                      {([false, true] as const).map(asc => (
+                        <button key={String(asc)} type="button" onClick={() => setSortAsc(asc)}
+                          className={`flex-1 h-6.5 rounded-(--r-sm) text-[11px] font-medium border transition-colors cursor-pointer ${sortAsc === asc ? 'border-(--accent) bg-(--accent-soft) text-(--accent)' : 'border-(--border) bg-transparent text-(--fg-2) hover:text-(--fg)'}`}>
+                          {asc ? 'Oldest first' : 'Newest first'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 pt-1 border-t border-(--border-soft)">
+                    {hasActive && (
+                      <button type="button" onClick={reset}
+                        className="text-[11px] text-muted-foreground hover:text-(--fg) transition-colors cursor-pointer bg-transparent border-none">
+                        Reset
+                      </button>
+                    )}
+                    <button type="button" onClick={apply}
+                      className="ml-auto inline-flex items-center h-6.5 px-3 rounded-(--r-sm) bg-(--accent) text-primary-foreground text-[11px] font-semibold cursor-pointer border-none hover:opacity-90 transition-opacity">
+                      Apply
+                    </button>
+                  </div>
                 </div>
-                <div className="flex flex-col gap-1.25 flex-1">
-                  <span className="text-[11px] font-medium text-muted-foreground">To</span>
-                  <input type="date" value={to} onChange={e => setTo(e.target.value)}
-                    className="nv-input h-7 text-[11px] px-2 w-full" />
-                </div>
-              </div>
-            )}
-            {/* Sort */}
-            <div className="flex flex-col gap-1.25">
-              <span className="text-[11px] font-medium text-muted-foreground">Sort order</span>
-              <div className="flex gap-1">
-                {([false, true] as const).map(asc => (
-                  <button key={String(asc)} type="button" onClick={() => setSortAsc(asc)}
-                    className={`flex-1 h-6.5 rounded-(--r-sm) text-[11px] font-medium border transition-colors cursor-pointer ${sortAsc === asc ? 'border-(--accent) bg-(--accent-soft) text-(--accent)' : 'border-(--border) bg-transparent text-(--fg-2) hover:text-(--fg)'}`}>
-                    {asc ? 'Oldest first' : 'Newest first'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {/* Actions */}
-            <div className="flex items-center gap-2 pt-1 border-t border-(--border-soft)">
-              {hasActive && (
-                <button type="button" onClick={reset}
-                  className="text-[11px] text-muted-foreground hover:text-(--fg) transition-colors cursor-pointer bg-transparent border-none">
-                  Reset
-                </button>
-              )}
-              <button type="button" onClick={apply}
-                className="ml-auto inline-flex items-center h-6.5 px-3 rounded-(--r-sm) bg-(--accent) text-primary-foreground text-[11px] font-semibold cursor-pointer border-none hover:opacity-90 transition-opacity">
-                Apply
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+              </motion.div>
+            </Popover.Content>
+          </Popover.Portal>
+        )}
+      </AnimatePresence>
+    </Popover.Root>
   )
 }
 

@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router'
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../lib/commands'
 import { Palette, Info, Settings2, FolderOpen, Database, Keyboard } from 'lucide-react'
@@ -37,7 +37,7 @@ export function Settings() {
   const setTab = (v: string) => setActiveSettingsTab(v as SettingsTab)
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-7 py-6">
+    <div className="flex flex-col h-full overflow-hidden px-8 pt-7 pb-4">
       <div className="flex items-center justify-between gap-4 pb-5 mb-4 border-b border-(--border-soft) shrink-0">
         <div className="flex items-center gap-3.5">
           <div className="w-9 h-9 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">

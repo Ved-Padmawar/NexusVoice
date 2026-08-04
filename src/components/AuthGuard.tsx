@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import { Navigate, useLocation } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router'
 import { useAppStore } from '../store/useAppStore'
 import { ROUTES } from '../lib/routes'
 

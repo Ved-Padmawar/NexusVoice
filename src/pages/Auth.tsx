@@ -1,25 +1,26 @@
 import { useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Zap, Check, AlertCircle, X, Minus, Square, Eye, EyeOff } from 'lucide-react'
+import { Check, AlertCircle, X, Minus, Square, Eye, EyeOff } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import logoUrl from '../assets/logo.png'
 
 type Mode = 'login' | 'register'
 
 const loginSchema = z.object({
-  email: z.string().email('Enter a valid email address'),
+  email: z.email('Enter a valid email address'),
   password: z.string().min(1, 'Password is required'),
 })
 
 const registerSchema = z.object({
-  email: z.string().email('Enter a valid email address'),
+  email: z.email('Enter a valid email address'),
   password: z
     .string()
     .min(8, 'At least 8 characters')
@@ -74,11 +75,11 @@ export function Auth() {
   const win = getCurrentWindow()
 
   return (
-    <div className="flex flex-col h-dvh overflow-hidden bg-background">
+    <div className="relative flex flex-col h-dvh overflow-hidden bg-background">
       {/* Titlebar */}
-      <div className="flex items-stretch h-8 shrink-0 bg-(--panel) border-b border-(--border) select-none">
-        <div className="flex-1 h-full cursor-default" data-tauri-drag-region />
-        <div className="flex items-stretch no-drag">
+      <div className="absolute top-0 left-0 right-0 flex items-stretch h-8 z-20 select-none pointer-events-none">
+        <div className="flex-1 h-full cursor-default pointer-events-auto" data-tauri-drag-region />
+        <div className="flex items-stretch no-drag pointer-events-auto">
           <button className="flex items-center justify-center w-11.5 h-full bg-transparent border-none cursor-pointer text-muted-foreground transition-[background,color] duration-(--t-fast) hover:bg-accent hover:text-(--fg)" onClick={() => win.minimize()} aria-label="Minimize"><Minus size={10} strokeWidth={2} /></button>
           <button className="flex items-center justify-center w-11.5 h-full bg-transparent border-none cursor-pointer text-muted-foreground transition-[background,color] duration-(--t-fast) hover:bg-accent hover:text-(--fg)" onClick={() => win.toggleMaximize()} aria-label="Maximize"><Square size={9} strokeWidth={2} /></button>
           <button className="flex items-center justify-center w-11.5 h-full bg-transparent border-none cursor-pointer text-muted-foreground transition-[background,color] duration-(--t-fast) hover:bg-(--color-close) hover:text-white" onClick={() => win.close()} aria-label="Close"><X size={10} strokeWidth={2} /></button>
@@ -87,16 +88,14 @@ export function Auth() {
 
       <div className="flex flex-1 min-h-0">
         {/* Left panel */}
-        <div className="flex-1 flex flex-col justify-between px-12 py-10 bg-(--panel) border-r border-(--border) relative overflow-hidden">
+        <div className="flex-1 flex flex-col justify-between px-12 pt-9 pb-10 bg-(--panel) border-r border-(--border) relative overflow-hidden">
           {/* Ambient blobs */}
           <div className="absolute -top-25 -left-15 w-105 h-105 rounded-full pointer-events-none opacity-10" style={{ background: 'radial-gradient(circle, var(--accent) 0%, transparent 65%)' }} />
           <div className="absolute -bottom-20 -right-12.5 w-75 h-75 rounded-full pointer-events-none opacity-[0.06]" style={{ background: 'radial-gradient(circle, var(--accent) 0%, transparent 65%)' }} />
 
           {/* Brand */}
           <div className="flex items-center gap-2.5 relative z-10">
-            <div className="w-9 h-9 rounded-(--r-lg) bg-(--accent) flex items-center justify-center text-primary-foreground shadow-(--glow)">
-              <Zap size={15} strokeWidth={2.5} />
-            </div>
+            <img src={logoUrl} alt="NexusVoice" className="w-9 h-9 rounded-(--r-lg) shrink-0" />
             <span className="text-[16px] font-extrabold tracking-tight text-(--fg)">NexusVoice</span>
           </div>
 
@@ -125,7 +124,7 @@ export function Auth() {
         </div>
 
         {/* Right panel — form */}
-        <div className="w-100 shrink-0 flex items-center justify-center px-9 py-10 bg-background">
+        <div className="w-100 shrink-0 flex items-center justify-center px-9 pt-9 pb-10 bg-background">
           <div className="w-full flex flex-col gap-5">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div

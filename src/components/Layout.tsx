@@ -1,4 +1,4 @@
-import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
+import { Outlet, Link, useLocation, useNavigate } from 'react-router'
 import { useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import clsx from 'clsx'
@@ -11,9 +11,9 @@ import logoUrl from '../assets/logo.png'
 function TitleBar() {
   const win = getCurrentWindow()
   return (
-    <div className="flex items-stretch h-8 shrink-0 bg-(--panel) border-b border-(--border) select-none">
-      <div className="flex-1 h-full cursor-default" data-tauri-drag-region />
-      <div className="flex items-stretch no-drag">
+    <div className="absolute top-0 left-0 right-0 flex items-stretch h-8 z-20 select-none pointer-events-none">
+      <div className="flex-1 h-full cursor-default pointer-events-auto" data-tauri-drag-region />
+      <div className="flex items-stretch no-drag pointer-events-auto">
         <button
           type="button"
           className="flex items-center justify-center w-11.5 h-full bg-transparent border-none cursor-pointer text-muted-foreground transition-[background,color] duration-(--t-fast) hover:bg-accent hover:text-(--fg)"
@@ -187,15 +187,13 @@ export function Layout() {
   const initials = user?.email?.charAt(0).toUpperCase() ?? '?'
 
   return (
-    <div className="flex flex-col h-dvh overflow-hidden bg-background">
+    <div className="relative flex flex-col h-dvh overflow-hidden bg-background">
       <TitleBar />
-      <ModelBanner />
-      <UpdateBanner />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Sidebar */}
         <aside className="w-(--sidebar-w) shrink-0 h-full bg-(--panel) border-r border-(--border) flex flex-col relative z-10">
           {/* Brand */}
-          <div className="px-3.5 pt-4 pb-3 border-b border-(--border-soft)">
+          <div className="px-3.5 pt-9 pb-3 border-b border-(--border-soft)">
             <Link to="/" className="flex items-center gap-2.25 no-underline group">
               {/* Real app icon (cyan/steel split tile + waveform) — same mark as
                   the taskbar/tray icon, so branding is consistent everywhere. */}
@@ -282,6 +280,10 @@ export function Layout() {
 
         {/* Main */}
         <div className="flex-1 min-w-0 h-full overflow-hidden flex flex-col items-center">
+          <div className="w-full pt-8 shrink-0">
+            <ModelBanner />
+            <UpdateBanner />
+          </div>
           <main className="flex-1 w-full overflow-hidden flex flex-col min-h-0">
             <Outlet />
           </main>

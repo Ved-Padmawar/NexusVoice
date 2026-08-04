@@ -1,5 +1,5 @@
 import { useEffect, lazy, Suspense, type ReactNode } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router'
 import { motion } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Toaster } from 'sonner'

@@ -29,7 +29,7 @@ describe('MicrophoneSection', () => {
     )
 
     // Opening the menu reveals the named alternative.
-    fireEvent.click(screen.getByRole('button', { name: /Default/ }))
+    fireEvent.click(screen.getByRole('combobox'))
     expect(await screen.findByText('Blue Yeti')).toBeInTheDocument()
   })
 
@@ -40,7 +40,7 @@ describe('MicrophoneSection', () => {
     ])
     render(<MicrophoneSection />)
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Blue Yeti/ })).toBeInTheDocument()
+      expect(screen.getByRole('combobox', { name: /Blue Yeti/ })).toBeInTheDocument()
     )
   })
 
@@ -49,7 +49,7 @@ describe('MicrophoneSection', () => {
     mockInvoke.mockResolvedValue(undefined)
     render(<MicrophoneSection />)
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /Default/ })).toBeInTheDocument()
+      expect(screen.getByRole('combobox', { name: /Default/ })).toBeInTheDocument()
     )
   })
 
@@ -60,7 +60,7 @@ describe('MicrophoneSection', () => {
     await waitFor(() =>
       expect(screen.getByText(/Default — Realtek Microphone/)).toBeInTheDocument()
     )
-    fireEvent.click(screen.getByRole('button', { name: /Default/ }))
+    fireEvent.click(screen.getByRole('combobox'))
     fireEvent.click(await screen.findByText('Blue Yeti'))
 
     await waitFor(() =>

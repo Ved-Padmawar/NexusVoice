@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Dialog } from 'radix-ui'
 import { Sparkles, Settings2, X, CheckCircle2, Loader2, AlertCircle, Plug, Save } from 'lucide-react'
 import { COMMANDS } from '../lib/commands'
 import { extractErrorMessage } from '../lib/errors'
@@ -155,13 +156,6 @@ function ProviderModal({
 
   const preset = PRESETS.find((p) => p.id === providerId) ?? PRESETS[0]
 
-  // Close on Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
-
   // Clean up the result-flash timer on unmount.
   useEffect(() => () => { if (resultTimerRef.current) clearTimeout(resultTimerRef.current) }, [])
 
@@ -228,16 +222,30 @@ function ProviderModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
-    >
+    <Dialog.Root open onOpenChange={(next) => { if (!next) onClose() }}>
+      <Dialog.Portal forceMount>
+        <Dialog.Overlay asChild>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
+          />
+        </Dialog.Overlay>
+        <Dialog.Content
+          aria-describedby={undefined}
+          asChild
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
+        >
+          <div>
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 8 }}
         transition={{ duration: 0.2, ease: 'easeOut' }}
-        className="w-[460px] flex flex-col bg-(--panel) border border-(--border) rounded-(--r-xl) shadow-(--shadow-lg) overflow-hidden"
+        className="w-[460px] flex flex-col bg-(--panel) border border-(--border) rounded-(--r-xl) shadow-(--shadow-lg) overflow-hidden pointer-events-auto"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-(--border-soft)">
@@ -246,18 +254,19 @@ function ProviderModal({
               <Sparkles size={15} strokeWidth={2} />
             </div>
             <div>
-              <h2 className="text-[15px] font-bold tracking-tight text-(--fg) m-0">Formatting provider</h2>
+              <Dialog.Title className="text-[15px] font-bold tracking-tight text-(--fg) m-0">Formatting provider</Dialog.Title>
               <p className="text-[11px] text-muted-foreground mt-0.5">Connect any OpenAI-compatible endpoint</p>
             </div>
           </div>
-          <button
-            type="button"
-            aria-label="Close"
-            className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer transition-[color,background] duration-(--t-fast) hover:text-(--fg) hover:bg-accent"
-            onClick={onClose}
-          >
-            <X size={14} strokeWidth={2} />
-          </button>
+          <Dialog.Close asChild>
+            <button
+              type="button"
+              aria-label="Close"
+              className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer transition-[color,background] duration-(--t-fast) hover:text-(--fg) hover:bg-accent"
+            >
+              <X size={14} strokeWidth={2} />
+            </button>
+          </Dialog.Close>
         </div>
 
         <div className="flex flex-col gap-4 px-6 py-5">
@@ -357,7 +366,10 @@ function ProviderModal({
           </button>
         </div>
       </motion.div>
-    </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }
 
