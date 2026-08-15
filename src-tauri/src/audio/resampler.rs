@@ -10,8 +10,8 @@ use rubato::{
 const CHUNK_SIZE: usize = 1024;
 
 /// Cached resamplers per (from, to) rate pair. Building a `SincFixedIn`
-/// computes the full sinc filter bank (`sinc_len` 256 × oversampling 256) —
-/// far more expensive than the resampling itself for typical chunk sizes.
+/// computes the full sinc filter bank — far more expensive than the
+/// resampling itself for typical chunk sizes.
 /// Instances are stateful (filter history), so each use is `reset()` first.
 type ResamplerCache = Mutex<HashMap<(u32, u32), SincFixedIn<f32>>>;
 static RESAMPLERS: OnceLock<ResamplerCache> = OnceLock::new();
@@ -32,10 +32,10 @@ pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let resampler = cache.entry((from_rate, to_rate)).or_insert_with(|| {
         let params = SincInterpolationParameters {
-            sinc_len: 256,
+            sinc_len: 64,
             f_cutoff: 0.85, // ≤0.85 recommended for downsampling to avoid aliasing near Nyquist
-            interpolation: SincInterpolationType::Cubic, // higher quality than Linear, reduces passband ripple
-            oversampling_factor: 256,
+            interpolation: SincInterpolationType::Linear,
+            oversampling_factor: 128,
             window: WindowFunction::BlackmanHarris2,
         };
         SincFixedIn::<f32>::new(

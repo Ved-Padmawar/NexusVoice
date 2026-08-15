@@ -152,7 +152,7 @@ impl StreamingSession {
         {
             cum_words += seg.words.len();
             if cum_words > self.confirmed_words {
-                break;
+                continue;
             }
             let boundary = self.window_start + from_ms(seg.end_ms, native_rate);
             if to_secs(total_len.saturating_sub(boundary), native_rate) >= MIN_WINDOW_SECS {
