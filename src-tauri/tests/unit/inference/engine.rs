@@ -4,6 +4,7 @@ use crate::inference::transcript::Word;
 fn tok(text: &str) -> Word {
     Word {
         text: text.to_string(),
+        end_cs: None,
     }
 }
 

@@ -4,6 +4,8 @@
 #[derive(Debug, Clone, PartialEq)]
 pub struct Word {
     pub text: String,
+    /// DTW-aligned end timestamp in centiseconds, if DTW was enabled.
+    pub end_cs: Option<i64>,
 }
 
 /// One whisper segment: its cleaned words plus where it ends on the decode's

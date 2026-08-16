@@ -3,6 +3,7 @@ use super::{join_words, Word};
 fn w(text: &str) -> Word {
     Word {
         text: text.to_string(),
+        end_cs: None,
     }
 }
 

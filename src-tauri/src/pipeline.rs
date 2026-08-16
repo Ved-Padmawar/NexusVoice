@@ -23,6 +23,10 @@ const MIN_NEW_AUDIO_SECS: f64 = 1.0;
 /// default: shorter keeps mid-recording decodes cheap on Vulkan while still
 /// giving ample context.
 const TRIM_AFTER_SECS: f64 = 8.0;
+/// Window length past which `trim()` failing to find a segment boundary
+/// (continuous speech, one still-growing segment) triggers a word-level
+/// cut instead — see `force_trim`.
+const FORCE_TRIM_SECS: f64 = 12.0;
 /// Audio a trim must leave in the window (whisper needs ≥1 s to decode).
 const MIN_WINDOW_SECS: f64 = 2.0;
 /// Beam size for mid-recording decodes; the final decode uses the user's preset.
@@ -131,8 +135,12 @@ impl StreamingSession {
         self.prev_norm = new_norm;
         self.segments = segments;
 
-        if to_secs(total_len - self.window_start, native_rate) > TRIM_AFTER_SECS {
-            self.trim(total_len, native_rate);
+        let window_secs = to_secs(total_len - self.window_start, native_rate);
+        if window_secs > TRIM_AFTER_SECS {
+            let trimmed = self.trim(total_len, native_rate);
+            if !trimmed && window_secs > FORCE_TRIM_SECS {
+                self.force_trim(total_len, native_rate);
+            }
         }
 
         Some(self.preview())
@@ -140,8 +148,8 @@ impl StreamingSession {
 
     /// Trim the window at the last completed segment boundary inside the
     /// confirmed prefix, committing that text. The last segment never
-    /// qualifies — it is still growing.
-    fn trim(&mut self, total_len: usize, native_rate: u32) {
+    /// qualifies — it is still growing. Returns whether a trim happened.
+    fn trim(&mut self, total_len: usize, native_rate: u32) -> bool {
         let mut cum_words = 0;
         let mut cut: Option<(usize, usize, i64)> = None; // (segment idx, words, end_ms)
         for (i, seg) in self
@@ -161,13 +169,48 @@ impl StreamingSession {
         }
 
         let Some((idx, words, end_ms)) = cut else {
-            return;
+            return false;
         };
         push_text(&mut self.committed, &join_segments(&self.segments[..=idx]));
         self.window_start += from_ms(end_ms, native_rate);
         self.segments.drain(..=idx);
         self.prev_norm.drain(..words.min(self.prev_norm.len()));
         self.confirmed_words -= words;
+        true
+    }
+
+    /// Fallback when `trim()` finds no segment boundary: cuts inside the
+    /// first (still-growing) segment at a word boundary using DTW end
+    /// timestamps. No-op without timestamps or without `MIN_WINDOW_SECS` left.
+    fn force_trim(&mut self, total_len: usize, native_rate: u32) {
+        let Some(first) = self.segments.first() else {
+            return;
+        };
+        let take_words = self.confirmed_words.min(first.words.len());
+        let Some(cut_word_idx) = (0..take_words)
+            .rev()
+            .find(|&i| first.words[i].end_cs.is_some())
+        else {
+            return;
+        };
+        let end_cs = first.words[cut_word_idx].end_cs.expect("checked above");
+        let boundary = self.window_start + from_ms(end_cs * 10, native_rate);
+        if to_secs(total_len.saturating_sub(boundary), native_rate) < MIN_WINDOW_SECS {
+            return;
+        }
+
+        let words = cut_word_idx + 1;
+        push_text(
+            &mut self.committed,
+            &crate::inference::transcript::join_words(&first.words[..words]),
+        );
+        self.window_start = boundary;
+        self.segments[0].words.drain(..words);
+        if self.segments[0].words.is_empty() {
+            self.segments.remove(0);
+        }
+        self.prev_norm.drain(..words.min(self.prev_norm.len()));
+        self.confirmed_words = self.confirmed_words.saturating_sub(words);
     }
 
     /// Committed text plus the current window hypothesis — what the frontend

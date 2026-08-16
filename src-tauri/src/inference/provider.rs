@@ -52,6 +52,19 @@ impl ModelSize {
         }
     }
 
+    /// DTW alignment-heads preset for word-level timestamps, matched to this model.
+    pub const fn dtw_preset(self) -> whisper_rs::DtwModelPreset {
+        use whisper_rs::DtwModelPreset;
+        match self {
+            Self::LargeFull => DtwModelPreset::LargeV3,
+            Self::Large => DtwModelPreset::LargeV3Turbo,
+            Self::Medium => DtwModelPreset::MediumEn,
+            Self::Small => DtwModelPreset::SmallEn,
+            Self::Base => DtwModelPreset::BaseEn,
+            Self::Tiny => DtwModelPreset::TinyEn,
+        }
+    }
+
     pub const fn display_name(self) -> &'static str {
         match self {
             Self::LargeFull => "Whisper Large v3",

@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+use whisper_rs::{
+    DtwMode, DtwParameters, FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters,
+};
 
 use crate::inference::provider::{detect_backend, select_model_size, Backend, ModelSize};
 use crate::inference::transcript::{TimedSegment, Word};
@@ -35,6 +37,13 @@ impl WhisperEngine {
         // GPU acceleration requires "cuda" or "vulkan" crate features at build time.
         // Without them use_gpu(true) is a no-op — whisper-rs falls back to CPU.
         params.use_gpu(backend.has_gpu());
+        // Per-word timestamps for pipeline.rs::force_trim.
+        params.dtw_parameters(DtwParameters {
+            mode: DtwMode::ModelPreset {
+                model_preset: model_size.dtw_preset(),
+            },
+            ..Default::default()
+        });
 
         let ctx = WhisperContext::new_with_params(
             model_path.to_str().ok_or("invalid model path")?,
@@ -157,8 +166,10 @@ impl WhisperEngine {
                     continue;
                 }
 
+                let t_dtw = token.token_data().t_dtw;
                 words.push(Word {
                     text: raw.to_string(),
+                    end_cs: (t_dtw >= 0).then_some(t_dtw),
                 });
             }
 
@@ -195,6 +206,7 @@ fn merge_subword_tokens(tokens: Vec<Word>) -> Vec<Word> {
             out.push(tok);
         } else if let Some(prev) = out.last_mut() {
             prev.text.push_str(&tok.text);
+            prev.end_cs = tok.end_cs.or(prev.end_cs);
         }
     }
     for w in &mut out {
