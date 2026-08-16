@@ -93,17 +93,17 @@ impl StreamingSession {
         if to_secs(new_samples, native_rate) < MIN_NEW_AUDIO_SECS {
             return None;
         }
-        self.decoded_len = total_len;
 
         let mut prepared = crate::preprocess::to_16k_denoised(window, native_rate);
         if !self.lead_trimmed {
-            // Skip the silent lead-in once speech appears; until then, don't
-            // waste decodes hallucinating on silence.
+            // Skip the silent lead-in once speech appears. `decoded_len` stays
+            // put so the next poll re-checks the grown buffer.
             let skip_16k = lead_speech_offset(&prepared)?;
             self.window_start += from_16k(skip_16k, native_rate);
             prepared.drain(..skip_16k);
             self.lead_trimmed = true;
         }
+        self.decoded_len = total_len;
 
         let leveled = crate::preprocess::normalize_level(&prepared);
         if leveled.is_empty() {

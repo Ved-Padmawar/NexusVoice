@@ -13,7 +13,7 @@ use crate::database::repositories::{
 use crate::inference::WhisperEngine;
 use crate::llm::FormatConfig;
 use crate::postprocess::DictionaryCorrectionEngine;
-use crate::state::{AppState, DictCache};
+use crate::state::{lock_recovering, AppState, DictCache};
 
 /// Poll cadence of the stream worker. Decode frequency is governed by the
 /// pipeline's minimum-new-audio gate, not this; polling is just the check.
@@ -37,8 +37,8 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
     let app_handle = app.clone();
 
     // Reset the done + ready flags before starting a new capture session.
-    *capture_done.0.lock().expect("capture_done lock poisoned") = false;
-    *capture_ready.0.lock().expect("capture_ready lock poisoned") = false;
+    *lock_recovering(&capture_done.0) = false;
+    *lock_recovering(&capture_ready.0) = false;
 
     spawn_waveform_emitter(app, state);
     spawn_stream_worker(app, state);
@@ -64,9 +64,9 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
             session_phase.store(crate::state::SessionPhase::Idle as u8, Ordering::SeqCst);
             // Signal done + ready even on error so neither stop_transcription
             // nor start_transcription's ready wait blocks forever.
-            *capture_done.0.lock().expect("capture_done lock poisoned") = true;
+            *lock_recovering(&capture_done.0) = true;
             capture_done.1.notify_one();
-            *capture_ready.0.lock().expect("capture_ready lock poisoned") = true;
+            *lock_recovering(&capture_ready.0) = true;
             capture_ready.1.notify_one();
             let _ = app_handle.emit(
                 "transcription-error",
@@ -98,15 +98,13 @@ fn spawn_stream_worker(app: &AppHandle, state: &AppState) {
             // Lock order everywhere is session → audio buffer. Finalize takes
             // the session first too, so it waits out an in-flight decode and
             // the worker exits on the emptied slot.
-            let mut slot = session_slot.lock().expect("stream_session lock poisoned");
+            let mut slot = lock_recovering(&session_slot);
             let Some(session) = slot.as_mut() else {
                 break;
             };
-            let rate = *native_rate
-                .lock()
-                .expect("native_sample_rate lock poisoned");
+            let rate = *lock_recovering(&native_rate);
             let window: Vec<f32> = {
-                let buf = audio_buffer.lock().expect("audio_buffer lock poisoned");
+                let buf = lock_recovering(&audio_buffer);
                 buf[session.window_start().min(buf.len())..].to_vec()
             };
 

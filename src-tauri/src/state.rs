@@ -20,6 +20,13 @@ pub type DictCache = Arc<RwLock<HashMap<String, DictionaryEntry>>>;
 pub type AudioBuffer = Arc<std::sync::Mutex<Vec<f32>>>;
 pub type NativeSampleRate = Arc<std::sync::Mutex<u32>>;
 
+/// Lock a recording-path mutex, recovering the guard if a previous holder
+/// panicked. Re-panicking here would take down the stop path and strand the
+/// pill on screen.
+pub fn lock_recovering<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum RecordingMode {
@@ -417,20 +424,13 @@ impl AppState {
 
     /// Arm a fresh streaming session for the recording about to start.
     pub fn begin_stream_session(&self) {
-        *self
-            .stream_session
-            .lock()
-            .expect("stream_session lock poisoned") =
-            Some(crate::pipeline::StreamingSession::new());
+        *lock_recovering(&self.stream_session) = Some(crate::pipeline::StreamingSession::new());
     }
 
     /// Take the streaming session for finalize (or to discard it on cancel).
     /// Blocks until any in-flight stream decode releases the session.
     pub fn take_stream_session(&self) -> Option<crate::pipeline::StreamingSession> {
-        self.stream_session
-            .lock()
-            .expect("stream_session lock poisoned")
-            .take()
+        lock_recovering(&self.stream_session).take()
     }
 
     pub fn try_start_transcription(&self) -> bool {

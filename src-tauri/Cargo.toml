@@ -1,6 +1,6 @@
 [package]
 name = "nexusvoice"
-version = "1.13.0"
+version = "1.13.1"
 edition = "2021"
 
 [build-dependencies]
@@ -54,7 +54,8 @@ tempfile = "3"
 serial_test = "3"
 
 [profile.release]
-panic = "abort"
+# Must stay "unwind" — the recording path's catch_unwind guards are no-ops under "abort".
+panic = "unwind"
 codegen-units = 1
 lto = true
 opt-level = "s"

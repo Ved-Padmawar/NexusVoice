@@ -4,7 +4,7 @@ use std::sync::{atomic::Ordering, Arc};
 
 use tauri::{AppHandle, Emitter, State};
 
-use crate::state::{AppState, RecordingMode, SessionPhase};
+use crate::state::{lock_recovering, AppState, RecordingMode, SessionPhase};
 use crate::transcription::{self, service::FinalizeContext};
 
 use super::error::ApiError;
@@ -158,11 +158,7 @@ pub async fn cancel_dictation(state: State<'_, AppState>) -> Result<bool, ApiErr
 }
 
 fn clear_audio_buffer(state: &AppState) {
-    let mut buf = state
-        .audio_buffer
-        .lock()
-        .expect("audio_buffer lock poisoned");
-    buf.clear();
+    lock_recovering(&state.audio_buffer).clear();
 }
 
 fn ensure_dictation_active(state: &AppState) -> Result<(), ApiError> {
@@ -185,25 +181,25 @@ async fn wait_for_capture_ready(state: &AppState) {
     let capture_ready = Arc::clone(&state.capture_ready);
     tauri::async_runtime::spawn_blocking(move || {
         let (lock, cvar) = &*capture_ready;
-        let _ = cvar.wait_timeout_while(
-            lock.lock().expect("capture_ready lock poisoned"),
-            READY_TIMEOUT,
-            |ready| !*ready,
-        );
+        let _ = cvar.wait_timeout_while(lock_recovering(lock), READY_TIMEOUT, |ready| !*ready);
     })
     .await
     .ok();
 }
 
+/// Block until the capture thread reports it has stopped. Bounded — a missed
+/// signal finalizes on buffered audio instead of stranding the pill.
 async fn wait_for_capture_done(state: &AppState) {
+    const DONE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
     let capture_done = Arc::clone(&state.capture_done);
     tauri::async_runtime::spawn_blocking(move || {
         let (lock, cvar) = &*capture_done;
-        let _guard = cvar
-            .wait_while(lock.lock().expect("capture_done lock poisoned"), |done| {
-                !*done
-            })
-            .expect("capture_done condvar poisoned");
+        let (_guard, timeout) = cvar
+            .wait_timeout_while(lock_recovering(lock), DONE_TIMEOUT, |done| !*done)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if timeout.timed_out() {
+            log::warn!("capture-done signal missed — finalizing on buffered audio");
+        }
     })
     .await
     .ok();

@@ -155,7 +155,10 @@ jobs:
 
       # Gate the release on the same checks run locally. A tag whose code fails
       # type-check, lint, tests, formatting or Clippy must not publish.
+      # shell: bash everywhere — PowerShell doesn't abort a multi-command block
+      # on a non-zero exit, so an early failure would be swallowed.
       - name: Frontend checks (type, lint, unit tests)
+        shell: bash
         run: |
           npm run build
           npm run lint
@@ -167,6 +170,7 @@ jobs:
       # after this step.
       - name: Backend checks (format, Clippy, tests)
         working-directory: src-tauri
+        shell: bash
         run: |
           cargo fmt --check
           cargo clippy --release --all-targets -- -W clippy::pedantic -D warnings
