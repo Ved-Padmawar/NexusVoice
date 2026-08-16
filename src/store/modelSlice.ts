@@ -66,11 +66,22 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
 
   cancelDownload: () => {
     const prev = get().downloadingFromModel
-    invoke(COMMANDS.CANCEL_MODEL_DOWNLOAD).catch(() => {})
-    // Restore the Rust override to the model that was active before download
-    if (prev) {
-      invoke(COMMANDS.SET_MODEL_OVERRIDE, { variant: prev }).catch(() => {})
-    }
+    void (async () => {
+      try {
+        await invoke(COMMANDS.CANCEL_MODEL_DOWNLOAD)
+        // Only restore if that model is on disk — pointing the override at a
+        // missing model leaves the engine unable to load, breaking recording.
+        if (prev) {
+          const onDisk = await invoke<{ variant: string }[]>(COMMANDS.GET_DOWNLOADED_MODELS)
+            .catch(() => [] as { variant: string }[])
+          if (onDisk.some(m => m.variant === prev)) {
+            await invoke(COMMANDS.SET_MODEL_OVERRIDE, { variant: prev })
+          }
+        }
+      } catch { /* ignore */ }
+      // A cancel racing the finish can leave the backend "complete" — trust it.
+      await get().refreshModelInfo()
+    })()
   },
 
   listenForModelEvents: async () => {

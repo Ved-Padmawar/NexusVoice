@@ -34,12 +34,12 @@ const STREAM_BEAM: i32 = 2;
 /// Max committed words fed back as whisper's `initial_prompt`.
 const PROMPT_TAIL_WORDS: usize = 30;
 
-/// VAD frame size at 16 kHz (Silero V5 constraint).
-const VAD_CHUNK_16K: usize = 512;
-/// Prob ≥ this starts a speech region (Silero default).
+/// VAD frame size at 16 kHz — earshot requires exactly 256 samples (16 ms).
+const VAD_CHUNK_16K: usize = 256;
+/// Score ≥ this starts a speech region.
 const VAD_SPEECH_ENTER: f32 = 0.5;
-/// Frames kept before the first speech frame (Silero `speech_pad_ms` ≈ 30ms).
-const VAD_PAD_FRAMES: usize = 1;
+/// Frames kept before the first speech frame, ≈32 ms of lead-in.
+const VAD_PAD_FRAMES: usize = 2;
 
 /// State of one recording's streaming transcription. Created when recording
 /// starts, polled by the stream worker, consumed by [`finalize`].
@@ -343,23 +343,15 @@ fn from_ms(ms: i64, native_rate: u32) -> usize {
 /// First sample of confident speech in a 16 kHz buffer, padded back by
 /// [`VAD_PAD_FRAMES`]. `None` when no speech has been detected yet.
 ///
-/// Only the lead-in is ever trimmed: Silero is a streaming model whose
-/// confidence drifts over a long buffer, so using it to mark the *end* of
-/// speech silently truncated real dictation. Interior pauses are left alone.
+/// Only the lead-in is ever trimmed — marking the *end* of speech this way
+/// silently truncates real dictation. Interior pauses are left alone.
 fn lead_speech_offset(samples_16k: &[f32]) -> Option<usize> {
-    use voice_activity_detector::{IteratorExt, VoiceActivityDetector};
+    let mut vad = earshot::Detector::default_boxed();
 
-    let mut vad = VoiceActivityDetector::builder()
-        .sample_rate(16_000)
-        .chunk_size(VAD_CHUNK_16K)
-        .build()
-        .ok()?;
-
+    // A trailing partial frame is ignored; at 16 ms it is below our padding.
     let first = samples_16k
-        .iter()
-        .copied()
-        .predict(&mut vad)
-        .position(|(_, prob)| prob >= VAD_SPEECH_ENTER)?;
+        .chunks_exact(VAD_CHUNK_16K)
+        .position(|frame| vad.predict_f32(frame) >= VAD_SPEECH_ENTER)?;
 
     let start = first.saturating_sub(VAD_PAD_FRAMES) * VAD_CHUNK_16K;
     (start < samples_16k.len()).then_some(start)

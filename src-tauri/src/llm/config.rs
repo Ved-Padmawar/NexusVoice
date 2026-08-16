@@ -46,8 +46,17 @@ impl Default for FormatConfig {
 
 impl FormatConfig {
     /// Whether the config has the minimum needed to make a request.
+    ///
+    /// `anthropic` pins its own endpoint (see `llm::anthropic`), so it doesn't
+    /// need `base_url` — every other provider is OpenAI-compatible and does.
     pub fn is_usable(&self) -> bool {
-        self.enabled && !self.base_url.trim().is_empty() && !self.model.trim().is_empty()
+        if !self.enabled || self.model.trim().is_empty() {
+            return false;
+        }
+        if self.provider == "anthropic" {
+            return true;
+        }
+        !self.base_url.trim().is_empty()
     }
 
     /// Full chat-completions endpoint URL.

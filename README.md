@@ -11,7 +11,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 <br/>
 
 ![Tauri](https://img.shields.io/badge/Tauri_2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white)
-![Rust](https://img.shields.io/badge/Rust-CE422B?style=for-the-badge&logo=rust&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust_1.97-CE422B?style=for-the-badge&logo=rust&logoColor=white)
 ![React](https://img.shields.io/badge/React_19-61DAFB?style=for-the-badge&logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![Tailwind](https://img.shields.io/badge/Tailwind_v4-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white)
@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.12.3-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.13.0-violet?style=flat-square)
 
 </div>
 
@@ -39,7 +39,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **Push-to-talk** — hold any custom hotkey to record, release to transcribe and paste
 - **Live streaming transcription** — your speech is transcribed as you talk, so there's barely anything left to process when you release the hotkey
 - **Dictation Mode** — a hands-free alternative: press a hotkey to start, then pause/resume and save from the pill or by hotkey — ideal for longer, uninterrupted dictation
-- **Microphone selection** — pick which input device records your voice (Settings → Shortcuts); defaults to the system default and falls back to it automatically if your chosen mic is unplugged
+- **Microphone selection** — pick which input device records your voice (Settings → Voice); defaults to the system default and falls back to it automatically if your chosen mic is unplugged
 - **100% local** — Whisper runs entirely on your machine, nothing is sent to the cloud
 - **GPU-accelerated** — auto-detects NVIDIA (CUDA), AMD/Intel (Vulkan), falls back to CPU
 - **Smart model selection** — picks the best Whisper model for your hardware automatically
@@ -89,15 +89,15 @@ If **Smart Formatting** is enabled, the transcript is sent to your configured LL
 | Whisper Base           | 57&nbsp;MB  | Low-end hardware                | Basic accuracy, fast inference      |
 | Whisper Tiny           | 31&nbsp;MB  | Ultra-low-end hardware          | Fastest, lowest accuracy            |
 
-Models are quantized for smaller downloads and faster inference at near-identical accuracy (the full multilingual Large v3 is kept at full precision as the accuracy anchor). On first login a model picker modal lets you choose your model — the app recommends the best one for your hardware. You can change it anytime in Settings → About, where you can also delete downloaded models. Models download from HuggingFace and are cached locally.
+Models are quantized for smaller downloads and faster inference at near-identical accuracy (the full multilingual Large v3 is kept at full precision as the accuracy anchor). On first login a model picker modal lets you choose your model — the app recommends the best one for your hardware. You can change it anytime in Settings → Voice, where you can also delete downloaded models. Models download from HuggingFace and are cached locally.
 
 ---
 
 ## Smart Formatting (optional)
 
-By default NexusVoice pastes the raw transcription. Enable **Smart Formatting** (Settings → About) to have an LLM clean up punctuation and infer structure — e.g. turning a spoken "first… second… third…" into a real numbered list — before pasting.
+By default NexusVoice pastes the raw transcription. Enable **Smart Formatting** (Settings → Voice) to have an LLM clean up punctuation and infer structure — e.g. turning a spoken "first… second… third…" into a real numbered list — before pasting.
 
-It connects to any **OpenAI-compatible** chat endpoint. Presets prefill the base URL; you supply the model name and (where needed) an API key:
+It connects to Anthropic's Messages API or any **OpenAI-compatible** chat endpoint. Presets prefill the base URL; you supply the model name and (where needed) an API key:
 
 | Provider | Local? | Notes |
 |----------|--------|-------|
@@ -105,6 +105,7 @@ It connects to any **OpenAI-compatible** chat endpoint. Presets prefill the base
 | LM Studio | ✅ | `http://localhost:1234/v1`, no key needed |
 | OpenAI | ☁️ | requires API key |
 | OpenRouter | ☁️ | requires API key |
+| Anthropic | ☁️ | requires API key; endpoint is fixed, no base URL needed |
 | Custom | — | any other OpenAI-compatible endpoint |
 
 Use a small **instruct** model (e.g. `qwen2.5-3b-instruct`) — not a reasoning/thinking model — for the best speed and most faithful formatting. The feature is off by default; with Ollama or LM Studio it stays fully on-device.
@@ -116,11 +117,12 @@ Use a small **instruct** model (e.g. `qwen2.5-3b-instruct`) — not a reasoning/
 | Layer | Technology |
 |-------|-----------|
 | Desktop runtime | Tauri 2 |
-| Backend | Rust |
+| Backend | Rust 1.97 |
 | Audio capture | cpal |
 | Transcription | whisper-rs (ggml) |
+| Voice activity detection | earshot (pure Rust) |
 | GPU inference | CUDA (NVIDIA) / Vulkan (AMD, Intel) |
-| Smart formatting | Any OpenAI-compatible LLM (Ollama, LM Studio, OpenAI, OpenRouter) over HTTP |
+| Smart formatting | Ollama, LM Studio, OpenAI, OpenRouter, Anthropic, or any OpenAI-compatible endpoint over HTTP |
 | Database | SQLite via sqlx |
 | Frontend | React 19 + TypeScript |
 | Styling | Tailwind CSS v4 + shadcn/ui |

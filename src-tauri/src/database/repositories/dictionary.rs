@@ -98,7 +98,8 @@ impl DictionaryRepository {
              FROM matched WHERE dictionary.term = matched.term"
         );
 
-        let mut q = sqlx::query(&sql);
+        // Only `(?,?)` repetition is interpolated; every value is bound below.
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
         for (term, count) in &counts {
             q = q.bind(*term).bind(count);
         }

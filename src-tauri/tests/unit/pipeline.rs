@@ -1,4 +1,7 @@
-use super::{common_prefix_len, from_ms, normalize_word, prompt_tail, push_text, StreamingSession};
+use super::{
+    common_prefix_len, from_ms, lead_speech_offset, normalize_word, prompt_tail, push_text,
+    StreamingSession, VAD_CHUNK_16K, VAD_PAD_FRAMES,
+};
 use crate::inference::transcript::{TimedSegment, Word};
 
 fn word(text: &str, end_cs: i64) -> Word {
@@ -10,6 +13,22 @@ fn word(text: &str, end_cs: i64) -> Word {
 
 fn words(list: &[&str]) -> Vec<String> {
     list.iter().map(|w| normalize_word(w)).collect()
+}
+
+/// Voiced-sounding tone stack (fundamental + harmonics, syllable-rate envelope).
+/// A pure sine reads as noise to the detector; harmonics make it score as speech.
+fn voiced(samples: usize) -> Vec<f32> {
+    (0..samples)
+        .map(|i| {
+            #[allow(clippy::cast_precision_loss)]
+            let t = i as f32 / 16_000.0;
+            let env = (2.0 * std::f32::consts::PI * 4.0 * t).sin().abs();
+            let tone = (2.0 * std::f32::consts::PI * 220.0 * t).sin() * 0.5
+                + (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.3
+                + (2.0 * std::f32::consts::PI * 880.0 * t).sin() * 0.2;
+            tone * env * 0.6
+        })
+        .collect()
 }
 
 #[test]
@@ -33,6 +52,40 @@ fn agreement_handles_unequal_lengths() {
     let b = words(&["one", "two", "three"]);
     assert_eq!(common_prefix_len(&a, &b), 2);
     assert_eq!(common_prefix_len(&b, &a), 2);
+}
+
+#[test]
+fn lead_speech_offset_is_none_for_pure_silence() {
+    // Nothing to trim to, so the caller keeps the whole buffer.
+    assert_eq!(lead_speech_offset(&vec![0.0; 16_000]), None);
+}
+
+#[test]
+fn lead_speech_offset_is_none_for_a_buffer_shorter_than_one_frame() {
+    assert_eq!(lead_speech_offset(&vec![0.0; VAD_CHUNK_16K - 1]), None);
+}
+
+#[test]
+fn lead_speech_offset_trims_leading_silence_back_by_the_pad() {
+    // 0.5 s silence, then speech: onset sits on a frame boundary.
+    let lead_frames = 31;
+    let mut buf = vec![0.0f32; lead_frames * VAD_CHUNK_16K];
+    buf.extend(voiced(8_000));
+
+    let offset = lead_speech_offset(&buf).expect("speech should be detected");
+
+    // Padding must land the cut before the onset so no speech is clipped, but
+    // still inside the silence rather than back at zero.
+    let onset = lead_frames * VAD_CHUNK_16K;
+    assert!(offset < onset, "offset {offset} must not clip the onset");
+    assert_eq!(offset, onset - VAD_PAD_FRAMES * VAD_CHUNK_16K);
+}
+
+#[test]
+fn lead_speech_offset_is_zero_when_speech_starts_immediately() {
+    // Saturating pad: no silence to trim, so the buffer is kept whole.
+    let buf = voiced(8_000);
+    assert_eq!(lead_speech_offset(&buf), Some(0));
 }
 
 #[test]

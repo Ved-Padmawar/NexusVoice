@@ -5,8 +5,10 @@
 //! modal. There is no in-process model: this is purely an HTTP call, so it adds
 //! no native dependencies and cannot conflict with whisper's ggml.
 
+pub mod anthropic;
 pub mod client;
 pub mod config;
+pub mod openai;
 pub mod prompt;
 
 pub use config::FormatConfig;

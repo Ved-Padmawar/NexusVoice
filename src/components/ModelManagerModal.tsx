@@ -68,7 +68,7 @@ export function ModelManagerModal({ onClose }: Props) {
           aria-describedby={undefined}
           asChild
           onOpenAutoFocus={(e) => e.preventDefault()}
-          className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
+          className="fixed top-0 right-0 bottom-0 left-(--sidebar-w) z-50 flex items-center justify-center pointer-events-none"
         >
           <div>
             <motion.div
@@ -92,13 +92,16 @@ export function ModelManagerModal({ onClose }: Props) {
                   </div>
                 </div>
                 <Dialog.Close asChild>
-                  <button
+                  <motion.button
                     type="button"
                     aria-label="Close"
-                    className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer transition-[color,background] duration-(--t-fast) hover:text-(--fg) hover:bg-accent"
+                    className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer"
+                    whileHover={{ backgroundColor: 'var(--surface-hover)', color: 'var(--fg)' }}
+                    whileTap={{ scale: 0.92 }}
+                    transition={{ duration: 0.15 }}
                   >
                     <X size={14} strokeWidth={2} />
-                  </button>
+                  </motion.button>
                 </Dialog.Close>
               </div>
 
@@ -132,15 +135,18 @@ export function ModelManagerModal({ onClose }: Props) {
                           <span className="text-[10px] text-muted-foreground">{formatBytes(model.sizeBytes)}</span>
                         </div>
 
-                        <button
+                        <motion.button
                           type="button"
                           aria-label={`Delete ${model.displayName}`}
                           disabled={deleting === model.variant}
-                          className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer transition-[color,background] duration-(--t-fast) hover:text-destructive hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed"
+                          className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                           onClick={() => handleDelete(model.variant, model.displayName)}
+                          whileHover={deleting === model.variant ? undefined : { backgroundColor: 'var(--surface-hover)', color: 'var(--danger)' }}
+                          whileTap={deleting === model.variant ? undefined : { scale: 0.92 }}
+                          transition={{ duration: 0.15 }}
                         >
                           <Trash2 size={13} strokeWidth={1.75} />
-                        </button>
+                        </motion.button>
                       </motion.div>
                     ))
                   )}

@@ -1,18 +1,17 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect } from 'react'
 import { useLocation } from 'react-router'
 import { invoke } from '@tauri-apps/api/core'
+import { motion } from 'framer-motion'
 import { COMMANDS } from '../lib/commands'
-import { Palette, Info, Settings2, FolderOpen, Database, Keyboard } from 'lucide-react'
+import { Palette, Info, Settings2, FolderOpen, Keyboard, Mic } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { SETTINGS_TABS, type SettingsTab } from '../lib/routes'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { AppearanceTab } from './settings/AppearanceTab'
 import { AboutTab } from './settings/AboutTab'
 import { HotkeySection } from './settings/HotkeySection'
-import { MicrophoneSection } from './settings/MicrophoneSection'
+import { VoiceTab } from './settings/VoiceTab'
 import { PillTab } from './settings/PillTab'
-import { ModelManagerModal } from '../components/ModelManagerModal'
-import { AnimatePresence } from 'framer-motion'
 export function Settings() {
   const { activeSettingsTab, setActiveSettingsTab } = useAppStore()
   const location = useLocation()
@@ -26,7 +25,6 @@ export function Settings() {
     }
   }, [setActiveSettingsTab])
 
-  const [modelManagerOpen, setModelManagerOpen] = useState(false)
   // Normalize stale persisted values ('pill' → 'shortcuts', 'general' → 'appearance').
   const tab: SettingsTab =
     activeSettingsTab === ('pill' as SettingsTab)
@@ -61,6 +59,10 @@ export function Settings() {
               <Keyboard size={12} strokeWidth={1.75} />
               Shortcuts
             </TabsTrigger>
+            <TabsTrigger value="voice" className="gap-1.25! text-[12px]!">
+              <Mic size={12} strokeWidth={1.75} />
+              Voice
+            </TabsTrigger>
             <TabsTrigger value="about" className="gap-1.25! text-[12px]!">
               <Info size={12} strokeWidth={1.75} />
               About
@@ -68,50 +70,40 @@ export function Settings() {
           </TabsList>
           {tab === 'about' && (
             <div className="flex items-center gap-1 self-start mt-0.75">
-              <button
+              <motion.button
                 type="button"
-                className="inline-flex items-center gap-1.25 px-2.5 h-9 rounded-(--r-md) bg-(--surface) border-none text-(--fg-2) text-[12px] font-medium cursor-pointer transition-[background,color] duration-(--t-fast) hover:text-(--fg)"
-                onClick={() => setModelManagerOpen(true)}
-                title="Manage downloaded models"
-              >
-                <Database size={12} strokeWidth={1.75} />
-                Models
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.25 px-2.5 h-9 rounded-(--r-md) bg-(--surface) border-none text-(--fg-2) text-[12px] font-medium cursor-pointer transition-[background,color] duration-(--t-fast) hover:text-(--fg)"
+                className="inline-flex items-center gap-1.25 px-2.5 h-9 rounded-(--r-md) bg-(--surface) border-none text-(--fg-2) text-[12px] font-medium cursor-pointer"
                 onClick={() => invoke<void>(COMMANDS.OPEN_LOGS_FOLDER)}
                 title="Open logs folder"
+                whileHover={{ color: 'var(--fg)' }}
+                whileTap={{ scale: 0.96 }}
+                transition={{ duration: 0.15 }}
               >
                 <FolderOpen size={12} strokeWidth={1.75} />
                 Logs
-              </button>
+              </motion.button>
             </div>
           )}
         </div>
 
-        <TabsContent value="appearance" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-6 mt-0!">
+        <TabsContent value="appearance" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-6 mt-0! pr-1">
           <AppearanceTab />
           <div className="h-px bg-(--border-soft)" />
           <PillTab />
         </TabsContent>
 
-        <TabsContent value="shortcuts" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-5 mt-0!">
+        <TabsContent value="shortcuts" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-5 mt-0! pr-1">
           <HotkeySection />
-          <div className="h-px bg-(--border-soft)" />
-          <MicrophoneSection />
         </TabsContent>
 
-        <TabsContent value="about" className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 mt-0!">
+        <TabsContent value="voice" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-3 mt-0! pr-1">
+          <VoiceTab />
+        </TabsContent>
+
+        <TabsContent value="about" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-3 mt-0! pr-1">
           <AboutTab />
         </TabsContent>
       </Tabs>
-
-      <AnimatePresence>
-        {modelManagerOpen && (
-          <ModelManagerModal onClose={() => setModelManagerOpen(false)} />
-        )}
-      </AnimatePresence>
     </div>
   )
 }

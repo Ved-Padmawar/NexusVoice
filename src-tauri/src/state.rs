@@ -67,25 +67,38 @@ pub struct ModelDownloadState {
     pub status: AtomicU8,
     pub progress: std::sync::Mutex<u8>,
     pub error: std::sync::Mutex<Option<String>>,
-    /// Set to true by `cancel_model_download`; checked each chunk in `download_file`.
-    pub cancelled: AtomicBool,
+    /// Cancels the in-flight download. Awaited alongside the network read, so a
+    /// cancel interrupts immediately instead of waiting for the next chunk.
+    /// Replaced with a fresh token on each new download.
+    cancel: std::sync::Mutex<tokio_util::sync::CancellationToken>,
 }
 
 impl ModelDownloadState {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             status: AtomicU8::new(0),
             progress: std::sync::Mutex::new(0),
             error: std::sync::Mutex::new(None),
-            cancelled: AtomicBool::new(false),
+            cancel: std::sync::Mutex::new(tokio_util::sync::CancellationToken::new()),
         }
     }
 
     pub fn set_downloading(&self) {
-        self.cancelled.store(false, Ordering::SeqCst);
+        // A token stays cancelled once tripped, so each run gets a fresh one.
+        *self.cancel.lock().expect("cancel lock poisoned") =
+            tokio_util::sync::CancellationToken::new();
         self.status.store(1, Ordering::SeqCst);
         *self.progress.lock().expect("progress lock poisoned") = 0;
         *self.error.lock().expect("error lock poisoned") = None;
+    }
+
+    /// Token for the current download, to await inside the transfer loop.
+    pub fn cancel_token(&self) -> tokio_util::sync::CancellationToken {
+        self.cancel.lock().expect("cancel lock poisoned").clone()
+    }
+
+    pub fn cancel(&self) {
+        self.cancel.lock().expect("cancel lock poisoned").cancel();
     }
 
     pub fn set_progress(&self, pct: u8) {
@@ -105,10 +118,6 @@ impl ModelDownloadState {
     pub fn set_cancelled(&self) {
         self.status.store(4, Ordering::SeqCst);
         *self.progress.lock().expect("progress lock poisoned") = 0;
-    }
-
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::SeqCst)
     }
 }
 
@@ -243,14 +252,22 @@ impl AppState {
         if let Some(engine) = guard.as_ref() {
             return Ok(Arc::clone(engine));
         }
-        let override_size = self.load_model_override();
+        let mut override_size = self.load_model_override();
         let backend = crate::inference::provider::detect_backend();
         let model_size =
             crate::inference::provider::select_model_size(backend, override_size.as_deref());
-        let model_path = self.models_dir.join(model_size.filename());
-        if !model_path.exists() {
-            return Err("model not downloaded yet".to_string());
+
+        // Selected model may still be downloading. Load whatever is present so
+        // recording keeps working, but never rewrite the override — that would
+        // silently cancel the user's choice mid-download.
+        if !self.models_dir.join(model_size.filename()).exists() {
+            let Some(variant) = self.first_downloaded_variant() else {
+                return Err("model not downloaded yet".to_string());
+            };
+            log::warn!("selected model not on disk; loading {variant} for now");
+            override_size = Some(variant);
         }
+
         let engine = WhisperEngine::new(&self.models_dir, override_size.as_deref())?;
         let arc = Arc::new(std::sync::Mutex::new(engine));
         *guard = Some(Arc::clone(&arc));
@@ -319,6 +336,22 @@ impl AppState {
 
     pub fn save_model_override(&self, variant: &str) -> std::io::Result<()> {
         std::fs::write(&self.model_override_path, variant)
+    }
+
+    /// Most capable model present on disk, for recovering from a stale override.
+    fn first_downloaded_variant(&self) -> Option<String> {
+        use crate::inference::provider::ModelSize;
+        [
+            ("large-full", ModelSize::LargeFull),
+            ("large", ModelSize::Large),
+            ("medium", ModelSize::Medium),
+            ("small", ModelSize::Small),
+            ("base", ModelSize::Base),
+            ("tiny", ModelSize::Tiny),
+        ]
+        .into_iter()
+        .find(|(_, size)| self.models_dir.join(size.filename()).exists())
+        .map(|(variant, _)| variant.to_string())
     }
 
     pub fn load_model_override(&self) -> Option<String> {

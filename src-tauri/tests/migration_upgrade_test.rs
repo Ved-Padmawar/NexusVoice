@@ -11,7 +11,11 @@ async fn apply_sql(pool: &SqlitePool, sql: &str) {
     for statement in sql.split(';') {
         let stmt = statement.trim();
         if !stmt.is_empty() {
-            sqlx::query(stmt).execute(pool).await.unwrap();
+            // Test-local SQL, split from a migration file literal.
+            sqlx::query(sqlx::AssertSqlSafe(stmt))
+                .execute(pool)
+                .await
+                .unwrap();
         }
     }
 }

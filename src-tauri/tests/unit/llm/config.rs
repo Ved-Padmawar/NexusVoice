@@ -25,6 +25,17 @@ fn is_usable_requires_enabled_url_and_model() {
 }
 
 #[test]
+fn is_usable_anthropic_does_not_require_base_url() {
+    let c = FormatConfig {
+        enabled: true,
+        provider: "anthropic".to_string(),
+        model: "claude-sonnet-5".to_string(),
+        ..Default::default()
+    };
+    assert!(c.is_usable());
+}
+
+#[test]
 fn endpoint_inserts_v1_when_host_only() {
     // No path beyond host → insert the common /v1 prefix (LM Studio footgun).
     assert_eq!(

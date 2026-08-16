@@ -262,7 +262,7 @@ jobs:
           print(f"enabled GPU feature: {gpu}")
 
       - name: Cache Rust deps
-        uses: Swatinem/rust-cache@v2.9.1
+        uses: Swatinem/rust-cache@v2.9.2
         with:
           workspaces: src-tauri
           cache-targets: false

@@ -315,18 +315,21 @@ pub async fn retry_model_download(
     dl_state.set_downloading();
     let _ = app.emit("model-download-start", ());
 
-    tauri::async_runtime::spawn_blocking(move || {
-        match crate::inference::downloader::download_whisper_model(
-            &models_dir,
-            model_size,
-            &app,
-            &dl_state,
-        ) {
+    tauri::async_runtime::spawn(async move {
+        use crate::inference::downloader::{download_whisper_model, CANCELLED};
+
+        match download_whisper_model(&models_dir, model_size, &app, &dl_state).await {
             Ok(()) => {
                 dl_state.set_complete();
+                // Drop any fallback engine cached while this was downloading.
+                {
+                    use tauri::Manager;
+                    *app.state::<AppState>().engine.lock().await = None;
+                }
                 let _ = app.emit("model-download-complete", ());
+                warm_engine_in_background(&app);
             }
-            Err(e) if e == "download_cancelled" => {
+            Err(e) if e == CANCELLED => {
                 dl_state.set_cancelled();
                 let _ = app.emit("model-download-cancelled", ());
             }
@@ -340,13 +343,12 @@ pub async fn retry_model_download(
     Ok(true)
 }
 
-/// Cancel an in-progress model download. The download loop checks this flag
-/// each chunk and exits cleanly, deleting the partial .tmp file.
+/// Cancel an in-progress model download. Trips the cancellation token the
+/// transfer loop is awaiting, so it stops without finishing the current chunk.
 #[tauri::command]
 pub fn cancel_model_download(state: State<'_, AppState>) {
     let dl = &state.model_download;
-    let status = dl.status.load(Ordering::SeqCst);
-    if status == 1 {
-        dl.cancelled.store(true, Ordering::SeqCst);
+    if dl.status.load(Ordering::SeqCst) == 1 {
+        dl.cancel();
     }
 }

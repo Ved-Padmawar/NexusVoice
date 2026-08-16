@@ -143,6 +143,9 @@ fn main() {
             let input_device_path = app_data_dir.join("input_device");
             let models_dir = app_data_dir.join("models");
             std::fs::create_dir_all(&models_dir)?;
+            // Nothing can be mid-download at startup, so any .part file is
+            // debris from a crash or a quit during a download.
+            inference::downloader::clean_stale_parts(&models_dir);
 
             // Create state immediately with NO blocking I/O.
             // DB + auth are initialized asynchronously after setup returns.

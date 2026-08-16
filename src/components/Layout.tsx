@@ -1,8 +1,8 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router'
-import { useEffect, useRef, useCallback, type ReactNode } from 'react'
+import { useEffect, useCallback, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import clsx from 'clsx'
-import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle, ArrowUpCircle, XCircle } from 'lucide-react'
+import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle, ArrowUpCircle } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../store/useAppStore'
 import { ROUTES } from '../lib/routes'
@@ -66,43 +66,10 @@ function SlideBanner({ visible, children }: { visible: boolean; children: ReactN
 }
 
 function ModelBanner() {
-  const { modelDownloading, downloadProgress, downloadError, modelReady, modelChosen, cancelDownload } = useAppStore()
-  const autoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Suppress banner during first-run modal — modal handles its own progress display
-  const bannerActive = modelChosen && modelDownloading
-
-  // Auto-reset progress when download completes so the downloading banner hides
-  useEffect(() => {
-    if (modelReady && downloadProgress === 100) {
-      autoDismissRef.current = setTimeout(() => {
-        useAppStore.setState({ downloadProgress: 0 })
-      }, 500)
-    }
-    return () => { if (autoDismissRef.current) clearTimeout(autoDismissRef.current) }
-  }, [modelReady, downloadProgress])
+  const { downloadError } = useAppStore()
 
   return (
     <>
-      <SlideBanner visible={bannerActive}>
-        <div className="flex items-center gap-2.5 px-3.5 py-1.75 shrink-0 text-[12px] border-b border-(--accent) bg-(--accent-soft) text-(--fg)">
-          <div className="flex items-center gap-2.5 flex-1 min-w-0">
-            <span className="whitespace-nowrap overflow-hidden text-ellipsis text-(--fg-2)">Downloading Whisper model… {downloadProgress}%</span>
-            <div className="flex-1 h-0.75 rounded-full bg-(--border) overflow-hidden min-w-15">
-              <div className="h-full rounded-full bg-(--accent) transition-[width] duration-300 ease-linear" style={{ width: `${downloadProgress}%` }} />
-            </div>
-          </div>
-          <button
-            type="button"
-            className="flex items-center gap-1 shrink-0 text-[11px] font-medium text-muted-foreground hover:text-destructive transition-colors duration-(--t-fast) cursor-pointer bg-transparent border-none px-1"
-            onClick={cancelDownload}
-            aria-label="Cancel download"
-          >
-            <XCircle size={13} strokeWidth={1.75} />
-            Cancel
-          </button>
-        </div>
-      </SlideBanner>
-
       <SlideBanner visible={!!downloadError}>
         <div
           className="flex items-center gap-2.5 px-3.5 py-1.75 shrink-0 text-[12px] border-b text-(--fg)"

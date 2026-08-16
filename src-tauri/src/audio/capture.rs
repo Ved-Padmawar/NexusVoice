@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use cpal::traits::{DeviceTrait, StreamTrait};
-use cpal::SampleFormat;
+use cpal::{ErrorKind, SampleFormat};
 
 use crate::audio::WaveformMeter;
 
@@ -271,9 +271,15 @@ where
                 }
             },
             move |err| {
-                // Device disconnected or stream error — stop the recording loop and
-                // signal the condvar so stop_transcription unblocks immediately.
-                // Without this, the app hangs with the mic held open until restarted.
+                // Xrun (a dropped buffer, common on WASAPI at stream start) and
+                // DeviceChanged leave the stream live — tearing down here would
+                // lose the whole dictation.
+                if matches!(err.kind(), ErrorKind::Xrun | ErrorKind::DeviceChanged) {
+                    log::warn!("cpal stream glitch (continuing): {err}");
+                    return;
+                }
+                // Fatal: stop the loop and signal the condvar so stop_transcription
+                // unblocks instead of hanging with the mic held open.
                 log::error!("cpal stream error: {err}");
                 running_err.store(false, Ordering::SeqCst);
                 let (lock, cvar) = &*done;
