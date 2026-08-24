@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
 import type { AsyncStatus } from './asyncStatus'
+import { extractErrorMessage } from '../lib/errors'
 
 export type DictionarySlice = {
   dictionary: DictionaryEntry[]
@@ -30,7 +31,7 @@ export const createDictionarySlice: StateCreator<AppState, [], [], DictionarySli
       )
       set({ dictionary, dictionaryStatus: 'success' })
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Failed to load dictionary'
+      const message = extractErrorMessage(e, 'Failed to load dictionary')
       set({ dictionaryStatus: 'error', dictionaryError: message })
     }
   },
@@ -50,7 +51,7 @@ export const createDictionarySlice: StateCreator<AppState, [], [], DictionarySli
         return { dictionary: [newEntry, ...state.dictionary] }
       })
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to update dictionary')
+      toast.error(extractErrorMessage(e, 'Failed to update dictionary'))
     }
   },
 
@@ -59,7 +60,7 @@ export const createDictionarySlice: StateCreator<AppState, [], [], DictionarySli
       await invoke<void>(COMMANDS.DELETE_DICTIONARY_ENTRY, { id })
       set((state) => ({ dictionary: state.dictionary.filter((d) => d.id !== id) }))
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to delete entry')
+      toast.error(extractErrorMessage(e, 'Failed to delete entry'))
     }
   },
 })

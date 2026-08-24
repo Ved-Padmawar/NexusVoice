@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
 import type { AsyncStatus } from './asyncStatus'
+import { extractErrorMessage } from '../lib/errors'
 
 /// A full page implies more may exist; a short page is the last.
 export const PAGE_SIZE = 50
@@ -81,7 +82,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
         transcriptsStatus: 'success',
       })
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Failed to load transcripts'
+      const message = extractErrorMessage(e, 'Failed to load transcripts')
       set({ transcriptsStatus: 'error', transcriptsError: message })
     }
   },
@@ -93,7 +94,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
       const raw = await invoke<unknown>(COMMANDS.GET_USAGE_STATS)
       set({ stats: UsageStatsSchema.parse(raw), statsStatus: 'success' })
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Failed to load usage stats'
+      const message = extractErrorMessage(e, 'Failed to load usage stats')
       set({ stats: null, statsStatus: 'error', statsError: message })
     }
   },
@@ -106,7 +107,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
       )
       set({ transcripts: items, transcriptHasMore: items.length === PAGE_SIZE, transcriptsStatus: 'success' })
     } catch (e) {
-      set({ transcriptsStatus: 'error', transcriptsError: e instanceof Error ? e.message : 'Failed to load transcripts' })
+      set({ transcriptsStatus: 'error', transcriptsError: extractErrorMessage(e, 'Failed to load transcripts') })
     }
     const { searchQuery } = get()
     if (searchQuery.trim()) {
@@ -134,7 +135,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     } catch (e) {
       // Don't wipe the loaded feed — surface a transient error.
       set({ transcriptLoadingMore: false })
-      toast.error(e instanceof Error ? e.message : 'Failed to load more transcripts')
+      toast.error(extractErrorMessage(e, 'Failed to load more transcripts'))
     }
   },
 
@@ -152,7 +153,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
       )
       set({ searchResults: results, transcriptsStatus: 'success' })
     } catch (e) {
-      set({ searchResults: [], transcriptsStatus: 'error', transcriptsError: e instanceof Error ? e.message : 'Search failed' })
+      set({ searchResults: [], transcriptsStatus: 'error', transcriptsError: extractErrorMessage(e, 'Search failed') })
     } finally {
       set({ isSearching: false })
     }
@@ -176,7 +177,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
       )
       set((state) => ({ transcripts: [newTranscript, ...state.transcripts] }))
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to save transcript')
+      toast.error(extractErrorMessage(e, 'Failed to save transcript'))
     }
   },
 
@@ -189,7 +190,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
       await invoke<boolean>(COMMANDS.DELETE_TRANSCRIPT, { id })
       get().loadStats()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to delete transcript')
+      toast.error(extractErrorMessage(e, 'Failed to delete transcript'))
     }
   },
 })

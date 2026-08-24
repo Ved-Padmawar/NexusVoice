@@ -40,8 +40,9 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
     *lock_recovering(&capture_done.0) = false;
     *lock_recovering(&capture_ready.0) = false;
 
+    spawn_engine_load(app);
     spawn_waveform_emitter(app, state);
-    spawn_stream_worker(app, state);
+    spawn_stream_worker(state);
 
     std::thread::spawn(move || {
         if let Err(e) = crate::audio::capture_microphone(
@@ -76,17 +77,29 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
     });
 }
 
+/// Ensure the engine is loading as soon as recording starts — startup warmup is
+/// fire-and-forget, so the cache can still be empty when the hotkey lands.
+/// Spawned, not awaited, so the load races the recording instead of delaying capture.
+fn spawn_engine_load(app: &AppHandle) {
+    use tauri::Manager;
+
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = app.state::<AppState>().get_or_load_engine().await {
+            log::debug!("engine not available for streaming: {e}");
+        }
+    });
+}
+
 /// Spawn the streaming worker: while recording, feed the growing buffer to the
-/// `StreamingSession` and emit preview text after each decode. Only streams once
-/// an engine is cached — it never triggers a load; without one the session stays
-/// untouched and finalize decodes everything in one pass.
-fn spawn_stream_worker(app: &AppHandle, state: &AppState) {
+/// `StreamingSession` so finalize only has the tail left to decode. Needs a
+/// cached engine; without one finalize decodes everything in one pass.
+fn spawn_stream_worker(state: &AppState) {
     let running = Arc::clone(&state.transcription_running);
     let audio_buffer = Arc::clone(&state.audio_buffer);
     let native_rate = Arc::clone(&state.native_sample_rate);
     let session_slot = Arc::clone(&state.stream_session);
     let engine_cache = Arc::clone(&state.engine);
-    let app = app.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
         while running.load(Ordering::SeqCst) {
@@ -103,27 +116,26 @@ fn spawn_stream_worker(app: &AppHandle, state: &AppState) {
                 break;
             };
             let rate = *lock_recovering(&native_rate);
-            let window: Vec<f32> = {
+            // Snapshot only when a decode will run — the copy grows with the recording.
+            let Some(window) = ({
                 let buf = lock_recovering(&audio_buffer);
-                buf[session.window_start().min(buf.len())..].to_vec()
+                session
+                    .would_decode(buf.len(), rate)
+                    .then(|| buf[session.window_start().min(buf.len())..].to_vec())
+            }) else {
+                continue;
             };
 
             let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                session.poll(&window, rate, &engine)
+                session.poll(&window, rate, &engine);
             }));
-            match polled {
-                Ok(Some(preview)) => {
-                    let _ = app.emit("transcription-partial", preview);
-                }
-                Ok(None) => {}
-                Err(_) => {
-                    // Engine panicked mid-decode: evict it and drop the session
-                    // so finalize falls back to a clean single-pass decode.
-                    log::error!("WhisperEngine panicked during streaming — evicting");
-                    *slot = None;
-                    *engine_cache.blocking_lock() = None;
-                    break;
-                }
+            if polled.is_err() {
+                // Engine panicked mid-decode: evict it and drop the session
+                // so finalize falls back to a clean single-pass decode.
+                log::error!("WhisperEngine panicked during streaming — evicting");
+                *slot = None;
+                *engine_cache.blocking_lock() = None;
+                break;
             }
         }
     });

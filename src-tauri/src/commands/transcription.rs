@@ -222,14 +222,8 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
     let session = state.take_stream_session();
 
     let (samples, captured_rate) = {
-        let mut buf = state
-            .audio_buffer
-            .lock()
-            .expect("audio_buffer lock poisoned");
-        let rate = *state
-            .native_sample_rate
-            .lock()
-            .expect("native_sample_rate lock poisoned");
+        let mut buf = lock_recovering(&state.audio_buffer);
+        let rate = *lock_recovering(&state.native_sample_rate);
         (std::mem::take(&mut *buf), rate)
     };
 

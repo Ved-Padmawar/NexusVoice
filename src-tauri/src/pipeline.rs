@@ -30,7 +30,7 @@ const FORCE_TRIM_SECS: f64 = 12.0;
 /// Audio a trim must leave in the window (whisper needs ≥1 s to decode).
 const MIN_WINDOW_SECS: f64 = 2.0;
 /// Beam size for mid-recording decodes; the final decode uses the user's preset.
-const STREAM_BEAM: i32 = 2;
+pub const STREAM_BEAM: i32 = 2;
 /// Max committed words fed back as whisper's `initial_prompt`.
 const PROMPT_TAIL_WORDS: usize = 30;
 
@@ -73,32 +73,40 @@ impl StreamingSession {
         self.window_start
     }
 
+    /// Whether a `poll` over a buffer of `total_len` samples would decode.
+    /// Lets the stream worker skip copying the window on polls that would bail
+    /// on the same gate anyway.
+    pub fn would_decode(&self, total_len: usize, native_rate: u32) -> bool {
+        if native_rate == 0 {
+            return false;
+        }
+        let new_samples = total_len.saturating_sub(self.decoded_len.max(self.window_start));
+        to_secs(new_samples, native_rate) >= MIN_NEW_AUDIO_SECS
+    }
+
     /// One streaming step: decode if enough new audio arrived, fold the
     /// hypothesis into the agreement state, trim if the window outgrew the
-    /// threshold. Returns the updated preview text when a decode ran.
+    /// threshold. Work accumulates in the session; finalize reads it out.
     ///
     /// `window` is the buffer from [`Self::window_start`] onward, at the mic's
     /// native rate. Runs whisper synchronously — call from a blocking thread.
-    pub fn poll(
-        &mut self,
-        window: &[f32],
-        native_rate: u32,
-        engine: &Arc<Mutex<WhisperEngine>>,
-    ) -> Option<String> {
+    pub fn poll(&mut self, window: &[f32], native_rate: u32, engine: &Arc<Mutex<WhisperEngine>>) {
         if native_rate == 0 {
-            return None;
+            return;
         }
         let total_len = self.window_start + window.len();
         let new_samples = total_len.saturating_sub(self.decoded_len.max(self.window_start));
         if to_secs(new_samples, native_rate) < MIN_NEW_AUDIO_SECS {
-            return None;
+            return;
         }
 
         let mut prepared = crate::preprocess::to_16k_denoised(window, native_rate);
         if !self.lead_trimmed {
             // Skip the silent lead-in once speech appears. `decoded_len` stays
             // put so the next poll re-checks the grown buffer.
-            let skip_16k = lead_speech_offset(&prepared)?;
+            let Some(skip_16k) = lead_speech_offset(&prepared) else {
+                return;
+            };
             self.window_start += from_16k(skip_16k, native_rate);
             prepared.drain(..skip_16k);
             self.lead_trimmed = true;
@@ -107,18 +115,20 @@ impl StreamingSession {
 
         let leveled = crate::preprocess::normalize_level(&prepared);
         if leveled.is_empty() {
-            return None;
+            return;
         }
 
         let prompt = prompt_tail(&self.committed);
         let started = std::time::Instant::now();
         let segments = {
-            let guard = engine.lock().ok()?;
+            let Ok(guard) = engine.lock() else {
+                return;
+            };
             match guard.transcribe_segments(&leveled, &prompt, STREAM_BEAM) {
                 Ok(s) => s,
                 Err(e) => {
                     log::warn!("streaming decode failed: {e}");
-                    return None;
+                    return;
                 }
             }
         };
@@ -142,8 +152,6 @@ impl StreamingSession {
                 self.force_trim(total_len, native_rate);
             }
         }
-
-        Some(self.preview())
     }
 
     /// Trim the window at the last completed segment boundary inside the
@@ -211,14 +219,6 @@ impl StreamingSession {
         }
         self.prev_norm.drain(..words.min(self.prev_norm.len()));
         self.confirmed_words = self.confirmed_words.saturating_sub(words);
-    }
-
-    /// Committed text plus the current window hypothesis — what the frontend
-    /// shows while recording.
-    fn preview(&self) -> String {
-        let mut out = self.committed.clone();
-        push_text(&mut out, &join_segments(&self.segments));
-        out
     }
 
     /// Decode the remaining window at the user's beam size and return the full
@@ -350,7 +350,9 @@ fn lead_speech_offset(samples_16k: &[f32]) -> Option<usize> {
 
     // A trailing partial frame is ignored; at 16 ms it is below our padding.
     let first = samples_16k
-        .chunks_exact(VAD_CHUNK_16K)
+        .as_chunks::<VAD_CHUNK_16K>()
+        .0
+        .iter()
         .position(|frame| vad.predict_f32(frame) >= VAD_SPEECH_ENTER)?;
 
     let start = first.saturating_sub(VAD_PAD_FRAMES) * VAD_CHUNK_16K;

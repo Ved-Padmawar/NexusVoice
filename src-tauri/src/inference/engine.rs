@@ -18,7 +18,13 @@ pub struct WhisperEngine {
 impl WhisperEngine {
     /// Load the appropriate ggml model from `models_dir`.
     /// `override_size` ("large" | "medium") lets the user override auto-selection.
-    pub fn new(models_dir: &Path, override_size: Option<&str>) -> Result<Self, String> {
+    /// `warmup_beam` is the beam size the warmup decode runs at — pass the user's
+    /// setting so the first real transcription doesn't pay for a wider beam.
+    pub fn new(
+        models_dir: &Path,
+        override_size: Option<&str>,
+        warmup_beam: i32,
+    ) -> Result<Self, String> {
         let backend = detect_backend();
         let model_size = select_model_size(backend, override_size);
 
@@ -58,10 +64,17 @@ impl WhisperEngine {
         };
 
         // Warmup pass — forces model weights into GPU/CPU memory so the first real
-        // transcription is instant. Feed 1s of silence and discard the output.
+        // transcription is instant. Beam width drives its own allocations, so warm
+        // both the streaming beam and the one finalize will use.
         let silence = vec![0.0f32; 16_000];
-        let _ = engine.transcribe_segments(&silence, "", 2);
-        log::info!("whisper engine warmed up");
+        let _ = engine.transcribe_segments(&silence, "", crate::pipeline::STREAM_BEAM);
+        if warmup_beam != crate::pipeline::STREAM_BEAM {
+            let _ = engine.transcribe_segments(&silence, "", warmup_beam);
+        }
+        log::info!(
+            "whisper engine warmed up (beams {} + {warmup_beam})",
+            crate::pipeline::STREAM_BEAM
+        );
 
         Ok(engine)
     }

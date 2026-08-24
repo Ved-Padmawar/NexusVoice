@@ -5,8 +5,21 @@ use crate::audio::resample;
 /// Resample → DC removal → denoise → 16 kHz. No VAD splicing, so sample indices
 /// still map linearly back to native-rate time.
 pub fn to_16k_denoised(samples: &[f32], native_rate: u32) -> Vec<f32> {
+    // 0. Drop non-finite samples — a glitching device can emit NaN/Inf, and
+    //    RNNoise's FFT aborts the process on those (catch_unwind can't contain it).
+    let sanitized: Vec<f32> = samples
+        .iter()
+        .map(|s| {
+            if s.is_finite() {
+                s.clamp(-1.0, 1.0)
+            } else {
+                0.0
+            }
+        })
+        .collect();
+
     // 1. Resample to 48 kHz for nnnoiseless
-    let at_48k = resample(samples, native_rate, 48_000);
+    let at_48k = resample(&sanitized, native_rate, 48_000);
 
     // 2. DC offset removal — subtract signal mean before denoising.
     //    Budget USB mics often have a non-zero DC bias that distorts the mel

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import logoUrl from '../assets/logo.png'
+import { extractErrorMessage } from '../lib/errors'
 
 type Mode = 'login' | 'register'
 
@@ -61,7 +62,7 @@ export function Auth() {
       else await register(data.email, data.password)
       navigate(from, { replace: true })
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Authentication failed. Please try again.'
+      const message = extractErrorMessage(e, 'Authentication failed. Please try again.')
       setFieldError('root', { message })
     }
   }

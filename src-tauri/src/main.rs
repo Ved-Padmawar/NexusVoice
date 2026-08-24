@@ -265,8 +265,9 @@ fn main() {
             }
 
             // Spawn: eagerly pre-load the Whisper engine so the first transcription is instant.
-            // Runs after DB init (model selection may depend on override stored on disk).
-            // If the model isn't downloaded yet this is a no-op — get_or_load_engine returns Err.
+            // Model selection reads the override from disk, not the DB, so this does not wait
+            // on DB init. If no model is downloaded yet it is a no-op — get_or_load_engine
+            // returns Err, and recording start kicks the load off again.
             {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {

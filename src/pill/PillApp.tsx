@@ -108,6 +108,17 @@ export function PillApp() {
 
   const isRecordingRef = useRef(false)
   const isDictationRef = useRef(false)
+  // Serializes start/stop so a fast press-and-release can't invoke
+  // stop_transcription while start_transcription is still awaiting.
+  const inFlightRef = useRef<Promise<unknown>>(Promise.resolve())
+
+  /** Queue `fn` behind any in-flight start/stop and await the result. */
+  const serialize = useCallback(<T,>(fn: () => Promise<T>): Promise<T> => {
+    const next = inFlightRef.current.then(fn, fn)
+    // Keep the chain alive when a link rejects; callers handle their own errors.
+    inFlightRef.current = next.catch(() => {})
+    return next
+  }, [])
 
   const showTooltip = useCallback((msg: string) => {
     setTooltip(msg)
@@ -209,6 +220,8 @@ export function PillApp() {
     const setup = async () => {
       const u1 = await listen(EVENTS.HOTKEY_PRESSED, async () => {
         if (isRecordingRef.current || isDictationRef.current) return
+        // A finalize is still running — starting now would race it.
+        if (stateRef.current === 'processing') return
         // Block recording if model not ready
         if (!modelReadyRef.current) {
           showTooltip(stateRef.current === 'downloading' ? 'Model downloading… please wait' : 'No model installed — download one in Settings')
@@ -217,7 +230,7 @@ export function PillApp() {
         isRecordingRef.current = true
         setState('recording')
         try {
-          await invoke(COMMANDS.START_TRANSCRIPTION)
+          await serialize(() => invoke(COMMANDS.START_TRANSCRIPTION))
         } catch (err: unknown) {
           const raw = extractErrorMessage(err, String(err))
           const msg = raw.toLowerCase().includes('no input device') || raw.toLowerCase().includes('no microphone')
@@ -238,7 +251,7 @@ export function PillApp() {
         if (!isRecordingRef.current) return
         setState('processing')
         try {
-          await invoke(COMMANDS.STOP_TRANSCRIPTION)
+          await serialize(() => invoke(COMMANDS.STOP_TRANSCRIPTION))
         } catch (err: unknown) {
           const msg = extractErrorMessage(err, String(err))
           setErrorMsg(msg)
@@ -333,7 +346,7 @@ export function PillApp() {
       cancelled = true
       unlisteners.forEach(fn => fn())
     }
-  }, [showTooltip])
+  }, [showTooltip, serialize])
 
   const handleToggleDictationPause = useCallback(async () => {
     try {

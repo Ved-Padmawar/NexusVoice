@@ -158,6 +158,9 @@ pub struct AppState {
     /// Cached whisper engine — loaded once, reused across recordings.
     /// Wrapped in Arc so it can be captured by the spawn closure in `stop_transcription`.
     pub engine: Arc<Mutex<Option<Arc<std::sync::Mutex<WhisperEngine>>>>>,
+    /// Serializes engine construction so two callers racing an empty cache
+    /// build only one engine.
+    engine_load: Arc<Mutex<()>>,
     /// Streaming transcription state for the recording in progress. Created on
     /// start, advanced by the stream worker, consumed (taken) by finalize.
     pub stream_session: Arc<std::sync::Mutex<Option<crate::pipeline::StreamingSession>>>,
@@ -210,6 +213,7 @@ impl AppState {
             waveform: Arc::new(crate::audio::WaveformMeter::new(44100)),
             models_dir,
             engine: Arc::new(Mutex::new(None)),
+            engine_load: Arc::new(Mutex::new(())),
             stream_session: Arc::new(std::sync::Mutex::new(None)),
             model_download: Arc::new(ModelDownloadState::new()),
             dict_cache: Arc::new(RwLock::new(HashMap::new())),
@@ -254,11 +258,20 @@ impl AppState {
 
     /// Get or load the cached `WhisperEngine`.
     /// Returns Err if the model file is missing (not yet downloaded).
+    ///
+    /// Load + GPU init + warmup take seconds, so they run on a blocking thread
+    /// with no mutex held — blocking the async runtime here stalls every command.
     pub async fn get_or_load_engine(&self) -> Result<Arc<std::sync::Mutex<WhisperEngine>>, String> {
-        let mut guard = self.engine.lock().await;
-        if let Some(engine) = guard.as_ref() {
+        if let Some(engine) = self.engine.lock().await.as_ref() {
             return Ok(Arc::clone(engine));
         }
+
+        let _building = self.engine_load.lock().await;
+        // Another caller may have finished building while we waited.
+        if let Some(engine) = self.engine.lock().await.as_ref() {
+            return Ok(Arc::clone(engine));
+        }
+
         let mut override_size = self.load_model_override();
         let backend = crate::inference::provider::detect_backend();
         let model_size =
@@ -275,10 +288,16 @@ impl AppState {
             override_size = Some(variant);
         }
 
-        let engine = WhisperEngine::new(&self.models_dir, override_size.as_deref())?;
+        let models_dir = self.models_dir.clone();
+        let beam_size = self.load_beam_size();
+        let engine = tauri::async_runtime::spawn_blocking(move || {
+            WhisperEngine::new(&models_dir, override_size.as_deref(), beam_size)
+        })
+        .await
+        .map_err(|e| format!("engine load task failed: {e}"))??;
+
         let arc = Arc::new(std::sync::Mutex::new(engine));
-        *guard = Some(Arc::clone(&arc));
-        drop(guard);
+        *self.engine.lock().await = Some(Arc::clone(&arc));
         Ok(arc)
     }
 

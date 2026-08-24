@@ -253,7 +253,10 @@ export function VoiceTab() {
     setModelSaving(true)
     try {
       await invoke(COMMANDS.SET_MODEL_OVERRIDE, { variant: v })
-      invoke(COMMANDS.RETRY_MODEL_DOWNLOAD).catch(() => {})
+      // Already on disk means nothing to fetch — the override alone re-warms it.
+      if (!onDiskVariants.has(v)) {
+        invoke(COMMANDS.RETRY_MODEL_DOWNLOAD).catch(() => {})
+      }
       await refreshModelInfo()
       toast.success('Model updated')
     } catch { /* ignore */ }

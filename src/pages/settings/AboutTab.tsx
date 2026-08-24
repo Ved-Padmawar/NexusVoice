@@ -10,6 +10,7 @@ import { relaunch } from '@tauri-apps/plugin-process'
 import { Button } from '@/components/ui/button'
 import { COMMANDS } from '../../lib/commands'
 import type { HardwareProfile } from '../../types'
+import { extractErrorMessage } from '../../lib/errors'
 
 type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
 
@@ -68,7 +69,7 @@ export function AboutTab() {
         setUpdateStatus('up-to-date')
       }
     } catch (e) {
-      setUpdateError(e instanceof Error ? e.message : 'Update check failed')
+      setUpdateError(extractErrorMessage(e, 'Update check failed'))
       setUpdateStatus('error')
     }
   }, [])
@@ -93,7 +94,7 @@ export function AboutTab() {
         }
       })
     } catch (e) {
-      setUpdateError(e instanceof Error ? e.message : 'Download failed')
+      setUpdateError(extractErrorMessage(e, 'Download failed'))
       setUpdateStatus('error')
     }
   }, [])
