@@ -150,83 +150,23 @@ jobs:
           sudo apt-get install -y vulkan-sdk
           glslc --version
 
-      # Before the checks, which compile the release profile the build reuses.
-      # Not src-tauri/target: Linux builds into .cargo-target, Windows into C:\b,
-      # so each OS names its real target dir or the cache archives nothing.
-      - name: Cache Rust deps (Windows)
-        if: runner.os == 'Windows'
-        uses: Swatinem/rust-cache@v2.9.2
-        with:
-          workspaces: src-tauri
-          cache-directories: 'C:\b'
-          key: ${{ matrix.variant }}
-
-      - name: Cache Rust deps (Linux)
-        if: runner.os == 'Linux'
-        uses: Swatinem/rust-cache@v2.9.2
-        with:
-          workspaces: 'src-tauri -> ../.cargo-target'
-          key: ${{ matrix.variant }}
-
       - name: Install npm deps
         run: npm ci
 
-      - name: Enable whisper-rs GPU features in Cargo.toml
-        shell: python
-        run: |
-          import pathlib, re, sys
-          cuda = "${{ matrix.cuda }}" == "true"
-          cargo = pathlib.Path("src-tauri/Cargo.toml")
-          text = cargo.read_text(encoding="utf-8")
-          gpu = "cuda" if cuda else "vulkan"
-
-          # Bare-string form:  whisper-rs = "0.16"
-          bare = re.compile(r'whisper-rs\s*=\s*"([^"]+)"')
-          # Object form:       whisper-rs = { version = "0.16", features = ["log_backend"] }
-          obj = re.compile(r'(whisper-rs\s*=\s*\{[^}]*?features\s*=\s*\[)([^\]]*)(\])')
-
-          def add_to_array(m):
-              prefix, inner, suffix = m.group(1), m.group(2), m.group(3)
-              feats = [f.strip() for f in inner.split(",") if f.strip()]
-              if f'"{gpu}"' not in feats:
-                  feats.append(f'"{gpu}"')
-              return prefix + ", ".join(feats) + suffix
-
-          if bare.search(text):
-              text = bare.sub(
-                  f'whisper-rs = {{ version = "\\1", features = ["{gpu}"] }}',
-                  text,
-              )
-          elif obj.search(text):
-              text = obj.sub(add_to_array, text)
-          else:
-              sys.exit("ERROR: could not locate whisper-rs dependency to add GPU feature")
-
-          cargo.write_text(text, encoding="utf-8")
-          if f'"{gpu}"' not in cargo.read_text(encoding="utf-8"):
-              sys.exit(f'ERROR: GPU feature "{gpu}" was not added to whisper-rs')
-          print(f"enabled GPU feature: {gpu}")
-
-      # Windows builds all bundles (NSIS/MSI). Linux builds deb + rpm ONLY —
-      # the AppImage path (linuxdeploy) is unreliable on CI runners (needs FUSE;
-      # fails with "failed to run linuxdeploy"), while deb/rpm build cleanly and
-      # cover Debian/Ubuntu/Zorin/Fedora. AppImage can be revisited later.
       # Gate the release on the same checks run locally. A tag whose code fails
       # type-check, lint, tests, formatting or Clippy must not publish.
-      # shell: bash everywhere — PowerShell doesn't abort a multi-command block
-      # on a non-zero exit, so an early failure would be swallowed.
       - name: Frontend checks (type, lint, unit tests)
-        shell: bash
         run: |
           npm run build
           npm run lint
           npm test
 
-      # Release profile so the build reuses these artifacts. The GPU feature is
-      # patched in before this, so whisper-rs compiles once per job, not twice.
+      # Release profile so the artifacts match what tauri-action builds with —
+      # the build then reuses them instead of recompiling the dependency tree.
+      # whisper-rs still recompiles once, since the GPU feature is patched in
+      # after this step.
       - name: Backend checks (format, Clippy, tests)
         working-directory: src-tauri
-        shell: bash
         run: |
           cargo fmt --check
           cargo clippy --release --all-targets -- -W clippy::pedantic -D warnings
@@ -285,9 +225,58 @@ jobs:
           conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
           print("patched updater target -> windows-x86_64-cuda")
 
+      - name: Enable whisper-rs GPU features in Cargo.toml
+        shell: python
+        run: |
+          import pathlib, re, sys
+          cuda = "${{ matrix.cuda }}" == "true"
+          cargo = pathlib.Path("src-tauri/Cargo.toml")
+          text = cargo.read_text(encoding="utf-8")
+          gpu = "cuda" if cuda else "vulkan"
+
+          # Bare-string form:  whisper-rs = "0.16"
+          bare = re.compile(r'whisper-rs\s*=\s*"([^"]+)"')
+          # Object form:       whisper-rs = { version = "0.16", features = ["log_backend"] }
+          obj = re.compile(r'(whisper-rs\s*=\s*\{[^}]*?features\s*=\s*\[)([^\]]*)(\])')
+
+          def add_to_array(m):
+              prefix, inner, suffix = m.group(1), m.group(2), m.group(3)
+              feats = [f.strip() for f in inner.split(",") if f.strip()]
+              if f'"{gpu}"' not in feats:
+                  feats.append(f'"{gpu}"')
+              return prefix + ", ".join(feats) + suffix
+
+          if bare.search(text):
+              text = bare.sub(
+                  f'whisper-rs = {{ version = "\\1", features = ["{gpu}"] }}',
+                  text,
+              )
+          elif obj.search(text):
+              text = obj.sub(add_to_array, text)
+          else:
+              sys.exit("ERROR: could not locate whisper-rs dependency to add GPU feature")
+
+          cargo.write_text(text, encoding="utf-8")
+          if f'"{gpu}"' not in cargo.read_text(encoding="utf-8"):
+              sys.exit(f'ERROR: GPU feature "{gpu}" was not added to whisper-rs')
+          print(f"enabled GPU feature: {gpu}")
+
+      - name: Cache Rust deps
+        uses: Swatinem/rust-cache@v2.9.2
+        with:
+          workspaces: src-tauri
+          cache-targets: false
+
+      # Windows builds all bundles (NSIS/MSI). Linux builds deb + rpm ONLY —
+      # the AppImage path (linuxdeploy) is unreliable on CI runners (needs FUSE;
+      # fails with "failed to run linuxdeploy"), while deb/rpm build cleanly and
+      # cover Debian/Ubuntu/Zorin/Fedora. AppImage can be revisited later.
+      # CMAKE_TOOLCHAIN_FILE kills ggml's -march=native (see portable.cmake).
+      # Per-step, not job-wide: it hits every CMake build if left global.
       - name: Build (Windows)
         if: runner.os == 'Windows'
         env:
+          CMAKE_TOOLCHAIN_FILE: ${{ github.workspace }}/src-tauri/cmake/portable.cmake
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build
@@ -295,6 +284,7 @@ jobs:
       - name: Build (Linux)
         if: runner.os == 'Linux'
         env:
+          CMAKE_TOOLCHAIN_FILE: ${{ github.workspace }}/src-tauri/cmake/portable.cmake
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build --bundles deb,rpm
