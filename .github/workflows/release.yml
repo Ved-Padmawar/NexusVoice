@@ -271,12 +271,13 @@ jobs:
       # the AppImage path (linuxdeploy) is unreliable on CI runners (needs FUSE;
       # fails with "failed to run linuxdeploy"), while deb/rpm build cleanly and
       # cover Debian/Ubuntu/Zorin/Fedora. AppImage can be revisited later.
-      # CMAKE_TOOLCHAIN_FILE kills ggml's -march=native (see portable.cmake).
-      # Per-step, not job-wide: it hits every CMake build if left global.
+      # GGML_NATIVE=OFF: -march=native bakes the runner's ISA (AVX-512 on some
+      # hosts) into the binary, crashing CPUs without it (0xc000001d).
+      # whisper-rs-sys forwards GGML_* to CMake. Costs ~1h on CUDA.
       - name: Build (Windows)
         if: runner.os == 'Windows'
         env:
-          CMAKE_TOOLCHAIN_FILE: ${{ github.workspace }}/src-tauri/cmake/portable.cmake
+          GGML_NATIVE: "OFF"
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build
@@ -284,7 +285,7 @@ jobs:
       - name: Build (Linux)
         if: runner.os == 'Linux'
         env:
-          CMAKE_TOOLCHAIN_FILE: ${{ github.workspace }}/src-tauri/cmake/portable.cmake
+          GGML_NATIVE: "OFF"
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build --bundles deb,rpm
