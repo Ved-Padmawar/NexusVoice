@@ -10,10 +10,11 @@ use crate::database::dto::transcript::CreateTranscript;
 use crate::database::repositories::{
     dictionary::DictionaryRepository, transcript::TranscriptRepository,
 };
-use crate::inference::WhisperEngine;
+use crate::inference::TranscriptionEngine;
 use crate::llm::FormatConfig;
 use crate::postprocess::DictionaryCorrectionEngine;
 use crate::state::{lock_recovering, AppState, DictCache};
+use crate::transcribe::{Route, StreamSession};
 
 /// Poll cadence of the stream worker. Decode frequency is governed by the
 /// pipeline's minimum-new-audio gate, not this; polling is just the check.
@@ -91,10 +92,75 @@ fn spawn_engine_load(app: &AppHandle) {
     });
 }
 
-/// Spawn the streaming worker: while recording, feed the growing buffer to the
-/// `StreamingSession` so finalize only has the tail left to decode. Needs a
-/// cached engine; without one finalize decodes everything in one pass.
+/// Spawn the worker that decodes while recording. The engine may still be
+/// loading, so both start and each exits if the other owns this recording.
 fn spawn_stream_worker(state: &AppState) {
+    spawn_local_agreement_worker(state);
+    spawn_native_stream_worker(state);
+}
+
+/// Feed captured audio into a streaming model's own session, stashing the
+/// finished transcript for finalize to collect.
+fn spawn_native_stream_worker(state: &AppState) {
+    let running = Arc::clone(&state.transcription_running);
+    let audio_buffer = Arc::clone(&state.audio_buffer);
+    let native_rate = Arc::clone(&state.native_sample_rate);
+    let engine_cache = Arc::clone(&state.engine);
+    let streamed = Arc::clone(&state.streamed_text);
+
+    tauri::async_runtime::spawn_blocking(move || {
+        // Wait for the engine, which loads in parallel with capture starting.
+        let engine = loop {
+            if !running.load(Ordering::SeqCst) {
+                return;
+            }
+            if let Some(engine) = engine_cache.blocking_lock().clone() {
+                break engine;
+            }
+            std::thread::sleep(STREAM_POLL);
+        };
+
+        let Ok(mut guard) = engine.lock() else {
+            return;
+        };
+        if Route::for_engine(&guard) != Route::Streaming {
+            return;
+        }
+
+        let options = guard.stream_run_options();
+        let Ok(mut stream) = StreamSession::begin(guard.session_mut(), &options) else {
+            return;
+        };
+        log::info!("decoding via {}", Route::Streaming.as_str());
+
+        // Feed only what capture has added since the last chunk.
+        let mut fed = 0usize;
+        while running.load(Ordering::SeqCst) {
+            std::thread::sleep(STREAM_POLL);
+            let rate = *lock_recovering(&native_rate);
+            let chunk = {
+                let buf = lock_recovering(&audio_buffer);
+                if buf.len() <= fed {
+                    continue;
+                }
+                let chunk = buf[fed..].to_vec();
+                fed = buf.len();
+                chunk
+            };
+            let prepared = crate::preprocess::to_16k_denoised(&chunk, rate);
+            if !prepared.is_empty() {
+                stream.feed(&prepared);
+            }
+        }
+
+        *lock_recovering(&streamed) = stream.finalize();
+    });
+}
+
+/// Feed the growing buffer to the `StreamingSession` so finalize only has the
+/// tail left to decode. Needs a cached engine; without one finalize decodes
+/// everything in one pass.
+fn spawn_local_agreement_worker(state: &AppState) {
     let running = Arc::clone(&state.transcription_running);
     let audio_buffer = Arc::clone(&state.audio_buffer);
     let native_rate = Arc::clone(&state.native_sample_rate);
@@ -107,6 +173,15 @@ fn spawn_stream_worker(state: &AppState) {
             let Some(engine) = engine_cache.blocking_lock().clone() else {
                 continue;
             };
+
+            // Models that own their session state are driven by the streaming
+            // path instead; this worker has nothing to do for them.
+            if engine
+                .lock()
+                .is_ok_and(|e| Route::for_engine(&e) == Route::Streaming)
+            {
+                break;
+            }
 
             // Lock order everywhere is session → audio buffer. Finalize takes
             // the session first too, so it waits out an in-flight decode and
@@ -132,7 +207,7 @@ fn spawn_stream_worker(state: &AppState) {
             if polled.is_err() {
                 // Engine panicked mid-decode: evict it and drop the session
                 // so finalize falls back to a clean single-pass decode.
-                log::error!("WhisperEngine panicked during streaming — evicting");
+                log::error!("TranscriptionEngine panicked during streaming — evicting");
                 *slot = None;
                 *engine_cache.blocking_lock() = None;
                 break;
@@ -162,14 +237,16 @@ fn spawn_waveform_emitter(app: &AppHandle, state: &AppState) {
 pub struct FinalizeContext {
     pub pool: sqlx::SqlitePool,
     pub dict_cache: DictCache,
-    pub engine: Arc<std::sync::Mutex<WhisperEngine>>,
-    pub engine_cache: Arc<tokio::sync::Mutex<Option<Arc<std::sync::Mutex<WhisperEngine>>>>>,
+    pub engine: Arc<std::sync::Mutex<TranscriptionEngine>>,
+    pub engine_cache: Arc<tokio::sync::Mutex<Option<Arc<std::sync::Mutex<TranscriptionEngine>>>>>,
     /// Streaming state accumulated while recording; `None` falls back to a
     /// single-pass decode of the whole buffer.
-    pub session: Option<crate::pipeline::StreamingSession>,
+    pub session: Option<crate::transcribe::StreamingSession>,
+    /// Transcript from a streaming-native model. When present the audio is
+    /// already fully decoded and no further pass is needed.
+    pub streamed: Option<String>,
     pub samples: Vec<f32>,
     pub captured_rate: u32,
-    pub beam_size: i32,
     pub duration_seconds: Option<f64>,
     /// Formatter config to apply to the final transcript. `None` when formatting is
     /// disabled or unconfigured — the raw transcript is then used unchanged.
@@ -186,9 +263,9 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
         engine,
         engine_cache,
         session,
+        streamed,
         samples,
         captured_rate,
-        beam_size,
         duration_seconds,
         format,
     } = ctx;
@@ -198,16 +275,21 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
             let engine = Arc::clone(&engine);
             let engine_cache = Arc::clone(&engine_cache);
             move || -> Result<String, String> {
+                // A streaming-native model already decoded everything as it was
+                // fed; only the growing-window path has a tail left to decode.
+                if let Some(text) = streamed {
+                    return Ok(text);
+                }
                 let Ok(text) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    crate::pipeline::finalize(session, &samples, captured_rate, &engine, beam_size)
+                    crate::transcribe::finalize(session, &samples, captured_rate, &engine)
                 })) else {
-                    log::error!("WhisperEngine panicked during finalize — evicting");
+                    log::error!("TranscriptionEngine panicked during finalize — evicting");
                     *engine_cache.blocking_lock() = None;
                     return Err("engine_poisoned".to_string());
                 };
                 // Also evict if Mutex was poisoned during finalize
                 if engine.is_poisoned() {
-                    log::error!("WhisperEngine mutex poisoned after finalize — evicting");
+                    log::error!("TranscriptionEngine mutex poisoned after finalize — evicting");
                     *engine_cache.blocking_lock() = None;
                 }
                 Ok(text)

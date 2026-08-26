@@ -13,7 +13,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
-use crate::inference::provider::ModelSize;
+use crate::inference::catalog::ModelEntry;
 use crate::state::ModelDownloadState;
 
 /// Error string the caller matches on to detect a user-initiated cancel.
@@ -23,19 +23,23 @@ pub const CANCELLED: &str = "download_cancelled";
 const MAX_ATTEMPTS: u32 = 4;
 /// Backoff before attempt N is `RETRY_BASE_DELAY * 2^(N-1)` — 1s, 2s, 4s.
 const RETRY_BASE_DELAY: Duration = Duration::from_secs(1);
-/// Applies to connect/headers, not the body, so a slow large file can't trip it.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// Handshake only — a whole-request timeout would abort a healthy large
+/// download mid-transfer.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+/// No bytes for this long means the connection is dead; a slow but moving
+/// download keeps going.
+const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Download `model_size` into `models_dir`, reporting progress via events.
+/// Download `entry` into `models_dir`, reporting progress via events.
 /// Returns `Err(CANCELLED)` on user cancel so the caller can tell it from a
 /// genuine failure.
-pub async fn download_whisper_model(
+pub async fn download_model(
     models_dir: &Path,
-    model_size: ModelSize,
+    entry: &ModelEntry,
     app: &AppHandle,
     dl_state: &ModelDownloadState,
 ) -> Result<(), String> {
-    let dest = models_dir.join(model_size.filename());
+    let dest = models_dir.join(&entry.filename);
     if dest.exists() {
         return Ok(());
     }
@@ -48,7 +52,7 @@ pub async fn download_whisper_model(
             return Err(CANCELLED.to_string());
         }
 
-        match transfer(model_size.url(), &part, app, dl_state, &cancel).await {
+        match transfer(&entry.url, &part, app, dl_state, &cancel).await {
             Ok(()) => break,
             // Keep the .part file: the bytes let a later attempt resume, and
             // startup sweeps whatever is left behind.
@@ -86,7 +90,8 @@ async fn transfer(
     cancel: &CancellationToken,
 ) -> Result<(), String> {
     let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
         .build()
         .map_err(|e| format!("http client failed: {e}"))?;
 

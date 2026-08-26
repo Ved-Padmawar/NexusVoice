@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.13.3-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.14.0-violet?style=flat-square)
 
 </div>
 
@@ -30,7 +30,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ## What is NexusVoice?
 
-NexusVoice is a push-to-talk voice transcription tool that lives in your system tray. Press your hotkey, speak, release — your words are transcribed locally by OpenAI's Whisper model and pasted directly into whatever app has focus. No internet required after the model downloads.
+NexusVoice is a push-to-talk voice transcription tool that lives in your system tray. Press your hotkey, speak, release — your words are transcribed locally and pasted directly into whatever app has focus. No internet required after the model downloads.
 
 ---
 
@@ -40,9 +40,10 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **Live streaming transcription** — your speech is transcribed as you talk, so there's barely anything left to process when you release the hotkey
 - **Dictation Mode** — a hands-free alternative: press a hotkey to start, then pause/resume and save from the pill or by hotkey — ideal for longer, uninterrupted dictation
 - **Microphone selection** — pick which input device records your voice (Settings → Voice); defaults to the system default and falls back to it automatically if your chosen mic is unplugged
-- **100% local** — Whisper runs entirely on your machine, nothing is sent to the cloud
+- **100% local** — transcription runs entirely on your machine, nothing is sent to the cloud
 - **GPU-accelerated** — auto-detects NVIDIA (CUDA), AMD/Intel (Vulkan), falls back to CPU
-- **Smart model selection** — picks the best Whisper model for your hardware automatically
+- **Live or on-release** — streaming models show text as you speak; the rest transcribe when you stop
+- **Smart model selection** — picks the best model for your hardware automatically
 - **First-run model picker** — choose your model on first login with a hardware-aware recommendation, then download on demand
 - **Personal dictionary** — map spoken words to their correct form (e.g. "gonna" → "going to")
 - **Smart formatting (optional)** — clean up punctuation and turn spoken lists into real lists using any OpenAI-compatible LLM. Off by default; works fully local with Ollama or LM Studio, or with a cloud provider (OpenAI, OpenRouter) if you prefer
@@ -56,7 +57,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 ## How It Works
 
 ```
-App launch       →  Whisper model loaded and warmed up in the background
+App launch       →  model loaded and warmed up in the background
 Hotkey held      →  cpal captures mic audio from your selected input device
                     (capture starts before "recording" is reported, so the
                     first words aren't clipped)
@@ -80,16 +81,20 @@ If **Smart Formatting** is enabled, the transcript is sent to your configured LL
 
 ## Models
 
-| Model                  |   Size   | Used When                       | Notes                               |
-|------------------------|:--------:|---------------------------------|-------------------------------------|
-| Whisper Large v3       | 2.9&nbsp;GB | GPU with 6GB+ VRAM              | Maximum accuracy, full multilingual |
-| Whisper Large v3 Turbo | 834&nbsp;MB | GPU with 4GB+ VRAM or 12GB+ RAM | Best accuracy, fast on GPU          |
-| Whisper Medium         | 514&nbsp;MB | Mid-range GPU or 6GB+ RAM       | Great accuracy, runs well on CPU    |
-| Whisper Small          | 181&nbsp;MB | Moderate hardware or 2GB+ VRAM  | Good balance of speed and quality   |
-| Whisper Base           | 57&nbsp;MB  | Low-end hardware                | Basic accuracy, fast inference      |
-| Whisper Tiny           | 31&nbsp;MB  | Ultra-low-end hardware          | Fastest, lowest accuracy            |
+Twelve models across the Whisper, Parakeet, Nemotron, Qwen3-ASR, Canary and
+Moonshine families. A few of the picks:
 
-Models are quantized for smaller downloads and faster inference at near-identical accuracy (the full multilingual Large v3 is kept at full precision as the accuracy anchor). On first login a model picker modal lets you choose your model — the app recommends the best one for your hardware. You can change it anytime in Settings → Voice, where you can also delete downloaded models. Models download from HuggingFace and are cached locally.
+| Model                       |   Size   | Notes                              |
+|-----------------------------|:--------:|------------------------------------|
+| Whisper Large v3 Turbo      | 886&nbsp;MB | Best accuracy, fast on GPU      |
+| Whisper Medium              | 583&nbsp;MB | Great accuracy, runs well on CPU |
+| Parakeet Unified EN 0.6B    | 731&nbsp;MB | Live or on-release, English only |
+| Parakeet TDT 0.6B v3        | 740&nbsp;MB | Multilingual, very fast         |
+| Nemotron ASR Streaming 0.6B | 751&nbsp;MB | Live, built for realtime dictation |
+| Moonshine Streaming Small   | 199&nbsp;MB | Live, low memory use            |
+| Whisper Tiny                | 44&nbsp;MB  | Fastest, lowest accuracy        |
+
+Models marked **live** transcribe as you speak; the rest transcribe when you stop. All run locally, and all are quantized for smaller downloads and faster inference at near-identical accuracy. On first login a model picker lets you choose — the app recommends the best one for your hardware. You can change it anytime in Settings → Voice, where you can also delete downloaded models. Models download from HuggingFace and are cached locally.
 
 ---
 
@@ -119,9 +124,9 @@ Use a small **instruct** model (e.g. `qwen2.5-3b-instruct`) — not a reasoning/
 | Desktop runtime | Tauri 2 |
 | Backend | Rust 1.97 |
 | Audio capture | cpal |
-| Transcription | whisper-rs (ggml) |
+| Transcription | transcribe-cpp (ggml) |
 | Voice activity detection | earshot (pure Rust) |
-| GPU inference | CUDA (NVIDIA) / Vulkan (AMD, Intel) |
+| GPU inference | CUDA (NVIDIA) / Vulkan (AMD, Intel), resolved at runtime |
 | Smart formatting | Ollama, LM Studio, OpenAI, OpenRouter, Anthropic, or any OpenAI-compatible endpoint over HTTP |
 | Database | SQLite via sqlx |
 | Frontend | React 19 + TypeScript |
@@ -139,16 +144,16 @@ Download the latest build for your platform from [Releases](../../releases/lates
 
 | Installer | Who it's for |
 |-----------|-------------|
-| `NexusVoice_x.x.x_x64-setup.exe` | Everyone — CPU + Vulkan (Intel, AMD, NVIDIA) |
-| `NexusVoice-CUDA_x.x.x_x64-setup.exe` | NVIDIA GPU users who want maximum performance |
+| `NexusVoice_x.x.x_x64-setup.exe` | Everyone — CPU + GPU (Intel, AMD, NVIDIA) |
 
 **Linux** (`.deb` for Debian/Ubuntu/Zorin; `.rpm` for Fedora/RHEL)
 
 | Build | Who it's for |
 |-------|-------------|
-| `NexusVoice_x.x.x_amd64.deb` / `.rpm` | Everyone — CPU + Vulkan (Intel, AMD, **and NVIDIA**) |
+| `NexusVoice_x.x.x_amd64.deb` / `.rpm` | Everyone — CPU + GPU (Intel, AMD, **and NVIDIA**) |
 
-On Linux, Vulkan GPU-accelerates NVIDIA, AMD, and Intel alike, so a single build covers every GPU — no separate CUDA download needed.
+One build covers every machine: GPU backends are loaded at runtime and the CPU
+path is selected per instruction set, so there is no separate CUDA download.
 
 **Requirements:**
 - **Windows:** Windows 10 1803+ or Windows 11 (WebView2 is pre-installed).

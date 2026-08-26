@@ -1,51 +1,4 @@
-use super::{merge_subword_tokens, strip_hallucination_tokens};
-use crate::inference::transcript::Word;
-
-fn tok(text: &str) -> Word {
-    Word {
-        text: text.to_string(),
-        end_cs: None,
-    }
-}
-
-#[test]
-fn subword_fragments_merge_into_one_word() {
-    // "unbelievable" arrives as three BPE pieces; only the first has a space.
-    let merged = merge_subword_tokens(vec![tok(" unbe"), tok("lie"), tok("vable")]);
-    assert_eq!(merged.len(), 1);
-    assert_eq!(merged[0].text, "unbelievable");
-}
-
-#[test]
-fn leading_space_starts_a_new_word() {
-    let merged = merge_subword_tokens(vec![tok(" hello"), tok(" world")]);
-    assert_eq!(
-        merged.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(),
-        vec!["hello", "world"]
-    );
-}
-
-#[test]
-fn punctuation_folds_into_the_preceding_word() {
-    // Punctuation has no leading space, so it rides along with its word.
-    let merged = merge_subword_tokens(vec![tok(" hello"), tok(",")]);
-    assert_eq!(merged.len(), 1);
-    assert_eq!(merged[0].text, "hello,");
-}
-
-#[test]
-fn first_token_without_a_space_still_starts_a_word() {
-    let merged = merge_subword_tokens(vec![tok("hello")]);
-    assert_eq!(merged.len(), 1);
-    assert_eq!(merged[0].text, "hello");
-}
-
-#[test]
-fn whitespace_only_tokens_are_dropped() {
-    let merged = merge_subword_tokens(vec![tok(" "), tok(" hi")]);
-    assert_eq!(merged.len(), 1);
-    assert_eq!(merged[0].text, "hi");
-}
+use super::{split_segment_text, strip_hallucination_tokens};
 
 #[test]
 fn strips_embedded_blank_audio_token() {
@@ -74,4 +27,36 @@ fn strips_multiple_tokens_and_collapses_spaces() {
 fn leaves_normal_text_untouched() {
     let s = "the audio was blank but fine";
     assert_eq!(strip_hallucination_tokens(s), s);
+}
+
+#[test]
+fn segment_text_splits_into_words_carrying_the_segment_end() {
+    let words = split_segment_text("hello there world", 2_500);
+    assert_eq!(
+        words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(),
+        vec!["hello", "there", "world"]
+    );
+    // Milliseconds convert to centiseconds for the pipeline's trim logic.
+    assert!(words.iter().all(|w| w.end_cs == Some(250)));
+}
+
+#[test]
+fn segment_text_drops_hallucination_tokens() {
+    let words = split_segment_text("hello [noise] world", 1_000);
+    assert_eq!(
+        words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(),
+        vec!["hello", "world"]
+    );
+}
+
+#[test]
+fn segment_text_with_no_timestamp_leaves_end_unset() {
+    let words = split_segment_text("hello", -1);
+    assert_eq!(words.len(), 1);
+    assert_eq!(words[0].end_cs, None);
+}
+
+#[test]
+fn empty_segment_text_yields_no_words() {
+    assert!(split_segment_text("   ", 500).is_empty());
 }

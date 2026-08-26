@@ -1,5 +1,5 @@
-//! Model & inference-config commands: downloaded-model management, download
-//! retry/cancel, model-size override, beam-size preset, and hardware profile.
+//! Model & inference-config commands: catalog listing, downloaded-model
+//! management, download retry/cancel, model override, and hardware profile.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -24,68 +24,95 @@ pub struct DownloadedModel {
     pub is_active: bool,
 }
 
+/// The full catalog, for the model picker.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogModel {
+    pub id: String,
+    pub display_name: String,
+    pub family: String,
+    /// Every decode path this model supports (`streaming`, `single-shot`).
+    pub pipelines: Vec<String>,
+    pub default_pipeline: String,
+    pub size_bytes: u64,
+    pub multilingual: bool,
+    pub description: String,
+    pub detail: String,
+    pub downloaded: bool,
+    pub is_active: bool,
+}
+
+/// The catalog with per-model download state, so the picker renders from one
+/// source of truth instead of a hardcoded frontend list.
+#[tauri::command]
+pub fn get_model_catalog(state: State<'_, AppState>) -> Vec<CatalogModel> {
+    use crate::inference::provider::{detect_backend, select_model};
+
+    let active = select_model(detect_backend(), state.load_model_override().as_deref());
+
+    crate::inference::catalog::all()
+        .iter()
+        .map(|entry| CatalogModel {
+            id: entry.id.clone(),
+            display_name: entry.display_name.clone(),
+            family: entry.family.clone(),
+            pipelines: entry
+                .pipelines
+                .iter()
+                .map(|p| p.as_str().to_string())
+                .collect(),
+            default_pipeline: entry.default_pipeline.as_str().to_string(),
+            size_bytes: entry.size_bytes,
+            multilingual: entry.multilingual,
+            description: entry.description.clone(),
+            detail: entry.detail.clone(),
+            downloaded: state.models_dir.join(&entry.filename).exists(),
+            is_active: entry.id == active.id,
+        })
+        .collect()
+}
+
 /// List all model files currently on disk.
 #[tauri::command]
 pub fn get_downloaded_models(state: State<'_, AppState>) -> Vec<DownloadedModel> {
-    use crate::inference::provider::{detect_backend, select_model_size, ModelSize};
+    use crate::inference::provider::{detect_backend, select_model};
 
-    let active_override = state.load_model_override();
-    let active_backend = detect_backend();
-    let active_size = select_model_size(active_backend, active_override.as_deref());
+    let active = select_model(detect_backend(), state.load_model_override().as_deref());
 
-    let all: &[(&str, ModelSize)] = &[
-        ("tiny", ModelSize::Tiny),
-        ("base", ModelSize::Base),
-        ("small", ModelSize::Small),
-        ("medium", ModelSize::Medium),
-        ("large", ModelSize::Large),
-        ("large-full", ModelSize::LargeFull),
-    ];
-
-    all.iter()
-        .filter_map(|(variant, size)| {
-            let path = state.models_dir.join(size.filename());
+    crate::inference::catalog::all()
+        .iter()
+        .filter_map(|entry| {
+            let path = state.models_dir.join(&entry.filename);
             if !path.exists() {
                 return None;
             }
-            let size_bytes = path.metadata().map_or(0, |m| m.len());
             Some(DownloadedModel {
-                variant: variant.to_string(),
-                display_name: size.display_name().to_string(),
-                size_bytes,
-                is_active: *size == active_size,
+                variant: entry.id.clone(),
+                display_name: entry.display_name.clone(),
+                size_bytes: path.metadata().map_or(0, |m| m.len()),
+                is_active: entry.id == active.id,
             })
         })
         .collect()
 }
 
-/// Delete a downloaded model file by variant ("tiny" | "base" | "small" | "medium" | "large").
-/// Any model may be deleted, including the active one — transcription then surfaces
-/// a "no model" error until another is downloaded.
+/// Delete a downloaded model file by catalog id. Any model may be deleted,
+/// including the active one — transcription then surfaces a "no model" error
+/// until another is downloaded.
 #[tauri::command]
 pub async fn delete_model(
     app: AppHandle,
     state: State<'_, AppState>,
     variant: String,
 ) -> Result<(), ApiError> {
-    use crate::inference::provider::{detect_backend, select_model_size, ModelSize};
+    use crate::inference::catalog;
+    use crate::inference::provider::{canonical_override, detect_backend, select_model};
 
-    let size = match variant.as_str() {
-        "tiny" => ModelSize::Tiny,
-        "base" => ModelSize::Base,
-        "small" => ModelSize::Small,
-        "medium" => ModelSize::Medium,
-        "large" => ModelSize::Large,
-        "large-full" => ModelSize::LargeFull,
-        _ => {
-            return Err(ApiError::new(
-                "invalid_variant",
-                "variant must be tiny, base, small, medium, large, or large-full",
-            ))
-        }
-    };
+    let entry = canonical_override(&variant)
+        .and_then(catalog::find)
+        .ok_or_else(|| ApiError::new("invalid_variant", "unknown model id"))?;
 
-    let path = state.models_dir.join(size.filename());
+    let path = state.models_dir.join(&entry.filename);
     if !path.exists() {
         return Err(ApiError::new("not_found", "model file not found"));
     }
@@ -93,29 +120,22 @@ pub async fn delete_model(
     std::fs::remove_file(&path).map_err(|e| ApiError::new("io_error", e.to_string()))?;
 
     // Nothing more to do unless we deleted the active model.
-    let active_size = select_model_size(detect_backend(), state.load_model_override().as_deref());
-    if size != active_size {
+    let active = select_model(detect_backend(), state.load_model_override().as_deref());
+    if entry.id != active.id {
         return Ok(());
     }
 
     *state.engine.lock().await = None;
 
-    // Prefer another downloaded model over "no model": switch to the largest
-    // remaining file on disk; only go to "no model" when nothing is left.
-    let remaining: &[(&str, ModelSize)] = &[
-        ("large-full", ModelSize::LargeFull),
-        ("large", ModelSize::Large),
-        ("medium", ModelSize::Medium),
-        ("small", ModelSize::Small),
-        ("base", ModelSize::Base),
-        ("tiny", ModelSize::Tiny),
-    ];
-    let fallback = remaining
+    // Prefer another downloaded model over "no model": switch to the most
+    // capable file left on disk (the catalog is tier-ascending, so the last
+    // match wins); only go to "no model" when nothing is left.
+    let fallback = catalog::all()
         .iter()
-        .find(|(_, s)| *s != size && state.models_dir.join(s.filename()).exists());
+        .rfind(|m| m.id != entry.id && state.models_dir.join(&m.filename).exists());
 
-    if let Some((variant, _)) = fallback {
-        let _ = state.save_model_override(variant);
+    if let Some(next) = fallback {
+        let _ = state.save_model_override(&next.id);
         warm_engine_in_background(&app);
         let _ = app.emit("model-switched", ());
     } else {
@@ -130,26 +150,19 @@ pub async fn delete_model(
 // Model-size override
 // ---------------------------------------------------------------------------
 
-/// Set model size override ("tiny" | "base" | "small" | "medium" | "large" | "large-full").
-/// Evicts the cached engine and eagerly warms the newly selected model in the
-/// background, so the first transcription after a switch isn't stalled by load.
+/// Set the active model by catalog id. Evicts the cached engine and eagerly
+/// warms the newly selected model in the background, so the first transcription
+/// after a switch isn't stalled by load.
 #[tauri::command]
 pub async fn set_model_override(
     app: AppHandle,
     state: State<'_, AppState>,
     variant: String,
 ) -> Result<(), ApiError> {
-    if !matches!(
-        variant.as_str(),
-        "tiny" | "base" | "small" | "medium" | "large" | "large-full"
-    ) {
-        return Err(ApiError::new(
-            "invalid_variant",
-            "variant must be 'tiny', 'base', 'small', 'medium', 'large', or 'large-full'",
-        ));
-    }
+    let id = crate::inference::provider::canonical_override(&variant)
+        .ok_or_else(|| ApiError::new("invalid_variant", "unknown model id"))?;
     state
-        .save_model_override(&variant)
+        .save_model_override(id)
         .map_err(|e| ApiError::new("io_error", e.to_string()))?;
     *state.engine.lock().await = None;
     warm_engine_in_background(&app);
@@ -182,31 +195,6 @@ fn warm_engine_in_background(app: &AppHandle) {
 }
 
 // ---------------------------------------------------------------------------
-// Beam size
-// ---------------------------------------------------------------------------
-
-/// Get the current beam size. Returns 2 (Fast), 5 (Balanced), or 8 (Accurate).
-#[tauri::command]
-pub fn get_beam_size(state: State<'_, AppState>) -> i32 {
-    state.load_beam_size()
-}
-
-/// Set beam size to 2, 5, or 8. Does not evict the engine — `beam_size` is applied
-/// per transcription call, so it takes effect immediately on the next recording.
-#[tauri::command]
-pub fn set_beam_size(state: State<'_, AppState>, beam_size: i32) -> Result<(), ApiError> {
-    if beam_size != 2 && beam_size != 5 && beam_size != 8 {
-        return Err(ApiError::new(
-            "invalid_beam_size",
-            "beam_size must be 2 (Fast), 5 (Balanced), or 8 (Accurate)",
-        ));
-    }
-    state
-        .save_beam_size(beam_size)
-        .map_err(|e| ApiError::new("io_error", e.to_string()))
-}
-
-// ---------------------------------------------------------------------------
 // Hardware profile
 // ---------------------------------------------------------------------------
 
@@ -222,17 +210,17 @@ pub struct HardwareProfileResponse {
 
 #[tauri::command]
 pub async fn get_hardware_profile() -> Result<HardwareProfileResponse, ApiError> {
-    use crate::inference::provider::recommend_model_size;
+    use crate::inference::provider::recommend_model;
 
     let hw = crate::hardware::cached_profile();
-    let recommended = recommend_model_size();
+    let recommended = recommend_model();
 
     Ok(HardwareProfileResponse {
         gpu_name: hw.gpu_type.clone(),
         execution_provider: hw.execution_provider.clone(),
         vram_gb: hw.vram_gb,
         ram_gb: hw.ram_gb,
-        recommended_model: recommended.display_name().to_string(),
+        recommended_model: recommended.display_name.clone(),
     })
 }
 
@@ -252,12 +240,10 @@ pub struct ModelInfoResponse {
 
 #[tauri::command]
 pub async fn get_model_info(state: State<'_, AppState>) -> Result<ModelInfoResponse, ApiError> {
-    use crate::inference::provider::{detect_backend, select_model_size};
+    use crate::inference::provider::{detect_backend, select_model};
 
-    let override_size = state.load_model_override();
-    let backend = detect_backend();
-    let model_size = select_model_size(backend, override_size.as_deref());
-    let model_path = state.models_dir.join(model_size.filename());
+    let entry = select_model(detect_backend(), state.load_model_override().as_deref());
+    let model_path = state.models_dir.join(&entry.filename);
 
     let dl = &state.model_download;
     let status = dl.status.load(Ordering::SeqCst);
@@ -279,7 +265,7 @@ pub async fn get_model_info(state: State<'_, AppState>) -> Result<ModelInfoRespo
         downloading,
         download_progress: progress,
         download_error: error,
-        model_name: model_size.display_name().to_string(),
+        model_name: entry.display_name.clone(),
     })
 }
 
@@ -288,7 +274,7 @@ pub async fn retry_model_download(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<bool, ApiError> {
-    use crate::inference::provider::{detect_backend, select_model_size};
+    use crate::inference::provider::{detect_backend, select_model};
 
     let dl = &state.model_download;
     let status = dl.status.load(Ordering::SeqCst);
@@ -300,10 +286,8 @@ pub async fn retry_model_download(
         ));
     }
 
-    let override_size = state.load_model_override();
-    let backend = detect_backend();
-    let model_size = select_model_size(backend, override_size.as_deref());
-    let model_path = state.models_dir.join(model_size.filename());
+    let entry = select_model(detect_backend(), state.load_model_override().as_deref());
+    let model_path = state.models_dir.join(&entry.filename);
 
     if model_path.exists() {
         dl.set_complete();
@@ -316,9 +300,9 @@ pub async fn retry_model_download(
     let _ = app.emit("model-download-start", ());
 
     tauri::async_runtime::spawn(async move {
-        use crate::inference::downloader::{download_whisper_model, CANCELLED};
+        use crate::inference::downloader::{download_model, CANCELLED};
 
-        match download_whisper_model(&models_dir, model_size, &app, &dl_state).await {
+        match download_model(&models_dir, entry, &app, &dl_state).await {
             Ok(()) => {
                 dl_state.set_complete();
                 // Drop any fallback engine cached while this was downloading.

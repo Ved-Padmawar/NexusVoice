@@ -1,7 +1,12 @@
 [package]
 name = "nexusvoice"
-version = "1.13.3"
+version = "1.14.0"
 edition = "2021"
+
+[features]
+# Build the Vulkan compute backend. Requires the Vulkan SDK at build time, so
+# release builds enable it and local dev runs CPU-only without it.
+gpu = ["transcribe-cpp/vulkan"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -31,9 +36,11 @@ reqwest = { version = "0.13", features = ["blocking", "stream"] }
 futures-util = "0.3"
 nnnoiseless = "0.5.2"
 
-# log_backend routes whisper.cpp/GGML's stderr spam through `log` so our level
-# filter can mute it (see install_logging_hooks in main.rs).
-whisper-rs = { version = "0.16", features = ["log_backend"] }
+# transcribe.cpp wrapper: GGUF speech-to-text across ~16 model families, with
+# both single-shot (`Session::run`) and native streaming (`Session::stream`).
+# `dynamic-backends` loads Vulkan/CUDA at runtime instead of link time, so one
+# binary covers every accelerator — replacing the standard/CUDA build split.
+transcribe-cpp = { version = "0.2", default-features = false }
 rubato = "5"
 rphonetic = "3.0.6"
 rustfft = "6.4.1"
@@ -42,12 +49,17 @@ earshot = "1.2.1"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_Graphics_Dxgi"] }
+# GPU backends are dlopen'd at runtime, so one binary serves every accelerator.
+# The Vulkan module is built only under the `gpu` feature (release builds), which
+# needs the Vulkan SDK present; without it the CPU variants still ship.
+transcribe-cpp = { version = "0.2", features = ["dynamic-backends"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = "0.30"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ash = "0.38"
+transcribe-cpp = { version = "0.2", features = ["dynamic-backends"] }
 
 [dev-dependencies]
 tempfile = "3"

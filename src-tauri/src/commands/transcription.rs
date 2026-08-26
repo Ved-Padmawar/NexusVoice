@@ -151,6 +151,7 @@ pub async fn cancel_dictation(state: State<'_, AppState>) -> Result<bool, ApiErr
     let _ = state.try_stop_transcription();
     wait_for_capture_done(&state).await;
     let _ = state.take_stream_session();
+    let _ = state.take_streamed_text();
     clear_audio_buffer(&state);
     state.reset_recording_session();
 
@@ -220,6 +221,7 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
     // Session first, audio buffer second — the lock order the stream worker
     // uses. Taking the session waits out any in-flight stream decode.
     let session = state.take_stream_session();
+    let streamed = state.take_streamed_text();
 
     let (samples, captured_rate) = {
         let mut buf = lock_recovering(&state.audio_buffer);
@@ -265,9 +267,9 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
             engine,
             engine_cache: Arc::clone(&state.engine),
             session,
+            streamed,
             samples,
             captured_rate,
-            beam_size: state.load_beam_size(),
             duration_seconds,
             format,
         },

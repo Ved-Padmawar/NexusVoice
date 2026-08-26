@@ -2,10 +2,9 @@
 //!
 //! The *active window* — audio after the last trim point — is re-decoded whenever
 //! [`MIN_NEW_AUDIO_SECS`] of new audio arrives, so every hypothesis keeps full
-//! sentence context (the earlier sliding-window attempt lost exactly this and
-//! scored ~4x the WER of a single decode). LocalAgreement-2 confirms the prefix
+//! sentence context. LocalAgreement-2 confirms the prefix
 //! two consecutive hypotheses agree on; once the window outgrows
-//! [`TRIM_AFTER_SECS`] it is trimmed at a confirmed whisper segment boundary and
+//! [`TRIM_AFTER_SECS`] it is trimmed at a confirmed segment boundary and
 //! that text is committed, never to be revised. [`finalize`] decodes only the
 //! remaining window, so end-of-recording latency is bounded by the trim
 //! threshold, not the recording length. A session that never streamed degrades
@@ -14,7 +13,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::inference::transcript::join_segments;
-use crate::inference::{TimedSegment, WhisperEngine};
+use crate::inference::{TimedSegment, TranscriptionEngine};
 
 /// Minimum new audio before the window is re-decoded (the minimum chunk size).
 /// A slow decode just means the next one absorbs more audio — self-adaptive latency.
@@ -27,11 +26,9 @@ const TRIM_AFTER_SECS: f64 = 8.0;
 /// (continuous speech, one still-growing segment) triggers a word-level
 /// cut instead — see `force_trim`.
 const FORCE_TRIM_SECS: f64 = 12.0;
-/// Audio a trim must leave in the window (whisper needs ≥1 s to decode).
+/// Audio a trim must leave in the window (decoders need ≥1 s of audio).
 const MIN_WINDOW_SECS: f64 = 2.0;
-/// Beam size for mid-recording decodes; the final decode uses the user's preset.
-pub const STREAM_BEAM: i32 = 2;
-/// Max committed words fed back as whisper's `initial_prompt`.
+/// Max committed words fed back as the decode prompt.
 const PROMPT_TAIL_WORDS: usize = 30;
 
 /// VAD frame size at 16 kHz — earshot requires exactly 256 samples (16 ms).
@@ -89,8 +86,13 @@ impl StreamingSession {
     /// threshold. Work accumulates in the session; finalize reads it out.
     ///
     /// `window` is the buffer from [`Self::window_start`] onward, at the mic's
-    /// native rate. Runs whisper synchronously — call from a blocking thread.
-    pub fn poll(&mut self, window: &[f32], native_rate: u32, engine: &Arc<Mutex<WhisperEngine>>) {
+    /// native rate. Decodes synchronously — call from a blocking thread.
+    pub fn poll(
+        &mut self,
+        window: &[f32],
+        native_rate: u32,
+        engine: &Arc<Mutex<TranscriptionEngine>>,
+    ) {
         if native_rate == 0 {
             return;
         }
@@ -121,10 +123,10 @@ impl StreamingSession {
         let prompt = prompt_tail(&self.committed);
         let started = std::time::Instant::now();
         let segments = {
-            let Ok(guard) = engine.lock() else {
+            let Ok(mut guard) = engine.lock() else {
                 return;
             };
-            match guard.transcribe_segments(&leveled, &prompt, STREAM_BEAM) {
+            match guard.transcribe_segments(&leveled, &prompt) {
                 Ok(s) => s,
                 Err(e) => {
                     log::warn!("streaming decode failed: {e}");
@@ -221,14 +223,12 @@ impl StreamingSession {
         self.confirmed_words = self.confirmed_words.saturating_sub(words);
     }
 
-    /// Decode the remaining window at the user's beam size and return the full
-    /// transcript.
+    /// Decode the remaining window and return the full transcript.
     fn finish(
         mut self,
         window: &[f32],
         native_rate: u32,
-        engine: &Arc<Mutex<WhisperEngine>>,
-        beam_size: i32,
+        engine: &Arc<Mutex<TranscriptionEngine>>,
     ) -> String {
         if native_rate == 0 || window.is_empty() {
             return self.committed;
@@ -236,7 +236,7 @@ impl StreamingSession {
 
         let mut prepared = crate::preprocess::to_16k_denoised(window, native_rate);
         if !self.lead_trimmed {
-            // No confident speech at all still gets decoded — whisper's own
+            // No confident speech at all still gets decoded — the model's own
             // no-speech filters have the final say.
             if let Some(skip_16k) = lead_speech_offset(&prepared) {
                 prepared.drain(..skip_16k);
@@ -248,11 +248,11 @@ impl StreamingSession {
         }
 
         let prompt = prompt_tail(&self.committed);
-        let Ok(guard) = engine.lock() else {
-            log::error!("WhisperEngine mutex poisoned during finalize");
+        let Ok(mut guard) = engine.lock() else {
+            log::error!("TranscriptionEngine mutex poisoned during finalize");
             return self.committed;
         };
-        match guard.transcribe_segments(&leveled, &prompt, beam_size) {
+        match guard.transcribe_segments(&leveled, &prompt) {
             Ok(segments) => {
                 push_text(&mut self.committed, &join_segments(&segments));
                 self.committed
@@ -272,12 +272,11 @@ pub fn finalize(
     session: Option<StreamingSession>,
     buffer: &[f32],
     native_rate: u32,
-    engine: &Arc<Mutex<WhisperEngine>>,
-    beam_size: i32,
+    engine: &Arc<Mutex<TranscriptionEngine>>,
 ) -> String {
     let session = session.unwrap_or_default();
     let start = session.window_start().min(buffer.len());
-    session.finish(&buffer[start..], native_rate, engine, beam_size)
+    session.finish(&buffer[start..], native_rate, engine)
 }
 
 /// Append `text` to `out` with a separating space.
@@ -292,8 +291,8 @@ fn push_text(out: &mut String, text: &str) {
     out.push_str(text);
 }
 
-/// The last [`PROMPT_TAIL_WORDS`] words of the committed text, for whisper's
-/// `initial_prompt`.
+/// The last [`PROMPT_TAIL_WORDS`] words of the committed text, used as the
+/// next decode's prompt.
 fn prompt_tail(committed: &str) -> String {
     let words: Vec<&str> = committed.split_whitespace().collect();
     let start = words.len().saturating_sub(PROMPT_TAIL_WORDS);
@@ -309,7 +308,7 @@ fn normalized_words(segments: &[TimedSegment]) -> Vec<String> {
         .collect()
 }
 
-/// Case- and punctuation-insensitive form of a word. Whisper often flips
+/// Case- and punctuation-insensitive form of a word. Models often flip
 /// "Okay," ↔ "okay" between decodes; agreement shouldn't reset over that.
 fn normalize_word(word: &str) -> String {
     word.chars()
@@ -360,5 +359,5 @@ fn lead_speech_offset(samples_16k: &[f32]) -> Option<usize> {
 }
 
 #[cfg(test)]
-#[path = "../tests/unit/pipeline.rs"]
+#[path = "../../tests/unit/transcribe/local_agreement.rs"]
 mod tests;

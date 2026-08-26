@@ -1,38 +1,55 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../../lib/commands'
-import { MODEL_OPTIONS, recommendedToOverride, type ModelOverride } from '../../lib/models'
+import {
+  formatModelSize, modelNameToId, pipelineLabel, sortForDisplay,
+  type CatalogModel, type ModelId,
+} from '../../lib/models'
 import { toast } from 'sonner'
 import {
   CheckCircle2, Download, Cpu, Database, HardDrive, X,
-  Zap, Scale, Sparkles, Wind, Server, Layers, Box, Gem, Loader2,
+  Radio, Wind, Server, Layers, Gem, Loader2,
 } from 'lucide-react'
 import { FormattingToggle } from '../../components/FormattingToggle'
 import { MicrophoneSection } from './MicrophoneSection'
 import { ModelManagerModal } from '../../components/ModelManagerModal'
 import type { HardwareProfile } from '../../types'
 import { useAppStore } from '../../store/useAppStore'
-import type { BeamSize } from '../../store/uiSlice'
 
-/** Whisper model grid — icon, label, and trait per variant, in fixed order. */
-const MODEL_ROWS = [
-  { value: 'tiny' as ModelOverride, Icon: Wind, label: 'Tiny', trait: 'Fastest, lowest accuracy' },
-  { value: 'base' as ModelOverride, Icon: Server, label: 'Base', trait: 'Fast, basic accuracy' },
-  { value: 'small' as ModelOverride, Icon: Cpu, label: 'Small', trait: 'Standard accuracy' },
-  { value: 'medium' as ModelOverride, Icon: Layers, label: 'Medium', trait: 'Balanced performance' },
-  { value: 'large' as ModelOverride, Icon: Box, label: 'Turbo', trait: 'High accuracy, fast' },
-  { value: 'large-full' as ModelOverride, Icon: Gem, label: 'Max', trait: 'Maximum accuracy' },
-] as const
+/** Which icon a catalog entry gets: family first, then capability tier. */
+type IconKey = 'stream' | 'light' | 'standard' | 'balanced' | 'heavy' | 'none'
 
-/** Icon per model size — mirrors the model row list so the hero badge matches. */
-const MODEL_BADGE_ICONS: Record<ModelOverride, typeof Box> = {
-  tiny: Wind,
-  base: Server,
-  small: Cpu,
-  medium: Layers,
-  large: Box,
-  'large-full': Gem,
+const FAMILY_ICON_KEYS: Record<string, IconKey> = {
+  parakeet: 'stream',
+  nemotron: 'stream',
+  moonshine: 'light',
+  qwen3asr: 'balanced',
+  canary: 'standard',
+}
+
+function iconKey(model: CatalogModel | null | undefined): IconKey {
+  if (!model) return 'none'
+  const byFamily = FAMILY_ICON_KEYS[model.family.replace(/-/g, '')]
+  if (byFamily) return byFamily
+  if (model.sizeBytes >= 1_000_000_000) return 'heavy'
+  if (model.sizeBytes >= 500_000_000) return 'balanced'
+  if (model.sizeBytes >= 150_000_000) return 'standard'
+  return 'light'
+}
+
+/** Renders a catalog entry's icon from a fixed set, so no component type is
+ *  constructed during render. */
+function ModelIcon({ model, size }: { model: CatalogModel | null | undefined; size: number }) {
+  const props = { size, strokeWidth: 1.75 }
+  switch (iconKey(model)) {
+    case 'stream': return <Radio {...props} />
+    case 'light': return <Wind {...props} />
+    case 'standard': return <Server {...props} />
+    case 'balanced': return <Layers {...props} />
+    case 'heavy': return <Gem {...props} />
+    default: return <Cpu {...props} />
+  }
 }
 
 type DownloadedModel = {
@@ -54,6 +71,8 @@ function ModelRow({
   name,
   fullName,
   trait,
+  pipeline,
+  sizeLabel,
   loaded,
   recommended,
   installed,
@@ -67,6 +86,9 @@ function ModelRow({
   name: string
   fullName: string
   trait: string
+  /** Badge text, or null when the model has nothing to call out. */
+  pipeline: string | null
+  sizeLabel: string
   loaded: boolean
   recommended: boolean
   installed: boolean
@@ -142,8 +164,15 @@ function ModelRow({
               </motion.span>
             ) : null}
           </AnimatePresence>
+          {pipeline && (
+            <span className="text-[9px] font-semibold uppercase tracking-[0.04em] rounded-(--r-xs) px-1.5 py-px border text-(--accent) bg-(--accent-soft) border-(--accent-soft)">
+              {pipeline}
+            </span>
+          )}
         </span>
-        <span className="block mt-0.5 text-[11px] text-(--muted) truncate">{trait}</span>
+        <span className="block mt-0.5 text-[11px] text-(--muted) truncate">
+          {trait} · {sizeLabel}
+        </span>
       </span>
 
       <span className="flex items-center gap-1.5 shrink-0">
@@ -192,7 +221,7 @@ function ModelRow({
                 Installed
               </span>
             ) : (
-              <span className={`${STATE_PILL} border-dashed border-(--border) bg-transparent text-(--muted) group-hover:text-(--accent)`}>
+              <span className={`${STATE_PILL} border-(--border) bg-(--surface) text-(--fg-2) group-hover:text-(--fg)`}>
                 <Download size={11} strokeWidth={2} />
                 Download
               </span>
@@ -210,8 +239,9 @@ export function VoiceTab() {
   const [onDisk, setOnDisk] = useState<DownloadedModel[]>([])
   const [managerOpen, setManagerOpen] = useState(false)
 
-  const beamSize = useAppStore(s => s.beamSize)
-  const setBeamSize = useAppStore(s => s.setBeamSize)
+  const catalog = useAppStore(s => s.catalog)
+  const orderedModels = useMemo(() => sortForDisplay(catalog), [catalog])
+  const refreshCatalog = useAppStore(s => s.refreshCatalog)
   const modelDownloading = useAppStore(s => s.modelDownloading)
   const modelDownloadPct = useAppStore(s => s.downloadProgress)
   const selected = useAppStore(s => s.selectedModel)
@@ -227,12 +257,9 @@ export function VoiceTab() {
   useEffect(() => {
     invoke<HardwareProfile>(COMMANDS.GET_HARDWARE_PROFILE).then(setProfile).catch(() => {})
     void refreshModelInfo()
+    void refreshCatalog()
     refreshOnDisk()
-    invoke<number>(COMMANDS.GET_BEAM_SIZE).then(v => {
-      const valid = (v === 2 || v === 5 || v === 8) ? v as BeamSize : 5
-      setBeamSize(valid)
-    }).catch(() => {})
-  }, [setBeamSize, refreshModelInfo, refreshOnDisk])
+  }, [refreshModelInfo, refreshCatalog, refreshOnDisk])
 
   // Re-read on-disk state once a download finishes/cancels.
   useEffect(() => {
@@ -240,13 +267,13 @@ export function VoiceTab() {
   }, [modelDownloading, refreshOnDisk])
 
   const onDiskVariants = new Set(onDisk.map(m => m.variant))
-  const recommendedVariant = profile ? recommendedToOverride(profile.recommendedModel) : null
+  const recommendedVariant = profile ? modelNameToId(profile.recommendedModel, catalog) : null
   // `selected` is set even when nothing is downloaded, so "Loaded" also
   // requires the file to actually be on disk.
   const loadedVariant =
     selected && onDiskVariants.has(selected) && !modelDownloading ? selected : null
 
-  const handleModelChange = async (v: ModelOverride) => {
+  const handleModelChange = async (v: ModelId) => {
     if (modelDownloading) return
     setDownloadingFromModel(selected ?? v)
     setSelectedModel(v)
@@ -263,18 +290,13 @@ export function VoiceTab() {
     finally { setModelSaving(false) }
   }
 
-  const handleBeamChange = async (v: BeamSize) => {
-    setBeamSize(v)
-    invoke(COMMANDS.SET_BEAM_SIZE, { beamSize: v }).catch(() => {})
-  }
-
   return (
     <div className="flex flex-col gap-4">
 
-      {/* Whisper model */}
+      {/* Transcription model */}
       <div className="overflow-hidden rounded-(--r-lg) border border-(--border-soft) bg-(--panel)">
         <div className="px-4 py-2.5 border-b border-(--border-soft) text-[10px] font-semibold uppercase tracking-[0.08em] text-(--muted)">
-          Whisper model
+          Transcription model
         </div>
 
         {/* Hero status strip */}
@@ -284,19 +306,18 @@ export function VoiceTab() {
               // Identity follows the selection (so a download in progress names
               // its model); the accent styling follows what is really on disk.
               const shown = modelDownloading ? selected : loadedVariant
-              const opt = shown ? MODEL_OPTIONS.find(m => m.value === shown) : null
-              const ModelIcon = shown ? (MODEL_BADGE_ICONS[shown] ?? Box) : Cpu
+              const opt = shown ? catalog.find(m => m.id === shown) : null
               return (
                 <>
                   <span className={`grid place-items-center shrink-0 size-9 rounded-(--r-lg) ${
                     loadedVariant ? 'bg-(--accent-soft) text-(--accent)' : 'bg-(--surface) text-(--muted)'
                   }`}>
-                    <ModelIcon size={16} strokeWidth={1.75} />
+                    <ModelIcon model={opt} size={16} />
                   </span>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-[13px] font-semibold tracking-[-0.01em] text-(--fg) truncate">
-                        {opt ? opt.label : 'No model loaded'}
+                        {opt ? opt.displayName : 'No model loaded'}
                       </span>
                       {modelDownloading ? (
                         <span className="flex items-center gap-1 text-[10px] font-medium text-(--accent)">
@@ -331,64 +352,27 @@ export function VoiceTab() {
 
         {/* Model list */}
         <div className="px-2 py-2">
-          {MODEL_ROWS.map(({ value, Icon, label, trait }) => {
-            const opt = MODEL_OPTIONS.find(m => m.value === value)
+          {orderedModels.map(model => {
             return (
               <ModelRow
-                key={value}
-                icon={<Icon size={15} strokeWidth={1.75} />}
-                name={label}
-                fullName={opt?.label ?? label}
-                trait={trait}
-                loaded={loadedVariant === value}
-                recommended={recommendedVariant === value}
-                installed={onDiskVariants.has(value)}
-                downloading={modelDownloading && selected === value}
+                key={model.id}
+                icon={<ModelIcon model={model} size={15} />}
+                name={model.displayName}
+                fullName={model.displayName}
+                trait={model.description}
+                pipeline={pipelineLabel(model.pipelines)}
+                sizeLabel={formatModelSize(model.sizeBytes)}
+                loaded={loadedVariant === model.id}
+                recommended={recommendedVariant === model.id}
+                installed={onDiskVariants.has(model.id)}
+                downloading={modelDownloading && selected === model.id}
                 downloadPct={modelDownloadPct}
                 disabled={modelDownloading || modelSaving}
-                onSelect={() => handleModelChange(value)}
+                onSelect={() => handleModelChange(model.id)}
                 onCancel={cancelDownload}
               />
             )
           })}
-        </div>
-
-        {/* Transcription quality */}
-        <div className="px-4 py-3.5 border-t border-(--border-soft)">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-[13px] tracking-[-0.01em] text-(--fg)">Transcription quality</div>
-            <div className="text-[11px] text-(--muted)">Faster is quicker; accurate takes a moment longer.</div>
-          </div>
-          <div className="flex rounded-(--r-md) border border-(--border) overflow-hidden">
-            {([
-              { value: 2 as BeamSize, Icon: Zap,      label: 'Fast' },
-              { value: 5 as BeamSize, Icon: Scale,    label: 'Balanced' },
-              { value: 8 as BeamSize, Icon: Sparkles, label: 'Accurate' },
-            ]).map(({ value, Icon, label }, i) => {
-              const active = beamSize === value
-              return (
-                <motion.button
-                  key={value}
-                  type="button"
-                  onClick={() => handleBeamChange(value)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-[12px] font-medium cursor-pointer ${
-                    i > 0 ? 'border-l border-(--border)' : ''
-                  }`}
-                  initial={false}
-                  animate={{
-                    backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface)',
-                    color: active ? 'var(--accent)' : 'var(--muted)',
-                  }}
-                  whileHover={active ? undefined : { backgroundColor: 'var(--surface-hover)', color: 'var(--fg)' }}
-                  whileTap={{ scale: 0.97 }}
-                  transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
-                >
-                  <Icon size={13} strokeWidth={1.75} />
-                  {label}
-                </motion.button>
-              )
-            })}
-          </div>
         </div>
 
       </div>

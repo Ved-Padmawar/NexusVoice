@@ -1,96 +1,144 @@
+//! Transcription engine: a loaded model plus its decode session.
+
 use std::path::Path;
 
-use whisper_rs::{
-    DtwMode, DtwParameters, FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters,
+use transcribe_cpp::{
+    Model, ModelOptions, RunExtension, RunOptions, Session, SessionOptions, TimestampKind,
+    WhisperRunOptions,
 };
 
-use crate::inference::provider::{detect_backend, select_model_size, Backend, ModelSize};
+use crate::inference::catalog::ModelEntry;
+use crate::inference::provider::{detect_backend, select_model};
 use crate::inference::transcript::{TimedSegment, Word};
 
-pub struct WhisperEngine {
-    ctx: WhisperContext,
-    #[allow(dead_code)]
-    pub backend: Backend,
-    #[allow(dead_code)]
-    pub model_size: ModelSize,
+/// Sung/noise content; the whole segment is dropped.
+const MUSIC_NOTE: char = '♪';
+
+/// Above this probability a window is treated as non-speech.
+const NO_SPEECH_THOLD: f32 = 0.6;
+/// Repetition guard against hallucination loops.
+const COMPRESSION_RATIO_THOLD: f32 = 2.4;
+/// Fallback ladder: a decode failing the thresholds retries at t = 0.2, 0.4, …
+const TEMPERATURE: f32 = 0.0;
+const TEMPERATURE_INC: f32 = 0.2;
+const LOGPROB_THOLD: f32 = -1.0;
+
+pub struct TranscriptionEngine {
+    session: Session,
+    /// Kept for capability queries after load.
+    model: Model,
+    /// Finest granularity this model accepts, resolved once at load.
+    timestamps: TimestampKind,
+    pub entry: &'static ModelEntry,
 }
 
-impl WhisperEngine {
-    /// Load the appropriate ggml model from `models_dir`.
-    /// `override_size` ("large" | "medium") lets the user override auto-selection.
-    /// `warmup_beam` is the beam size the warmup decode runs at — pass the user's
-    /// setting so the first real transcription doesn't pay for a wider beam.
-    pub fn new(
-        models_dir: &Path,
-        override_size: Option<&str>,
-        warmup_beam: i32,
-    ) -> Result<Self, String> {
+impl TranscriptionEngine {
+    /// Load the model selected by `override_id` (or hardware) from `models_dir`.
+    pub fn new(models_dir: &Path, override_id: Option<&str>) -> Result<Self, String> {
         let backend = detect_backend();
-        let model_size = select_model_size(backend, override_size);
+        let entry = select_model(backend, override_id);
 
-        log::info!(
-            "backend: {}, model: {}",
-            backend.as_str(),
-            model_size.display_name()
-        );
-
-        let model_path = models_dir.join(model_size.filename());
+        let model_path = models_dir.join(&entry.filename);
         if !model_path.exists() {
             return Err(format!("model not found: {}", model_path.display()));
         }
 
-        let mut params = WhisperContextParameters::default();
-        // GPU acceleration requires "cuda" or "vulkan" crate features at build time.
-        // Without them use_gpu(true) is a no-op — whisper-rs falls back to CPU.
-        params.use_gpu(backend.has_gpu());
-        // Per-word timestamps for pipeline.rs::force_trim.
-        params.dtw_parameters(DtwParameters {
-            mode: DtwMode::ModelPreset {
-                model_preset: model_size.dtw_preset(),
-            },
-            ..Default::default()
-        });
+        let model = Model::load_with(&model_path, &ModelOptions::default())
+            .map_err(|e| format!("failed to load model {}: {e}", entry.display_name))?;
 
-        let ctx = WhisperContext::new_with_params(
-            model_path.to_str().ok_or("invalid model path")?,
-            params,
-        )
-        .map_err(|e| format!("failed to load whisper model: {e}"))?;
+        // The bound backend may differ from the request (e.g. CPU fallback).
+        log::info!(
+            "loaded {} (arch {}, backend {})",
+            entry.display_name,
+            model.arch(),
+            model.backend()
+        );
 
-        let engine = Self {
-            ctx,
-            backend,
-            model_size,
+        // Half the cores, leaving headroom for capture and the UI thread.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let n_threads = (std::thread::available_parallelism().map_or(4, std::num::NonZero::get) / 2)
+            .clamp(1, 4) as i32;
+
+        let session = model
+            .session_with(&SessionOptions {
+                n_threads,
+                ..Default::default()
+            })
+            .map_err(|e| format!("failed to create session: {e}"))?;
+
+        // Asking for finer than the model offers is rejected outright.
+        let timestamps = match model.capabilities().max_timestamp_kind {
+            TimestampKind::None => TimestampKind::None,
+            TimestampKind::Segment => TimestampKind::Segment,
+            _ => TimestampKind::Word,
+        };
+        log::info!("timestamp granularity: {timestamps:?}");
+
+        let mut engine = Self {
+            session,
+            model,
+            timestamps,
+            entry,
         };
 
-        // Warmup pass — forces model weights into GPU/CPU memory so the first real
-        // transcription is instant. Beam width drives its own allocations, so warm
-        // both the streaming beam and the one finalize will use.
+        // Warmup pass so the first real transcription isn't stalled by load.
         let silence = vec![0.0f32; 16_000];
-        let _ = engine.transcribe_segments(&silence, "", crate::pipeline::STREAM_BEAM);
-        if warmup_beam != crate::pipeline::STREAM_BEAM {
-            let _ = engine.transcribe_segments(&silence, "", warmup_beam);
-        }
-        log::info!(
-            "whisper engine warmed up (beams {} + {warmup_beam})",
-            crate::pipeline::STREAM_BEAM
-        );
+        let _ = engine.transcribe_segments(&silence, "");
+        log::info!("engine warmed up");
 
         Ok(engine)
     }
 
+    /// Whether the loaded model can drive its own streaming session.
+    pub fn supports_streaming(&self) -> bool {
+        self.model.capabilities().supports_streaming
+    }
+
+    /// Borrow the session mutably, for the streaming path.
+    pub fn session_mut(&mut self) -> &mut Session {
+        &mut self.session
+    }
+
+    /// Run options for a streaming session — no prompt, since streaming models
+    /// carry their own context across feeds.
+    pub fn stream_run_options(&self) -> RunOptions {
+        self.run_options("")
+    }
+
+    fn run_options(&self, prompt: &str) -> RunOptions {
+        // A non-whisper arch rejects this extension with INVALID_ARG.
+        let family = self.entry.is_whisper().then(|| {
+            RunExtension::Whisper(WhisperRunOptions {
+                initial_prompt: (!prompt.is_empty()).then(|| prompt.to_string()),
+                temperature: Some(TEMPERATURE),
+                temperature_inc: Some(TEMPERATURE_INC),
+                compression_ratio_thold: Some(COMPRESSION_RATIO_THOLD),
+                logprob_thold: Some(LOGPROB_THOLD),
+                no_speech_thold: Some(NO_SPEECH_THOLD),
+                ..Default::default()
+            })
+        });
+
+        RunOptions {
+            // Word timestamps drive the pipeline's mid-segment trim.
+            timestamps: self.timestamps,
+            // Multilingual models auto-detect; .en models only know English.
+            language: (!self.entry.multilingual).then(|| "en".to_string()),
+            family,
+            ..Default::default()
+        }
+    }
+
     /// Transcribe 16 kHz mono f32 samples into timed segments.
-    /// `beam_size` controls the quality/speed tradeoff: 2=Fast, 5=Balanced, 8=Accurate.
     pub fn transcribe_segments(
-        &self,
+        &mut self,
         samples_16k: &[f32],
         prompt: &str,
-        beam_size: i32,
     ) -> Result<Vec<TimedSegment>, String> {
-        // whisper.cpp requires at least 1 second of audio at 16 kHz
+        // Decoders require at least a second of audio at 16 kHz.
         const MIN_SAMPLES: usize = 16_000;
         let padded;
-        let samples_16k = if samples_16k.len() < MIN_SAMPLES {
+        let samples = if samples_16k.len() < MIN_SAMPLES {
             padded = {
                 let mut v = samples_16k.to_vec();
                 v.resize(MIN_SAMPLES, 0.0);
@@ -100,137 +148,72 @@ impl WhisperEngine {
         } else {
             samples_16k
         };
+
+        let options = self.run_options(prompt);
+        let transcript = self
+            .session
+            .run(samples, &options)
+            .map_err(|e| format!("transcribe failed: {e}"))?;
+
+        Ok(build_segments(&transcript))
+    }
+}
+
+/// Fold a transcript's word rows into the per-segment shape the pipeline wants.
+fn build_segments(transcript: &transcribe_cpp::Transcript) -> Vec<TimedSegment> {
+    let mut segments: Vec<TimedSegment> = Vec::with_capacity(transcript.segments.len());
+
+    for (idx, seg) in transcript.segments.iter().enumerate() {
+        if seg.text.contains(MUSIC_NOTE) {
+            continue;
+        }
+
         #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-        // clamp(1,4) guarantees the value fits i32 on any platform
-        let n_threads = (std::thread::available_parallelism().map_or(4, std::num::NonZero::get) / 2)
-            .clamp(1, 4) as i32;
+        let seg_index = idx as i32;
+        let mut words: Vec<Word> = transcript
+            .words
+            .iter()
+            .filter(|w| w.seg_index == seg_index)
+            .map(|w| Word {
+                text: strip_hallucination_tokens(&w.text).trim().to_string(),
+                // Milliseconds here; the pipeline works in centiseconds.
+                end_cs: (w.t1_ms >= 0).then_some(w.t1_ms / 10),
+            })
+            .collect();
 
-        let beam_size = beam_size.clamp(1, 8);
-        let mut params = FullParams::new(SamplingStrategy::BeamSearch {
-            beam_size,
-            patience: 1.0,
+        // A model that emitted no word rows still yields usable text.
+        if words.is_empty() {
+            words = split_segment_text(&seg.text, seg.t1_ms);
+        }
+
+        words.retain(|w| !w.text.is_empty());
+        if words.is_empty() {
+            continue;
+        }
+
+        segments.push(TimedSegment {
+            words,
+            end_ms: seg.t1_ms,
         });
-        params.set_n_threads(n_threads);
-        // Large variants are multilingual — let Whisper auto-detect the language.
-        // The .en models (Tiny/Base/Small/Medium) only know English so we pin it.
-        let lang = match self.model_size {
-            ModelSize::Large | ModelSize::LargeFull => None,
-            _ => Some("en"),
-        };
-        params.set_language(lang);
-        params.set_translate(false);
-        params.set_print_special(false);
-        params.set_print_progress(false);
-        params.set_print_realtime(false);
-        params.set_print_timestamps(false);
-        // Segments with high token entropy are likely hallucinations (e.g. "Thank you for watching").
-        // 2.4 is the community-validated threshold — pairs with the no_speech_probability guard below.
-        params.set_entropy_thold(2.4);
-        // Temperature fallback (whisper.cpp built-in): a decode that fails the
-        // entropy/logprob thresholds is retried at t = 0.2, 0.4, … — this
-        // rescues chunks that would otherwise come back garbled or looping.
-        // Pinned explicitly so we don't depend on upstream defaults.
-        params.set_temperature(0.0);
-        params.set_temperature_inc(0.2);
-        params.set_logprob_thold(-1.0);
-        params.set_suppress_blank(true);
-        if !prompt.is_empty() {
-            params.set_initial_prompt(prompt);
-        }
-
-        let mut state = self
-            .ctx
-            .create_state()
-            .map_err(|e| format!("whisper state: {e}"))?;
-
-        state
-            .full(params, samples_16k)
-            .map_err(|e| format!("whisper full: {e}"))?;
-
-        let n = state.full_n_segments();
-
-        let mut segments: Vec<TimedSegment> = Vec::new();
-        for i in 0..n {
-            let Some(seg) = state.get_segment(i) else {
-                continue;
-            };
-            // Drop segments whisper flagged as silence/noise
-            if seg.no_speech_probability() > 0.6 {
-                continue;
-            }
-            // Music-note segments are sung/noise content — drop whole segment
-            if seg.to_str_lossy().is_ok_and(|s| s.contains('♪')) {
-                continue;
-            }
-
-            let mut words: Vec<Word> = Vec::new();
-            for t in 0..seg.n_tokens() {
-                let Some(token) = seg.get_token(t) else {
-                    continue;
-                };
-                let Ok(raw) = token.to_str_lossy() else {
-                    continue;
-                };
-                // Special tokens (<|endoftext|>, timestamps) carry no text.
-                if raw.starts_with("[_") || raw.starts_with("<|") {
-                    continue;
-                }
-                if raw.trim().is_empty() {
-                    continue;
-                }
-
-                let t_dtw = token.token_data().t_dtw;
-                words.push(Word {
-                    text: raw.to_string(),
-                    end_cs: (t_dtw >= 0).then_some(t_dtw),
-                });
-            }
-
-            // Strip hallucination markers after merging, not before: whisper splits
-            // "[BLANK_AUDIO]" across several BPE tokens, so no single token matches
-            // the full marker and it survives into the transcript.
-            let mut words = merge_subword_tokens(words);
-            for w in &mut words {
-                w.text = strip_hallucination_tokens(&w.text).trim().to_string();
-            }
-            words.retain(|w| !w.text.is_empty());
-            if words.is_empty() {
-                continue;
-            }
-
-            segments.push(TimedSegment {
-                words,
-                // whisper timestamps are centiseconds
-                end_ms: seg.end_timestamp() * 10,
-            });
-        }
-
-        Ok(segments)
     }
+
+    segments
 }
 
-/// Fold BPE fragments into words: "unbelievable" arrives as " unbe" + "lie" +
-/// "vable", and only a leading space marks a new word.
-fn merge_subword_tokens(tokens: Vec<Word>) -> Vec<Word> {
-    let mut out: Vec<Word> = Vec::with_capacity(tokens.len());
-    for tok in tokens {
-        let starts_word = tok.text.starts_with(' ') || out.is_empty();
-        if starts_word {
-            out.push(tok);
-        } else if let Some(prev) = out.last_mut() {
-            prev.text.push_str(&tok.text);
-            prev.end_cs = tok.end_cs.or(prev.end_cs);
-        }
-    }
-    for w in &mut out {
-        w.text = w.text.trim().to_string();
-    }
-    out.retain(|w| !w.text.is_empty());
-    out
+/// Split a segment on whitespace when the model emitted no word rows. Every
+/// word carries the segment's end time — coarse, but the trim logic still works.
+fn split_segment_text(text: &str, end_ms: i64) -> Vec<Word> {
+    strip_hallucination_tokens(text)
+        .split_whitespace()
+        .map(|w| Word {
+            text: w.to_string(),
+            end_cs: (end_ms >= 0).then_some(end_ms / 10),
+        })
+        .collect()
 }
 
-/// Remove Whisper's silence/noise hallucination tokens wherever they appear
-/// in a segment (case-insensitive). Collapses the doubled space left behind.
+/// Remove silence/noise hallucination tokens wherever they appear (case-insensitive).
+/// Collapses the doubled space left behind.
 fn strip_hallucination_tokens(segment: &str) -> String {
     const TOKENS: [&str; 5] = [
         "[blank_audio]",

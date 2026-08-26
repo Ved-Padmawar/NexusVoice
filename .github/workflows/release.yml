@@ -23,18 +23,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Pinned to windows-2022 (Visual Studio 2022). windows-latest moved to
-          # VS 18 / 2026, which the bundled whisper.cpp + CUDA toolchain can't
-          # target (cmake-rs requests the "Visual Studio 18 2026" generator;
-          # CUDA 12.9 has no VS18 integration). VS 2022 is the environment the
-          # last several CUDA releases built on. Revisit when whisper-rs/CUDA
-          # gain VS18 support.
-          - { os: windows-2022, variant: standard, cuda: false }
-          - { os: windows-2022, variant: cuda,     cuda: true }
-          # Linux ships Vulkan-only: Vulkan GPU-accelerates NVIDIA/AMD/Intel
-          # alike, so one build covers every Linux GPU without the fragility of
-          # the CUDA toolchain + runtime-lib bundling. (Windows keeps CUDA.)
-          - { os: ubuntu-22.04,   variant: standard, cuda: false }
+          # One build per OS: GPU backends are loaded at runtime, so a single
+          # binary covers CUDA, Vulkan and CPU alike.
+          - { os: windows-latest, variant: standard }
+          - { os: ubuntu-22.04,   variant: standard }
 
     steps:
       - uses: actions/checkout@v7
@@ -56,10 +48,8 @@ jobs:
         shell: pwsh
         run: echo "CARGO_TARGET_DIR=C:\b" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      # whisper-rs's bindgen (libclang) and cmake-rs need these located. They
-      # used to come from .cargo/config.toml's [env], but that applied on every
-      # OS and broke Linux — so they're now set per-OS here instead. LLVM and
-      # CMake are preinstalled at these paths on the windows-2022 runner.
+      # bindgen (libclang) and cmake-rs need these located. LLVM and CMake are
+      # preinstalled at these paths on the Windows runner.
       - name: Set libclang / cmake paths (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -96,9 +86,8 @@ jobs:
             cmake \
             pkg-config
 
-      # bindgen (via whisper-rs) can't always auto-discover libclang on the
-      # runner, so point LIBCLANG_PATH at the dir that actually holds
-      # libclang.so.* — resolved from the installed package rather than guessed.
+      # bindgen can't always auto-discover libclang on the runner, so point
+      # LIBCLANG_PATH at the dir that actually holds libclang.so.*.
       - name: Set LIBCLANG_PATH (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -106,24 +95,10 @@ jobs:
           echo "Found libclang in: $LIBCLANG_DIR"
           echo "LIBCLANG_PATH=$LIBCLANG_DIR" >> "$GITHUB_ENV"
 
-      # ── CUDA toolkit (Windows CUDA variant only) ─────────────────────────────
-      # Linux is Vulkan-only, so CUDA is installed only on the Windows CUDA job.
-      - name: Install CUDA Toolkit (Windows)
-        if: matrix.cuda && runner.os == 'Windows'
-        uses: Jimver/cuda-toolkit@v0.2.36
-        with:
-          cuda: '12.9.1'
-          method: network
-          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "visual_studio_integration"]'
-
-      - name: Add CUDA to PATH (Windows)
-        if: matrix.cuda && runner.os == 'Windows'
-        shell: pwsh
-        run: echo "$env:CUDA_PATH\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      # ── Vulkan SDK (standard variant only) ───────────────────────────────────
+      # Needed to compile the Vulkan backend module (the `gpu` feature). Local
+      # dev builds omit the feature and run CPU-only without the SDK.
       - name: Install Vulkan SDK (Windows)
-        if: "!matrix.cuda && runner.os == 'Windows'"
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $url = "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan-sdk.exe"
@@ -134,14 +109,10 @@ jobs:
           echo "VULKAN_SDK=$sdkPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "$sdkPath\Bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
+      # glslc (shaderc) isn't in Ubuntu 22.04's own repos, so use LunarG's.
       - name: Install Vulkan SDK (Linux)
-        if: "!matrix.cuda && runner.os == 'Linux'"
+        if: runner.os == 'Linux'
         run: |
-          # ggml-vulkan's CMake does find_package(Vulkan COMPONENTS glslc) to
-          # compile shaders. `glslc` (shaderc) is NOT packaged in Ubuntu 22.04's
-          # own repos, so install the LunarG Vulkan SDK — its `vulkan-sdk`
-          # meta-package bundles glslc + headers + loader, mirroring the Windows
-          # job. (Same jammy repo LunarG documents for 22.04.)
           wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
             | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc >/dev/null
           sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list \
@@ -163,8 +134,6 @@ jobs:
 
       # Release profile so the artifacts match what tauri-action builds with —
       # the build then reuses them instead of recompiling the dependency tree.
-      # whisper-rs still recompiles once, since the GPU feature is patched in
-      # after this step.
       - name: Backend checks (format, Clippy, tests)
         working-directory: src-tauri
         run: |
@@ -180,87 +149,6 @@ jobs:
           sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
           sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
 
-      # ── CUDA runtime libraries bundled with the app (Windows) ────────────────
-      - name: Copy CUDA DLLs (Windows)
-        if: matrix.cuda && runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path src-tauri/cuda
-          Copy-Item "$env:CUDA_PATH\bin\cublas64_12.dll"   src-tauri/cuda/
-          Copy-Item "$env:CUDA_PATH\bin\cublasLt64_12.dll" src-tauri/cuda/
-          Copy-Item "$env:CUDA_PATH\bin\cudart64_12.dll"   src-tauri/cuda/
-
-      - name: Patch tauri.conf.json resources with CUDA DLLs (Windows)
-        if: matrix.cuda && runner.os == 'Windows'
-        shell: python
-        run: |
-          import json, pathlib
-          conf_path = pathlib.Path("src-tauri/tauri.conf.json")
-          conf = json.loads(conf_path.read_text(encoding="utf-8"))
-          cuda_entries = {
-              "cuda/cublas64_12.dll": "cublas64_12.dll",
-              "cuda/cublasLt64_12.dll": "cublasLt64_12.dll",
-              "cuda/cudart64_12.dll": "cudart64_12.dll",
-          }
-          resources = conf["bundle"]["resources"]
-          if isinstance(resources, list):
-              resources = {}
-          resources.update(cuda_entries)
-          conf["bundle"]["resources"] = resources
-          conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
-          print("patched tauri.conf.json resources")
-
-      # ── Updater target string for CUDA builds (Windows only) ─────────────────
-      # The Tauri updater on a CUDA install asks for "windows-x86_64-cuda"; the
-      # standard build keeps the default "windows-x86_64". (Linux has no CUDA
-      # variant and ships .deb/.rpm, which aren't updater targets.)
-      - name: Patch updater target for CUDA build
-        if: matrix.cuda && runner.os == 'Windows'
-        shell: python
-        run: |
-          import json, pathlib
-          conf_path = pathlib.Path("src-tauri/tauri.conf.json")
-          conf = json.loads(conf_path.read_text(encoding="utf-8"))
-          conf.setdefault("plugins", {}).setdefault("updater", {})["target"] = "windows-x86_64-cuda"
-          conf_path.write_text(json.dumps(conf, indent=2), encoding="utf-8")
-          print("patched updater target -> windows-x86_64-cuda")
-
-      - name: Enable whisper-rs GPU features in Cargo.toml
-        shell: python
-        run: |
-          import pathlib, re, sys
-          cuda = "${{ matrix.cuda }}" == "true"
-          cargo = pathlib.Path("src-tauri/Cargo.toml")
-          text = cargo.read_text(encoding="utf-8")
-          gpu = "cuda" if cuda else "vulkan"
-
-          # Bare-string form:  whisper-rs = "0.16"
-          bare = re.compile(r'whisper-rs\s*=\s*"([^"]+)"')
-          # Object form:       whisper-rs = { version = "0.16", features = ["log_backend"] }
-          obj = re.compile(r'(whisper-rs\s*=\s*\{[^}]*?features\s*=\s*\[)([^\]]*)(\])')
-
-          def add_to_array(m):
-              prefix, inner, suffix = m.group(1), m.group(2), m.group(3)
-              feats = [f.strip() for f in inner.split(",") if f.strip()]
-              if f'"{gpu}"' not in feats:
-                  feats.append(f'"{gpu}"')
-              return prefix + ", ".join(feats) + suffix
-
-          if bare.search(text):
-              text = bare.sub(
-                  f'whisper-rs = {{ version = "\\1", features = ["{gpu}"] }}',
-                  text,
-              )
-          elif obj.search(text):
-              text = obj.sub(add_to_array, text)
-          else:
-              sys.exit("ERROR: could not locate whisper-rs dependency to add GPU feature")
-
-          cargo.write_text(text, encoding="utf-8")
-          if f'"{gpu}"' not in cargo.read_text(encoding="utf-8"):
-              sys.exit(f'ERROR: GPU feature "{gpu}" was not added to whisper-rs')
-          print(f"enabled GPU feature: {gpu}")
-
       - name: Cache Rust deps
         uses: Swatinem/rust-cache@v2.9.2
         with:
@@ -271,24 +159,21 @@ jobs:
       # the AppImage path (linuxdeploy) is unreliable on CI runners (needs FUSE;
       # fails with "failed to run linuxdeploy"), while deb/rpm build cleanly and
       # cover Debian/Ubuntu/Zorin/Fedora. AppImage can be revisited later.
-      # GGML_NATIVE=OFF: -march=native bakes the runner's ISA (AVX-512 on some
-      # hosts) into the binary, crashing CPUs without it (0xc000001d).
-      # whisper-rs-sys forwards GGML_* to CMake. Costs ~1h on CUDA.
+      # Every CPU variant is compiled and selected at runtime, so the binary
+      # never inherits the runner's ISA and fault on older CPUs (0xc000001d).
       - name: Build (Windows)
         if: runner.os == 'Windows'
         env:
-          GGML_NATIVE: "OFF"
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build
+        run: npx tauri build -- --features gpu
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
         env:
-          GGML_NATIVE: "OFF"
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build --bundles deb,rpm
+        run: npx tauri build --bundles deb,rpm -- --features gpu
 
       # ── Windows: collect the NSIS updater artifact (installer + .sig) ─────────
       # Windows ships auto-updates via the NSIS installer. Linux ships .deb/.rpm
@@ -298,28 +183,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: python
         run: |
-          import glob, pathlib, re
+          import glob, pathlib
 
-          cuda = "${{ matrix.cuda }}" == "true"
           target_dir = "C:/b"
-          patterns = [
-              f"{target_dir}/release/bundle/nsis/*.exe",
-              f"{target_dir}/release/bundle/nsis/*.exe.sig",
-              f"{target_dir}/release/bundle/msi/*.msi",
-              f"{target_dir}/release/bundle/msi/*.msi.sig",
-          ]
-
-          # Rename CUDA artifacts so both variants can live in one release.
-          if cuda:
-              for pattern in patterns:
-                  for src in glob.glob(pattern):
-                      src = pathlib.Path(src)
-                      new_name = re.sub(r"^NexusVoice", "NexusVoice-CUDA", src.name)
-                      if new_name != src.name:
-                          src.rename(src.parent / new_name)
-                          print(f"renamed {src.name} -> {new_name}")
-
-          installer = pathlib.Path(sorted(glob.glob(patterns[0]))[0])
+          installer = pathlib.Path(sorted(glob.glob(f"{target_dir}/release/bundle/nsis/*.exe"))[0])
           sig = pathlib.Path(f"{installer}.sig").read_text().strip()
           pathlib.Path("updater-sig.txt").write_text(sig)
           pathlib.Path("updater-name.txt").write_text(installer.name)
@@ -363,10 +230,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # `path` keeps each artifact in a directory named after it; without it a
+      # lone artifact is flattened into the workspace root.
       - name: Download signatures
         uses: actions/download-artifact@v8.0.1
         with:
           pattern: sig-*
+          path: sigs
 
       - name: Generate latest.json
         shell: python
@@ -379,21 +249,21 @@ jobs:
           base = f"https://github.com/{repo}/releases/download/{tag}"
           pub_date = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-          # (artifact dir name, updater target triple). Only Windows ships an
-          # auto-updater artifact (NSIS). Linux distributes .deb/.rpm, which are
-          # not Tauri updater targets, so Linux is intentionally absent here.
-          variants = [
-            ("sig-windows-2022-standard", "windows-x86_64"),
-            ("sig-windows-2022-cuda",     "windows-x86_64-cuda"),
-          ]
+          # Only Windows ships an updater artifact (NSIS); Linux .deb/.rpm are
+          # not updater targets. Found by name because download-artifact nests
+          # several artifacts but unpacks a lone one straight into `path`.
+          sigs = sorted(pathlib.Path("sigs").rglob("updater-sig.txt"))
+          print("found:", [str(p) for p in sigs])
 
           platforms = {}
-          for sig_dir_name, target in variants:
-            sig_dir = pathlib.Path(sig_dir_name)
-            if sig_dir.exists():
-              sig = (sig_dir / "updater-sig.txt").read_text().strip()
-              name = (sig_dir / "updater-name.txt").read_text().strip()
-              platforms[target] = {"signature": sig, "url": f"{base}/{name}"}
+          for sig_path in sigs:
+            sig = sig_path.read_text().strip()
+            name = (sig_path.parent / "updater-name.txt").read_text().strip()
+            platforms["windows-x86_64"] = {"signature": sig, "url": f"{base}/{name}"}
+
+          # An empty map ships a manifest every client rejects.
+          if not platforms:
+            raise SystemExit("no updater signatures found; latest.json would be empty")
 
           payload = {
             "version": version,

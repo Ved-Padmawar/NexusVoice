@@ -32,17 +32,35 @@ mod database;
 mod hardware;
 mod inference;
 mod llm;
-mod pipeline;
 mod postprocess;
 mod preprocess;
 mod state;
+mod transcribe;
 mod transcription;
 
 #[allow(clippy::too_many_lines)] // Tauri setup is inherently long — splitting adds no clarity
 fn main() {
-    // Route whisper.cpp/GGML's verbose stderr output through `log` so our level
-    // filter controls it instead of it flooding stdout. Safe to call once.
-    whisper_rs::install_logging_hooks();
+    // Route transcribe.cpp/GGML's verbose stderr output through `log` so our
+    // level filter controls it instead of it flooding stdout. Safe to call once.
+    transcribe_cpp::init_logging();
+
+    // Register the compute backend modules shipped beside the executable.
+    // Without this no devices register and every decode falls back to CPU.
+    match transcribe_cpp::init_backends_default() {
+        Ok(()) => {
+            let devices = transcribe_cpp::devices();
+            log::info!(
+                "transcribe.cpp: {} compute device(s) [{}]",
+                devices.len(),
+                devices
+                    .iter()
+                    .map(|d| format!("{} ({})", d.name, d.kind))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        Err(e) => log::warn!("transcribe.cpp backend init failed: {e}"),
+    }
 
     // Panic hook — writes panic info to log before crashing.
     // Note: only active in debug builds since release profile uses panic = "abort".
@@ -108,8 +126,8 @@ fn main() {
             tauri_plugin_log::Builder::new()
                 .targets(log_targets)
                 .level(log_level)
-                // whisper.cpp/GGML per-token tracing is extremely verbose; mute it.
-                .level_for("whisper_rs", log::LevelFilter::Warn)
+                // transcribe.cpp/GGML per-token tracing is extremely verbose; mute it.
+                .level_for("transcribe_cpp", log::LevelFilter::Warn)
                 .max_file_size(LOG_MAX_SIZE)
                 .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
                 // Structured (JSON-line) output: one object per record with a stable
@@ -138,7 +156,6 @@ fn main() {
             let dictation_hotkey_store_path = app_data_dir.join("dictation_hotkey");
             let dictation_commit_hotkey_store_path = app_data_dir.join("dictation_commit_hotkey");
             let model_override_path = app_data_dir.join("model_override");
-            let beam_size_path = app_data_dir.join("beam_size");
             let format_config_path = app_data_dir.join("format_config.json");
             let input_device_path = app_data_dir.join("input_device");
             let models_dir = app_data_dir.join("models");
@@ -155,7 +172,6 @@ fn main() {
                 dictation_hotkey_store_path,
                 dictation_commit_hotkey_store_path,
                 model_override_path,
-                beam_size_path,
                 format_config_path,
                 input_device_path,
                 models_dir,
@@ -217,18 +233,19 @@ fn main() {
                 tauri::async_runtime::spawn(async move {
                     use hardware::detector::detect_profile;
                     use hardware::sysinfo_provider::SysinfoProvider;
-                    use inference::provider::recommend_model_size;
+                    use inference::provider::recommend_model;
 
                     let (hw, recommended) = tokio::task::spawn_blocking(|| {
                         let hw = detect_profile(&SysinfoProvider);
-                        let recommended = recommend_model_size();
+                        let recommended = recommend_model();
                         (hw, recommended)
                     })
                     .await
                     .unwrap_or_else(|_| {
+                        // Detection failed; fall back to the catalog's entry level.
                         (
                             hardware::profile::HardwareProfile::default(),
-                            inference::provider::ModelSize::Small,
+                            &inference::catalog::all()[0],
                         )
                     });
 
@@ -241,7 +258,7 @@ fn main() {
                         hw.execution_provider,
                         hw.vram_gb
                     );
-                    log::info!("Recommended model: {}", recommended.display_name());
+                    log::info!("Recommended model: {}", recommended.display_name);
 
                     let _ = app_handle.emit(
                         "hardware:profile",
@@ -250,7 +267,7 @@ fn main() {
                             "executionProvider": hw.execution_provider,
                             "vramGb": hw.vram_gb,
                             "ramGb": hw.ram_gb,
-                            "recommendedModel": recommended.display_name(),
+                            "recommendedModel": recommended.display_name,
                         }),
                     );
                 });
@@ -273,8 +290,8 @@ fn main() {
                 tauri::async_runtime::spawn(async move {
                     let state = app_handle.state::<state::AppState>();
                     match state.get_or_load_engine().await {
-                        Ok(_) => log::info!("whisper engine pre-loaded and warmed up"),
-                        Err(e) => log::info!("whisper engine pre-load skipped: {e}"),
+                        Ok(_) => log::info!("transcription engine pre-loaded and warmed up"),
+                        Err(e) => log::info!("transcription engine pre-load skipped: {e}"),
                     }
                 });
             }
@@ -437,9 +454,8 @@ fn main() {
             commands::cancel_model_download,
             commands::set_model_override,
             commands::clear_model_override,
-            commands::get_beam_size,
-            commands::set_beam_size,
             commands::get_hardware_profile,
+            commands::get_model_catalog,
             commands::get_downloaded_models,
             commands::delete_model,
             commands::get_format_config,

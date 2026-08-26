@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use crate::auth::AuthService;
 use crate::database::models::dictionary::DictionaryEntry;
-use crate::inference::WhisperEngine;
+use crate::inference::TranscriptionEngine;
 use crate::llm::FormatConfig;
 
 /// Dictionary cache keyed by term for O(1) lookup and deduplication.
@@ -139,7 +139,6 @@ pub struct AppState {
     pub dictation_hotkey_store_path: PathBuf,
     pub dictation_commit_hotkey_store_path: PathBuf,
     pub model_override_path: PathBuf,
-    pub beam_size_path: PathBuf,
     pub format_config_path: PathBuf,
     pub input_device_path: PathBuf,
     pub auth_session: Mutex<AuthSession>,
@@ -155,15 +154,18 @@ pub struct AppState {
     /// Spectrum meter for the pill waveform, fed by the capture thread.
     pub waveform: Arc<crate::audio::WaveformMeter>,
     pub models_dir: PathBuf,
-    /// Cached whisper engine — loaded once, reused across recordings.
+    /// Cached transcription engine — loaded once, reused across recordings.
     /// Wrapped in Arc so it can be captured by the spawn closure in `stop_transcription`.
-    pub engine: Arc<Mutex<Option<Arc<std::sync::Mutex<WhisperEngine>>>>>,
+    pub engine: Arc<Mutex<Option<Arc<std::sync::Mutex<TranscriptionEngine>>>>>,
     /// Serializes engine construction so two callers racing an empty cache
     /// build only one engine.
     engine_load: Arc<Mutex<()>>,
     /// Streaming transcription state for the recording in progress. Created on
     /// start, advanced by the stream worker, consumed (taken) by finalize.
-    pub stream_session: Arc<std::sync::Mutex<Option<crate::pipeline::StreamingSession>>>,
+    pub stream_session: Arc<std::sync::Mutex<Option<crate::transcribe::StreamingSession>>>,
+    /// Transcript produced by a streaming-native model, published when its
+    /// worker finalizes. `None` means finalize decodes the buffer itself.
+    pub streamed_text: Arc<std::sync::Mutex<Option<String>>>,
     pub model_download: Arc<ModelDownloadState>,
     /// In-memory dictionary cache — loaded at startup, mutated on add/delete.
     pub dict_cache: DictCache,
@@ -184,7 +186,6 @@ impl AppState {
         dictation_hotkey_store_path: PathBuf,
         dictation_commit_hotkey_store_path: PathBuf,
         model_override_path: PathBuf,
-        beam_size_path: PathBuf,
         format_config_path: PathBuf,
         input_device_path: PathBuf,
         models_dir: PathBuf,
@@ -197,7 +198,6 @@ impl AppState {
             dictation_hotkey_store_path,
             dictation_commit_hotkey_store_path,
             model_override_path,
-            beam_size_path,
             format_config_path,
             input_device_path,
             auth_session: Mutex::new(AuthSession::default()),
@@ -215,6 +215,7 @@ impl AppState {
             engine: Arc::new(Mutex::new(None)),
             engine_load: Arc::new(Mutex::new(())),
             stream_session: Arc::new(std::sync::Mutex::new(None)),
+            streamed_text: Arc::new(std::sync::Mutex::new(None)),
             model_download: Arc::new(ModelDownloadState::new()),
             dict_cache: Arc::new(RwLock::new(HashMap::new())),
             capture_done: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
@@ -256,12 +257,14 @@ impl AppState {
             .await
     }
 
-    /// Get or load the cached `WhisperEngine`.
+    /// Get or load the cached `TranscriptionEngine`.
     /// Returns Err if the model file is missing (not yet downloaded).
     ///
     /// Load + GPU init + warmup take seconds, so they run on a blocking thread
     /// with no mutex held — blocking the async runtime here stalls every command.
-    pub async fn get_or_load_engine(&self) -> Result<Arc<std::sync::Mutex<WhisperEngine>>, String> {
+    pub async fn get_or_load_engine(
+        &self,
+    ) -> Result<Arc<std::sync::Mutex<TranscriptionEngine>>, String> {
         if let Some(engine) = self.engine.lock().await.as_ref() {
             return Ok(Arc::clone(engine));
         }
@@ -272,26 +275,24 @@ impl AppState {
             return Ok(Arc::clone(engine));
         }
 
-        let mut override_size = self.load_model_override();
+        let mut override_id = self.load_model_override();
         let backend = crate::inference::provider::detect_backend();
-        let model_size =
-            crate::inference::provider::select_model_size(backend, override_size.as_deref());
+        let entry = crate::inference::provider::select_model(backend, override_id.as_deref());
 
         // Selected model may still be downloading. Load whatever is present so
         // recording keeps working, but never rewrite the override — that would
         // silently cancel the user's choice mid-download.
-        if !self.models_dir.join(model_size.filename()).exists() {
-            let Some(variant) = self.first_downloaded_variant() else {
+        if !self.models_dir.join(&entry.filename).exists() {
+            let Some(id) = self.first_downloaded_model() else {
                 return Err("model not downloaded yet".to_string());
             };
-            log::warn!("selected model not on disk; loading {variant} for now");
-            override_size = Some(variant);
+            log::warn!("selected model not on disk; loading {id} for now");
+            override_id = Some(id);
         }
 
         let models_dir = self.models_dir.clone();
-        let beam_size = self.load_beam_size();
         let engine = tauri::async_runtime::spawn_blocking(move || {
-            WhisperEngine::new(&models_dir, override_size.as_deref(), beam_size)
+            TranscriptionEngine::new(&models_dir, override_id.as_deref())
         })
         .await
         .map_err(|e| format!("engine load task failed: {e}"))??;
@@ -365,19 +366,12 @@ impl AppState {
     }
 
     /// Most capable model present on disk, for recovering from a stale override.
-    fn first_downloaded_variant(&self) -> Option<String> {
-        use crate::inference::provider::ModelSize;
-        [
-            ("large-full", ModelSize::LargeFull),
-            ("large", ModelSize::Large),
-            ("medium", ModelSize::Medium),
-            ("small", ModelSize::Small),
-            ("base", ModelSize::Base),
-            ("tiny", ModelSize::Tiny),
-        ]
-        .into_iter()
-        .find(|(_, size)| self.models_dir.join(size.filename()).exists())
-        .map(|(variant, _)| variant.to_string())
+    /// The catalog is tier-ascending, so the last match is the best one.
+    fn first_downloaded_model(&self) -> Option<String> {
+        crate::inference::catalog::all()
+            .iter()
+            .rfind(|entry| self.models_dir.join(&entry.filename).exists())
+            .map(|entry| entry.id.clone())
     }
 
     pub fn load_model_override(&self) -> Option<String> {
@@ -407,24 +401,6 @@ impl AppState {
         let _ = std::fs::remove_file(&self.input_device_path);
     }
 
-    /// Beam size preset: 2 = Fast, 5 = Balanced (default), 8 = Accurate
-    pub fn save_beam_size(&self, beam_size: i32) -> std::io::Result<()> {
-        std::fs::write(&self.beam_size_path, beam_size.to_string())
-    }
-
-    pub fn load_beam_size(&self) -> i32 {
-        std::fs::read_to_string(&self.beam_size_path)
-            .ok()
-            .and_then(|s| s.trim().parse::<i32>().ok())
-            .filter(|&v| v == 2 || v == 5 || v == 8)
-            .unwrap_or(5) // default: Balanced
-    }
-
-    #[allow(dead_code)]
-    pub fn delete_beam_size(&self) {
-        let _ = std::fs::remove_file(&self.beam_size_path);
-    }
-
     /// Load the formatter config from disk. Returns the default (disabled)
     /// config if the file is missing or unparseable.
     pub fn load_format_config(&self) -> FormatConfig {
@@ -443,13 +419,19 @@ impl AppState {
 
     /// Arm a fresh streaming session for the recording about to start.
     pub fn begin_stream_session(&self) {
-        *lock_recovering(&self.stream_session) = Some(crate::pipeline::StreamingSession::new());
+        *lock_recovering(&self.stream_session) = Some(crate::transcribe::StreamingSession::new());
+        *lock_recovering(&self.streamed_text) = None;
     }
 
     /// Take the streaming session for finalize (or to discard it on cancel).
     /// Blocks until any in-flight stream decode releases the session.
-    pub fn take_stream_session(&self) -> Option<crate::pipeline::StreamingSession> {
+    pub fn take_stream_session(&self) -> Option<crate::transcribe::StreamingSession> {
         lock_recovering(&self.stream_session).take()
+    }
+
+    /// Take the transcript a streaming-native model produced, if one ran.
+    pub fn take_streamed_text(&self) -> Option<String> {
+        lock_recovering(&self.streamed_text).take()
     }
 
     pub fn try_start_transcription(&self) -> bool {

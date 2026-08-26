@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { COMMANDS } from '../lib/commands'
 import { EVENTS } from '../lib/events'
-import { modelNameToOverride, type ModelOverride } from '../lib/models'
+import { fetchModelCatalog, modelNameToId, type CatalogModel, type ModelId } from '../lib/models'
 import type { ModelInfo } from '../types'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
@@ -18,12 +18,15 @@ export type ModelSlice = {
   updateAvailable: string | null
   /** Canonical active-model state (single source of truth for the main window). */
   activeModelName: string | null
-  selectedModel: ModelOverride | null
+  selectedModel: ModelId | null
   activeModelDownloaded: boolean
+  /** The model catalog, served by the backend. Empty until first refresh. */
+  catalog: CatalogModel[]
   /** The model override that was active before the current download started — restored on cancel. */
   downloadingFromModel: string | null
   setDownloadingFromModel: (variant: string) => void
-  setSelectedModel: (variant: ModelOverride) => void
+  setSelectedModel: (variant: ModelId) => void
+  refreshCatalog: () => Promise<void>
   refreshModelInfo: () => Promise<void>
   cancelDownload: () => void
   listenForModelEvents: () => Promise<() => void>
@@ -41,20 +44,33 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
   activeModelName: null,
   selectedModel: null,
   activeModelDownloaded: false,
+  catalog: [],
   downloadingFromModel: null,
 
   setDownloadingFromModel: (variant: string) => set({ downloadingFromModel: variant }),
 
-  setSelectedModel: (variant: ModelOverride) => set({ selectedModel: variant }),
+  setSelectedModel: (variant: ModelId) => set({ selectedModel: variant }),
+
+  refreshCatalog: async () => {
+    try {
+      set({ catalog: await fetchModelCatalog() })
+    } catch { /* ignore */ }
+  },
 
   refreshModelInfo: async () => {
     try {
       const info = await invoke<ModelInfo>(COMMANDS.GET_MODEL_INFO)
+      // The catalog resolves display names to ids; fetch it if not yet loaded.
+      let catalog = get().catalog
+      if (catalog.length === 0) {
+        catalog = await fetchModelCatalog().catch(() => [])
+      }
       set({
         activeModelName: info.modelName,
+        catalog,
         // The chosen model, regardless of download state — only model-evicted
         // (delete-all) clears it. This keeps the pill visible while downloading.
-        selectedModel: modelNameToOverride(info.modelName),
+        selectedModel: modelNameToId(info.modelName, catalog),
         activeModelDownloaded: info.downloaded,
         modelReady: info.downloaded,
         modelDownloading: info.downloading,

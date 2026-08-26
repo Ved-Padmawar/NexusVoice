@@ -34,9 +34,8 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: STORE_PERSIST_KEY,
-      // Persist UI-only prefs. `beamSize` is intentionally NOT persisted here —
-      // the Rust `beam_size` file is its single source of truth (loaded by AboutTab
-      // on mount and read directly by the engine); persisting it too risks drift.
+      // UI-only prefs. Model selection is not persisted here — the Rust
+      // `model_override` file is its single source of truth.
       partialize: (state) => ({ theme: state.theme, pillTheme: state.pillTheme, activeRoute: state.activeRoute, activeSettingsTab: state.activeSettingsTab, modelChosen: state.modelChosen }),
     }
   )
