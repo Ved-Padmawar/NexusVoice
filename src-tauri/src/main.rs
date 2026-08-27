@@ -156,6 +156,7 @@ fn main() {
             let dictation_hotkey_store_path = app_data_dir.join("dictation_hotkey");
             let dictation_commit_hotkey_store_path = app_data_dir.join("dictation_commit_hotkey");
             let model_override_path = app_data_dir.join("model_override");
+            let language_path = app_data_dir.join("language");
             let format_config_path = app_data_dir.join("format_config.json");
             let input_device_path = app_data_dir.join("input_device");
             let models_dir = app_data_dir.join("models");
@@ -172,6 +173,7 @@ fn main() {
                 dictation_hotkey_store_path,
                 dictation_commit_hotkey_store_path,
                 model_override_path,
+                language_path,
                 format_config_path,
                 input_device_path,
                 models_dir,
@@ -453,6 +455,8 @@ fn main() {
             commands::retry_model_download,
             commands::cancel_model_download,
             commands::set_model_override,
+            commands::get_language_options,
+            commands::set_language,
             commands::clear_model_override,
             commands::get_hardware_profile,
             commands::get_model_catalog,

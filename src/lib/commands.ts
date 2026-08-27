@@ -49,6 +49,8 @@ export const COMMANDS = {
   RETRY_MODEL_DOWNLOAD:    'retry_model_download',
   CANCEL_MODEL_DOWNLOAD:   'cancel_model_download',
   GET_MODEL_CATALOG:       'get_model_catalog',
+  GET_LANGUAGE_OPTIONS:    'get_language_options',
+  SET_LANGUAGE:            'set_language',
   GET_DOWNLOADED_MODELS:   'get_downloaded_models',
   DELETE_MODEL:            'delete_model',
 

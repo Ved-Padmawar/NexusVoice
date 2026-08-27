@@ -1,5 +1,6 @@
 //! Model & inference-config commands: catalog listing, downloaded-model
-//! management, download retry/cancel, model override, and hardware profile.
+//! management, download retry/cancel, model override, dictation language, and
+//! hardware profile.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -192,6 +193,148 @@ fn warm_engine_in_background(app: &AppHandle) {
             log::debug!("skipping eager warmup: {e}");
         }
     });
+}
+
+// ---------------------------------------------------------------------------
+// Dictation language
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageOption {
+    /// ISO code, or `auto` for the detect-per-decode sentinel.
+    pub code: String,
+    pub name: String,
+    pub is_selected: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageSettings {
+    /// Whether the active model handles anything but English.
+    pub supported: bool,
+    /// Empty when `supported` is false.
+    pub options: Vec<LanguageOption>,
+}
+
+/// The picker's list with the active choice marked, `auto` first. Codes come
+/// from the loaded model itself; an English-only model reports
+/// `supported: false` and no options.
+#[tauri::command]
+pub async fn get_language_options(
+    state: State<'_, AppState>,
+) -> Result<LanguageSettings, ApiError> {
+    use crate::inference::language::{self, AUTO};
+    use crate::inference::provider::{detect_backend, select_model};
+
+    let model = select_model(detect_backend(), state.load_model_override().as_deref());
+    if !model.multilingual {
+        return Ok(LanguageSettings {
+            supported: false,
+            options: Vec::new(),
+        });
+    }
+
+    // Before the engine loads, or for a model advertising none, the table
+    // stands in — the engine drops anything the model won't take.
+    let advertised: Vec<String> = state
+        .engine
+        .lock()
+        .await
+        .as_ref()
+        .and_then(|e| e.lock().ok().map(|g| g.languages().to_vec()))
+        .filter(|l| !l.is_empty())
+        .unwrap_or_else(|| {
+            language::LANGUAGES
+                .iter()
+                .map(|l| l.code.to_string())
+                .collect()
+        });
+
+    let saved = state.load_language();
+    let active = language::resolve(saved.as_deref());
+
+    // Region shown only where a language has several locales.
+    let mut named: Vec<(String, String)> = advertised
+        .iter()
+        .map(|code| {
+            let base = language::primary_of(code);
+            let regioned = advertised
+                .iter()
+                .filter(|c| language::primary_of(c) == base)
+                .count()
+                > 1;
+            (code.clone(), language::display_name(code, regioned))
+        })
+        .collect();
+    named.sort_by(|a, b| {
+        a.1.to_lowercase()
+            .cmp(&b.1.to_lowercase())
+            .then_with(|| a.0.cmp(&b.0))
+    });
+
+    let options = std::iter::once(LanguageOption {
+        code: AUTO.to_string(),
+        name: "Auto-detect".to_string(),
+        is_selected: active.is_none(),
+    })
+    .chain(named.into_iter().map(|(code, name)| LanguageOption {
+        is_selected: active == Some(code.as_str()),
+        code,
+        name,
+    }))
+    .collect();
+
+    Ok(LanguageSettings {
+        supported: true,
+        options,
+    })
+}
+
+/// Set the dictation language. The loaded engine is repointed rather than
+/// evicted — language is a per-run option, so a reload would be pure cost.
+#[tauri::command]
+pub async fn set_language(
+    state: State<'_, AppState>,
+    code: Option<String>,
+) -> Result<(), ApiError> {
+    use crate::inference::language;
+
+    let engine = state.engine.lock().await;
+
+    // The loaded model is the authority; with none loaded the table stands in
+    // and the engine re-checks at load.
+    let advertised: Option<Vec<String>> = engine
+        .as_ref()
+        .and_then(|e| e.lock().ok().map(|g| g.languages().to_vec()))
+        .filter(|l| !l.is_empty());
+
+    let saved = match code.as_deref() {
+        None => None,
+        Some(c) if c == language::AUTO => Some(c),
+        Some(c) => {
+            let known = advertised.map_or_else(
+                || language::is_supported(c),
+                |list| list.iter().any(|l| l == c),
+            );
+            if !known {
+                return Err(ApiError::new("invalid_language", "unsupported language"));
+            }
+            Some(c)
+        }
+    };
+
+    state
+        .save_language(saved)
+        .map_err(|e| ApiError::new("io_error", e.to_string()))?;
+
+    if let Some(engine) = engine.as_ref() {
+        if let Ok(mut guard) = engine.lock() {
+            guard.set_language(language::resolve(saved));
+        }
+    }
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

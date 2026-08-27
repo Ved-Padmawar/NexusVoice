@@ -139,6 +139,7 @@ pub struct AppState {
     pub dictation_hotkey_store_path: PathBuf,
     pub dictation_commit_hotkey_store_path: PathBuf,
     pub model_override_path: PathBuf,
+    pub language_path: PathBuf,
     pub format_config_path: PathBuf,
     pub input_device_path: PathBuf,
     pub auth_session: Mutex<AuthSession>,
@@ -186,6 +187,7 @@ impl AppState {
         dictation_hotkey_store_path: PathBuf,
         dictation_commit_hotkey_store_path: PathBuf,
         model_override_path: PathBuf,
+        language_path: PathBuf,
         format_config_path: PathBuf,
         input_device_path: PathBuf,
         models_dir: PathBuf,
@@ -198,6 +200,7 @@ impl AppState {
             dictation_hotkey_store_path,
             dictation_commit_hotkey_store_path,
             model_override_path,
+            language_path,
             format_config_path,
             input_device_path,
             auth_session: Mutex::new(AuthSession::default()),
@@ -291,8 +294,10 @@ impl AppState {
         }
 
         let models_dir = self.models_dir.clone();
+        let saved = self.load_language();
+        let language = crate::inference::language::resolve(saved.as_deref()).map(str::to_string);
         let engine = tauri::async_runtime::spawn_blocking(move || {
-            TranscriptionEngine::new(&models_dir, override_id.as_deref())
+            TranscriptionEngine::new(&models_dir, override_id.as_deref(), language.as_deref())
         })
         .await
         .map_err(|e| format!("engine load task failed: {e}"))??;
@@ -383,6 +388,25 @@ impl AppState {
 
     pub fn delete_model_override(&self) {
         let _ = std::fs::remove_file(&self.model_override_path);
+    }
+
+    /// Persist the dictation language. `None` clears the setting.
+    pub fn save_language(&self, code: Option<&str>) -> std::io::Result<()> {
+        if let Some(code) = code {
+            std::fs::write(&self.language_path, code)
+        } else {
+            let _ = std::fs::remove_file(&self.language_path);
+            Ok(())
+        }
+    }
+
+    /// The persisted value verbatim — an ISO code, `auto`, or `None` when never
+    /// chosen. Pass through `language::resolve` for the engine's hint.
+    pub fn load_language(&self) -> Option<String> {
+        std::fs::read_to_string(&self.language_path)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
     }
 
     /// Preferred input device by name. `None` means use the OS default.

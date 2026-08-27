@@ -85,7 +85,7 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
         <p className="text-[12px] text-[var(--muted)]">Choose which input device records your voice.</p>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <Select.Root
           value={selected}
           onValueChange={(v) => void choose(v)}
@@ -96,7 +96,7 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
             <button
               type="button"
               aria-label={currentLabel}
-              className={`relative flex flex-1 items-center w-full h-9 pl-8 pr-8 rounded-(--r-md) bg-(--surface) border text-[12px] text-(--fg) cursor-pointer text-left transition-[border-color] duration-(--t-fast) focus:outline-none disabled:opacity-50 ${open ? 'border-(--accent)' : 'border-(--border-soft) hover:border-(--border)'}`}
+              className={`relative flex flex-1 min-w-0 items-center h-9 pl-8 pr-8 rounded-(--r-md) bg-(--surface) border text-[12px] text-(--fg) cursor-pointer text-left transition-[border-color] duration-(--t-fast) focus:outline-none disabled:opacity-50 ${open ? 'border-(--accent)' : 'border-(--border-soft) hover:border-(--border)'}`}
             >
               <Mic size={14} strokeWidth={2} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-(--accent) pointer-events-none" />
               <span className="truncate">
@@ -121,9 +121,9 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -4, scale: 0.98 }}
                     transition={{ duration: 0.14, ease: 'easeOut' }}
-                    className="z-50 w-(--radix-select-trigger-width) max-h-64 overflow-y-auto overflow-x-hidden rounded-(--r-lg) bg-(--panel) border border-(--border) shadow-(--shadow-lg)"
+                    className="z-50 w-(--radix-select-trigger-width) max-h-64 overflow-x-hidden rounded-(--r-lg) bg-(--panel) border border-(--border) shadow-(--shadow-lg)"
                   >
-                    <Select.Viewport>
+                    <Select.Viewport style={{ overflowY: 'auto', overscrollBehavior: 'none', maxHeight: '16rem' }}>
                       {options.map((opt, i) => {
                         const active = opt.value === selected
                         return (
@@ -155,7 +155,7 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
           disabled={initialLoading}
           title="Refresh device list"
           whileTap={{ scale: 0.92 }}
-          className="inline-flex items-center justify-center size-9 rounded-(--r-md) bg-(--surface) border border-(--border-soft) text-(--fg-2) cursor-pointer transition-[color,border-color] duration-(--t-fast) hover:text-(--fg) hover:border-(--border) disabled:opacity-50"
+          className="inline-flex shrink-0 items-center justify-center size-9 rounded-(--r-md) bg-(--surface) border border-(--border-soft) text-(--fg-2) cursor-pointer transition-[color,border-color] duration-(--t-fast) hover:text-(--fg) hover:border-(--border) disabled:opacity-50"
         >
           <motion.span
             className="flex"

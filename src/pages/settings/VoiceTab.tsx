@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { FormattingToggle } from '../../components/FormattingToggle'
 import { MicrophoneSection } from './MicrophoneSection'
+import { LanguageSection } from './LanguageSection'
 import { ModelManagerModal } from '../../components/ModelManagerModal'
 import type { HardwareProfile } from '../../types'
 import { useAppStore } from '../../store/useAppStore'
@@ -249,6 +250,8 @@ export function VoiceTab() {
   const setSelectedModel = useAppStore(s => s.setSelectedModel)
   const refreshModelInfo = useAppStore(s => s.refreshModelInfo)
   const cancelDownload = useAppStore(s => s.cancelDownload)
+  // Drives the input row's column count — a lone mic picker takes the full width.
+  const [langSupported, setLangSupported] = useState(false)
 
   const refreshOnDisk = useCallback(() => {
     invoke<DownloadedModel[]>(COMMANDS.GET_DOWNLOADED_MODELS).then(setOnDisk).catch(() => setOnDisk([]))
@@ -380,9 +383,10 @@ export function VoiceTab() {
       {/* Smart formatting (local LLM) */}
       <FormattingToggle />
 
-      {/* Microphone */}
-      <div className="overflow-hidden rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
+      {/* Microphone + dictation language */}
+      <div className={`grid gap-4 overflow-hidden rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4 [&>*]:min-w-0 ${langSupported ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
         <MicrophoneSection />
+        <LanguageSection modelId={selected} onSupportedChange={setLangSupported} />
       </div>
 
       <AnimatePresence>

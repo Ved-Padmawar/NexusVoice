@@ -29,12 +29,22 @@ pub struct TranscriptionEngine {
     model: Model,
     /// Finest granularity this model accepts, resolved once at load.
     timestamps: TimestampKind,
+    /// Hint passed to every decode; `None` detects per decode. Always a code
+    /// this model advertises.
+    language: Option<String>,
+    /// Codes the model accepts; empty means it advertises none.
+    languages: Vec<String>,
     pub entry: &'static ModelEntry,
 }
 
 impl TranscriptionEngine {
     /// Load the model selected by `override_id` (or hardware) from `models_dir`.
-    pub fn new(models_dir: &Path, override_id: Option<&str>) -> Result<Self, String> {
+    /// `language` is the ISO code every decode is pinned to; `None` auto-detects.
+    pub fn new(
+        models_dir: &Path,
+        override_id: Option<&str>,
+        language: Option<&str>,
+    ) -> Result<Self, String> {
         let backend = detect_backend();
         let entry = select_model(backend, override_id);
 
@@ -67,7 +77,8 @@ impl TranscriptionEngine {
             .map_err(|e| format!("failed to create session: {e}"))?;
 
         // Asking for finer than the model offers is rejected outright.
-        let timestamps = match model.capabilities().max_timestamp_kind {
+        let caps = model.capabilities();
+        let timestamps = match caps.max_timestamp_kind {
             TimestampKind::None => TimestampKind::None,
             TimestampKind::Segment => TimestampKind::Segment,
             _ => TimestampKind::Word,
@@ -78,8 +89,11 @@ impl TranscriptionEngine {
             session,
             model,
             timestamps,
+            language: None,
+            languages: caps.languages,
             entry,
         };
+        engine.set_language(language);
 
         // Warmup pass so the first real transcription isn't stalled by load.
         let silence = vec![0.0f32; 16_000];
@@ -87,6 +101,40 @@ impl TranscriptionEngine {
         log::info!("engine warmed up");
 
         Ok(engine)
+    }
+
+    /// Repoint the language without rebuilding — a model load costs seconds and
+    /// nothing about it depends on the language.
+    pub fn set_language(&mut self, language: Option<&str>) {
+        self.language = self.accepted_language(language);
+    }
+
+    /// Codes this model advertises. Empty means it accepts any hint.
+    pub fn languages(&self) -> &[String] {
+        &self.languages
+    }
+
+    /// Keep `language` only if the model advertises it — an unadvertised code is
+    /// rejected outright, failing every decode. A bare code matches the model's
+    /// locale for it (`en` → `en-GB`), since models advertise BCP-47.
+    fn accepted_language(&self, language: Option<&str>) -> Option<String> {
+        use crate::inference::language::{primary_of, DEFAULT};
+
+        let code = language?;
+        if self.languages.is_empty() || self.languages.iter().any(|l| l == code) {
+            return Some(code.to_string());
+        }
+        if let Some(locale) = self.languages.iter().find(|l| primary_of(l) == code) {
+            return Some(locale.clone());
+        }
+        log::warn!(
+            "{} does not support language {code}",
+            self.entry.display_name
+        );
+        self.languages
+            .iter()
+            .find(|l| primary_of(l) == DEFAULT)
+            .cloned()
     }
 
     /// Whether the loaded model can drive its own streaming session.
@@ -122,8 +170,12 @@ impl TranscriptionEngine {
         RunOptions {
             // Word timestamps drive the pipeline's mid-segment trim.
             timestamps: self.timestamps,
-            // Multilingual models auto-detect; .en models only know English.
-            language: (!self.entry.multilingual).then(|| "en".to_string()),
+            // English-only models know nothing else, whatever the setting says.
+            language: if self.entry.multilingual {
+                self.language.clone()
+            } else {
+                self.accepted_language(Some("en"))
+            },
             family,
             ..Default::default()
         }
