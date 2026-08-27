@@ -102,7 +102,7 @@ impl StreamingSession {
             return;
         }
 
-        let mut prepared = crate::preprocess::to_16k_denoised(window, native_rate);
+        let mut prepared = crate::preprocess::to_16k(window, native_rate);
         if !self.lead_trimmed {
             // Skip the silent lead-in once speech appears. `decoded_len` stays
             // put so the next poll re-checks the grown buffer.
@@ -234,7 +234,7 @@ impl StreamingSession {
             return self.committed;
         }
 
-        let mut prepared = crate::preprocess::to_16k_denoised(window, native_rate);
+        let mut prepared = crate::preprocess::to_16k(window, native_rate);
         if !self.lead_trimmed {
             // No confident speech at all still gets decoded — the model's own
             // no-speech filters have the final say.

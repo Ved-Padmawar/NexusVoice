@@ -472,10 +472,17 @@ pub async fn retry_model_download(
 
 /// Cancel an in-progress model download. Trips the cancellation token the
 /// transfer loop is awaiting, so it stops without finishing the current chunk.
+///
+/// Returns whether the cancel landed. One pressed in the last moments of a
+/// transfer arrives after the file is published — the download stands, and the
+/// caller must not undo the model switch that just happened.
 #[tauri::command]
-pub fn cancel_model_download(state: State<'_, AppState>) {
+pub fn cancel_model_download(state: State<'_, AppState>) -> bool {
     let dl = &state.model_download;
     if dl.status.load(Ordering::SeqCst) == 1 {
         dl.cancel();
+        true
+    } else {
+        false
     }
 }

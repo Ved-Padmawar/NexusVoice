@@ -147,7 +147,7 @@ fn spawn_native_stream_worker(state: &AppState) {
                 fed = buf.len();
                 chunk
             };
-            let prepared = crate::preprocess::to_16k_denoised(&chunk, rate);
+            let prepared = crate::preprocess::to_16k(&chunk, rate);
             if !prepared.is_empty() {
                 stream.feed(&prepared);
             }

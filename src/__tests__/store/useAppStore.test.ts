@@ -45,7 +45,6 @@ beforeEach(() => {
     modelDownloading: false,
     downloadProgress: 0,
     downloadError: null,
-    updateAvailable: null,
   })
 })
 

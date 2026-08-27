@@ -40,19 +40,19 @@ export class ErrorBoundary extends Component<Props, State> {
           role="alert"
           className="flex h-full w-full flex-col items-center justify-center gap-4 p-6 text-center"
         >
-          <div className="flex size-12 items-center justify-center rounded-(--r-xl) bg-(--danger-soft) text-(--danger)">
+          <div className="flex size-12 items-center justify-center rounded-(--r-xl) bg-(--danger-soft) text-destructive">
             <AlertTriangle size={22} strokeWidth={1.75} />
           </div>
           <div className="flex flex-col gap-1">
             <p className="m-0 text-[14px] font-semibold text-(--fg)">Something went wrong</p>
-            <p className="m-0 max-w-[280px] text-[12px] leading-relaxed text-(--muted)">
+            <p className="m-0 max-w-70 text-[12px] leading-relaxed text-muted-foreground">
               This section ran into an unexpected error. You can try loading it again.
             </p>
           </div>
           <button
             type="button"
             onClick={this.reset}
-            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-(--r-md) border border-(--border-soft) bg-(--surface) text-(--fg) text-[12px] font-medium cursor-pointer transition-[background,border-color] duration-(--t-fast) hover:bg-(--surface-hover) hover:border-(--border)"
+            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-(--r-md) border border-(--border-soft) bg-(--surface) text-(--fg) text-[12px] font-medium cursor-pointer transition-[background,border-color] duration-(--t-fast) hover:bg-accent hover:border-(--border)"
           >
             <RotateCcw size={13} strokeWidth={1.75} />
             Try again

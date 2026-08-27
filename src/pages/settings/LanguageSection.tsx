@@ -100,8 +100,8 @@ export const LanguageSection = memo(function LanguageSection({ modelId, onSuppor
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <p className="text-[12px] font-semibold text-[var(--fg-2)] tracking-[-0.01em] mb-1">Language</p>
-        <p className="text-[12px] text-[var(--muted)]">
+        <p className="text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em] mb-1">Language</p>
+        <p className="text-[12px] text-muted-foreground">
           The language you dictate in. Auto-detect can mix languages mid-sentence.
         </p>
       </div>
@@ -154,7 +154,7 @@ export const LanguageSection = memo(function LanguageSection({ modelId, onSuppor
                       onKeyDown={e => { if (e.key !== 'Escape') e.stopPropagation() }}
                       placeholder="Search languages"
                       aria-label="Search languages"
-                      className="w-full h-8 pl-7 pr-2 rounded-(--r-sm) bg-(--surface) border border-(--border-soft) text-[12px] text-(--fg) placeholder:text-(--muted) outline-none focus:border-(--accent)"
+                      className="w-full h-8 pl-7 pr-2 rounded-(--r-sm) bg-(--surface) border border-(--border-soft) text-[12px] text-(--fg) placeholder:text-muted-foreground outline-none focus:border-(--accent)"
                     />
                   </div>
 
@@ -164,7 +164,7 @@ export const LanguageSection = memo(function LanguageSection({ modelId, onSuppor
                     style={{ overflowY: 'auto', overscrollBehavior: 'none' }}
                   >
                     {visible.length === 0 && (
-                      <p className="px-3.5 py-3 text-[12px] text-(--muted)">No languages match.</p>
+                      <p className="px-3.5 py-3 text-[12px] text-muted-foreground">No languages match.</p>
                     )}
                     {visible.map((opt, i) => {
                       const active = opt.code === selected
@@ -172,7 +172,7 @@ export const LanguageSection = memo(function LanguageSection({ modelId, onSuppor
                         <Select.Item
                           key={opt.code}
                           value={opt.code}
-                          className={`flex items-center h-9 px-3.5 text-[12px] text-(--fg) cursor-pointer outline-none select-none data-[highlighted]:bg-(--surface) ${i === visible.length - 1 ? 'rounded-b-(--r-lg)' : ''} ${opt.code === AUTO ? 'border-b border-(--border-soft)' : ''}`}
+                          className={`flex items-center h-9 px-3.5 text-[12px] text-(--fg) cursor-pointer outline-none select-none data-highlighted:bg-(--surface) ${i === visible.length - 1 ? 'rounded-b-(--r-lg)' : ''} ${opt.code === AUTO ? 'border-b border-(--border-soft)' : ''}`}
                         >
                           <span className={`flex-1 truncate ${active ? 'font-semibold text-(--accent)' : ''}`}>
                             <Select.ItemText>{opt.name}</Select.ItemText>

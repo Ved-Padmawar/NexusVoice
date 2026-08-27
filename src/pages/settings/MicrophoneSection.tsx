@@ -81,8 +81,8 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <p className="text-[12px] font-semibold text-[var(--fg-2)] tracking-[-0.01em] mb-1">Microphone</p>
-        <p className="text-[12px] text-[var(--muted)]">Choose which input device records your voice.</p>
+        <p className="text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em] mb-1">Microphone</p>
+        <p className="text-[12px] text-muted-foreground">Choose which input device records your voice.</p>
       </div>
 
       <div className="flex min-w-0 items-center gap-2">
@@ -130,7 +130,7 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
                           <Select.Item
                             key={opt.value}
                             value={opt.value}
-                            className={`flex items-center h-9 px-3.5 text-[12px] text-(--fg) cursor-pointer outline-none select-none data-[highlighted]:bg-(--surface) ${i === 0 ? 'rounded-t-(--r-lg)' : ''} ${i === options.length - 1 ? 'rounded-b-(--r-lg)' : ''}`}
+                            className={`flex items-center h-9 px-3.5 text-[12px] text-(--fg) cursor-pointer outline-none select-none data-highlighted:bg-(--surface) ${i === 0 ? 'rounded-t-(--r-lg)' : ''} ${i === options.length - 1 ? 'rounded-b-(--r-lg)' : ''}`}
                           >
                             <span className={`flex-1 truncate ${active ? 'font-semibold text-(--accent)' : ''}`}>
                               <Select.ItemText>{opt.label}</Select.ItemText>

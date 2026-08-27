@@ -2,7 +2,7 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router'
 import { useEffect, useCallback, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import clsx from 'clsx'
-import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle, ArrowUpCircle } from 'lucide-react'
+import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle, ArrowUp, Download, RotateCcw } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../store/useAppStore'
 import { ROUTES } from '../lib/routes'
@@ -93,37 +93,122 @@ function ModelBanner() {
   )
 }
 
-function UpdateBanner() {
-  const { updateAvailable } = useAppStore()
-  const navigate = useNavigate()
+/** Update prompt above the account row. Installs in place — the About tab is
+ *  the secondary path, not the only one. */
+function UpdatePrompt() {
+  const status = useAppStore(s => s.updateStatus)
+  const version = useAppStore(s => s.updateVersion)
+  const progress = useAppStore(s => s.updateProgress)
+  const dismissed = useAppStore(s => s.updateDismissed)
+  const installUpdate = useAppStore(s => s.installUpdate)
+  const restartForUpdate = useAppStore(s => s.restartForUpdate)
+  const dismissUpdate = useAppStore(s => s.dismissUpdate)
+
+  const shown = !dismissed && (status === 'available' || status === 'downloading' || status === 'ready')
 
   return (
-    <SlideBanner visible={!!updateAvailable}>
-      <div
-        className="flex items-center gap-2.5 px-3.5 py-1.75 shrink-0 text-[12px] border-b text-(--accent)"
-        style={{ background: 'color-mix(in srgb, var(--accent) 10%, transparent)', borderColor: 'color-mix(in srgb, var(--accent) 35%, transparent)' }}
-      >
-        <div className="flex items-center gap-2.5 flex-1 min-w-0">
-          <ArrowUpCircle size={13} strokeWidth={2} className="shrink-0" />
-          <span className="whitespace-nowrap overflow-hidden text-ellipsis">Update available — v{updateAvailable}</span>
-          <button
-            type="button"
-            className="shrink-0 text-[11px] font-semibold text-(--accent) bg-(--accent-soft) border border-(--accent) rounded-(--r-sm) px-2 py-0 cursor-pointer leading-4.5 transition-[background,color] duration-(--t-fast) hover:bg-(--accent) hover:text-primary-foreground"
-            style={{ borderColor: 'color-mix(in srgb, var(--accent) 35%, transparent)' }}
-            onClick={() => navigate(ROUTES.SETTINGS, { state: { tab: 'about' } })}
-          >
-            Install
-          </button>
-        </div>
-        <button
-          type="button"
-          className="flex items-center justify-center w-5 h-5 rounded-(--r-sm) text-muted-foreground bg-transparent border-none cursor-pointer shrink-0 transition-[color,background] duration-(--t-fast) hover:text-(--fg) hover:bg-accent"
-          onClick={() => useAppStore.setState({ updateAvailable: null })}
+    <AnimatePresence initial={false}>
+      {shown && (
+        <motion.div
+          key="update-prompt"
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.2 }}
+          className="overflow-hidden px-2 pb-2"
         >
-          <X size={12} strokeWidth={2} />
-        </button>
-      </div>
-    </SlideBanner>
+          <div
+            className="relative flex flex-col gap-2.25 px-2.75 py-2.5 rounded-(--r-md) bg-(--surface) border overflow-hidden"
+            style={{
+              borderColor: 'color-mix(in srgb, var(--accent) 22%, var(--border-soft))',
+              boxShadow: '0 1px 2px oklch(0 0 0 / 0.18)',
+            }}
+          >
+            <div className="flex items-center gap-2 pr-4.5">
+              <span
+                className="grid place-items-center w-5.5 h-5.5 shrink-0 rounded-(--r-sm) text-(--accent)"
+                style={{ background: 'color-mix(in srgb, var(--accent) 15%, transparent)' }}
+              >
+                <ArrowUp size={11} strokeWidth={2.25} />
+              </span>
+              <span className="flex flex-col gap-px flex-1 min-w-0">
+                <span className="text-[11px] font-semibold tracking-[-0.01em] text-(--fg) truncate">
+                  {status === 'ready' ? 'Update installed' : status === 'downloading' ? 'Downloading' : 'Update available'}
+                </span>
+                <span className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground tabular-nums whitespace-nowrap overflow-hidden">
+                  {status === 'available' ? (
+                    <>
+                      <span>v{__APP_VERSION__}</span>
+                      <span className="opacity-50">→</span>
+                      <span className="text-(--accent) font-semibold">v{version}</span>
+                    </>
+                  ) : status === 'ready' ? (
+                    <>
+                      <span className="text-(--accent) font-semibold">v{version}</span>
+                      <span>· restart to finish</span>
+                    </>
+                  ) : (
+                    <span className="text-(--accent) font-semibold">v{version}</span>
+                  )}
+                </span>
+              </span>
+            </div>
+
+            {status !== 'downloading' && (
+              <button
+                type="button"
+                title="Dismiss"
+                onClick={dismissUpdate}
+                className="absolute top-1.25 right-1.25 flex items-center justify-center w-4 h-4 rounded-(--r-sm) text-muted-foreground bg-transparent border-none cursor-pointer transition-colors duration-(--t-fast) hover:text-destructive hover:bg-(--danger-soft)"
+              >
+                <X size={10} strokeWidth={2} />
+              </button>
+            )}
+
+            {status === 'downloading' ? (
+              <div className="flex flex-col gap-1.25">
+                <div
+                  className="h-0.75 rounded-full overflow-hidden"
+                  style={{ background: 'color-mix(in srgb, var(--fg) 12%, transparent)' }}
+                >
+                  <motion.div
+                    className="h-full rounded-full bg-(--accent)"
+                    animate={{ width: `${progress}%` }}
+                    transition={{ duration: 0.24, ease: [0.4, 0, 0.2, 1] }}
+                  />
+                </div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-[10px] text-muted-foreground tabular-nums">Downloading…</span>
+                  <span className="text-[10px] font-semibold text-(--fg-2) tabular-nums">{progress}%</span>
+                </div>
+              </div>
+            ) : (
+              <motion.button
+                type="button"
+                onClick={status === 'ready' ? restartForUpdate : installUpdate}
+                className={`w-full h-6.25 inline-flex items-center justify-center gap-1.25 rounded-(--r-sm) text-[11px] font-semibold cursor-pointer ${
+                  status === 'ready'
+                    ? 'bg-transparent text-(--accent) border'
+                    : 'bg-(--accent) text-primary-foreground border-none'
+                }`}
+                style={status === 'ready'
+                  ? { borderColor: 'color-mix(in srgb, var(--accent) 40%, transparent)' }
+                  : undefined}
+                whileHover={status === 'ready'
+                  ? { backgroundColor: 'color-mix(in srgb, var(--accent) 12%, transparent)' }
+                  : { backgroundColor: 'color-mix(in srgb, var(--accent) 85%, white)' }}
+                whileTap={{ scale: 0.98 }}
+                transition={{ duration: 0.15 }}
+              >
+                {status === 'ready'
+                  ? <><RotateCcw size={10} strokeWidth={2.25} />Restart now</>
+                  : <><Download size={10} strokeWidth={2.25} />Install update</>}
+              </motion.button>
+            )}
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   )
 }
 
@@ -209,6 +294,8 @@ export function Layout() {
             })}
           </nav>
 
+          <UpdatePrompt />
+
           {/* Footer */}
           <div className="px-2 pb-3 pt-2 border-t border-(--border-soft)">
             {user ? (
@@ -249,7 +336,6 @@ export function Layout() {
         <div className="flex-1 min-w-0 h-full overflow-hidden flex flex-col items-center">
           <div className="w-full pt-8 shrink-0">
             <ModelBanner />
-            <UpdateBanner />
           </div>
           <main className="flex-1 w-full overflow-hidden flex flex-col min-h-0">
             <Outlet />

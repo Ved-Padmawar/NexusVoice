@@ -15,7 +15,6 @@ export type ModelSlice = {
   modelDownloading: boolean
   downloadProgress: number
   downloadError: string | null
-  updateAvailable: string | null
   /** Canonical active-model state (single source of truth for the main window). */
   activeModelName: string | null
   selectedModel: ModelId | null
@@ -40,7 +39,6 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
   modelDownloading: false,
   downloadProgress: 0,
   downloadError: null,
-  updateAvailable: null,
   activeModelName: null,
   selectedModel: null,
   activeModelDownloaded: false,
@@ -84,10 +82,13 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
     const prev = get().downloadingFromModel
     void (async () => {
       try {
-        await invoke(COMMANDS.CANCEL_MODEL_DOWNLOAD)
-        // Only restore if that model is on disk — pointing the override at a
-        // missing model leaves the engine unable to load, breaking recording.
-        if (prev) {
+        // False means the download already finished — restoring the previous
+        // override would point the app at one model while the engine warms
+        // another, leaving recording dead until a restart.
+        const cancelled = await invoke<boolean>(COMMANDS.CANCEL_MODEL_DOWNLOAD)
+        if (cancelled && prev) {
+          // Only restore if that model is on disk — pointing the override at a
+          // missing model leaves the engine unable to load.
           const onDisk = await invoke<{ variant: string }[]>(COMMANDS.GET_DOWNLOADED_MODELS)
             .catch(() => [] as { variant: string }[])
           if (onDisk.some(m => m.variant === prev)) {
@@ -95,7 +96,6 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
           }
         }
       } catch { /* ignore */ }
-      // A cancel racing the finish can leave the backend "complete" — trust it.
       await get().refreshModelInfo()
     })()
   },

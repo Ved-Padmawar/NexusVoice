@@ -31,11 +31,11 @@ export function SectionState({ status, error, onRetry, skeleton, children, loade
         role="alert"
         className="flex flex-col items-center gap-3 py-12 px-6 text-center"
       >
-        <div className="w-11 h-11 rounded-full bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] text-(--danger) flex items-center justify-center">
+        <div className="w-11 h-11 rounded-full bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] text-destructive flex items-center justify-center">
           <AlertCircle size={20} strokeWidth={2} />
         </div>
         <p className="text-[13px] font-semibold text-(--fg-2) m-0">Couldn’t load this section</p>
-        {error && <p className="text-[12px] text-muted-foreground max-w-72 leading-[1.5] m-0">{error}</p>}
+        {error && <p className="text-[12px] text-muted-foreground max-w-72 leading-normal m-0">{error}</p>}
         <button
           type="button"
           onClick={onRetry}

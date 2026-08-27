@@ -1,12 +1,9 @@
-pub mod denoise;
-
 use crate::audio::resample;
 
-/// Resample → DC removal → denoise → 16 kHz. No VAD splicing, so sample indices
-/// still map linearly back to native-rate time.
-pub fn to_16k_denoised(samples: &[f32], native_rate: u32) -> Vec<f32> {
-    // 0. Drop non-finite samples — a glitching device can emit NaN/Inf, and
-    //    RNNoise's FFT aborts the process on those (catch_unwind can't contain it).
+/// Resample to 16 kHz. No VAD splicing, so sample indices still map linearly
+/// back to native-rate time.
+pub fn to_16k(samples: &[f32], native_rate: u32) -> Vec<f32> {
+    // A glitching device can emit NaN/Inf, which aborts downstream FFTs.
     let sanitized: Vec<f32> = samples
         .iter()
         .map(|s| {
@@ -18,21 +15,11 @@ pub fn to_16k_denoised(samples: &[f32], native_rate: u32) -> Vec<f32> {
         })
         .collect();
 
-    // 1. Resample to 48 kHz for nnnoiseless
-    let at_48k = resample(&sanitized, native_rate, 48_000);
-
-    // 2. DC offset removal — subtract signal mean before denoising.
-    //    Budget USB mics often have a non-zero DC bias that distorts the mel
-    //    spectrogram inside Whisper. Mean subtraction eliminates it cheaply.
-    #[allow(clippy::cast_precision_loss)] // buffer len fits f32 at audio sizes
-    let mean = at_48k.iter().copied().sum::<f32>() / at_48k.len().max(1) as f32;
-    let at_48k: Vec<f32> = at_48k.iter().map(|s| s - mean).collect();
-
-    // 3. Noise suppression (RNNoise, 480-sample frames at 48 kHz)
-    let denoised = denoise::denoise(&at_48k);
-
-    // 4. Resample to 16 kHz for Whisper + VAD
-    resample(&denoised, 48_000, 16_000)
+    if native_rate == 16_000 {
+        sanitized
+    } else {
+        resample(&sanitized, native_rate, 16_000)
+    }
 }
 
 /// Peak normalization to –3 dBFS (peak ≈ 0.707), timeline intact.

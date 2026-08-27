@@ -21,37 +21,37 @@ function ThemePreview({ bg, panel, accent, border, surface, muted }: {
   bg: string; panel: string; accent: string; border: string; surface: string; muted: string
 }) {
   return (
-    <div className="relative h-[78px] w-full overflow-hidden rounded-t-[var(--r-md)]" style={{ background: bg }}>
+    <div className="relative h-19.5 w-full overflow-hidden rounded-t-(--r-md)" style={{ background: bg }}>
       {/* Titlebar */}
-      <div className="flex h-[9px] items-center gap-[2px] px-1" style={{ background: panel }}>
-        <div className="size-[3px] rounded-full opacity-50" style={{ background: muted }} />
-        <div className="size-[3px] rounded-full opacity-50" style={{ background: muted }} />
-        <div className="size-[3px] rounded-full opacity-50" style={{ background: muted }} />
-        <div className="ml-auto h-[3px] w-[28px] rounded-full opacity-60" style={{ background: border }} />
+      <div className="flex h-2.25 items-center gap-0.5 px-1" style={{ background: panel }}>
+        <div className="size-0.75 rounded-full opacity-50" style={{ background: muted }} />
+        <div className="size-0.75 rounded-full opacity-50" style={{ background: muted }} />
+        <div className="size-0.75 rounded-full opacity-50" style={{ background: muted }} />
+        <div className="ml-auto h-0.75 w-7 rounded-full opacity-60" style={{ background: border }} />
       </div>
       {/* Sidebar */}
-      <div className="absolute bottom-0 left-0 top-[9px] w-[22px]" style={{ background: panel, borderRight: `0.5px solid ${border}` }}>
-        <div className="mx-[3px] mt-[5px] h-[2px] w-[10px] rounded-[1px] opacity-70" style={{ background: accent }} />
-        <div className="mx-[3px] mt-1 h-[2px] w-[8px] rounded-[1px] opacity-30" style={{ background: muted }} />
-        <div className="mx-[3px] mt-1 h-[2px] w-[9px] rounded-[1px] opacity-30" style={{ background: muted }} />
+      <div className="absolute bottom-0 left-0 top-2.25 w-5.5" style={{ background: panel, borderRight: `0.5px solid ${border}` }}>
+        <div className="mx-0.75 mt-1.25 h-0.5 w-2.5 rounded-[1px] opacity-70" style={{ background: accent }} />
+        <div className="mx-0.75 mt-1 h-0.5 w-2 rounded-[1px] opacity-30" style={{ background: muted }} />
+        <div className="mx-0.75 mt-1 h-0.5 w-2.25 rounded-[1px] opacity-30" style={{ background: muted }} />
       </div>
       {/* Content */}
-      <div className="absolute bottom-1 left-[26px] right-1 top-[13px]">
+      <div className="absolute bottom-1 left-6.5 right-1 top-3.25">
         <div className="mb-1 h-[2.5px] w-[55%] rounded-[1px] opacity-40" style={{ background: muted }} />
-        <div className="mb-1 flex gap-[3px]">
-          <div className="flex h-[11px] flex-1 items-end justify-center rounded-[2px] pb-[1.5px]" style={{ background: surface, border: `0.5px solid ${border}` }}>
-            <div className="h-[2px] w-[60%] rounded-[1px] opacity-70" style={{ background: accent }} />
+        <div className="mb-1 flex gap-0.75">
+          <div className="flex h-2.75 flex-1 items-end justify-center rounded-xs pb-[1.5px]" style={{ background: surface, border: `0.5px solid ${border}` }}>
+            <div className="h-0.5 w-[60%] rounded-[1px] opacity-70" style={{ background: accent }} />
           </div>
-          <div className="flex h-[11px] flex-1 items-end justify-center rounded-[2px] pb-[1.5px]" style={{ background: surface, border: `0.5px solid ${border}` }}>
-            <div className="h-[2px] w-[55%] rounded-[1px] opacity-40" style={{ background: accent }} />
+          <div className="flex h-2.75 flex-1 items-end justify-center rounded-xs pb-[1.5px]" style={{ background: surface, border: `0.5px solid ${border}` }}>
+            <div className="h-0.5 w-[55%] rounded-[1px] opacity-40" style={{ background: accent }} />
           </div>
-          <div className="flex h-[11px] flex-1 items-end justify-center rounded-[2px] pb-[1.5px]" style={{ background: surface, border: `0.5px solid ${border}` }}>
-            <div className="h-[2px] w-[50%] rounded-[1px] opacity-25" style={{ background: accent }} />
+          <div className="flex h-2.75 flex-1 items-end justify-center rounded-xs pb-[1.5px]" style={{ background: surface, border: `0.5px solid ${border}` }}>
+            <div className="h-0.5 w-[50%] rounded-[1px] opacity-25" style={{ background: accent }} />
           </div>
         </div>
-        <div className="rounded-[2px] p-[3px] px-1" style={{ background: surface, border: `0.5px solid ${border}`, height: 'calc(100% - 18px)' }}>
-          <div className="mb-[3px] h-[1.5px] w-[50%] rounded-[1px] opacity-35" style={{ background: muted }} />
-          <div className="mb-[3px] h-[1.5px] w-[70%] rounded-[1px] opacity-20" style={{ background: muted }} />
+        <div className="rounded-xs p-0.75 px-1" style={{ background: surface, border: `0.5px solid ${border}`, height: 'calc(100% - 18px)' }}>
+          <div className="mb-0.75 h-[1.5px] w-[50%] rounded-[1px] opacity-35" style={{ background: muted }} />
+          <div className="mb-0.75 h-[1.5px] w-[70%] rounded-[1px] opacity-20" style={{ background: muted }} />
           <div className="h-[1.5px] w-[35%] rounded-[1px] opacity-30" style={{ background: accent }} />
         </div>
       </div>
@@ -65,14 +65,14 @@ export const AppearanceTab = memo(function AppearanceTab() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <p className="text-[12px] font-semibold text-[var(--fg-2)] tracking-[-0.01em] mb-1">Appearance</p>
-        <p className="text-[12px] text-[var(--muted)] mb-4">Choose a color scheme for your workspace.</p>
+        <p className="text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em] mb-1">Appearance</p>
+        <p className="text-[12px] text-muted-foreground mb-4">Choose a color scheme for your workspace.</p>
 
         {(['dark', 'light'] as const).map((mode) => {
           const group = THEMES.filter(t => t.mode === mode)
           return (
             <div key={mode} className="mb-5 last:mb-0">
-              <p className="text-[11px] font-medium text-[var(--muted)] mb-2">{mode === 'dark' ? 'Dark' : 'Light'}</p>
+              <p className="text-[11px] font-medium text-muted-foreground mb-2">{mode === 'dark' ? 'Dark' : 'Light'}</p>
               <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(4, minmax(120px, 160px))' }}>
                 {group.map((t) => {
                   const active = theme === t.name
@@ -80,7 +80,7 @@ export const AppearanceTab = memo(function AppearanceTab() {
                     <motion.button
                       key={t.name}
                       type="button"
-                      className="flex flex-col p-0 rounded-[var(--r-md)] border-[1.5px] cursor-pointer text-left overflow-hidden"
+                      className="flex flex-col p-0 rounded-(--r-md) border-[1.5px] cursor-pointer text-left overflow-hidden"
                       onClick={() => setTheme(t.name)}
                       initial={false}
                       animate={{
@@ -93,7 +93,7 @@ export const AppearanceTab = memo(function AppearanceTab() {
                       transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
                     >
                       <ThemePreview bg={t.bg} panel={t.panel} accent={t.accent} border={t.border} surface={t.surface} muted={t.muted} />
-                      <div className="flex items-center justify-between px-[6px] py-[4px]">
+                      <div className="flex items-center justify-between px-1.5 py-1">
                         <motion.span
                           className="text-[10px] font-semibold tracking-[-0.01em]"
                           initial={false}
@@ -110,7 +110,7 @@ export const AppearanceTab = memo(function AppearanceTab() {
                               exit={{ scale: 0, opacity: 0 }}
                               transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
                             >
-                              <Check size={8} strokeWidth={3.5} className="text-[var(--accent)] flex-shrink-0" />
+                              <Check size={8} strokeWidth={3.5} className="text-(--accent) shrink-0" />
                             </motion.span>
                           )}
                         </AnimatePresence>

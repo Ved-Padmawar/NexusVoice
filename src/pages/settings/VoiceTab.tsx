@@ -62,11 +62,10 @@ type DownloadedModel = {
 
 /** Shared shell for a model row's right-side status pill, so Loaded / Installed
  *  / Download / downloading all read as one consistent control. */
-const STATE_PILL = 'flex items-center gap-1.5 h-6 px-2 rounded-(--r-md) border text-[11px] tracking-[-0.01em] transition-colors duration-(--t-fast)'
+const STATE_PILL = 'flex items-center justify-center gap-1.5 h-6 min-w-24 px-2 rounded-(--r-md) border text-[11px] tracking-[-0.01em] transition-colors duration-(--t-fast)'
 
-/** One selectable model row: icon + name + trait on the left, a state pill on
- *  the right. The whole row is the click target (select + auto-download);
- *  Cancel is the lone nested action and stops propagation. */
+/** One model row: icon + name + trait on the left, the action on the right.
+ *  The pill is the only click target — Download / Use / Loaded. */
 function ModelRow({
   icon,
   name,
@@ -100,33 +99,18 @@ function ModelRow({
   onCancel: () => void
 }) {
   const inert = disabled && !downloading
-  const activate = () => { if (!inert) onSelect() }
   // Which state pill is showing — also the AnimatePresence key, so swapping
   // state cross-fades instead of popping.
   const pill = downloading ? 'downloading' : loaded ? 'loaded' : installed ? 'installed' : 'download'
   return (
     <motion.div
-      role="button"
-      tabIndex={inert ? -1 : 0}
-      aria-disabled={inert}
       title={fullName}
-      onClick={activate}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          activate()
-        }
-      }}
-      className={`group flex items-center gap-3 w-full px-2 py-2 rounded-(--r-md) text-left outline-none ${
-        inert ? 'cursor-not-allowed' : 'cursor-pointer'
-      }`}
+      className="flex items-center gap-3 w-full px-2 py-2 rounded-(--r-md) text-left"
       initial={false}
       animate={{
         backgroundColor: loaded ? 'var(--accent-soft)' : 'rgba(0,0,0,0)',
         opacity: inert ? 0.5 : 1,
       }}
-      whileHover={loaded || inert ? undefined : { backgroundColor: 'var(--surface-hover)' }}
-      whileTap={inert ? undefined : { scale: 0.99 }}
       transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
     >
       <motion.span
@@ -171,7 +155,7 @@ function ModelRow({
             </span>
           )}
         </span>
-        <span className="block mt-0.5 text-[11px] text-(--muted) truncate">
+        <span className="block mt-0.5 text-[11px] text-muted-foreground truncate">
           {trait} · {sizeLabel}
         </span>
       </span>
@@ -202,8 +186,8 @@ function ModelRow({
                   type="button"
                   aria-label="Cancel download"
                   title="Cancel download"
-                  onClick={(e) => { e.stopPropagation(); onCancel() }}
-                  className="grid place-items-center size-6 rounded-(--r-md) border border-(--border) bg-(--surface) text-(--muted) cursor-pointer"
+                  onClick={onCancel}
+                  className="grid place-items-center size-6 rounded-(--r-md) border border-(--border) bg-(--surface) text-muted-foreground cursor-pointer"
                   whileHover={{ backgroundColor: 'var(--surface-hover)', color: 'var(--danger)' }}
                   whileTap={{ scale: 0.92 }}
                   transition={{ duration: 0.15 }}
@@ -217,15 +201,35 @@ function ModelRow({
                 Loaded
               </span>
             ) : installed ? (
-              <span className={`${STATE_PILL} border-(--border) bg-(--surface) text-(--muted)`}>
+              <motion.button
+                type="button"
+                disabled={inert}
+                onClick={onSelect}
+                className={`${STATE_PILL} border-(--border) bg-(--surface) text-(--fg-2) ${
+                  inert ? 'cursor-not-allowed' : 'cursor-pointer'
+                }`}
+                whileHover={inert ? undefined : { backgroundColor: 'var(--surface-hover)', color: 'var(--fg)' }}
+                whileTap={inert ? undefined : { scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+              >
                 <HardDrive size={11} strokeWidth={1.75} />
-                Installed
-              </span>
+                Use
+              </motion.button>
             ) : (
-              <span className={`${STATE_PILL} border-(--border) bg-(--surface) text-(--fg-2) group-hover:text-(--fg)`}>
+              <motion.button
+                type="button"
+                disabled={inert}
+                onClick={onSelect}
+                className={`${STATE_PILL} border-(--border) bg-(--surface) text-(--fg-2) ${
+                  inert ? 'cursor-not-allowed' : 'cursor-pointer'
+                }`}
+                whileHover={inert ? undefined : { backgroundColor: 'var(--surface-hover)', color: 'var(--fg)' }}
+                whileTap={inert ? undefined : { scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+              >
                 <Download size={11} strokeWidth={2} />
                 Download
-              </span>
+              </motion.button>
             )}
           </motion.span>
         </AnimatePresence>
@@ -298,7 +302,7 @@ export function VoiceTab() {
 
       {/* Transcription model */}
       <div className="overflow-hidden rounded-(--r-lg) border border-(--border-soft) bg-(--panel)">
-        <div className="px-4 py-2.5 border-b border-(--border-soft) text-[10px] font-semibold uppercase tracking-[0.08em] text-(--muted)">
+        <div className="px-4 py-2.5 border-b border-(--border-soft) text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           Transcription model
         </div>
 
@@ -313,7 +317,7 @@ export function VoiceTab() {
               return (
                 <>
                   <span className={`grid place-items-center shrink-0 size-9 rounded-(--r-lg) ${
-                    loadedVariant ? 'bg-(--accent-soft) text-(--accent)' : 'bg-(--surface) text-(--muted)'
+                    loadedVariant ? 'bg-(--accent-soft) text-(--accent)' : 'bg-(--surface) text-muted-foreground'
                   }`}>
                     <ModelIcon model={opt} size={16} />
                   </span>
@@ -329,7 +333,7 @@ export function VoiceTab() {
                         </span>
                       ) : null}
                     </div>
-                    <div className="mt-0.5 text-[11px] text-(--muted) truncate">
+                    <div className="mt-0.5 text-[11px] text-muted-foreground truncate">
                       {profile
                         ? `${profile.gpuName} · ${profile.executionProvider.toUpperCase()}${profile.vramGb > 0 ? ` · ${profile.vramGb}GB VRAM` : ''}`
                         : 'Detecting hardware…'}
@@ -384,7 +388,7 @@ export function VoiceTab() {
       <FormattingToggle />
 
       {/* Microphone + dictation language */}
-      <div className={`grid gap-4 overflow-hidden rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4 [&>*]:min-w-0 ${langSupported ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+      <div className={`grid gap-4 overflow-hidden rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4 *:min-w-0 ${langSupported ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
         <MicrophoneSection />
         <LanguageSection modelId={selected} onSupportedChange={setLangSupported} />
       </div>

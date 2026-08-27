@@ -5,6 +5,7 @@ import { createTranscriptSlice, type TranscriptSlice } from './transcriptSlice'
 import { createDictionarySlice, type DictionarySlice } from './dictionarySlice'
 import { createModelSlice, type ModelSlice } from './modelSlice'
 import { createUiSlice, type UiSlice } from './uiSlice'
+import { createUpdateSlice, type UpdateSlice } from './updateSlice'
 
 export type ThemeName =
   | 'abyss'
@@ -16,7 +17,7 @@ export type ThemeName =
   | 'breeze'
   | 'blossom'
 
-export type AppState = AuthSlice & TranscriptSlice & DictionarySlice & ModelSlice & UiSlice
+export type AppState = AuthSlice & TranscriptSlice & DictionarySlice & ModelSlice & UiSlice & UpdateSlice
 
 export type { User, Transcript, DictionaryEntry, UsageStats } from '../types'
 export type { PillTheme } from './uiSlice'
@@ -31,6 +32,7 @@ export const useAppStore = create<AppState>()(
       ...createDictionarySlice(...args),
       ...createModelSlice(...args),
       ...createUiSlice(...args),
+      ...createUpdateSlice(...args),
     }),
     {
       name: STORE_PERSIST_KEY,

@@ -4,7 +4,6 @@ import { motion } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Toaster } from 'sonner'
 
-import { check } from '@tauri-apps/plugin-updater'
 import { useAppStore, type Transcript, type DictionaryEntry } from './store/useAppStore'
 import { EVENTS } from './lib/events'
 import { ROUTES } from './lib/routes'
@@ -63,13 +62,8 @@ function App() {
   }, [listenForModelEvents])
 
   useEffect(() => {
-    const t = setTimeout(async () => {
-      try {
-        const update = await check()
-        if (update?.available) {
-          useAppStore.setState({ updateAvailable: update.version })
-        }
-      } catch { /* no network or no update endpoint */ }
+    const t = setTimeout(() => {
+      useAppStore.getState().checkForUpdate().catch(() => {})
     }, 3000)
     return () => clearTimeout(t)
   }, [])

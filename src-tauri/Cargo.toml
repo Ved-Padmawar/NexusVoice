@@ -1,6 +1,6 @@
 [package]
 name = "nexusvoice"
-version = "1.14.1"
+version = "1.14.2"
 edition = "2021"
 
 [features]
@@ -34,7 +34,6 @@ cpal = "0.18"
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 reqwest = { version = "0.13", features = ["blocking", "stream"] }
 futures-util = "0.3"
-nnnoiseless = "0.5.2"
 
 # transcribe.cpp wrapper: GGUF speech-to-text across ~16 model families, with
 # both single-shot (`Session::run`) and native streaming (`Session::stream`).

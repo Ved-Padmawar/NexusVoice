@@ -37,7 +37,7 @@ const PRESETS: Preset[] = [
 const DEFAULT_CONFIG: FormatConfig = { enabled: false, provider: 'ollama', baseUrl: '', model: '', apiKey: '' }
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-[12px] text-(--fg) bg-(--surface) border border-(--border) rounded-(--r-md) outline-none transition-colors duration-(--t-fast) focus:border-(--accent) placeholder:text-(--muted)'
+  'w-full px-3 py-2 text-[12px] text-(--fg) bg-(--surface) border border-(--border) rounded-(--r-md) outline-none transition-colors duration-(--t-fast) focus:border-(--accent) placeholder:text-muted-foreground'
 
 /**
  * Smart-formatting toggle + provider configuration. The formatter is an HTTP
@@ -80,7 +80,7 @@ export function FormattingToggle() {
 
   return (
     <div className="overflow-hidden rounded-(--r-lg) border border-(--border-soft) bg-(--panel)">
-      <div className="px-4 py-2.5 border-b border-(--border-soft) text-[10px] font-semibold uppercase tracking-[0.08em] text-(--muted)">
+      <div className="px-4 py-2.5 border-b border-(--border-soft) text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
         Smart formatting
       </div>
 
@@ -93,7 +93,7 @@ export function FormattingToggle() {
             <p className="text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em]">
               {configured ? `${presetLabel} · ${config.model}` : 'No endpoint configured'}
             </p>
-            <p className="text-[11px] text-(--muted) mt-[3px] max-w-[380px]">
+            <p className="text-[11px] text-muted-foreground mt-0.75 max-w-95">
               Sends each transcript to your chosen LLM (local Ollama, OpenAI, Anthropic, OpenRouter…)
               to clean up punctuation and turn spoken lists into real lists before pasting.
             </p>
@@ -118,14 +118,14 @@ export function FormattingToggle() {
             aria-checked={config.enabled}
             aria-label="Toggle smart formatting"
             onClick={toggle}
-            className="relative w-[42px] h-[24px] rounded-full shrink-0 cursor-pointer border-none p-0"
+            className="relative w-10.5 h-6 rounded-full shrink-0 cursor-pointer border-none p-0"
             initial={false}
             animate={{ backgroundColor: config.enabled ? 'var(--accent)' : 'var(--border)' }}
             whileTap={{ scale: 0.95 }}
             transition={{ duration: 0.2 }}
           >
             <motion.span
-              className="absolute top-[3px] left-[3px] w-[18px] h-[18px] rounded-full bg-white shadow-sm"
+              className="absolute top-0.75 left-0.75 w-4.5 h-4.5 rounded-full bg-white shadow-sm"
               animate={{ x: config.enabled ? 18 : 0 }}
               transition={{ type: 'spring', stiffness: 400, damping: 28 }}
             />
@@ -261,7 +261,7 @@ function ProviderModal({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 8 }}
         transition={{ duration: 0.2, ease: 'easeOut' }}
-        className="w-[460px] flex flex-col bg-(--panel) border border-(--border) rounded-(--r-xl) shadow-(--shadow-lg) overflow-hidden pointer-events-auto"
+        className="w-115 flex flex-col bg-(--panel) border border-(--border) rounded-(--r-xl) shadow-(--shadow-lg) overflow-hidden pointer-events-auto"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-(--border-soft)">
@@ -345,7 +345,7 @@ function ProviderModal({
               className={INPUT_CLASS}
               spellCheck={false}
             />
-            <span className="text-[10px] text-(--muted)">
+            <span className="text-[10px] text-muted-foreground">
               Tip: use a small instruct model (e.g. qwen2.5-3b-instruct), not a reasoning model — much faster and more accurate for formatting.
             </span>
           </Field>
@@ -387,7 +387,7 @@ function ProviderModal({
             type="button"
             onClick={handleSave}
             disabled={!canSubmit || saving}
-            className="flex items-center gap-2 text-[12px] font-semibold text-(--accent-fg) bg-(--accent) border-none rounded-(--r-md) px-4 py-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 text-[12px] font-semibold text-primary-foreground bg-(--accent) border-none rounded-(--r-md) px-4 py-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             whileHover={!canSubmit || saving ? undefined : { opacity: 0.9 }}
             whileTap={!canSubmit || saving ? undefined : { scale: 0.97 }}
             transition={{ duration: 0.15 }}

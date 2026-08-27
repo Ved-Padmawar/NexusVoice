@@ -64,8 +64,8 @@ export const PillTab = memo(function PillTab() {
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <p className="text-[12px] font-semibold text-[var(--fg-2)] tracking-[-0.01em] mb-1">Pill appearance</p>
-        <p className="text-[12px] text-[var(--muted)] mb-4">Choose a color theme for the floating pill overlay.</p>
+        <p className="text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em] mb-1">Pill appearance</p>
+        <p className="text-[12px] text-muted-foreground mb-4">Choose a color theme for the floating pill overlay.</p>
 
         <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(4, minmax(100px, 160px))' }}>
           {PILL_THEMES.map((t) => {
@@ -74,7 +74,7 @@ export const PillTab = memo(function PillTab() {
               <motion.button
                 key={t.id}
                 type="button"
-                className="flex flex-col p-0 rounded-[var(--r-md)] border-[1.5px] cursor-pointer text-left overflow-hidden"
+                className="flex flex-col p-0 rounded-(--r-md) border-[1.5px] cursor-pointer text-left overflow-hidden"
                 onClick={() => handleSelect(t.id)}
                 initial={false}
                 animate={{
@@ -99,7 +99,7 @@ export const PillTab = memo(function PillTab() {
                 </div>
 
                 {/* Label row */}
-                <div className="flex items-center justify-between px-[6px] py-[4px]">
+                <div className="flex items-center justify-between px-1.5 py-1">
                   <motion.span
                     className="text-[10px] font-semibold tracking-[-0.01em]"
                     initial={false}
@@ -116,7 +116,7 @@ export const PillTab = memo(function PillTab() {
                         exit={{ scale: 0, opacity: 0 }}
                         transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
                       >
-                        <Check size={8} strokeWidth={3.5} className="text-[var(--accent)] flex-shrink-0" />
+                        <Check size={8} strokeWidth={3.5} className="text-(--accent) shrink-0" />
                       </motion.span>
                     )}
                   </AnimatePresence>

@@ -63,11 +63,11 @@ function buildShortcut(keys: string[]): string {
 
 const KeyBadges = memo(function KeyBadges({ keys }: { keys: string[] }) {
   return (
-    <div className="flex items-center gap-[3px]">
+    <div className="flex items-center gap-0.75">
       {keys.map((k, idx) => (
-        <span key={`${k}-${idx}`} className="flex items-center gap-[3px]">
-          {idx > 0 && <span className="text-[9px] text-[var(--muted)] font-semibold px-px">+</span>}
-          <span className="inline-flex items-center justify-center px-[6px] py-[2px] min-w-6 rounded-[var(--r-sm)] bg-[var(--bg-alt)] border border-[var(--border)] shadow-[0_1px_0_var(--border)] text-[10px] font-semibold text-[var(--fg)] leading-[1.4] capitalize font-mono">
+        <span key={`${k}-${idx}`} className="flex items-center gap-0.75">
+          {idx > 0 && <span className="text-[9px] text-muted-foreground font-semibold px-px">+</span>}
+          <span className="inline-flex items-center justify-center px-1.5 py-0.5 min-w-6 rounded-(--r-sm) bg-(--bg-alt) border border-(--border) shadow-[0_1px_0_var(--border)] text-[10px] font-semibold text-(--fg) leading-[1.4] capitalize font-mono">
             {displayKey(k)}
           </span>
         </span>
@@ -180,22 +180,22 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
   return (
     <div
       ref={hotkeyRef}
-      className={`flex items-center gap-3 px-3 py-2.5 rounded-[var(--r-md)] bg-[var(--surface)] border transition-[border-color] duration-[var(--t-fast)] ${editing ? 'border-[var(--accent)]' : 'border-[var(--border-soft)]'}`}
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-(--r-md) bg-(--surface) border transition-[border-color] duration-(--t-fast) ${editing ? 'border-(--accent)' : 'border-(--border-soft)'}`}
     >
       {/* Icon */}
-      <div className={`flex items-center justify-center w-7 h-7 rounded-[var(--r-sm)] shrink-0 ${currentHotkey ? 'bg-[var(--accent-soft)] text-[var(--accent)]' : 'bg-[var(--bg-alt)] text-[var(--muted)]'}`}>
+      <div className={`flex items-center justify-center w-7 h-7 rounded-(--r-sm) shrink-0 ${currentHotkey ? 'bg-(--accent-soft) text-(--accent)' : 'bg-(--bg-alt) text-muted-foreground'}`}>
         <Icon size={14} strokeWidth={1.9} />
       </div>
 
       {/* Label + hint */}
       <div className="flex flex-col min-w-0 flex-1">
-        <span className="text-[12px] font-semibold text-[var(--fg)] leading-tight truncate">{config.title}</span>
-        <span className="text-[10.5px] text-[var(--muted)] leading-tight truncate">{config.description}</span>
+        <span className="text-[12px] font-semibold text-(--fg) leading-tight truncate">{config.title}</span>
+        <span className="text-[10.5px] text-muted-foreground leading-tight truncate">{config.description}</span>
       </div>
 
       {/* Recorder / key display */}
       <div
-        className={`flex items-center justify-center gap-[6px] px-2.5 h-8 min-w-[120px] rounded-[var(--r-sm)] border cursor-pointer transition-[border-color,background] duration-[var(--t-fast)] shrink-0 ${editing ? 'border-[var(--accent)] bg-[var(--accent-soft)]' : 'border-[var(--border-soft)] bg-[var(--bg-alt)]'}`}
+        className={`flex items-center justify-center gap-1.5 px-2.5 h-8 min-w-30 rounded-(--r-sm) border cursor-pointer transition-[border-color,background] duration-(--t-fast) shrink-0 ${editing ? 'border-(--accent) bg-(--accent-soft)' : 'border-(--border-soft) bg-(--bg-alt)'}`}
         onClick={startListening}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') startListening() }}
         role="button"
@@ -203,19 +203,19 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
         aria-label={`Click to record ${config.title.toLowerCase()}`}
       >
         {isListening && pressedKeys.length === 0 && (
-          <span className="text-[11px] text-[var(--accent)] italic">Press keys…</span>
+          <span className="text-[11px] text-(--accent) italic">Press keys…</span>
         )}
         {pressedKeys.length > 0 && <KeyBadges keys={pressedKeys} />}
         {!isListening && pressedKeys.length === 0 && currentHotkey && (
           <KeyBadges keys={currentHotkey.split('+')} />
         )}
         {!isListening && pressedKeys.length === 0 && !currentHotkey && (
-          <span className="text-[11px] text-[var(--muted)] italic">Click to set…</span>
+          <span className="text-[11px] text-muted-foreground italic">Click to set…</span>
         )}
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-[6px] shrink-0">
+      <div className="flex items-center gap-1.5 shrink-0">
         {editing ? (
           <>
             <Button size="sm" onClick={handleSaveHotkey} disabled={saving || pressedKeys.length === 0}>
@@ -231,7 +231,7 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
               type="button"
               aria-label={`Change ${config.title.toLowerCase()}`}
               title="Change"
-              className="inline-flex items-center justify-center w-7 h-7 rounded-[var(--r-sm)] border border-[var(--border-soft)] bg-transparent cursor-pointer text-[var(--fg-2)]"
+              className="inline-flex items-center justify-center w-7 h-7 rounded-(--r-sm) border border-(--border-soft) bg-transparent cursor-pointer text-(--fg-2)"
               onClick={startListening}
               whileHover={{ backgroundColor: 'var(--accent-soft)', borderColor: 'var(--accent)', color: 'var(--accent)' }}
               whileTap={{ scale: 0.94 }}
@@ -243,7 +243,7 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
               type="button"
               aria-label={`Remove ${config.title.toLowerCase()}`}
               title="Remove"
-              className="inline-flex items-center justify-center w-7 h-7 rounded-[var(--r-sm)] border border-[var(--border-soft)] bg-transparent cursor-pointer text-[var(--fg-2)]"
+              className="inline-flex items-center justify-center w-7 h-7 rounded-(--r-sm) border border-(--border-soft) bg-transparent cursor-pointer text-(--fg-2)"
               onClick={handleRemoveHotkey}
               whileHover={{ backgroundColor: 'color-mix(in srgb, var(--danger) 10%, transparent)', borderColor: 'var(--danger)', color: 'var(--danger)' }}
               whileTap={{ scale: 0.94 }}
@@ -253,7 +253,7 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
             </motion.button>
           </>
         ) : (
-          <span className="text-[10px] font-semibold text-[var(--muted)] px-2 py-1 rounded-(--r-sm) bg-(--bg-alt) border border-(--border-soft)">
+          <span className="text-[10px] font-semibold text-muted-foreground px-2 py-1 rounded-(--r-sm) bg-(--bg-alt) border border-(--border-soft)">
             Not set
           </span>
         )}
@@ -317,8 +317,8 @@ export function HotkeySection() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <p className="text-[12px] font-semibold text-[var(--fg-2)] tracking-[-0.01em] mb-1">Keyboard shortcuts</p>
-        <p className="text-[12px] text-[var(--muted)]">Set global hotkeys for recording and hands-free dictation.</p>
+        <p className="text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em] mb-1">Keyboard shortcuts</p>
+        <p className="text-[12px] text-muted-foreground">Set global hotkeys for recording and hands-free dictation.</p>
       </div>
       <div className="flex flex-col gap-1.5">
         {HOTKEY_CONFIGS.map(config => (
