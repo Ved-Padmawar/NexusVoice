@@ -56,7 +56,8 @@ pub async fn send_chat(
     let client = CLIENT.get_or_init(reqwest::Client::new);
 
     let mut req = client.post(cfg.endpoint()).json(body).timeout(timeout);
-    let key = cfg.api_key.trim();
+    let active = cfg.active();
+    let key = active.api_key.trim();
     if !key.is_empty() {
         req = req.bearer_auth(key);
     }

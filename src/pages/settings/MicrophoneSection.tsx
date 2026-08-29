@@ -123,7 +123,7 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
                     transition={{ duration: 0.14, ease: 'easeOut' }}
                     className="z-50 w-(--radix-select-trigger-width) max-h-64 overflow-x-hidden rounded-(--r-lg) bg-(--panel) border border-(--border) shadow-(--shadow-lg)"
                   >
-                    <Select.Viewport style={{ overflowY: 'auto', overscrollBehavior: 'none', maxHeight: '16rem' }}>
+                    <Select.Viewport className="select-list" style={{ overflowY: 'auto', overscrollBehavior: 'none', maxHeight: '16rem' }}>
                       {options.map((opt, i) => {
                         const active = opt.value === selected
                         return (
@@ -155,7 +155,7 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
           disabled={initialLoading}
           title="Refresh device list"
           whileTap={{ scale: 0.92 }}
-          className="inline-flex shrink-0 items-center justify-center size-9 rounded-(--r-md) bg-(--surface) border border-(--border-soft) text-(--fg-2) cursor-pointer transition-[color,border-color] duration-(--t-fast) hover:text-(--fg) hover:border-(--border) disabled:opacity-50"
+          className="nv-edge [--edge:var(--border-soft)] hover:[--edge:var(--border)] inline-flex shrink-0 items-center justify-center size-9 rounded-(--r-md) bg-(--surface) text-(--fg-2) cursor-pointer hover:text-(--fg) disabled:opacity-50"
         >
           <motion.span
             className="flex"

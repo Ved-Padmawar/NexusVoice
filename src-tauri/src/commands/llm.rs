@@ -28,10 +28,11 @@ pub async fn set_format_config(
 /// sending one trivial formatting request. Does not persist anything.
 #[tauri::command]
 pub async fn test_format_connection(config: FormatConfig) -> Result<(), ApiError> {
-    if config.provider != "anthropic" && config.base_url.trim().is_empty() {
+    let active = config.active();
+    if config.provider != "anthropic" && active.base_url.trim().is_empty() {
         return Err(ApiError::new("invalid_input", "base URL is required"));
     }
-    if config.model.trim().is_empty() {
+    if active.model.trim().is_empty() {
         return Err(ApiError::new("invalid_input", "model name is required"));
     }
     crate::llm::client::test_connection(&config)

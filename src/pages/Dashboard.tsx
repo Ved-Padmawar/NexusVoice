@@ -82,7 +82,7 @@ function ExportButton() {
           type="button"
           disabled={exporting}
           title="Export transcripts"
-          className="inline-flex items-center gap-1.25 h-7 px-2.5 rounded-(--r-md) border border-(--border) bg-(--panel) text-[11px] font-medium text-(--fg-2) hover:text-(--fg) hover:border-(--accent) transition-colors duration-(--t-fast) cursor-pointer disabled:opacity-50 shrink-0"
+          className="nv-edge inline-flex items-center gap-1.25 h-7 px-2.5 rounded-(--r-md) bg-(--panel) text-[11px] font-medium text-(--fg-2) hover:text-(--fg) hover:[--edge:color-mix(in_srgb,var(--accent)_60%,transparent)] cursor-pointer disabled:opacity-50 shrink-0"
         >
           <Download size={11} strokeWidth={2} />
           Export
@@ -192,7 +192,7 @@ function FilterDropdown() {
       <Popover.Trigger asChild>
         <button
           type="button"
-          className={`inline-flex items-center gap-1.25 h-7 px-2.5 rounded-(--r-md) border text-[11px] font-medium transition-colors duration-(--t-fast) cursor-pointer shrink-0 ${hasActive ? 'border-(--accent) bg-(--accent-soft) text-(--accent)' : 'border-(--border) bg-(--panel) text-(--fg-2) hover:text-(--fg) hover:border-(--accent)'}`}
+          className={`nv-edge inline-flex items-center gap-1.25 h-7 px-2.5 rounded-(--r-md) text-[11px] font-medium cursor-pointer shrink-0 ${hasActive ? '[--edge:color-mix(in_srgb,var(--accent)_60%,transparent)] bg-(--accent-soft) text-(--accent)' : 'bg-(--panel) text-(--fg-2) hover:text-(--fg) hover:[--edge:color-mix(in_srgb,var(--accent)_60%,transparent)]'}`}
         >
           <SlidersHorizontal size={11} strokeWidth={2} />
           Filter{hasActive ? ' ·' : ''}
@@ -338,7 +338,7 @@ export function Dashboard() {
             <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-(--r-lg) text-[12px] leading-[1.4] shrink-0 text-(--fg-2)" style={{ background: 'var(--warning-soft)', border: '1px solid oklch(from var(--warning) l c h / 0.25)' }}>
               <AlertCircle size={14} strokeWidth={2} className="shrink-0 text-(--warning)" />
               <span className="flex-1">No hotkey set — NexusVoice won't record until you configure one.</span>
-              <Button size="sm" onClick={() => navigate(ROUTES.SETTINGS, { state: { tab: 'shortcuts' } })} className="shrink-0">
+              <Button size="sm" onClick={() => navigate(ROUTES.SETTINGS, { state: { tab: 'general' } })} className="shrink-0">
                 <Settings2 size={12} strokeWidth={2} />
                 Set hotkey
               </Button>
@@ -432,7 +432,7 @@ export function Dashboard() {
                   {/* Dot */}
                   <div className="col-start-1 row-start-1 w-2 h-2 rounded-full bg-(--accent) mt-3 justify-self-center relative z-10 shrink-0" aria-hidden />
                   {/* Card */}
-                  <div className="col-start-2 row-start-1 bg-(--panel) border border-(--border-soft) rounded-(--r-lg) px-3.5 py-3 flex flex-col gap-2 transition-[border-color,background] duration-(--t-fast) hover:border-(--border) hover:bg-(--surface)">
+                  <div className="nv-edge [--edge:var(--border-soft)] hover:[--edge:var(--border)] col-start-2 row-start-1 bg-(--panel) rounded-(--r-lg) px-3.5 py-3 flex flex-col gap-2 hover:bg-(--surface)">
                     <p className="text-[13px] text-(--fg) leading-[1.6] m-0">{item.content}</p>
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] text-muted-foreground tabular-nums">{fmtDate(item.createdAt)}</span>

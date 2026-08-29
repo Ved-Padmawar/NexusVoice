@@ -41,8 +41,6 @@ export type UsageStats = z.infer<typeof UsageStatsSchema>
 export type ModelInfo = {
   downloaded: boolean
   downloading: boolean
-  downloadProgress: number
-  downloadError: string | null
   modelName: string
 }
 

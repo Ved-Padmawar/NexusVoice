@@ -42,9 +42,7 @@ beforeEach(() => {
     authChecking: false,
     hasHotkey: false,
     modelReady: false,
-    modelDownloading: false,
-    downloadProgress: 0,
-    downloadError: null,
+    downloads: {},
   })
 })
 
@@ -256,5 +254,58 @@ describe('useAppStore — setFilters', () => {
     await useAppStore.getState().setFilters(null, null, false)
     expect(useAppStore.getState().filterFrom).toBeNull()
     expect(useAppStore.getState().filterTo).toBeNull()
+  })
+})
+
+describe('useAppStore — model downloads', () => {
+  it('marks a model queued as soon as a download starts', async () => {
+    mockInvoke.mockResolvedValue(undefined)
+    await useAppStore.getState().startDownload('whisper-tiny')
+    expect(useAppStore.getState().downloads['whisper-tiny']).toEqual({
+      status: 'queued',
+      progress: 0,
+    })
+    expect(mockInvoke).toHaveBeenCalledWith('start_model_download', { id: 'whisper-tiny' })
+  })
+
+  it('drops the entry when the backend refuses the download', async () => {
+    mockInvoke.mockRejectedValue(new Error('unknown model'))
+    await useAppStore.getState().startDownload('nope')
+    expect(useAppStore.getState().downloads.nope).toBeUndefined()
+  })
+
+  it('tracks several downloads independently', async () => {
+    mockInvoke.mockResolvedValue(undefined)
+    await useAppStore.getState().startDownload('a')
+    await useAppStore.getState().startDownload('b')
+    expect(Object.keys(useAppStore.getState().downloads).sort()).toEqual(['a', 'b'])
+  })
+
+  it('rehydrates in-flight downloads from the backend', async () => {
+    mockInvoke.mockResolvedValue([
+      { id: 'a', status: 'running', progress: 40, error: null },
+      { id: 'b', status: 'queued', progress: 0, error: null },
+    ])
+    await useAppStore.getState().refreshDownloads()
+    expect(useAppStore.getState().downloads).toEqual({
+      a: { status: 'running', progress: 40, error: null },
+      b: { status: 'queued', progress: 0, error: null },
+    })
+  })
+
+  it('cancels by id', async () => {
+    mockInvoke.mockResolvedValue(true)
+    await useAppStore.getState().cancelDownload('whisper-tiny')
+    expect(mockInvoke).toHaveBeenCalledWith('cancel_model_download', { id: 'whisper-tiny' })
+  })
+
+  it('never switches the active model as a side effect of downloading', async () => {
+    // Download and switch are separate actions — a download that fails or is
+    // cancelled must not leave the override pointing at a missing file.
+    mockInvoke.mockResolvedValue(undefined)
+    useAppStore.setState({ selectedModel: 'whisper-tiny' })
+    await useAppStore.getState().startDownload('parakeet-v3')
+    expect(useAppStore.getState().selectedModel).toBe('whisper-tiny')
+    expect(mockInvoke).not.toHaveBeenCalledWith('set_model_override', expect.anything())
   })
 })

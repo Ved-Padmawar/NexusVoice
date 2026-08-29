@@ -52,7 +52,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <button
             type="button"
             onClick={this.reset}
-            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-(--r-md) border border-(--border-soft) bg-(--surface) text-(--fg) text-[12px] font-medium cursor-pointer transition-[background,border-color] duration-(--t-fast) hover:bg-accent hover:border-(--border)"
+            className="nv-edge [--edge:var(--border-soft)] hover:[--edge:var(--border)] inline-flex items-center gap-1.5 h-9 px-3.5 rounded-(--r-md) bg-(--surface) text-(--fg) text-[12px] font-medium cursor-pointer hover:bg-accent"
           >
             <RotateCcw size={13} strokeWidth={1.75} />
             Try again

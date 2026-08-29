@@ -7,27 +7,33 @@ import type { ModelInfo } from '../types'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
 
+export type DownloadStatus = 'queued' | 'running' | 'error'
+
+export type Download = {
+  status: DownloadStatus
+  progress: number
+  error?: string | null
+}
+
 export type ModelSlice = {
   hasHotkey: boolean
   hasDictationHotkey: boolean
   hasDictationCommitHotkey: boolean
   modelReady: boolean
-  modelDownloading: boolean
-  downloadProgress: number
-  downloadError: string | null
+  /** Every download queued, running, or holding an error, keyed by model id. */
+  downloads: Record<string, Download>
   /** Canonical active-model state (single source of truth for the main window). */
   activeModelName: string | null
   selectedModel: ModelId | null
   activeModelDownloaded: boolean
   /** The model catalog, served by the backend. Empty until first refresh. */
   catalog: CatalogModel[]
-  /** The model override that was active before the current download started — restored on cancel. */
-  downloadingFromModel: string | null
-  setDownloadingFromModel: (variant: string) => void
   setSelectedModel: (variant: ModelId) => void
   refreshCatalog: () => Promise<void>
   refreshModelInfo: () => Promise<void>
-  cancelDownload: () => void
+  refreshDownloads: () => Promise<void>
+  startDownload: (id: ModelId) => Promise<void>
+  cancelDownload: (id: ModelId) => Promise<void>
   listenForModelEvents: () => Promise<() => void>
 }
 
@@ -36,16 +42,11 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
   hasDictationHotkey: false,
   hasDictationCommitHotkey: false,
   modelReady: false,
-  modelDownloading: false,
-  downloadProgress: 0,
-  downloadError: null,
+  downloads: {},
   activeModelName: null,
   selectedModel: null,
   activeModelDownloaded: false,
   catalog: [],
-  downloadingFromModel: null,
-
-  setDownloadingFromModel: (variant: string) => set({ downloadingFromModel: variant }),
 
   setSelectedModel: (variant: ModelId) => set({ selectedModel: variant }),
 
@@ -66,38 +67,38 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
       set({
         activeModelName: info.modelName,
         catalog,
-        // The chosen model, regardless of download state — only model-evicted
-        // (delete-all) clears it. This keeps the pill visible while downloading.
+        // Only model-evicted clears this, so the pill survives a download.
         selectedModel: modelNameToId(info.modelName, catalog),
         activeModelDownloaded: info.downloaded,
         modelReady: info.downloaded,
-        modelDownloading: info.downloading,
-        downloadProgress: info.downloaded ? 100 : info.downloadProgress,
-        downloadError: info.downloadError ?? null,
       })
     } catch { /* ignore */ }
   },
 
-  cancelDownload: () => {
-    const prev = get().downloadingFromModel
-    void (async () => {
-      try {
-        // False means the download already finished — restoring the previous
-        // override would point the app at one model while the engine warms
-        // another, leaving recording dead until a restart.
-        const cancelled = await invoke<boolean>(COMMANDS.CANCEL_MODEL_DOWNLOAD)
-        if (cancelled && prev) {
-          // Only restore if that model is on disk — pointing the override at a
-          // missing model leaves the engine unable to load.
-          const onDisk = await invoke<{ variant: string }[]>(COMMANDS.GET_DOWNLOADED_MODELS)
-            .catch(() => [] as { variant: string }[])
-          if (onDisk.some(m => m.variant === prev)) {
-            await invoke(COMMANDS.SET_MODEL_OVERRIDE, { variant: prev })
-          }
-        }
-      } catch { /* ignore */ }
-      await get().refreshModelInfo()
-    })()
+  refreshDownloads: async () => {
+    try {
+      const active = await invoke<(Download & { id: string })[]>(COMMANDS.GET_ACTIVE_DOWNLOADS)
+      set({
+        downloads: Object.fromEntries(
+          active.map(({ id, status, progress, error }) => [id, { status, progress, error }]),
+        ),
+      })
+    } catch { /* ignore */ }
+  },
+
+  startDownload: async (id: ModelId) => {
+    set({ downloads: { ...get().downloads, [id]: { status: 'queued', progress: 0 } } })
+    try {
+      await invoke(COMMANDS.START_MODEL_DOWNLOAD, { id })
+    } catch {
+      set(dropDownload(get(), id))
+    }
+  },
+
+  cancelDownload: async (id: ModelId) => {
+    try {
+      await invoke<boolean>(COMMANDS.CANCEL_MODEL_DOWNLOAD, { id })
+    } catch { /* ignore */ }
   },
 
   listenForModelEvents: async () => {
@@ -112,32 +113,51 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
     } catch { /* ignore */ }
 
     await get().refreshModelInfo()
+    await get().refreshDownloads()
 
-    const u1 = await listen(EVENTS.MODEL_DOWNLOAD_START, () => {
-      set({ modelDownloading: true, modelReady: false, downloadProgress: 0, downloadError: null })
+    const setStatus = (id: string, patch: Partial<Download>) =>
+      set((s) => {
+        const base: Download = s.downloads[id] ?? { status: 'queued', progress: 0 }
+        return { downloads: { ...s.downloads, [id]: { ...base, ...patch } } }
+      })
+
+    const u1 = await listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_START, (e) => {
+      setStatus(e.payload.id, { status: 'queued', progress: 0, error: null })
     })
-    const u2 = await listen<number>(EVENTS.MODEL_DOWNLOAD_PROGRESS, (e) => {
-      set({ downloadProgress: e.payload, modelDownloading: true })
+    const u2 = await listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_RUNNING, (e) => {
+      setStatus(e.payload.id, { status: 'running' })
     })
-    const u3 = await listen(EVENTS.MODEL_DOWNLOAD_COMPLETE, () => {
-      set({ downloadingFromModel: null })
+    const u3 = await listen<{ id: string; pct: number }>(EVENTS.MODEL_DOWNLOAD_PROGRESS, (e) => {
+      setStatus(e.payload.id, { status: 'running', progress: e.payload.pct })
+    })
+    const u4 = await listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_COMPLETE, (e) => {
+      set(dropDownload(get(), e.payload.id))
       void get().refreshModelInfo()
     })
-    const u4 = await listen<string>(EVENTS.MODEL_DOWNLOAD_ERROR, (e) => {
-      set({ modelDownloading: false, downloadError: e.payload ?? 'Download failed', downloadingFromModel: null })
+    const u5 = await listen<{ id: string; error: string }>(EVENTS.MODEL_DOWNLOAD_ERROR, (e) => {
+      setStatus(e.payload.id, { status: 'error', error: e.payload.error || 'Download failed' })
     })
-    const u5 = await listen(EVENTS.MODEL_DOWNLOAD_CANCELLED, () => {
-      set({ modelDownloading: false, downloadProgress: 0, downloadError: null, downloadingFromModel: null })
+    const u6 = await listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_CANCELLED, (e) => {
+      set(dropDownload(get(), e.payload.id))
     })
     // Deleted active model: clear selection; keep modelChosen so the picker stays closed.
-    const u6 = await listen(EVENTS.MODEL_EVICTED, () => {
-      set({ modelReady: false, modelDownloading: false, downloadProgress: 0, downloadError: null, selectedModel: null, activeModelDownloaded: false })
+    const u7 = await listen(EVENTS.MODEL_EVICTED, () => {
+      set({ modelReady: false, selectedModel: null, activeModelDownloaded: false })
     })
     // Deleted the active model but another is on disk: backend switched to it.
-    const u7 = await listen(EVENTS.MODEL_SWITCHED, () => { void get().refreshModelInfo() })
-    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7() }
+    const u8 = await listen(EVENTS.MODEL_SWITCHED, () => { void get().refreshModelInfo() })
+    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8() }
   },
 })
+
+type DownloadEvent = { id: string }
+
+/** Removes one download from the map, leaving the rest untouched. */
+function dropDownload(state: { downloads: Record<string, Download> }, id: string) {
+  const rest = { ...state.downloads }
+  delete rest[id]
+  return { downloads: rest }
+}
 
 type ParsedHotkeys = {
   ptt: string[]

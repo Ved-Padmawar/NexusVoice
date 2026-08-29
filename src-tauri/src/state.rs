@@ -63,68 +63,153 @@ impl SessionPhase {
     }
 }
 
+/// Which global hotkey a save/load refers to; also its key in `hotkeys.json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HotkeyKind {
+    PushToTalk,
+    Dictation,
+    DictationCommit,
+}
+
+impl HotkeyKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PushToTalk => "pushToTalk",
+            Self::Dictation => "dictation",
+            Self::DictationCommit => "dictationCommit",
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct AuthSession {
     pub user_id: Option<i64>,
 }
 
-/// Model download state tracked in `AppState` so the frontend can poll via command.
-/// 0 = idle/unknown, 1 = downloading, 2 = complete, 3 = error, 4 = cancelled
-pub struct ModelDownloadState {
-    pub status: AtomicU8,
-    pub progress: std::sync::Mutex<u8>,
-    pub error: std::sync::Mutex<Option<String>>,
-    /// Cancels the in-flight download. Awaited alongside the network read, so a
-    /// cancel interrupts immediately instead of waiting for the next chunk.
-    /// Replaced with a fresh token on each new download.
-    cancel: std::sync::Mutex<tokio_util::sync::CancellationToken>,
+/// How many models may transfer at once. Extras wait in `Queued` rather than
+/// being refused, so the user can line several up and walk away.
+pub const MAX_CONCURRENT_DOWNLOADS: usize = 3;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum DownloadStatus {
+    Queued,
+    Running,
+    Error,
 }
 
-impl ModelDownloadState {
+impl DownloadStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Running => "running",
+            Self::Error => "error",
+        }
+    }
+}
+
+pub struct DownloadEntry {
+    pub status: DownloadStatus,
+    pub progress: u8,
+    pub error: Option<String>,
+    /// Awaited alongside the network read, so a cancel interrupts immediately
+    /// instead of waiting for the current chunk to finish.
+    pub cancel: tokio_util::sync::CancellationToken,
+}
+
+/// Every download in flight or waiting, keyed by model id. Success and cancel
+/// remove the entry — the file on disk is the truth for what is installed.
+pub struct Downloads {
+    entries: std::sync::Mutex<HashMap<String, DownloadEntry>>,
+    permits: Arc<tokio::sync::Semaphore>,
+}
+
+impl Downloads {
     pub fn new() -> Self {
         Self {
-            status: AtomicU8::new(0),
-            progress: std::sync::Mutex::new(0),
-            error: std::sync::Mutex::new(None),
-            cancel: std::sync::Mutex::new(tokio_util::sync::CancellationToken::new()),
+            entries: std::sync::Mutex::new(HashMap::new()),
+            permits: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
         }
     }
 
-    pub fn set_downloading(&self) {
-        // A token stays cancelled once tripped, so each run gets a fresh one.
-        *self.cancel.lock().expect("cancel lock poisoned") =
-            tokio_util::sync::CancellationToken::new();
-        self.status.store(1, Ordering::SeqCst);
-        *self.progress.lock().expect("progress lock poisoned") = 0;
-        *self.error.lock().expect("error lock poisoned") = None;
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, DownloadEntry>> {
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Token for the current download, to await inside the transfer loop.
-    pub fn cancel_token(&self) -> tokio_util::sync::CancellationToken {
-        self.cancel.lock().expect("cancel lock poisoned").clone()
+    pub fn permits(&self) -> Arc<tokio::sync::Semaphore> {
+        Arc::clone(&self.permits)
     }
 
-    pub fn cancel(&self) {
-        self.cancel.lock().expect("cancel lock poisoned").cancel();
+    pub fn is_pending(&self, id: &str) -> bool {
+        self.lock()
+            .get(id)
+            .is_some_and(|e| e.status != DownloadStatus::Error)
     }
 
-    pub fn set_progress(&self, pct: u8) {
-        *self.progress.lock().expect("progress lock poisoned") = pct;
+    /// Registers a queued download, returning its cancel token. A model already
+    /// queued or running keeps its existing entry and returns `None`.
+    pub fn enqueue(&self, id: &str) -> Option<tokio_util::sync::CancellationToken> {
+        let mut entries = self.lock();
+        if entries
+            .get(id)
+            .is_some_and(|e| e.status != DownloadStatus::Error)
+        {
+            return None;
+        }
+        let cancel = tokio_util::sync::CancellationToken::new();
+        entries.insert(
+            id.to_string(),
+            DownloadEntry {
+                status: DownloadStatus::Queued,
+                progress: 0,
+                error: None,
+                cancel: cancel.clone(),
+            },
+        );
+        Some(cancel)
     }
 
-    pub fn set_complete(&self) {
-        self.status.store(2, Ordering::SeqCst);
-        *self.progress.lock().expect("progress lock poisoned") = 100;
+    pub fn set_running(&self, id: &str) {
+        if let Some(e) = self.lock().get_mut(id) {
+            e.status = DownloadStatus::Running;
+        }
     }
 
-    pub fn set_error(&self, msg: String) {
-        self.status.store(3, Ordering::SeqCst);
-        *self.error.lock().expect("error lock poisoned") = Some(msg);
+    pub fn set_progress(&self, id: &str, pct: u8) {
+        if let Some(e) = self.lock().get_mut(id) {
+            e.progress = pct;
+        }
     }
 
-    pub fn set_cancelled(&self) {
-        self.status.store(4, Ordering::SeqCst);
-        *self.progress.lock().expect("progress lock poisoned") = 0;
+    pub fn set_error(&self, id: &str, msg: String) {
+        if let Some(e) = self.lock().get_mut(id) {
+            e.status = DownloadStatus::Error;
+            e.error = Some(msg);
+        }
+    }
+
+    pub fn remove(&self, id: &str) {
+        self.lock().remove(id);
+    }
+
+    /// Trips the cancel token, if this model has an entry to cancel.
+    pub fn cancel(&self, id: &str) -> bool {
+        match self.lock().get(id) {
+            Some(e) if e.status != DownloadStatus::Error => {
+                e.cancel.cancel();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Snapshot for the frontend: `(id, status, progress, error)` per entry.
+    pub fn snapshot(&self) -> Vec<(String, &'static str, u8, Option<String>)> {
+        self.lock()
+            .iter()
+            .map(|(id, e)| (id.clone(), e.status.as_str(), e.progress, e.error.clone()))
+            .collect()
     }
 }
 
@@ -135,9 +220,7 @@ pub struct AppState {
     /// Auth service — initialized after the DB is ready.
     auth_cell: OnceCell<AuthService>,
     pub app_data_dir: PathBuf,
-    pub hotkey_store_path: PathBuf,
-    pub dictation_hotkey_store_path: PathBuf,
-    pub dictation_commit_hotkey_store_path: PathBuf,
+    pub hotkeys_path: PathBuf,
     pub model_override_path: PathBuf,
     pub language_path: PathBuf,
     pub format_config_path: PathBuf,
@@ -167,7 +250,7 @@ pub struct AppState {
     /// Transcript produced by a streaming-native model, published when its
     /// worker finalizes. `None` means finalize decodes the buffer itself.
     pub streamed_text: Arc<std::sync::Mutex<Option<String>>>,
-    pub model_download: Arc<ModelDownloadState>,
+    pub downloads: Arc<Downloads>,
     /// In-memory dictionary cache — loaded at startup, mutated on add/delete.
     pub dict_cache: DictCache,
     /// Signalled by the capture thread when it has fully stopped and dropped the stream.
@@ -183,9 +266,7 @@ impl AppState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         app_data_dir: PathBuf,
-        hotkey_store_path: PathBuf,
-        dictation_hotkey_store_path: PathBuf,
-        dictation_commit_hotkey_store_path: PathBuf,
+        hotkeys_path: PathBuf,
         model_override_path: PathBuf,
         language_path: PathBuf,
         format_config_path: PathBuf,
@@ -196,9 +277,7 @@ impl AppState {
             db: OnceCell::new(),
             auth_cell: OnceCell::new(),
             app_data_dir,
-            hotkey_store_path,
-            dictation_hotkey_store_path,
-            dictation_commit_hotkey_store_path,
+            hotkeys_path,
             model_override_path,
             language_path,
             format_config_path,
@@ -219,7 +298,7 @@ impl AppState {
             engine_load: Arc::new(Mutex::new(())),
             stream_session: Arc::new(std::sync::Mutex::new(None)),
             streamed_text: Arc::new(std::sync::Mutex::new(None)),
-            model_download: Arc::new(ModelDownloadState::new()),
+            downloads: Arc::new(Downloads::new()),
             dict_cache: Arc::new(RwLock::new(HashMap::new())),
             capture_done: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
             capture_ready: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
@@ -321,49 +400,36 @@ impl AppState {
         self.auth_session.lock().await.user_id = None;
     }
 
-    pub fn save_hotkey(&self, hotkey: &str) -> std::io::Result<()> {
-        std::fs::write(&self.hotkey_store_path, hotkey)
+    fn read_hotkeys(&self) -> HashMap<String, String> {
+        std::fs::read_to_string(&self.hotkeys_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
     }
 
-    pub fn load_hotkey(&self) -> Option<String> {
-        std::fs::read_to_string(&self.hotkey_store_path)
-            .ok()
+    fn write_hotkeys(&self, map: &HashMap<String, String>) -> std::io::Result<()> {
+        let json = serde_json::to_string_pretty(map)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(&self.hotkeys_path, json)
+    }
+
+    pub fn save_hotkey(&self, kind: HotkeyKind, hotkey: &str) -> std::io::Result<()> {
+        let mut map = self.read_hotkeys();
+        map.insert(kind.as_str().to_string(), hotkey.to_string());
+        self.write_hotkeys(&map)
+    }
+
+    pub fn load_hotkey(&self, kind: HotkeyKind) -> Option<String> {
+        self.read_hotkeys()
+            .get(kind.as_str())
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
     }
 
-    pub fn delete_hotkey(&self) {
-        let _ = std::fs::remove_file(&self.hotkey_store_path);
-    }
-
-    pub fn save_dictation_hotkey(&self, hotkey: &str) -> std::io::Result<()> {
-        std::fs::write(&self.dictation_hotkey_store_path, hotkey)
-    }
-
-    pub fn load_dictation_hotkey(&self) -> Option<String> {
-        std::fs::read_to_string(&self.dictation_hotkey_store_path)
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    }
-
-    pub fn delete_dictation_hotkey(&self) {
-        let _ = std::fs::remove_file(&self.dictation_hotkey_store_path);
-    }
-
-    pub fn save_dictation_commit_hotkey(&self, hotkey: &str) -> std::io::Result<()> {
-        std::fs::write(&self.dictation_commit_hotkey_store_path, hotkey)
-    }
-
-    pub fn load_dictation_commit_hotkey(&self) -> Option<String> {
-        std::fs::read_to_string(&self.dictation_commit_hotkey_store_path)
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    }
-
-    pub fn delete_dictation_commit_hotkey(&self) {
-        let _ = std::fs::remove_file(&self.dictation_commit_hotkey_store_path);
+    pub fn delete_hotkey(&self, kind: HotkeyKind) {
+        let mut map = self.read_hotkeys();
+        map.remove(kind.as_str());
+        let _ = self.write_hotkeys(&map);
     }
 
     pub fn save_model_override(&self, variant: &str) -> std::io::Result<()> {
@@ -498,3 +564,7 @@ impl AppState {
         self.set_recording_mode(RecordingMode::PushToTalk);
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/downloads.rs"]
+mod downloads_tests;

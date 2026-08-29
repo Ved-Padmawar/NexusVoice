@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import {
-  AlertCircle, CheckCircle2, HardDrive, MemoryStick, Monitor,
-  RefreshCw, Download, ArrowUpCircle, Cpu, Shield, Globe,
+  AlertCircle, CheckCircle2, HardDrive, MemoryStick, Mic, Monitor,
+  RefreshCw, Download, ArrowUpCircle, Cpu, Shield,
 } from 'lucide-react'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { Button } from '@/components/ui/button'
@@ -59,18 +59,33 @@ export function AboutTab() {
   return (
     <div className="flex flex-col gap-4">
 
-      {/* Info pills */}
-      <div className="flex gap-2">
-        {[
-          { Icon: Cpu,    label: 'whisper-rs (ggml)' },
-          { Icon: Globe,  label: 'English' },
-          { Icon: Shield, label: '100% on-device' },
-        ].map(({ Icon, label }) => (
-          <div key={label} className="flex items-center gap-1.5 px-3 py-1.5 rounded-(--r-md) bg-(--surface) border border-(--border-soft) text-[11px] text-(--fg-2)">
-            <Icon size={11} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
-            {label}
+      {/* Version hero, then what the app is. */}
+      <div className="flex items-center gap-3.5 rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
+        <span className="grid size-11 shrink-0 place-items-center rounded-(--r-lg) bg-(--accent-soft) text-(--accent)">
+          <Mic size={20} strokeWidth={1.9} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span className="text-[16px] font-bold tracking-[-0.025em] text-(--fg)">NexusVoice</span>
+            <span className="text-[12px] font-medium tabular-nums text-muted-foreground">
+              v{__APP_VERSION__}
+            </span>
           </div>
-        ))}
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Local speech to text. Audio never leaves this machine.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {[
+            { Icon: Cpu, label: 'transcribe-cpp' },
+            { Icon: Shield, label: '100% on-device' },
+          ].map(({ Icon, label }) => (
+            <span key={label} className="flex items-center gap-1.5 rounded-(--r-md) border border-(--border-soft) bg-(--surface) px-2.5 py-1.5 text-[11px] text-(--fg-2)">
+              <Icon size={11} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
+              {label}
+            </span>
+          ))}
+        </div>
       </div>
 
       {/* System */}
@@ -106,10 +121,12 @@ export function AboutTab() {
       </div>
 
       {/* Updates */}
-      <div className="flex flex-col gap-3 pt-2 border-t border-(--border-soft)">
-        <p className="text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em]">Updates</p>
+      <div className="overflow-hidden rounded-(--r-lg) border border-(--border-soft) bg-(--panel)">
+        <div className="px-4 py-2.5 border-b border-(--border-soft) text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          Updates
+        </div>
 
-        <div className={`flex items-center justify-between gap-4 px-4 py-3 rounded-(--r-lg) bg-(--surface) border ${
+        <div className={`m-3 flex items-center justify-between gap-4 px-3 py-2.5 rounded-(--r-md) bg-(--surface) border ${
           updateStatus === 'available' || updateStatus === 'downloading' || updateStatus === 'checking'
             ? 'border-(--accent)'
             : updateStatus === 'ready'

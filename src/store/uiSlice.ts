@@ -3,7 +3,7 @@ import type { AppState } from './useAppStore'
 import type { ThemeName } from './useAppStore'
 import type { SettingsTab } from '../lib/routes'
 
-export type PillTheme = 'dark' | 'steel' | 'light' | 'teal'
+export type PillTheme = 'steel' | 'midnight' | 'canvas' | 'dawn'
 
 export type UiSlice = {
   theme: ThemeName
@@ -20,7 +20,7 @@ export type UiSlice = {
 
 export const createUiSlice: StateCreator<AppState, [], [], UiSlice> = (set) => ({
   theme: 'abyss',
-  pillTheme: 'dark',
+  pillTheme: 'steel',
   activeRoute: '/',
   activeSettingsTab: 'appearance',
   modelChosen: false,

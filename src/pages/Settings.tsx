@@ -3,15 +3,23 @@ import { useLocation } from 'react-router'
 import { invoke } from '@tauri-apps/api/core'
 import { motion } from 'framer-motion'
 import { COMMANDS } from '../lib/commands'
-import { Palette, Info, Settings2, FolderOpen, Keyboard, Mic } from 'lucide-react'
+import { Palette, Info, FolderOpen, SlidersHorizontal, Mic } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { SETTINGS_TABS, type SettingsTab } from '../lib/routes'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { AppearanceTab } from './settings/AppearanceTab'
 import { AboutTab } from './settings/AboutTab'
-import { HotkeySection } from './settings/HotkeySection'
+import { GeneralTab } from './settings/GeneralTab'
 import { VoiceTab } from './settings/VoiceTab'
 import { PillTab } from './settings/PillTab'
+
+const SUBTITLE: Record<SettingsTab, string> = {
+  appearance: 'Themes for the window and the recording pill',
+  general: 'Input device, dictation language, formatting and hotkeys',
+  voice: 'Transcription model',
+  about: 'Version, updates and system information',
+}
+
 export function Settings() {
   const { activeSettingsTab, setActiveSettingsTab } = useAppStore()
   const location = useLocation()
@@ -25,39 +33,37 @@ export function Settings() {
     }
   }, [setActiveSettingsTab])
 
-  // Normalize stale persisted values ('pill' → 'shortcuts', 'general' → 'appearance').
+  // Normalize stale persisted values ('pill' → 'appearance', where the pill
+  // themes now live; 'shortcuts' → 'general', which absorbed them).
   const tab: SettingsTab =
     activeSettingsTab === ('pill' as SettingsTab)
-      ? 'shortcuts'
-      : activeSettingsTab === ('general' as SettingsTab)
-        ? 'appearance'
+      ? 'appearance'
+      : activeSettingsTab === ('shortcuts' as SettingsTab)
+        ? 'general'
         : activeSettingsTab
   const setTab = (v: string) => setActiveSettingsTab(v as SettingsTab)
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-8 pt-7 pb-4">
-      <div className="flex items-center justify-between gap-4 pb-5 mb-4 border-b border-(--border-soft) shrink-0">
-        <div className="flex items-center gap-3.5">
-          <div className="w-9 h-9 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-            <Settings2 size={18} strokeWidth={2} />
-          </div>
-          <div>
-            <h1 className="text-[18px] font-bold tracking-tight text-(--fg) leading-[1.1] m-0">Settings</h1>
-            <p className="text-[12px] text-muted-foreground mt-0.75 m-0">Configure hotkeys and appearance.</p>
-          </div>
-        </div>
+    <div className="flex flex-col h-full overflow-hidden px-8 pt-8 pb-4">
+      {/* Title and subtitle share one baseline. A screen this dense cannot
+          afford an icon tile and two stacked lines just to name itself. */}
+      <div className="flex shrink-0 items-baseline gap-2.5 pb-4">
+        <h1 className="shrink-0 text-[16px] font-bold tracking-[-0.03em] text-(--fg) m-0">Settings</h1>
+        <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground m-0">
+          {SUBTITLE[tab]}
+        </p>
       </div>
 
       <Tabs value={tab} onValueChange={setTab} className="flex flex-col flex-1 min-h-0 gap-0!">
-        <div className="flex items-center justify-between mb-4 shrink-0">
+        <div className="flex items-center justify-between mb-3 shrink-0">
           <TabsList className="w-fit!">
             <TabsTrigger value="appearance" className="gap-1.25! text-[12px]!">
               <Palette size={12} strokeWidth={1.75} />
               Appearance
             </TabsTrigger>
-            <TabsTrigger value="shortcuts" className="gap-1.25! text-[12px]!">
-              <Keyboard size={12} strokeWidth={1.75} />
-              Shortcuts
+            <TabsTrigger value="general" className="gap-1.25! text-[12px]!">
+              <SlidersHorizontal size={12} strokeWidth={1.75} />
+              General
             </TabsTrigger>
             <TabsTrigger value="voice" className="gap-1.25! text-[12px]!">
               <Mic size={12} strokeWidth={1.75} />
@@ -88,12 +94,11 @@ export function Settings() {
 
         <TabsContent value="appearance" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-6 mt-0! pr-1">
           <AppearanceTab />
-          <div className="h-px bg-(--border-soft)" />
           <PillTab />
         </TabsContent>
 
-        <TabsContent value="shortcuts" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-5 mt-0! pr-1">
-          <HotkeySection />
+        <TabsContent value="general" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-5 mt-0! pr-1">
+          <GeneralTab />
         </TabsContent>
 
         <TabsContent value="voice" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-3 mt-0! pr-1">

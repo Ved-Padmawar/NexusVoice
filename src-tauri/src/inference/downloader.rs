@@ -14,10 +14,16 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
 use crate::inference::catalog::ModelEntry;
-use crate::state::ModelDownloadState;
+use crate::state::Downloads;
 
 /// Error string the caller matches on to detect a user-initiated cancel.
 pub const CANCELLED: &str = "download_cancelled";
+
+#[derive(Clone, serde::Serialize)]
+struct DownloadProgress<'a> {
+    id: &'a str,
+    pct: u8,
+}
 
 /// Attempts per file before giving up; each retry resumes rather than restarts.
 const MAX_ATTEMPTS: u32 = 4;
@@ -37,14 +43,14 @@ pub async fn download_model(
     models_dir: &Path,
     entry: &ModelEntry,
     app: &AppHandle,
-    dl_state: &ModelDownloadState,
+    downloads: &Downloads,
+    cancel: CancellationToken,
 ) -> Result<(), String> {
     let dest = models_dir.join(&entry.filename);
     if dest.exists() {
         return Ok(());
     }
 
-    let cancel = dl_state.cancel_token();
     let part = dest.with_extension("part");
 
     for attempt in 1..=MAX_ATTEMPTS {
@@ -52,7 +58,7 @@ pub async fn download_model(
             return Err(CANCELLED.to_string());
         }
 
-        match transfer(&entry.url, &part, app, dl_state, &cancel).await {
+        match transfer(&entry.id, &entry.url, &part, app, downloads, &cancel).await {
             Ok(()) => break,
             // Keep the .part file: the bytes let a later attempt resume, and
             // startup sweeps whatever is left behind.
@@ -83,10 +89,11 @@ pub async fn download_model(
 
 /// Stream `url` into `part`, resuming from whatever is already there.
 async fn transfer(
+    id: &str,
     url: &str,
     part: &Path,
     app: &AppHandle,
-    dl_state: &ModelDownloadState,
+    downloads: &Downloads,
     cancel: &CancellationToken,
 ) -> Result<(), String> {
     let client = reqwest::Client::builder()
@@ -154,8 +161,8 @@ async fn transfer(
         let pct = pct_of(written, total);
         if pct != last_pct {
             last_pct = pct;
-            dl_state.set_progress(pct);
-            let _ = app.emit("model-download-progress", pct);
+            downloads.set_progress(id, pct);
+            let _ = app.emit("model-download-progress", DownloadProgress { id, pct });
         }
     }
 

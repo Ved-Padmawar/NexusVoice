@@ -1,8 +1,7 @@
 //! Model & inference-config commands: catalog listing, downloaded-model
-//! management, download retry/cancel, model override, dictation language, and
+//! management, download start/cancel, model override, dictation language, and
 //! hardware profile.
 
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -371,13 +370,31 @@ pub async fn get_hardware_profile() -> Result<HardwareProfileResponse, ApiError>
 // Model download status / control
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Serialize)]
+struct DownloadEvent {
+    id: String,
+}
+
+#[derive(Clone, Serialize)]
+struct DownloadErrorEvent {
+    id: String,
+    error: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActiveDownload {
+    pub id: String,
+    pub status: String,
+    pub progress: u8,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfoResponse {
     pub downloaded: bool,
     pub downloading: bool,
-    pub download_progress: u8,
-    pub download_error: Option<String>,
     pub model_name: String,
 }
 
@@ -386,83 +403,70 @@ pub async fn get_model_info(state: State<'_, AppState>) -> Result<ModelInfoRespo
     use crate::inference::provider::{detect_backend, select_model};
 
     let entry = select_model(detect_backend(), state.load_model_override().as_deref());
-    let model_path = state.models_dir.join(&entry.filename);
-
-    let dl = &state.model_download;
-    let status = dl.status.load(Ordering::SeqCst);
-    let downloading = status == 1;
-    // File on disk is the truth for the selected model; download status/progress
-    // can be stale from a previous model, so only trust progress while downloading.
-    let on_disk = model_path.exists();
-    let progress = if downloading {
-        *dl.progress.lock().expect("progress lock poisoned")
-    } else if on_disk {
-        100
-    } else {
-        0
-    };
-    let error = dl.error.lock().expect("error lock poisoned").clone();
 
     Ok(ModelInfoResponse {
-        downloaded: on_disk,
-        downloading,
-        download_progress: progress,
-        download_error: error,
+        downloaded: state.models_dir.join(&entry.filename).exists(),
+        downloading: state.downloads.is_pending(&entry.id),
         model_name: entry.display_name.clone(),
     })
 }
 
+/// Fetch a model by id. Never changes the active model, so a failed or
+/// cancelled download can't leave the override pointing at a missing file.
+/// Beyond `MAX_CONCURRENT_DOWNLOADS` it waits in `Queued`.
 #[tauri::command]
-pub async fn retry_model_download(
+pub async fn start_model_download(
+    id: String,
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<bool, ApiError> {
-    use crate::inference::provider::{detect_backend, select_model};
+    let entry = crate::inference::catalog::all()
+        .iter()
+        .find(|m| m.id == id)
+        .ok_or_else(|| ApiError::new("unknown_model", "no such model in the catalog"))?
+        .clone();
 
-    let dl = &state.model_download;
-    let status = dl.status.load(Ordering::SeqCst);
-
-    if status == 1 {
-        return Err(ApiError::new(
-            "already_downloading",
-            "model download already in progress",
-        ));
-    }
-
-    let entry = select_model(detect_backend(), state.load_model_override().as_deref());
-    let model_path = state.models_dir.join(&entry.filename);
-
-    if model_path.exists() {
-        dl.set_complete();
+    if state.models_dir.join(&entry.filename).exists() {
         return Ok(true);
     }
 
-    let dl_state = Arc::clone(&state.model_download);
+    let Some(cancel) = state.downloads.enqueue(&id) else {
+        return Ok(false);
+    };
+
+    let downloads = Arc::clone(&state.downloads);
     let models_dir = state.models_dir.clone();
-    dl_state.set_downloading();
-    let _ = app.emit("model-download-start", ());
+    let permits = state.downloads.permits();
+    let _ = app.emit("model-download-start", DownloadEvent { id: id.clone() });
 
     tauri::async_runtime::spawn(async move {
         use crate::inference::downloader::{download_model, CANCELLED};
 
-        match download_model(&models_dir, entry, &app, &dl_state).await {
+        let permit = tokio::select! {
+            p = permits.acquire_owned() => p,
+            () = cancel.cancelled() => {
+                downloads.remove(&id);
+                let _ = app.emit("model-download-cancelled", DownloadEvent { id });
+                return;
+            }
+        };
+        let Ok(_permit) = permit else { return };
+
+        downloads.set_running(&id);
+        let _ = app.emit("model-download-running", DownloadEvent { id: id.clone() });
+
+        match download_model(&models_dir, &entry, &app, &downloads, cancel).await {
             Ok(()) => {
-                dl_state.set_complete();
-                // Drop any fallback engine cached while this was downloading.
-                {
-                    use tauri::Manager;
-                    *app.state::<AppState>().engine.lock().await = None;
-                }
-                let _ = app.emit("model-download-complete", ());
-                warm_engine_in_background(&app);
+                downloads.remove(&id);
+                let _ = app.emit("model-download-complete", DownloadEvent { id });
             }
             Err(e) if e == CANCELLED => {
-                dl_state.set_cancelled();
-                let _ = app.emit("model-download-cancelled", ());
+                downloads.remove(&id);
+                let _ = app.emit("model-download-cancelled", DownloadEvent { id });
             }
             Err(e) => {
-                dl_state.set_error(e.clone());
-                let _ = app.emit("model-download-error", e);
+                downloads.set_error(&id, e.clone());
+                let _ = app.emit("model-download-error", DownloadErrorEvent { id, error: e });
             }
         }
     });
@@ -470,19 +474,27 @@ pub async fn retry_model_download(
     Ok(true)
 }
 
-/// Cancel an in-progress model download. Trips the cancellation token the
-/// transfer loop is awaiting, so it stops without finishing the current chunk.
-///
-/// Returns whether the cancel landed. One pressed in the last moments of a
-/// transfer arrives after the file is published — the download stands, and the
-/// caller must not undo the model switch that just happened.
+/// Cancel a queued or running download. Returns whether the cancel landed — one
+/// pressed in the last moments of a transfer arrives after the file is
+/// published, and the download stands.
 #[tauri::command]
-pub fn cancel_model_download(state: State<'_, AppState>) -> bool {
-    let dl = &state.model_download;
-    if dl.status.load(Ordering::SeqCst) == 1 {
-        dl.cancel();
-        true
-    } else {
-        false
-    }
+pub fn cancel_model_download(id: String, state: State<'_, AppState>) -> bool {
+    state.downloads.cancel(&id)
+}
+
+/// Every download queued, running, or holding an error, so the UI can rehydrate
+/// after a reload without waiting for the next event.
+#[tauri::command]
+pub fn get_active_downloads(state: State<'_, AppState>) -> Vec<ActiveDownload> {
+    state
+        .downloads
+        .snapshot()
+        .into_iter()
+        .map(|(id, status, progress, error)| ActiveDownload {
+            id,
+            status: status.to_string(),
+            progress,
+            error,
+        })
+        .collect()
 }

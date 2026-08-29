@@ -1,7 +1,7 @@
 import { memo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { emit } from '@tauri-apps/api/event'
-import { Check } from 'lucide-react'
+import { Check, Radio } from 'lucide-react'
 import { useAppStore } from '../../store/useAppStore'
 import { EVENTS } from '../../lib/events'
 import type { PillTheme } from '../../store/uiSlice'
@@ -16,10 +16,10 @@ type PillThemeDef = {
 }
 
 const PILL_THEMES: PillThemeDef[] = [
-  { id: 'dark',  label: 'Dark',  bg: '#0f0f18', border: 'rgba(255,255,255,0.12)',  accent: '#78a2f4', brand: 'rgba(255,255,255,0.82)'  },
-  { id: 'steel', label: 'Steel', bg: '#141820', border: 'rgba(148,168,200,0.15)', accent: '#b8cce0', brand: 'rgba(200,215,235,0.82)'  },
-  { id: 'light', label: 'Light', bg: '#ffffff', border: 'rgba(0,0,0,0.10)',       accent: '#3a5bd9', brand: 'rgba(20,20,45,0.82)'     },
-  { id: 'teal',  label: 'Teal',  bg: '#0e1a1d', border: 'rgba(91,184,196,0.14)',  accent: '#5bb8c4', brand: 'rgba(190,225,230,0.82)'  },
+  { id: 'steel',    label: 'Steel',    bg: '#141820', border: 'rgba(148,168,200,0.15)', accent: '#b8cce0', brand: 'rgba(200,215,235,0.82)' },
+  { id: 'midnight', label: 'Midnight', bg: '#0a0d14', border: 'rgba(26,209,209,0.16)',  accent: '#1ad1d1', brand: 'rgba(236,238,244,0.82)' },
+  { id: 'canvas',   label: 'Canvas',   bg: '#ffffff', border: 'rgba(0,0,0,0.10)',       accent: '#3a5bd9', brand: 'rgba(20,20,45,0.82)'    },
+  { id: 'dawn',     label: 'Dawn',     bg: '#fff6f4', border: 'rgba(120,60,40,0.14)',   accent: '#e43800', brand: 'rgba(37,22,20,0.82)'    },
 ]
 
 function MiniPill({ theme }: { theme: PillThemeDef }) {
@@ -41,10 +41,10 @@ function MiniPill({ theme }: { theme: PillThemeDef }) {
       }}
     >
       <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke={theme.accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
-        <path d="M19 10a7 7 0 0 1-14 0"/>
-        <line x1="12" y1="19" x2="12" y2="22"/>
-        <line x1="9" y1="22" x2="15" y2="22"/>
+        <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z" />
+        <path d="M19 10a7 7 0 0 1-14 0" />
+        <line x1="12" y1="19" x2="12" y2="22" />
+        <line x1="9" y1="22" x2="15" y2="22" />
       </svg>
       <span style={{ fontSize: 8, fontWeight: 600, color: theme.brand, letterSpacing: '0.01em', whiteSpace: 'nowrap' }}>
         NexusVoice
@@ -53,8 +53,57 @@ function MiniPill({ theme }: { theme: PillThemeDef }) {
   )
 }
 
+/** The swatch is a small pill: the shape is most of what you are choosing. */
+function PillSwatch({ t, active, onPick }: { t: PillThemeDef; active: boolean; onPick: () => void }) {
+  return (
+    <motion.button
+      type="button"
+      onClick={onPick}
+      aria-pressed={active}
+      className="flex items-center gap-2.5 rounded-(--r-md) border px-2.5 py-2 text-left cursor-pointer"
+      initial={false}
+      animate={{
+        borderColor: active ? 'var(--accent)' : 'var(--border-soft)',
+        backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface)',
+      }}
+      whileHover={active ? undefined : { borderColor: 'var(--border)', backgroundColor: 'var(--surface-hover)' }}
+      whileTap={{ scale: 0.99 }}
+      transition={{ duration: 0.15 }}
+    >
+      {/* Same strip as the window swatches. The translucent values sit on the
+          pill's own ground, which is how they actually appear. */}
+      <span className="flex shrink-0 overflow-hidden rounded-(--r-xs) border border-(--border-soft)">
+        {[t.bg, t.border, t.brand, t.accent].map((c, i) => (
+          <span
+            key={i}
+            className="h-6 w-[13px]"
+            style={{ background: `linear-gradient(${c}, ${c}), ${t.bg}` }}
+          />
+        ))}
+      </span>
+
+      <motion.span
+        className="min-w-0 flex-1 truncate text-[12px] font-semibold tracking-[-0.01em]"
+        initial={false}
+        animate={{ color: active ? 'var(--accent)' : 'var(--fg)' }}
+        transition={{ duration: 0.2 }}
+      >
+        {t.label}
+      </motion.span>
+
+      {active && (
+        <span className="grid size-4 shrink-0 place-items-center rounded-full bg-(--accent)">
+          <Check size={9} strokeWidth={3.5} className="text-(--accent-fg)" />
+        </span>
+      )}
+    </motion.button>
+  )
+}
+
+/** The pill floats over other apps, so it is themed separately. */
 export const PillTab = memo(function PillTab() {
   const { pillTheme, setPillTheme } = useAppStore()
+  const current = PILL_THEMES.find((t) => t.id === pillTheme) ?? PILL_THEMES[0]
 
   const handleSelect = (id: PillTheme) => {
     setPillTheme(id)
@@ -62,68 +111,40 @@ export const PillTab = memo(function PillTab() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      <div>
-        <p className="text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em] mb-1">Pill appearance</p>
-        <p className="text-[12px] text-muted-foreground mb-4">Choose a color theme for the floating pill overlay.</p>
+    <div className="flex gap-4 rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
+      <div className="flex shrink-0 flex-col gap-2.5">
+        {/* Backdrop mixed from the pill's own ground, so it has something to
+            sit off without a pattern competing with it. */}
+        <div
+          className="grid h-21.5 w-55 place-items-center rounded-(--r-md) border border-(--border-soft) shadow-(--shadow-sm)"
+          style={{
+            background: current.bg === '#ffffff'
+              ? '#e8eaf0'
+              : `color-mix(in srgb, ${current.bg} 60%, #111)`,
+          }}
+        >
+          <MiniPill theme={current} />
+        </div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-[13px] font-bold tracking-[-0.02em] text-(--fg)">{current.label}</span>
+          <span className="min-w-0 truncate text-[11px] text-muted-foreground">shown while you dictate</span>
+        </div>
+      </div>
 
-        <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(4, minmax(100px, 160px))' }}>
-          {PILL_THEMES.map((t) => {
-            const active = pillTheme === t.id
-            return (
-              <motion.button
-                key={t.id}
-                type="button"
-                className="flex flex-col p-0 rounded-(--r-md) border-[1.5px] cursor-pointer text-left overflow-hidden"
-                onClick={() => handleSelect(t.id)}
-                initial={false}
-                animate={{
-                  borderColor: active ? 'var(--accent)' : 'var(--border-soft)',
-                  boxShadow: active ? '0 0 0 1px var(--accent)' : '0 0 0 0px transparent',
-                  backgroundColor: 'var(--surface)',
-                }}
-                whileHover={{ y: -1, boxShadow: active ? '0 0 0 1px var(--accent)' : 'var(--shadow-md)' }}
-                whileTap={{ scale: 0.99 }}
-                transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
-              >
-                {/* Preview area */}
-                <div
-                  className="w-full flex flex-col items-center justify-center gap-2 py-4 px-3"
-                  style={{
-                    background: t.bg === '#ffffff' ? '#e8eaf0' : `color-mix(in srgb, ${t.bg} 60%, #111)`,
-                    borderBottom: '1px solid var(--border-soft)',
-                    minHeight: 80,
-                  }}
-                >
-                  <MiniPill theme={t} />
-                </div>
-
-                {/* Label row */}
-                <div className="flex items-center justify-between px-1.5 py-1">
-                  <motion.span
-                    className="text-[10px] font-semibold tracking-[-0.01em]"
-                    initial={false}
-                    animate={{ color: active ? 'var(--accent)' : 'var(--fg)' }}
-                    transition={{ duration: 0.2 }}
-                  >
-                    {t.label}
-                  </motion.span>
-                  <AnimatePresence>
-                    {active && (
-                      <motion.span
-                        initial={{ scale: 0, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0, opacity: 0 }}
-                        transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
-                      >
-                        <Check size={8} strokeWidth={3.5} className="text-(--accent) shrink-0" />
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </div>
-              </motion.button>
-            )
-          })}
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          <Radio size={11} />
+          Recording pill
+        </span>
+        <div className="grid grid-cols-2 gap-1.5">
+          {PILL_THEMES.map((t) => (
+            <PillSwatch
+              key={t.id}
+              t={t}
+              active={pillTheme === t.id}
+              onPick={() => handleSelect(t.id)}
+            />
+          ))}
         </div>
       </div>
     </div>

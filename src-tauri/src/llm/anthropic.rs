@@ -53,9 +53,10 @@ pub async fn send(
 ) -> Result<String, String> {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     let client = CLIENT.get_or_init(reqwest::Client::new);
+    let active = cfg.active();
 
     let body = Request {
-        model: cfg.model.trim(),
+        model: active.model.trim(),
         system,
         messages: vec![Message {
             role: "user",
@@ -67,7 +68,7 @@ pub async fn send(
 
     let resp = client
         .post(ENDPOINT)
-        .header("x-api-key", cfg.api_key.trim())
+        .header("x-api-key", active.api_key.trim())
         .header("anthropic-version", API_VERSION)
         .json(&body)
         .timeout(timeout)

@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef, useEffect, memo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { motion } from 'framer-motion'
 import { COMMANDS } from '../../lib/commands'
 import { toast } from 'sonner'
 import { Keyboard, Mic, Save, X, Pencil } from 'lucide-react'
@@ -180,7 +179,7 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
   return (
     <div
       ref={hotkeyRef}
-      className={`flex items-center gap-3 px-3 py-2.5 rounded-(--r-md) bg-(--surface) border transition-[border-color] duration-(--t-fast) ${editing ? 'border-(--accent)' : 'border-(--border-soft)'}`}
+      className={`nv-edge flex items-center gap-3 px-3 py-2.5 rounded-(--r-md) bg-(--surface) ${editing ? '[--edge:color-mix(in_srgb,var(--accent)_55%,transparent)]' : '[--edge:var(--border-soft)]'}`}
     >
       {/* Icon */}
       <div className={`flex items-center justify-center w-7 h-7 rounded-(--r-sm) shrink-0 ${currentHotkey ? 'bg-(--accent-soft) text-(--accent)' : 'bg-(--bg-alt) text-muted-foreground'}`}>
@@ -195,7 +194,7 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
 
       {/* Recorder / key display */}
       <div
-        className={`flex items-center justify-center gap-1.5 px-2.5 h-8 min-w-30 rounded-(--r-sm) border cursor-pointer transition-[border-color,background] duration-(--t-fast) shrink-0 ${editing ? 'border-(--accent) bg-(--accent-soft)' : 'border-(--border-soft) bg-(--bg-alt)'}`}
+        className={`nv-edge flex items-center justify-center gap-1.5 px-2.5 h-8 min-w-30 rounded-(--r-sm) cursor-pointer shrink-0 ${editing ? '[--edge:color-mix(in_srgb,var(--accent)_55%,transparent)] bg-(--accent-soft)' : '[--edge:var(--border-soft)] bg-(--bg-alt)'}`}
         onClick={startListening}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') startListening() }}
         role="button"
@@ -227,33 +226,27 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
           </>
         ) : currentHotkey ? (
           <>
-            <motion.button
+            <button
               type="button"
               aria-label={`Change ${config.title.toLowerCase()}`}
               title="Change"
-              className="inline-flex items-center justify-center w-7 h-7 rounded-(--r-sm) border border-(--border-soft) bg-transparent cursor-pointer text-(--fg-2)"
+              className="inline-flex items-center justify-center w-7 h-7 rounded-(--r-sm) bg-transparent border-none cursor-pointer text-(--fg-2) transition-colors duration-(--t-fast) hover:bg-(--accent-soft) hover:text-(--accent)"
               onClick={startListening}
-              whileHover={{ backgroundColor: 'var(--accent-soft)', borderColor: 'var(--accent)', color: 'var(--accent)' }}
-              whileTap={{ scale: 0.94 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
             >
               <Pencil size={12} strokeWidth={2} />
-            </motion.button>
-            <motion.button
+            </button>
+            <button
               type="button"
               aria-label={`Remove ${config.title.toLowerCase()}`}
               title="Remove"
-              className="inline-flex items-center justify-center w-7 h-7 rounded-(--r-sm) border border-(--border-soft) bg-transparent cursor-pointer text-(--fg-2)"
+              className="inline-flex items-center justify-center w-7 h-7 rounded-(--r-sm) bg-transparent border-none cursor-pointer text-(--fg-2) transition-colors duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-(--danger)"
               onClick={handleRemoveHotkey}
-              whileHover={{ backgroundColor: 'color-mix(in srgb, var(--danger) 10%, transparent)', borderColor: 'var(--danger)', color: 'var(--danger)' }}
-              whileTap={{ scale: 0.94 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
             >
               <X size={12} strokeWidth={2} />
-            </motion.button>
+            </button>
           </>
         ) : (
-          <span className="text-[10px] font-semibold text-muted-foreground px-2 py-1 rounded-(--r-sm) bg-(--bg-alt) border border-(--border-soft)">
+          <span className="nv-edge [--edge:var(--border-soft)] text-[10px] font-semibold text-muted-foreground px-2 py-1 rounded-(--r-sm) bg-(--bg-alt)">
             Not set
           </span>
         )}

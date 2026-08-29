@@ -152,9 +152,7 @@ fn main() {
             let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
             std::fs::create_dir_all(&app_data_dir)?;
 
-            let hotkey_store_path = app_data_dir.join("hotkey");
-            let dictation_hotkey_store_path = app_data_dir.join("dictation_hotkey");
-            let dictation_commit_hotkey_store_path = app_data_dir.join("dictation_commit_hotkey");
+            let hotkeys_path = app_data_dir.join("hotkeys.json");
             let model_override_path = app_data_dir.join("model_override");
             let language_path = app_data_dir.join("language");
             let format_config_path = app_data_dir.join("format_config.json");
@@ -169,9 +167,7 @@ fn main() {
             // DB + auth are initialized asynchronously after setup returns.
             let app_state = state::AppState::new(
                 app_data_dir,
-                hotkey_store_path,
-                dictation_hotkey_store_path,
-                dictation_commit_hotkey_store_path,
+                hotkeys_path,
                 model_override_path,
                 language_path,
                 format_config_path,
@@ -452,7 +448,8 @@ fn main() {
             commands::unregister_dictation_commit_hotkey,
             commands::get_registered_hotkeys,
             commands::get_model_info,
-            commands::retry_model_download,
+            commands::start_model_download,
+            commands::get_active_downloads,
             commands::cancel_model_download,
             commands::set_model_override,
             commands::get_language_options,

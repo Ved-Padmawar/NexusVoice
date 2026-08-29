@@ -2,7 +2,7 @@
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::state::AppState;
+use crate::state::{AppState, HotkeyKind};
 
 use super::error::ApiError;
 
@@ -41,7 +41,7 @@ pub async fn register_hotkey(
         let _ = register_shortcuts(&app, prev_ptt, dictation_hotkey, dictation_commit_hotkey);
         return Err(e);
     }
-    let _ = state.save_hotkey(&hotkey);
+    let _ = state.save_hotkey(HotkeyKind::PushToTalk, &hotkey);
     *state.current_hotkey.lock().await = Some(hotkey);
 
     Ok(true)
@@ -62,7 +62,7 @@ pub async fn unregister_hotkey(app: AppHandle, state: State<'_, AppState>) -> Re
         return Err(e);
     }
 
-    state.delete_hotkey();
+    state.delete_hotkey(HotkeyKind::PushToTalk);
     *state.current_hotkey.lock().await = None;
 
     Ok(())
@@ -92,7 +92,7 @@ pub async fn register_dictation_hotkey(
         let _ = register_shortcuts(&app, ptt_hotkey, prev_dictation, dictation_commit_hotkey);
         return Err(e);
     }
-    let _ = state.save_dictation_hotkey(&hotkey);
+    let _ = state.save_hotkey(HotkeyKind::Dictation, &hotkey);
     *state.current_dictation_hotkey.lock().await = Some(hotkey);
 
     Ok(true)
@@ -116,7 +116,7 @@ pub async fn unregister_dictation_hotkey(
         return Err(e);
     }
 
-    state.delete_dictation_hotkey();
+    state.delete_hotkey(HotkeyKind::Dictation);
     *state.current_dictation_hotkey.lock().await = None;
 
     Ok(())
@@ -146,7 +146,7 @@ pub async fn register_dictation_commit_hotkey(
         let _ = register_shortcuts(&app, ptt_hotkey, dictation_hotkey, prev_commit);
         return Err(e);
     }
-    let _ = state.save_dictation_commit_hotkey(&hotkey);
+    let _ = state.save_hotkey(HotkeyKind::DictationCommit, &hotkey);
     *state.current_dictation_commit_hotkey.lock().await = Some(hotkey);
 
     Ok(true)
@@ -165,7 +165,7 @@ pub async fn unregister_dictation_commit_hotkey(
         return Err(e);
     }
 
-    state.delete_dictation_commit_hotkey();
+    state.delete_hotkey(HotkeyKind::DictationCommit);
     *state.current_dictation_commit_hotkey.lock().await = None;
 
     Ok(())
@@ -180,19 +180,19 @@ pub async fn get_registered_hotkeys(
         .lock()
         .await
         .clone()
-        .or_else(|| state.load_hotkey());
+        .or_else(|| state.load_hotkey(HotkeyKind::PushToTalk));
     let dictation_hotkey = state
         .current_dictation_hotkey
         .lock()
         .await
         .clone()
-        .or_else(|| state.load_dictation_hotkey());
+        .or_else(|| state.load_hotkey(HotkeyKind::Dictation));
     let dictation_commit_hotkey = state
         .current_dictation_commit_hotkey
         .lock()
         .await
         .clone()
-        .or_else(|| state.load_dictation_commit_hotkey());
+        .or_else(|| state.load_hotkey(HotkeyKind::DictationCommit));
 
     let mut ptt = Vec::new();
     if let Some(hotkey) = ptt_hotkey {
@@ -215,9 +215,9 @@ pub async fn get_registered_hotkeys(
 
 pub async fn restore_registered_hotkeys(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let ptt_hotkey = state.load_hotkey();
-    let dictation_hotkey = state.load_dictation_hotkey();
-    let dictation_commit_hotkey = state.load_dictation_commit_hotkey();
+    let ptt_hotkey = state.load_hotkey(HotkeyKind::PushToTalk);
+    let dictation_hotkey = state.load_hotkey(HotkeyKind::Dictation);
+    let dictation_commit_hotkey = state.load_hotkey(HotkeyKind::DictationCommit);
 
     if let Err(e) = register_shortcuts(
         app,

@@ -34,12 +34,6 @@ export function formatModelSize(bytes: number): string {
   return `${Math.round(bytes / 1_000_000)} MB`
 }
 
-/** Badge text, or `null` when there is nothing to call out. Every model runs
- *  locally, so only streaming is worth flagging. */
-export function pipelineLabel(pipelines: PipelineKind[]): string | null {
-  return pipelines.includes('streaming') ? 'Streaming' : null
-}
-
 /** Whether a model can be driven by its own streaming session. */
 export function isStreaming(model: CatalogModel): boolean {
   return model.pipelines.includes('streaming')

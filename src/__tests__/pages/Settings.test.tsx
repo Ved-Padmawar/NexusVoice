@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { Settings } from '../../pages/Settings'
 import { useAppStore } from '../../store/useAppStore'
@@ -13,14 +13,19 @@ const mockInvoke = vi.mocked(invoke)
 // The Recording (push-to-talk) row's recorder — uniquely identified by its aria-label.
 const recordingRecorder = () => screen.getByRole('button', { name: /click to record recording hotkey/i })
 
-// HotkeySection lives in the "Shortcuts" tab; the tab is controlled by the store.
-function renderSettings() {
-  useAppStore.setState({ activeSettingsTab: 'shortcuts' })
-  return render(
+// HotkeySection lives in the "General" tab; the tab is controlled by the store.
+// The tab also mounts the microphone and language sections, which fetch on
+// mount — await here so their state lands inside act() rather than after the
+// test has finished.
+async function renderSettings() {
+  useAppStore.setState({ activeSettingsTab: 'general' })
+  const result = render(
     <MemoryRouter>
       <Settings />
     </MemoryRouter>
   )
+  await act(async () => { await Promise.resolve() })
+  return result
 }
 
 beforeEach(() => {
@@ -30,20 +35,20 @@ beforeEach(() => {
 })
 
 describe('HotkeySection', () => {
-  it('shows click-to-set placeholder when no hotkey set', () => {
-    renderSettings()
+  it('shows click-to-set placeholder when no hotkey set', async () => {
+    await renderSettings()
     // One placeholder per unset row (3 rows).
     expect(screen.getAllByText(/click to set/i).length).toBeGreaterThan(0)
   })
 
-  it('enters listening mode on click', () => {
-    renderSettings()
+  it('enters listening mode on click', async () => {
+    await renderSettings()
     fireEvent.click(recordingRecorder())
     expect(screen.getByText(/press keys/i)).toBeInTheDocument()
   })
 
-  it('shows pressed keys while listening', () => {
-    renderSettings()
+  it('shows pressed keys while listening', async () => {
+    await renderSettings()
     fireEvent.click(recordingRecorder())
     fireEvent.keyDown(window, { key: 'Control', code: 'ControlLeft' })
     fireEvent.keyDown(window, { key: 'A', code: 'KeyA' })
@@ -51,8 +56,8 @@ describe('HotkeySection', () => {
     expect(screen.getByText('A')).toBeInTheDocument()
   })
 
-  it('shows Save and Cancel buttons after keys pressed', () => {
-    renderSettings()
+  it('shows Save and Cancel buttons after keys pressed', async () => {
+    await renderSettings()
     fireEvent.click(recordingRecorder())
     fireEvent.keyDown(window, { key: 'Control', code: 'ControlLeft' })
     fireEvent.keyDown(window, { key: 'A', code: 'KeyA' })
@@ -62,7 +67,7 @@ describe('HotkeySection', () => {
 
   it('calls register_hotkey and shows current hotkey on save', async () => {
     mockInvoke.mockResolvedValue(undefined)
-    renderSettings()
+    await renderSettings()
     fireEvent.click(recordingRecorder())
     fireEvent.keyDown(window, { key: 'Control', code: 'ControlLeft' })
     fireEvent.keyDown(window, { key: 'A', code: 'KeyA' })
@@ -73,8 +78,8 @@ describe('HotkeySection', () => {
     expect(useAppStore.getState().hasHotkey).toBe(true)
   })
 
-  it('cancels and clears pressed keys', () => {
-    renderSettings()
+  it('cancels and clears pressed keys', async () => {
+    await renderSettings()
     fireEvent.click(recordingRecorder())
     fireEvent.keyDown(window, { key: 'Control', code: 'ControlLeft' })
     fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
@@ -87,7 +92,7 @@ describe('HotkeySection', () => {
       return Promise.resolve(undefined)
     })
     useAppStore.setState({ hasHotkey: true })
-    renderSettings()
+    await renderSettings()
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('get_registered_hotkeys')
     })
@@ -99,7 +104,7 @@ describe('HotkeySection', () => {
       return Promise.resolve(undefined)
     })
     useAppStore.setState({ hasHotkey: true })
-    renderSettings()
+    await renderSettings()
     const removeBtn = await screen.findByRole('button', { name: /remove recording hotkey/i })
     fireEvent.click(removeBtn)
     await waitFor(() => {

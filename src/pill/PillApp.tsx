@@ -31,20 +31,20 @@ const MAX_H = 16
 const FLAT_BARS = [3, 3, 3, 3, 3, 3, 3, 3]
 
 const SPINNER_COLORS: Record<PillTheme, { proc: [string, string]; dl: [string, string] }> = {
-  dark:  { proc: ['rgba(120,162,244,0.15)', 'rgba(120,162,244,0.9)'],  dl: ['rgba(245,158,11,0.15)', 'rgba(251,191,36,0.9)'] },
-  steel: { proc: ['rgba(148,168,200,0.15)', 'rgba(148,168,200,0.9)'],  dl: ['rgba(245,158,11,0.15)', 'rgba(245,158,11,0.9)'] },
-  light: { proc: ['rgba(58,91,217,0.15)',   'rgba(58,91,217,0.9)'],    dl: ['rgba(245,158,11,0.15)', 'rgba(245,158,11,0.9)'] },
-  teal:  { proc: ['rgba(91,184,196,0.15)',  'rgba(91,184,196,0.9)'],   dl: ['rgba(245,158,11,0.15)', 'rgba(245,158,11,0.9)'] },
+  steel:    { proc: ['rgba(148,168,200,0.15)', 'rgba(148,168,200,0.9)'], dl: ['rgba(245,158,11,0.15)', 'rgba(245,158,11,0.9)'] },
+  midnight: { proc: ['rgba(26,209,209,0.15)',  'rgba(26,209,209,0.9)'],  dl: ['rgba(245,158,11,0.15)', 'rgba(245,158,11,0.9)'] },
+  canvas:   { proc: ['rgba(58,91,217,0.15)',   'rgba(58,91,217,0.9)'],   dl: ['rgba(245,158,11,0.15)', 'rgba(245,158,11,0.9)'] },
+  dawn:     { proc: ['rgba(228,56,0,0.15)',    'rgba(228,56,0,0.9)'],    dl: ['rgba(245,158,11,0.15)', 'rgba(245,158,11,0.9)'] },
 }
 
 function readPillTheme(): PillTheme {
   try {
     const raw = localStorage.getItem(STORE_PERSIST_KEY)
-    if (!raw) return 'dark'
+    if (!raw) return 'steel'
     const parsed = JSON.parse(raw) as { state?: { pillTheme?: PillTheme } }
-    return parsed?.state?.pillTheme ?? 'dark'
+    return parsed?.state?.pillTheme ?? 'steel'
   } catch {
-    return 'dark'
+    return 'steel'
   }
 }
 
@@ -142,7 +142,6 @@ export function PillApp() {
           if (current === 'downloading') return current // already driven by events
           if (info.downloading) {
             modelReadyRef.current = false
-            setDownloadPct(info.downloadProgress ?? 0)
             return 'downloading'
           }
           if (info.downloaded) {
@@ -163,9 +162,9 @@ export function PillApp() {
       })
       unlisteners.push(um1)
 
-      const um2 = await listen<number>(EVENTS.MODEL_DOWNLOAD_PROGRESS, (e) => {
+      const um2 = await listen<{ pct: number }>(EVENTS.MODEL_DOWNLOAD_PROGRESS, (e) => {
         if (cancelled) return
-        setDownloadPct(e.payload ?? 0)
+        setDownloadPct(e.payload?.pct ?? 0)
         setState(s => s === 'idle' || s === 'downloading' ? 'downloading' : s)
       })
       unlisteners.push(um2)
@@ -387,7 +386,7 @@ export function PillApp() {
 
       <motion.div
         className={`pill pill--${state}`}
-        data-pill-theme={pillTheme === 'dark' ? undefined : pillTheme}
+        data-pill-theme={pillTheme}
         initial={{ width: 104 }}
         animate={{ width: PILL_WIDTH[state] ?? 104 }}
 

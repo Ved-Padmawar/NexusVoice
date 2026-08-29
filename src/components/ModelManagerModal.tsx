@@ -92,16 +92,13 @@ export function ModelManagerModal({ onClose }: Props) {
                   </div>
                 </div>
                 <Dialog.Close asChild>
-                  <motion.button
+                  <button
                     type="button"
                     aria-label="Close"
-                    className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer"
-                    whileHover={{ backgroundColor: 'var(--surface-hover)', color: 'var(--fg)' }}
-                    whileTap={{ scale: 0.92 }}
-                    transition={{ duration: 0.15 }}
+                    className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer transition-colors duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-(--danger)"
                   >
                     <X size={14} strokeWidth={2} />
-                  </motion.button>
+                  </button>
                 </Dialog.Close>
               </div>
 

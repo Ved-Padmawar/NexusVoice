@@ -154,12 +154,12 @@ export const LanguageSection = memo(function LanguageSection({ modelId, onSuppor
                       onKeyDown={e => { if (e.key !== 'Escape') e.stopPropagation() }}
                       placeholder="Search languages"
                       aria-label="Search languages"
-                      className="w-full h-8 pl-7 pr-2 rounded-(--r-sm) bg-(--surface) border border-(--border-soft) text-[12px] text-(--fg) placeholder:text-muted-foreground outline-none focus:border-(--accent)"
+                      className="nv-edge [--edge:var(--border-soft)] focus:[--edge:var(--accent)] w-full h-8 pl-7 pr-2 rounded-(--r-sm) bg-(--surface) text-[12px] text-(--fg) placeholder:text-muted-foreground outline-none"
                     />
                   </div>
 
                   <Select.Viewport
-                    className="flex-1 min-h-0 overflow-x-hidden"
+                    className="select-list flex-1 min-h-0 overflow-x-hidden"
                     // Radix inlines `overflow: hidden auto` here, beating the class.
                     style={{ overflowY: 'auto', overscrollBehavior: 'none' }}
                   >

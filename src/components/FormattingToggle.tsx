@@ -5,15 +5,26 @@ import { Dialog } from 'radix-ui'
 import { Sparkles, Settings2, X, CheckCircle2, Loader2, AlertCircle, Plug, Save } from 'lucide-react'
 import { COMMANDS } from '../lib/commands'
 import { extractErrorMessage } from '../lib/errors'
+import { VendorMark } from './ui/VendorMark'
+import type { VendorId } from '../lib/vendors'
 import { toast } from 'sonner'
 
-type FormatConfig = {
-  enabled: boolean
-  provider: string
+type Profile = {
   baseUrl: string
   model: string
   apiKey: string
 }
+
+type FormatConfig = {
+  enabled: boolean
+  provider: string
+  profiles: Record<string, Profile>
+}
+
+const EMPTY_PROFILE: Profile = { baseUrl: '', model: '', apiKey: '' }
+
+const activeProfile = (c: FormatConfig): Profile =>
+  c.profiles?.[c.provider] ?? EMPTY_PROFILE
 
 type Preset = {
   id: string
@@ -34,30 +45,30 @@ const PRESETS: Preset[] = [
   { id: 'custom',     label: 'Custom',            baseUrl: '',                            needsKey: false, modelHint: 'model name' },
 ]
 
-const DEFAULT_CONFIG: FormatConfig = { enabled: false, provider: 'ollama', baseUrl: '', model: '', apiKey: '' }
+const DEFAULT_CONFIG: FormatConfig = { enabled: false, provider: 'ollama', profiles: {} }
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-[12px] text-(--fg) bg-(--surface) border border-(--border) rounded-(--r-md) outline-none transition-colors duration-(--t-fast) focus:border-(--accent) placeholder:text-muted-foreground'
+  'nv-edge [--edge:var(--border)] focus:[--edge:var(--accent)] w-full px-3 py-2 text-[12px] text-(--fg) bg-(--surface) rounded-(--r-md) outline-none placeholder:text-muted-foreground'
 
-/**
- * Smart-formatting toggle + provider configuration. The formatter is an HTTP
- * call (Ollama, LM Studio, OpenAI, OpenRouter, Anthropic, or custom). Off by
- * default. Enabling without a configured endpoint prompts the user to
- * configure one.
- */
+/** Smart-formatting toggle + provider config. The formatter is an HTTP call,
+ *  off by default; enabling without an endpoint opens the modal. */
 export function FormattingToggle() {
   const [config, setConfig] = useState<FormatConfig>(DEFAULT_CONFIG)
   const [modalOpen, setModalOpen] = useState(false)
 
   const refresh = useCallback(() => {
-    invoke<FormatConfig>(COMMANDS.GET_FORMAT_CONFIG).then(setConfig).catch(() => {})
+    invoke<FormatConfig>(COMMANDS.GET_FORMAT_CONFIG)
+      // A missing config must not blank out the defaults.
+      .then((c) => setConfig(c ? { ...DEFAULT_CONFIG, ...c } : DEFAULT_CONFIG))
+      .catch(() => {})
   }, [])
 
   useEffect(() => { refresh() }, [refresh])
 
+  const active = activeProfile(config)
   const configured =
-    config.model.trim() !== '' &&
-    (config.provider === 'anthropic' || config.baseUrl.trim() !== '')
+    active.model.trim() !== '' &&
+    (config.provider === 'anthropic' || active.baseUrl.trim() !== '')
 
   const persist = async (next: FormatConfig) => {
     setConfig(next)
@@ -69,7 +80,8 @@ export function FormattingToggle() {
   const toggle = async () => {
     const next = !config.enabled
     if (next && !configured) {
-      // Can't enable without an endpoint — open the config modal instead.
+      // On while the endpoint is set up; closing unsaved puts it back.
+      setConfig({ ...config, enabled: true })
       setModalOpen(true)
       return
     }
@@ -79,7 +91,7 @@ export function FormattingToggle() {
   const presetLabel = PRESETS.find((p) => p.id === config.provider)?.label ?? config.provider
 
   return (
-    <div className="overflow-hidden rounded-(--r-lg) border border-(--border-soft) bg-(--panel)">
+    <div className="nv-edge [--edge:var(--border-soft)] overflow-hidden rounded-(--r-lg) bg-(--panel)">
       <div className="px-4 py-2.5 border-b border-(--border-soft) text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
         Smart formatting
       </div>
@@ -90,8 +102,15 @@ export function FormattingToggle() {
             <Sparkles size={14} strokeWidth={2} />
           </div>
           <div>
-            <p className="text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em]">
-              {configured ? `${presetLabel} · ${config.model}` : 'No endpoint configured'}
+            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em]">
+              {configured ? (
+                <>
+                  <VendorMark vendor={config.provider as VendorId} className="size-3.5 shrink-0" />
+                  <span className="min-w-0 truncate">{presetLabel} · {active.model}</span>
+                </>
+              ) : (
+                'No endpoint configured'
+              )}
             </p>
             <p className="text-[11px] text-muted-foreground mt-0.75 max-w-95">
               Sends each transcript to your chosen LLM (local Ollama, OpenAI, Anthropic, OpenRouter…)
@@ -104,7 +123,7 @@ export function FormattingToggle() {
           <motion.button
             type="button"
             onClick={() => setModalOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-(--r-md) border border-(--border) bg-(--surface) text-[12px] font-medium text-(--fg-2) cursor-pointer"
+            className="nv-edge [--edge:var(--border)] flex items-center gap-1.5 px-2.5 py-1.5 rounded-(--r-md) bg-(--surface) text-[12px] font-medium text-(--fg-2) cursor-pointer"
             whileHover={{ backgroundColor: 'var(--surface-hover)', color: 'var(--fg)' }}
             whileTap={{ scale: 0.96 }}
             transition={{ duration: 0.15 }}
@@ -137,7 +156,10 @@ export function FormattingToggle() {
         {modalOpen && (
           <ProviderModal
             initial={config}
-            onClose={() => setModalOpen(false)}
+            onClose={() => {
+              setModalOpen(false)
+              if (!configured) setConfig((c) => ({ ...c, enabled: false }))
+            }}
             onSaved={(saved) => { setConfig(saved); setModalOpen(false) }}
           />
         )}
@@ -156,9 +178,10 @@ function ProviderModal({
   onSaved: (c: FormatConfig) => void
 }) {
   const [providerId, setProviderId] = useState(initial.provider || 'ollama')
-  const [baseUrl, setBaseUrl] = useState(initial.baseUrl)
-  const [model, setModel] = useState(initial.model)
-  const [apiKey, setApiKey] = useState(initial.apiKey)
+  const seed = activeProfile(initial)
+  const [baseUrl, setBaseUrl] = useState(seed.baseUrl)
+  const [model, setModel] = useState(seed.model)
+  const [apiKey, setApiKey] = useState(seed.apiKey)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<'idle' | 'ok' | 'fail'>('idle')
   const [saving, setSaving] = useState(false)
@@ -175,19 +198,22 @@ function ProviderModal({
   const selectProvider = (id: string) => {
     setProviderId(id)
     setTestResult('idle')
-    const p = PRESETS.find((x) => x.id === id)
-    // Prefill base URL from the preset (custom/anthropic clear it). Leave
-    // model/key as-is so switching presets doesn't wipe what the user typed.
-    if (p && p.id !== 'custom' && p.id !== 'anthropic') setBaseUrl(p.baseUrl)
-    else setBaseUrl('')
+    // Preset URL is only a starting point for a provider never configured.
+    const saved = initial.profiles?.[id]
+    const preset = PRESETS.find((x) => x.id === id)
+    const fallbackUrl = preset && id !== 'custom' && id !== 'anthropic' ? preset.baseUrl : ''
+    setBaseUrl(saved?.baseUrl || fallbackUrl)
+    setModel(saved?.model ?? '')
+    setApiKey(saved?.apiKey ?? '')
   }
 
   const draft = (): FormatConfig => ({
     enabled: initial.enabled,
     provider: providerId,
-    baseUrl: baseUrl.trim(),
-    model: model.trim(),
-    apiKey: apiKey.trim(),
+    profiles: {
+      ...initial.profiles,
+      [providerId]: { baseUrl: baseUrl.trim(), model: model.trim(), apiKey: apiKey.trim() },
+    },
   })
 
   const canSubmit =
@@ -261,7 +287,7 @@ function ProviderModal({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 8 }}
         transition={{ duration: 0.2, ease: 'easeOut' }}
-        className="w-115 flex flex-col bg-(--panel) border border-(--border) rounded-(--r-xl) shadow-(--shadow-lg) overflow-hidden pointer-events-auto"
+        className="nv-edge [--edge:var(--border)] w-115 flex flex-col bg-(--panel) rounded-(--r-xl) shadow-(--shadow-lg) overflow-hidden pointer-events-auto"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-(--border-soft)">
@@ -275,16 +301,13 @@ function ProviderModal({
             </div>
           </div>
           <Dialog.Close asChild>
-            <motion.button
+            <button
               type="button"
               aria-label="Close"
-              className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer"
-              whileHover={{ backgroundColor: 'var(--surface-hover)', color: 'var(--fg)' }}
-              whileTap={{ scale: 0.92 }}
-              transition={{ duration: 0.15 }}
+              className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer transition-colors duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-(--danger)"
             >
               <X size={14} strokeWidth={2} />
-            </motion.button>
+            </button>
           </Dialog.Close>
         </div>
 
@@ -298,7 +321,7 @@ function ProviderModal({
                   key={p.id}
                   type="button"
                   onClick={() => selectProvider(p.id)}
-                  className="flex items-center justify-center px-3 py-2 rounded-(--r-md) border-[1.5px] text-[12px] font-medium cursor-pointer"
+                  className="flex items-center gap-2 px-3 py-2 rounded-(--r-md) border-[1.5px] text-[12px] font-medium cursor-pointer text-left"
                   initial={false}
                   animate={{
                     backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface)',
@@ -309,7 +332,8 @@ function ProviderModal({
                   whileTap={{ scale: 0.97 }}
                   transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
                 >
-                  {p.label}
+                  <VendorMark vendor={p.id as VendorId} className="size-4 shrink-0" />
+                  <span className="min-w-0 truncate">{p.label}</span>
                 </motion.button>
               )
             })}
@@ -372,7 +396,7 @@ function ProviderModal({
             type="button"
             onClick={handleTest}
             disabled={!canSubmit || testing}
-            className="flex items-center gap-2 text-[12px] font-medium text-(--fg-2) bg-(--surface) border border-(--border) rounded-(--r-md) px-3 py-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            className="nv-edge [--edge:var(--border)] flex items-center gap-2 text-[12px] font-medium text-(--fg-2) bg-(--surface) rounded-(--r-md) px-3 py-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             whileHover={!canSubmit || testing ? undefined : { backgroundColor: 'var(--surface-hover)' }}
             whileTap={!canSubmit || testing ? undefined : { scale: 0.97 }}
             transition={{ duration: 0.15 }}

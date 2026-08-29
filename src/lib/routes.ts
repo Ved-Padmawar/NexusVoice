@@ -9,7 +9,7 @@ export type AppRoute = typeof ROUTES[keyof typeof ROUTES]
 
 export const SETTINGS_TABS = {
   APPEARANCE: 'appearance',
-  SHORTCUTS: 'shortcuts',
+  GENERAL: 'general',
   VOICE: 'voice',
   ABOUT: 'about',
 } as const

@@ -3,7 +3,6 @@ import {
   formatModelSize,
   isStreaming,
   modelNameToId,
-  pipelineLabel,
   type CatalogModel,
 } from '../../lib/models'
 
@@ -31,17 +30,6 @@ describe('formatModelSize', () => {
 
   it('reports gigabyte-scale sizes in GB with one decimal', () => {
     expect(formatModelSize(1_668_741_440)).toBe('1.7 GB')
-  })
-})
-
-describe('pipelineLabel', () => {
-  it('has no badge for single-shot models — every model runs locally', () => {
-    expect(pipelineLabel(['single-shot'])).toBeNull()
-  })
-
-  it('flags any model that can stream', () => {
-    expect(pipelineLabel(['streaming'])).toBe('Streaming')
-    expect(pipelineLabel(['streaming', 'single-shot'])).toBe('Streaming')
   })
 })
 

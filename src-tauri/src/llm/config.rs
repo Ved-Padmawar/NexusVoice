@@ -1,27 +1,18 @@
-//! Formatter LLM configuration: which OpenAI-compatible provider/endpoint to
-//! call, persisted as JSON in the app data dir.
+//! Formatter LLM configuration, persisted as JSON in the app data dir.
 //!
-//! All supported providers (Ollama, `OpenAI`, `OpenRouter`, and any custom
-//! endpoint) speak the `OpenAI` `/chat/completions` API, so a single config
-//! shape covers them. The API key is optional — local Ollama needs none, but a
-//! key-protected Ollama or any cloud provider supplies one.
+//! Each provider keeps its own endpoint details, so switching between them and
+//! back preserves what was entered for each.
+
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-/// Persisted formatter configuration. `enabled` is the toggle; the rest is the
-/// endpoint config entered via the provider modal.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// One provider's endpoint details.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FormatConfig {
-    /// Whether the LLM formatting stage runs.
-    #[serde(default)]
-    pub enabled: bool,
-    /// Provider preset id (`"ollama" | "openai" | "openrouter" | "custom"`).
-    /// Purely informational for the UI; behavior is driven by the fields below.
-    #[serde(default)]
-    pub provider: String,
-    /// Base URL up to (not including) `/chat/completions`, e.g.
-    /// `http://localhost:11434/v1`.
+pub struct Profile {
+    /// Base URL up to (not including) `/chat/completions`. Unused by
+    /// `anthropic`, which pins its own endpoint.
     #[serde(default)]
     pub base_url: String,
     /// Model name/id, e.g. `qwen3:0.6b` or `gpt-4o-mini`.
@@ -32,31 +23,57 @@ pub struct FormatConfig {
     pub api_key: String,
 }
 
+/// Persisted formatter configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormatConfig {
+    /// Whether the LLM formatting stage runs.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Preset id of the active provider (`"ollama"`, `"openai"`, …).
+    #[serde(default = "default_provider")]
+    pub provider: String,
+    /// Endpoint details per provider id.
+    #[serde(default)]
+    pub profiles: HashMap<String, Profile>,
+}
+
+fn default_provider() -> String {
+    "ollama".to_string()
+}
+
 impl Default for FormatConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            provider: "ollama".to_string(),
-            base_url: String::new(),
-            model: String::new(),
-            api_key: String::new(),
+            provider: default_provider(),
+            profiles: HashMap::new(),
         }
     }
 }
 
 impl FormatConfig {
+    /// The active provider's details, or an empty profile if none is stored.
+    pub fn active(&self) -> Profile {
+        self.profiles
+            .get(&self.provider)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     /// Whether the config has the minimum needed to make a request.
     ///
     /// `anthropic` pins its own endpoint (see `llm::anthropic`), so it doesn't
     /// need `base_url` — every other provider is OpenAI-compatible and does.
     pub fn is_usable(&self) -> bool {
-        if !self.enabled || self.model.trim().is_empty() {
+        let p = self.active();
+        if !self.enabled || p.model.trim().is_empty() {
             return false;
         }
         if self.provider == "anthropic" {
             return true;
         }
-        !self.base_url.trim().is_empty()
+        !p.base_url.trim().is_empty()
     }
 
     /// Full chat-completions endpoint URL.
@@ -68,7 +85,8 @@ impl FormatConfig {
     ///   Ollama, `OpenAI`, etc. all expect — so a missing `/v1` isn't a footgun;
     /// - otherwise append `/chat/completions` to whatever path was given.
     pub fn endpoint(&self) -> String {
-        let base = self.base_url.trim().trim_end_matches('/');
+        let active = self.active();
+        let base = active.base_url.trim().trim_end_matches('/');
 
         if base.ends_with("/chat/completions") {
             return base.to_string();

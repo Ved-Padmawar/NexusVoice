@@ -33,11 +33,12 @@ pub async fn format_transcript(cfg: &FormatConfig, raw: &str) -> Result<String, 
 
     let system = build_system_prompt();
 
+    let active = cfg.active();
     let text = if cfg.provider == "anthropic" {
         anthropic::send(cfg, &system, raw, max_tokens, 0.3, REQUEST_TIMEOUT).await?
     } else {
         let body = ChatRequest {
-            model: cfg.model.trim(),
+            model: active.model.trim(),
             messages: vec![
                 ChatMessage {
                     role: "system",
@@ -71,8 +72,9 @@ pub async fn test_connection(cfg: &FormatConfig) -> Result<(), String> {
             .map(|_| ());
     }
 
+    let active = cfg.active();
     let body = ChatRequest {
-        model: cfg.model.trim(),
+        model: active.model.trim(),
         messages: vec![ChatMessage {
             role: "user",
             content: "hi",

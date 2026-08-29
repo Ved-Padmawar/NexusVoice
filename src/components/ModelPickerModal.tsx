@@ -11,8 +11,8 @@ import type { HardwareProfile, ModelInfo } from '../types'
 
 export function ModelPickerModal() {
   const setModelChosen = useAppStore(s => s.setModelChosen)
-  const modelDownloading = useAppStore(s => s.modelDownloading)
-  const downloadProgress = useAppStore(s => s.downloadProgress)
+  const downloads = useAppStore(s => s.downloads)
+  const startDownload = useAppStore(s => s.startDownload)
   const refreshModelInfo = useAppStore(s => s.refreshModelInfo)
   const catalog = useAppStore(s => s.catalog)
   const refreshCatalog = useAppStore(s => s.refreshCatalog)
@@ -52,19 +52,18 @@ export function ModelPickerModal() {
         setModelChosen(true)
         return
       }
-      invoke(COMMANDS.RETRY_MODEL_DOWNLOAD).catch(() => {})
+      void startDownload(selected)
       setConfirmed(true)
     } catch {
       setConfirming(false)
     }
   }
 
-  // Close modal once download completes via store events
+  // The entry is removed when the download finishes, which is the close signal.
+  const download = selected ? downloads[selected] : undefined
   useEffect(() => {
-    if (confirmed && !modelDownloading && downloadProgress === 100) {
-      setModelChosen(true)
-    }
-  }, [confirmed, modelDownloading, downloadProgress, setModelChosen])
+    if (confirmed && !download) setModelChosen(true)
+  }, [confirmed, download, setModelChosen])
 
   const recommended = profile ? modelNameToId(profile.recommendedModel, catalog) : null
   const selectedModel = catalog.find(m => m.id === selected) ?? null
@@ -214,15 +213,17 @@ export function ModelPickerModal() {
               >
                 <div className="flex items-center justify-between text-[11px] mb-1">
                   <span className="text-(--fg-2)">
-                    {downloadProgress < 100 ? 'Downloading model…' : 'Download complete — loading…'}
+                    {download ? 'Downloading model…' : 'Download complete — loading…'}
                   </span>
-                  <span className="text-(--accent) font-semibold tabular-nums">{downloadProgress}%</span>
+                  <span className="text-(--accent) font-semibold tabular-nums">
+                    {download?.progress ?? 100}%
+                  </span>
                 </div>
                 <div className="h-0.75 rounded-full bg-(--border) overflow-hidden">
                   <motion.div
                     className="h-full rounded-full bg-(--accent)"
                     initial={{ width: '0%' }}
-                    animate={{ width: `${downloadProgress}%` }}
+                    animate={{ width: `${download?.progress ?? 100}%` }}
                     transition={{ duration: 0.3, ease: 'linear' }}
                   />
                 </div>

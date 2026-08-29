@@ -1,8 +1,8 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router'
-import { useEffect, useCallback, type ReactNode } from 'react'
+import { useEffect, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import clsx from 'clsx'
-import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, AlertCircle, ArrowUp, Download, RotateCcw } from 'lucide-react'
+import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, ArrowUp, Download, RotateCcw } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useAppStore } from '../store/useAppStore'
 import { ROUTES } from '../lib/routes'
@@ -43,53 +43,6 @@ function TitleBar() {
         </button>
       </div>
     </div>
-  )
-}
-
-function SlideBanner({ visible, children }: { visible: boolean; children: ReactNode }) {
-  return (
-    <AnimatePresence initial={false}>
-      {visible && (
-        <motion.div
-          key="banner"
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: 'auto', opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          transition={{ duration: 0.25, ease: 'easeInOut' }}
-          style={{ overflow: 'hidden' }}
-        >
-          {children}
-        </motion.div>
-      )}
-    </AnimatePresence>
-  )
-}
-
-function ModelBanner() {
-  const { downloadError } = useAppStore()
-
-  return (
-    <>
-      <SlideBanner visible={!!downloadError}>
-        <div
-          className="flex items-center gap-2.5 px-3.5 py-1.75 shrink-0 text-[12px] border-b text-(--fg)"
-          style={{ background: 'var(--danger-soft)', borderColor: 'color-mix(in srgb, var(--danger) 40%, transparent)' }}
-        >
-          <div className="flex items-center gap-2.5 flex-1 min-w-0">
-            <AlertCircle size={13} strokeWidth={2} className="shrink-0" />
-            <span className="whitespace-nowrap overflow-hidden text-ellipsis text-(--fg-2)">Download failed: {downloadError}</span>
-          </div>
-          <button
-            type="button"
-            className="flex items-center justify-center w-5 h-5 rounded-(--r-sm) text-muted-foreground bg-transparent border-none cursor-pointer shrink-0 transition-[color,background] duration-(--t-fast) hover:text-(--fg) hover:bg-accent"
-            onClick={() => useAppStore.setState({ downloadError: null })}
-          >
-            <X size={12} strokeWidth={2} />
-          </button>
-        </div>
-      </SlideBanner>
-
-    </>
   )
 }
 
@@ -334,9 +287,6 @@ export function Layout() {
 
         {/* Main */}
         <div className="flex-1 min-w-0 h-full overflow-hidden flex flex-col items-center">
-          <div className="w-full pt-8 shrink-0">
-            <ModelBanner />
-          </div>
           <main className="flex-1 w-full overflow-hidden flex flex-col min-h-0">
             <Outlet />
           </main>
