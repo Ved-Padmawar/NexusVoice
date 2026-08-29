@@ -558,3 +558,46 @@ input[type="password"]::-ms-reveal { display: none; }
 }
 
 
+
+/* ===================================================================
+   Waveform preview (Settings → Appearance)
+   The pill's own stylesheet sizes html/body to 104px, so it can't be
+   imported here. These mirror just the bits the preview renders.
+   =================================================================== */
+.pill {
+  height: 32px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 8px;
+  user-select: none;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid transparent;
+}
+
+.pill__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pill__waveform {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 20px;
+  width: 42px;
+}
+
+.pill__bar {
+  flex: 1;
+  max-width: 4px;
+  border-radius: 999px;
+  transition: height 0.08s ease;
+  will-change: height;
+  min-height: 3px;
+}

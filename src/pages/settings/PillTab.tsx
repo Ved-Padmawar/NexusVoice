@@ -4,23 +4,8 @@ import { emit } from '@tauri-apps/api/event'
 import { Check, Radio } from 'lucide-react'
 import { useAppStore } from '../../store/useAppStore'
 import { EVENTS } from '../../lib/events'
+import { PILL_THEMES, type PillThemeDef } from '../../lib/pillThemes'
 import type { PillTheme } from '../../store/uiSlice'
-
-type PillThemeDef = {
-  id: PillTheme
-  label: string
-  bg: string
-  border: string
-  accent: string
-  brand: string
-}
-
-const PILL_THEMES: PillThemeDef[] = [
-  { id: 'steel',    label: 'Steel',    bg: '#141820', border: 'rgba(148,168,200,0.15)', accent: '#b8cce0', brand: 'rgba(200,215,235,0.82)' },
-  { id: 'midnight', label: 'Midnight', bg: '#0a0d14', border: 'rgba(26,209,209,0.16)',  accent: '#1ad1d1', brand: 'rgba(236,238,244,0.82)' },
-  { id: 'canvas',   label: 'Canvas',   bg: '#ffffff', border: 'rgba(0,0,0,0.10)',       accent: '#3a5bd9', brand: 'rgba(20,20,45,0.82)'    },
-  { id: 'dawn',     label: 'Dawn',     bg: '#fff6f4', border: 'rgba(120,60,40,0.14)',   accent: '#e43800', brand: 'rgba(37,22,20,0.82)'    },
-]
 
 function MiniPill({ theme }: { theme: PillThemeDef }) {
   return (

@@ -169,18 +169,6 @@ pub async fn set_model_override(
     Ok(())
 }
 
-/// Clear the model size override, reverting to auto-selection based on hardware.
-#[tauri::command]
-pub async fn clear_model_override(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<(), ApiError> {
-    state.delete_model_override();
-    *state.engine.lock().await = None;
-    warm_engine_in_background(&app);
-    Ok(())
-}
-
 /// Rebuild + warm the active engine off the command path. A missing model is
 /// not an error here — transcription surfaces that later.
 fn warm_engine_in_background(app: &AppHandle) {
@@ -419,19 +407,24 @@ pub async fn start_model_download(
     id: String,
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<bool, ApiError> {
+) -> Result<(), ApiError> {
     let entry = crate::inference::catalog::all()
         .iter()
         .find(|m| m.id == id)
         .ok_or_else(|| ApiError::new("unknown_model", "no such model in the catalog"))?
         .clone();
 
+    // Already on disk: only the complete event clears the caller's optimistic
+    // `queued`, so emit one rather than returning quietly.
     if state.models_dir.join(&entry.filename).exists() {
-        return Ok(true);
+        let _ = app.emit("model-download-complete", DownloadEvent { id });
+        return Ok(());
     }
 
+    // Already in flight: silent no-op — re-emitting `start` would rewind the
+    // caller's progress bar to 0.
     let Some(cancel) = state.downloads.enqueue(&id) else {
-        return Ok(false);
+        return Ok(());
     };
 
     let downloads = Arc::clone(&state.downloads);
@@ -471,15 +464,15 @@ pub async fn start_model_download(
         }
     });
 
-    Ok(true)
+    Ok(())
 }
 
-/// Cancel a queued or running download. Returns whether the cancel landed — one
-/// pressed in the last moments of a transfer arrives after the file is
-/// published, and the download stands.
+/// Cancel a queued or running download. A cancel pressed in the last moments of
+/// a transfer arrives after the file is published; the download then stands and
+/// the caller learns that from `model-download-complete`.
 #[tauri::command]
-pub fn cancel_model_download(id: String, state: State<'_, AppState>) -> bool {
-    state.downloads.cancel(&id)
+pub fn cancel_model_download(id: String, state: State<'_, AppState>) {
+    state.downloads.cancel(&id);
 }
 
 /// Every download queued, running, or holding an error, so the UI can rehydrate

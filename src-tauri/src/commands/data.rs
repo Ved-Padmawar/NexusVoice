@@ -8,7 +8,6 @@ use crate::database::repositories::{
     dictionary::DictionaryRepository,
     transcript::{Cursor, TranscriptRepository},
 };
-use crate::postprocess::DictionaryCorrectionEngine;
 use crate::state::AppState;
 
 use super::dto::{DictionaryResponse, TranscriptResponse};
@@ -179,9 +178,10 @@ pub async fn save_transcript(
 }
 
 #[tauri::command]
-pub async fn delete_transcript(state: State<'_, AppState>, id: i64) -> Result<bool, ApiError> {
+pub async fn delete_transcript(state: State<'_, AppState>, id: i64) -> Result<(), ApiError> {
     let repo = TranscriptRepository::new(state.db().await.clone());
-    Ok(repo.delete_by_id(id).await?)
+    repo.delete_by_id(id).await?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -221,25 +221,11 @@ pub async fn update_dictionary(
 }
 
 #[tauri::command]
-pub async fn delete_dictionary_entry(
-    state: State<'_, AppState>,
-    id: i64,
-) -> Result<bool, ApiError> {
+pub async fn delete_dictionary_entry(state: State<'_, AppState>, id: i64) -> Result<(), ApiError> {
     let repo = DictionaryRepository::new(state.db().await.clone());
-    let deleted = repo.delete_by_id(id).await?;
-    if deleted {
+    if repo.delete_by_id(id).await? {
         let mut cache = state.dict_cache.write().await;
         cache.retain(|_, e| e.id != id);
     }
-    Ok(deleted)
-}
-
-#[tauri::command]
-pub async fn apply_dictionary(
-    state: State<'_, AppState>,
-    text: String,
-) -> Result<String, ApiError> {
-    let entries: Vec<_> = state.dict_cache.read().await.values().cloned().collect();
-    let engine = DictionaryCorrectionEngine::new(entries);
-    Ok(engine.apply_to_text(&text).0)
+    Ok(())
 }

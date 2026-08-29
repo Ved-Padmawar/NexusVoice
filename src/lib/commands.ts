@@ -45,7 +45,6 @@ export const COMMANDS = {
   GET_MODEL_INFO:          'get_model_info',
   GET_HARDWARE_PROFILE:    'get_hardware_profile',
   SET_MODEL_OVERRIDE:      'set_model_override',
-  CLEAR_MODEL_OVERRIDE:    'clear_model_override',
   START_MODEL_DOWNLOAD:    'start_model_download',
   CANCEL_MODEL_DOWNLOAD:   'cancel_model_download',
   GET_ACTIVE_DOWNLOADS:    'get_active_downloads',

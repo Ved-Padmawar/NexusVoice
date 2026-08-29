@@ -30,6 +30,34 @@ fn low_amplitude_stays_near_floor() {
 }
 
 #[test]
+fn room_tone_gates_to_true_zero() {
+    // Band tilt lifts room tone back over DB_FLOOR: 8 bars look flat, but a
+    // consumer taking the frame's max sees a standing level.
+    let meter = WaveformMeter::new(SR);
+    let noise: Vec<f32> = (0..FFT_SIZE * 4)
+        .map(|i| {
+            let x = f32::from(u8::try_from(i % 251).unwrap()) / 251.0 - 0.5;
+            x * 0.00008
+        })
+        .collect();
+    for block in noise.chunks(256) {
+        meter.push(block);
+    }
+    let levels = meter.levels();
+    assert!(
+        levels.iter().all(|&l| l <= f32::EPSILON),
+        "room tone left a standing level: {levels:?}"
+    );
+}
+
+#[test]
+fn speech_level_keeps_full_range() {
+    let meter = WaveformMeter::new(SR);
+    let levels = levels_for_tone(&meter, 1000.0, 0.5);
+    assert!(levels[4] > 0.9, "loud tone lost headroom: {levels:?}");
+}
+
+#[test]
 fn tone_peaks_in_its_own_band() {
     let meter = WaveformMeter::new(SR);
     // 1000 Hz falls in band 4 (850–1300 Hz).

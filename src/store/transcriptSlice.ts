@@ -187,7 +187,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
       searchResults: state.searchResults.filter(t => t.id !== id),
     }))
     try {
-      await invoke<boolean>(COMMANDS.DELETE_TRANSCRIPT, { id })
+      await invoke<void>(COMMANDS.DELETE_TRANSCRIPT, { id })
       get().loadStats()
     } catch (e) {
       toast.error(extractErrorMessage(e, 'Failed to delete transcript'))

@@ -18,7 +18,7 @@ pub async fn register_hotkey(
     app: AppHandle,
     state: State<'_, AppState>,
     hotkey: String,
-) -> Result<bool, ApiError> {
+) -> Result<(), ApiError> {
     let hotkey = normalize_hotkey(hotkey)?;
     let dictation_hotkey = state.current_dictation_hotkey.lock().await.clone();
     let dictation_commit_hotkey = state.current_dictation_commit_hotkey.lock().await.clone();
@@ -44,7 +44,7 @@ pub async fn register_hotkey(
     let _ = state.save_hotkey(HotkeyKind::PushToTalk, &hotkey);
     *state.current_hotkey.lock().await = Some(hotkey);
 
-    Ok(true)
+    Ok(())
 }
 
 #[tauri::command]
@@ -73,7 +73,7 @@ pub async fn register_dictation_hotkey(
     app: AppHandle,
     state: State<'_, AppState>,
     hotkey: String,
-) -> Result<bool, ApiError> {
+) -> Result<(), ApiError> {
     let hotkey = normalize_hotkey(hotkey)?;
     let ptt_hotkey = state.current_hotkey.lock().await.clone();
     let dictation_commit_hotkey = state.current_dictation_commit_hotkey.lock().await.clone();
@@ -95,7 +95,7 @@ pub async fn register_dictation_hotkey(
     let _ = state.save_hotkey(HotkeyKind::Dictation, &hotkey);
     *state.current_dictation_hotkey.lock().await = Some(hotkey);
 
-    Ok(true)
+    Ok(())
 }
 
 #[tauri::command]
@@ -127,7 +127,7 @@ pub async fn register_dictation_commit_hotkey(
     app: AppHandle,
     state: State<'_, AppState>,
     hotkey: String,
-) -> Result<bool, ApiError> {
+) -> Result<(), ApiError> {
     let hotkey = normalize_hotkey(hotkey)?;
     let ptt_hotkey = state.current_hotkey.lock().await.clone();
     let dictation_hotkey = state.current_dictation_hotkey.lock().await.clone();
@@ -149,7 +149,7 @@ pub async fn register_dictation_commit_hotkey(
     let _ = state.save_hotkey(HotkeyKind::DictationCommit, &hotkey);
     *state.current_dictation_commit_hotkey.lock().await = Some(hotkey);
 
-    Ok(true)
+    Ok(())
 }
 
 #[tauri::command]

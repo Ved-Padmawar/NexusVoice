@@ -168,6 +168,8 @@ fn spawn_local_agreement_worker(state: &AppState) {
     let engine_cache = Arc::clone(&state.engine);
 
     tauri::async_runtime::spawn_blocking(move || {
+        // Logged once — the loop polls continuously.
+        let mut route_logged = false;
         while running.load(Ordering::SeqCst) {
             std::thread::sleep(STREAM_POLL);
             let Some(engine) = engine_cache.blocking_lock().clone() else {
@@ -200,6 +202,11 @@ fn spawn_local_agreement_worker(state: &AppState) {
             }) else {
                 continue;
             };
+
+            if !route_logged {
+                log::info!("decoding via {}", Route::LocalAgreement.as_str());
+                route_logged = true;
+            }
 
             let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 session.poll(&window, rate, &engine);

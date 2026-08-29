@@ -316,17 +316,17 @@ export function Dashboard() {
   }, [searchTranscripts])
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-8 pt-7 pb-4 gap-7">
+    <div className="flex flex-col h-full overflow-hidden px-8 pt-7 pb-4 gap-5">
 
       {/* Hero */}
-      <div className="flex items-center justify-between gap-4 pb-5 border-b border-(--border-soft)">
-        <div className="flex items-center gap-3.5">
-          <div className="w-9 h-9 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-            <LayoutDashboard size={18} strokeWidth={2} />
+      <div className="flex items-center justify-between gap-4 pb-3.5 border-b border-(--border-soft)">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
+            <LayoutDashboard size={16} strokeWidth={2} />
           </div>
-          <div>
-            <h1 className="text-[18px] font-bold tracking-tight text-(--fg) leading-[1.1] m-0">Dashboard</h1>
-            <p className="text-[12px] text-muted-foreground mt-0.75 m-0">Your voice, transcribed instantly.</p>
+          <div className="min-w-0">
+            <h1 className="text-[16px] font-bold tracking-tight text-(--fg) leading-[1.1] m-0">Dashboard</h1>
+            <p className="text-[11px] text-muted-foreground mt-0.5 m-0 truncate">Your voice, transcribed instantly.</p>
           </div>
         </div>
       </div>

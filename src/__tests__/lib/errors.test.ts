@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractErrorMessage, isErrorCode, ERROR_CODES } from '../../lib/errors'
+import { extractErrorMessage } from '../../lib/errors'
 
 describe('extractErrorMessage', () => {
   it('reads .message from a Rust ApiError-shaped object', () => {
@@ -23,18 +23,10 @@ describe('extractErrorMessage', () => {
   it('stringifies a non-string message', () => {
     expect(extractErrorMessage({ message: 500 }, 'fallback')).toBe('500')
   })
-})
 
-describe('isErrorCode', () => {
-  it('matches a Rust ApiError with the given code', () => {
-    const expired = { code: ERROR_CODES.TOKEN_EXPIRED, message: 'expired' }
-    expect(isErrorCode(expired, ERROR_CODES.TOKEN_EXPIRED)).toBe(true)
-  })
-
-  it('returns false for a different or missing code', () => {
-    expect(isErrorCode({ code: 'other' }, ERROR_CODES.TOKEN_EXPIRED)).toBe(false)
-    expect(isErrorCode({ message: 'no code' }, ERROR_CODES.TOKEN_EXPIRED)).toBe(false)
-    expect(isErrorCode(null, ERROR_CODES.TOKEN_EXPIRED)).toBe(false)
-    expect(isErrorCode('string', ERROR_CODES.TOKEN_EXPIRED)).toBe(false)
+  it('prefers an own empty message over the fallback', () => {
+    // The key is present, so this takes the 'message' in e branch — showing the
+    // fallback instead would misreport which error fired.
+    expect(extractErrorMessage({ code: 'x', message: '' }, 'fallback')).toBe('')
   })
 })

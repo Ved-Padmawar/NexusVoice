@@ -27,6 +27,9 @@ const DB_CEIL: f32 = -52.0;
 const BAND_TILT_DB: [f32; BANDS] = [0.0, 0.0, 4.0, 8.0, 12.0, 16.0, 20.0, 24.0];
 /// Decay smoothing for falling bars (instant rise). 0 = none, →1 = slow.
 const DECAY: f32 = 0.6;
+/// Gate applied after the tilt, which lifts room tone back over `DB_FLOOR`.
+/// Survivors rescale to 0–1 so no headroom is lost.
+const NOISE_GATE: f32 = 0.08;
 
 pub struct WaveformMeter {
     /// Ring buffer + write position + rate. Locked only by the audio callback
@@ -121,7 +124,12 @@ impl WaveformMeter {
             let rms = (sum / (hi - lo) as f32).sqrt() / FFT_SIZE as f32;
 
             let db = 20.0 * (rms.max(1e-9)).log10() + BAND_TILT_DB[b];
-            let target = ((db - DB_FLOOR) / (DB_CEIL - DB_FLOOR)).clamp(0.0, 1.0);
+            let scaled = ((db - DB_FLOOR) / (DB_CEIL - DB_FLOOR)).clamp(0.0, 1.0);
+            let target = if scaled < NOISE_GATE {
+                0.0
+            } else {
+                (scaled - NOISE_GATE) / (1.0 - NOISE_GATE)
+            };
 
             levels[b] = if target >= levels[b] {
                 target

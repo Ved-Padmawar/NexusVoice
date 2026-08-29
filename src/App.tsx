@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Toaster } from 'sonner'
 
-import { useAppStore, type Transcript, type DictionaryEntry } from './store/useAppStore'
+import { useAppStore, type Transcript } from './store/useAppStore'
 import { EVENTS } from './lib/events'
 import { ROUTES } from './lib/routes'
 import { useEventListener, useDelayedFlag } from './lib/hooks'
@@ -71,16 +71,6 @@ function App() {
   useEventListener<Transcript>(EVENTS.TRANSCRIPT_NEW, (t) => {
     useAppStore.setState(s => ({ transcripts: [t, ...s.transcripts] }))
     useAppStore.getState().loadStats()
-  })
-
-  useEventListener<DictionaryEntry[]>(EVENTS.DICTIONARY_UPDATED, (entries) => {
-    useAppStore.setState(s => {
-      const existing = new Set(s.dictionary.map(d => d.term))
-      const newEntries = entries.filter(d => !existing.has(d.term))
-      return newEntries.length > 0
-        ? { dictionary: [...s.dictionary, ...newEntries] }
-        : {}
-    })
   })
 
   useEffect(() => {

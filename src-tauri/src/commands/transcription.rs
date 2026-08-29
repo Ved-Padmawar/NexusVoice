@@ -13,7 +13,7 @@ use super::error::ApiError;
 pub async fn start_transcription(
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<bool, ApiError> {
+) -> Result<(), ApiError> {
     if state.current_user_id().await.is_none() {
         return Err(ApiError::new(
             "unauthenticated",
@@ -39,18 +39,18 @@ pub async fn start_transcription(
     // Wait until the mic is delivering audio so leading speech isn't clipped.
     wait_for_capture_ready(&state).await;
 
-    Ok(true)
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn stop_transcription(
     app: AppHandle,
     state: State<'_, AppState>,
-) -> Result<bool, ApiError> {
+) -> Result<(), ApiError> {
     if state.recording_mode() == RecordingMode::Dictation {
         return Err(ApiError::new(
             "dictation_running",
-            "dictation is running; use commit_dictation or cancel_dictation",
+            "dictation is running; use commit_dictation",
         ));
     }
 
@@ -58,7 +58,7 @@ pub async fn stop_transcription(
 }
 
 #[tauri::command]
-pub async fn start_dictation(app: AppHandle, state: State<'_, AppState>) -> Result<bool, ApiError> {
+pub async fn start_dictation(app: AppHandle, state: State<'_, AppState>) -> Result<(), ApiError> {
     if state.current_user_id().await.is_none() {
         return Err(ApiError::new(
             "unauthenticated",
@@ -84,11 +84,11 @@ pub async fn start_dictation(app: AppHandle, state: State<'_, AppState>) -> Resu
     // Wait until the mic is delivering audio so leading speech isn't clipped.
     wait_for_capture_ready(&state).await;
 
-    Ok(true)
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn pause_dictation(state: State<'_, AppState>) -> Result<bool, ApiError> {
+pub async fn pause_dictation(state: State<'_, AppState>) -> Result<(), ApiError> {
     ensure_dictation_active(&state)?;
 
     if !state.transition_session_phase(SessionPhase::Recording, SessionPhase::Paused) {
@@ -99,11 +99,11 @@ pub async fn pause_dictation(state: State<'_, AppState>) -> Result<bool, ApiErro
     }
 
     state.capture_paused.store(true, Ordering::SeqCst);
-    Ok(true)
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn resume_dictation(state: State<'_, AppState>) -> Result<bool, ApiError> {
+pub async fn resume_dictation(state: State<'_, AppState>) -> Result<(), ApiError> {
     ensure_dictation_active(&state)?;
 
     if !state.transition_session_phase(SessionPhase::Paused, SessionPhase::Recording) {
@@ -114,14 +114,11 @@ pub async fn resume_dictation(state: State<'_, AppState>) -> Result<bool, ApiErr
     }
 
     state.capture_paused.store(false, Ordering::SeqCst);
-    Ok(true)
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn commit_dictation(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<bool, ApiError> {
+pub async fn commit_dictation(app: AppHandle, state: State<'_, AppState>) -> Result<(), ApiError> {
     ensure_dictation_active(&state)?;
 
     match state.session_phase() {
@@ -141,21 +138,6 @@ pub async fn commit_dictation(
             "dictation is not running",
         )),
     }
-}
-
-#[tauri::command]
-pub async fn cancel_dictation(state: State<'_, AppState>) -> Result<bool, ApiError> {
-    ensure_dictation_active(&state)?;
-
-    state.capture_paused.store(false, Ordering::SeqCst);
-    let _ = state.try_stop_transcription();
-    wait_for_capture_done(&state).await;
-    let _ = state.take_stream_session();
-    let _ = state.take_streamed_text();
-    clear_audio_buffer(&state);
-    state.reset_recording_session();
-
-    Ok(true)
 }
 
 fn clear_audio_buffer(state: &AppState) {
@@ -206,7 +188,7 @@ async fn wait_for_capture_done(state: &AppState) {
     .ok();
 }
 
-async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<bool, ApiError> {
+async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<(), ApiError> {
     const MIN_DURATION_SECS: f64 = 0.5;
 
     if !state.try_stop_transcription() {
@@ -243,7 +225,7 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
     if too_short {
         state.reset_recording_session();
         let _ = app.emit("transcription-complete", "");
-        return Ok(false);
+        return Ok(());
     }
 
     let engine = match state.get_or_load_engine().await {
@@ -252,7 +234,7 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
             log::error!("engine load failed: {e}");
             state.reset_recording_session();
             let _ = app.emit("transcription-error", format!("model not ready: {e}"));
-            return Ok(false);
+            return Ok(());
         }
     };
 
@@ -277,7 +259,7 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
 
     state.reset_recording_session();
 
-    Ok(true)
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

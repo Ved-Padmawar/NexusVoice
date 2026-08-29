@@ -8,7 +8,9 @@ import { EVENTS } from '../lib/events'
 import { COMMANDS } from '../lib/commands'
 import { extractErrorMessage } from '../lib/errors'
 import type { ModelInfo } from '../types'
-import type { PillTheme } from '../store/uiSlice'
+import type { PillTheme, WaveformStyle } from '../store/uiSlice'
+import { WaveformCanvas } from '../components/WaveformCanvas'
+import { pillThemeDef } from '../lib/pillThemes'
 import { STORE_PERSIST_KEY } from '../store/useAppStore'
 import './PillApp.css'
 
@@ -48,6 +50,17 @@ function readPillTheme(): PillTheme {
   }
 }
 
+function readWaveformStyle(): WaveformStyle {
+  try {
+    const raw = localStorage.getItem(STORE_PERSIST_KEY)
+    if (!raw) return 'bars'
+    const parsed = JSON.parse(raw) as { state?: { waveformStyle?: WaveformStyle } }
+    return parsed?.state?.waveformStyle ?? 'bars'
+  } catch {
+    return 'bars'
+  }
+}
+
 export function PillApp() {
   const [state, setState] = useState<PillState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
@@ -57,6 +70,9 @@ export function PillApp() {
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [barHeights, setBarHeights] = useState(FLAT_BARS)
   const [pillTheme, setPillTheme] = useState<PillTheme>(readPillTheme)
+  const [waveformStyle, setWaveformStyle] = useState<WaveformStyle>(readWaveformStyle)
+  // Canvas styles read levels off a ref so a 30 Hz stream never re-renders.
+  const levelsRef = useRef<number[]>(new Array(FLAT_BARS.length).fill(0))
   const stateRef = useRef<PillState>('idle')
 
   useEffect(() => {
@@ -83,10 +99,20 @@ export function PillApp() {
       if (cancelled) return
       const levels = e.payload
       if (levels.length !== FLAT_BARS.length) return
-      setBarHeights(levels.map((lvl) => {
-        const norm = Math.min(Math.max(lvl, 0), 1)
-        return Math.max(MIN_H, Math.round(MIN_H + (MAX_H - MIN_H) * norm))
-      }))
+      const norm = levels.map((lvl) => Math.min(Math.max(lvl, 0), 1))
+      // Canvas styles poll this ref; the DOM `bars` style needs React state.
+      levelsRef.current = norm
+      setBarHeights(norm.map((v) => Math.max(MIN_H, Math.round(MIN_H + (MAX_H - MIN_H) * v))))
+    }).then(fn => { if (!cancelled) unlisten = fn; else fn() })
+    return () => { cancelled = true; unlisten?.() }
+  }, [])
+
+  // Sync waveform style from main window via event
+  useEffect(() => {
+    let cancelled = false
+    let unlisten: (() => void) | undefined
+    listen<WaveformStyle>(EVENTS.PILL_WAVEFORM_STYLE_CHANGED, (e) => {
+      if (!cancelled) setWaveformStyle(e.payload)
     }).then(fn => { if (!cancelled) unlisten = fn; else fn() })
     return () => { cancelled = true; unlisten?.() }
   }, [])
@@ -377,6 +403,32 @@ export function PillApp() {
     }
   }, [])
 
+  /**
+   * The waveform, in whichever style the user picked. `bars` stays DOM-based
+   * (it predates the others and animates via CSS); the rest are canvas.
+   * Widths follow PILL_WIDTH minus the padding, icon and controls around it.
+   */
+  const renderWaveform = (dictation = false) => {
+    if (waveformStyle === 'bars') {
+      return (
+        <div className={`pill__waveform${dictation ? ' pill__waveform--dictation' : ''}`}>
+          {barHeights.map((h, i) => (
+            <span key={i} className="pill__bar" style={{ height: `${h}px` }} />
+          ))}
+        </div>
+      )
+    }
+    return (
+      <WaveformCanvas
+        style={waveformStyle}
+        width={dictation ? 48 : 42}
+        height={20}
+        levelsRef={levelsRef}
+        accent={pillThemeDef(pillTheme).accentRgb}
+      />
+    )
+  }
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       {/* Tooltip bubble — shown when recording blocked */}
@@ -411,13 +463,7 @@ export function PillApp() {
         {state === 'idle' && (
           <span className="pill__brand">NexusVoice</span>
         )}
-        {state === 'recording' && (
-          <div className="pill__waveform">
-            {barHeights.map((h, i) => (
-              <span key={i} className="pill__bar" style={{ height: `${h}px` }} />
-            ))}
-          </div>
-        )}
+        {state === 'recording' && renderWaveform()}
         {(state === 'dictation' || state === 'dictation-paused') && (
           <div className="pill__dictation" aria-label={state === 'dictation-paused' ? 'Dictation paused' : 'Dictation recording'}>
             <button
@@ -430,11 +476,7 @@ export function PillApp() {
             >
               {state === 'dictation-paused' ? <Play size={11} strokeWidth={2.4} /> : <Pause size={11} strokeWidth={2.4} />}
             </button>
-            <div className="pill__waveform pill__waveform--dictation">
-              {barHeights.map((h, i) => (
-                <span key={i} className="pill__bar" style={{ height: `${h}px` }} />
-              ))}
-            </div>
+            {renderWaveform(true)}
             <button
               type="button"
               className="pill__control pill__control--commit"

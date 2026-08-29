@@ -3,7 +3,7 @@ import { useLocation } from 'react-router'
 import { invoke } from '@tauri-apps/api/core'
 import { motion } from 'framer-motion'
 import { COMMANDS } from '../lib/commands'
-import { Palette, Info, FolderOpen, SlidersHorizontal, Mic } from 'lucide-react'
+import { Palette, Info, FolderOpen, SlidersHorizontal, Mic, Settings as SettingsIcon } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { SETTINGS_TABS, type SettingsTab } from '../lib/routes'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -12,6 +12,7 @@ import { AboutTab } from './settings/AboutTab'
 import { GeneralTab } from './settings/GeneralTab'
 import { VoiceTab } from './settings/VoiceTab'
 import { PillTab } from './settings/PillTab'
+import { WaveformTab } from './settings/WaveformTab'
 
 const SUBTITLE: Record<SettingsTab, string> = {
   appearance: 'Themes for the window and the recording pill',
@@ -44,23 +45,25 @@ export function Settings() {
   const setTab = (v: string) => setActiveSettingsTab(v as SettingsTab)
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-8 pt-8 pb-4">
-      {/* Title and subtitle share one baseline. A screen this dense cannot
-          afford an icon tile and two stacked lines just to name itself. */}
-      <div className="flex shrink-0 items-baseline gap-2.5 pb-4">
-        <h1 className="shrink-0 text-[16px] font-bold tracking-[-0.03em] text-(--fg) m-0">Settings</h1>
-        <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground m-0">
-          {SUBTITLE[tab]}
-        </p>
+    <div className="flex flex-col h-full overflow-hidden px-8 pt-7 pb-4">
+      {/* Hero. Same structure as the other pages, tightened: this is the only
+          screen carrying a second nav row below it, so the spacing that suits a
+          lone header would push the tab content into scroll. */}
+      <div className="flex shrink-0 items-center justify-between gap-4 pb-3.5 mb-3.5 border-b border-(--border-soft)">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
+            <SettingsIcon size={16} strokeWidth={2} />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-[16px] font-bold tracking-tight text-(--fg) leading-[1.1] m-0">Settings</h1>
+            <p className="text-[11px] text-muted-foreground mt-0.5 m-0 truncate">{SUBTITLE[tab]}</p>
+          </div>
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab} className="flex flex-col flex-1 min-h-0 gap-0!">
         <div className="flex items-center justify-between mb-3 shrink-0">
           <TabsList className="w-fit!">
-            <TabsTrigger value="appearance" className="gap-1.25! text-[12px]!">
-              <Palette size={12} strokeWidth={1.75} />
-              Appearance
-            </TabsTrigger>
             <TabsTrigger value="general" className="gap-1.25! text-[12px]!">
               <SlidersHorizontal size={12} strokeWidth={1.75} />
               General
@@ -68,6 +71,10 @@ export function Settings() {
             <TabsTrigger value="voice" className="gap-1.25! text-[12px]!">
               <Mic size={12} strokeWidth={1.75} />
               Voice
+            </TabsTrigger>
+            <TabsTrigger value="appearance" className="gap-1.25! text-[12px]!">
+              <Palette size={12} strokeWidth={1.75} />
+              Appearance
             </TabsTrigger>
             <TabsTrigger value="about" className="gap-1.25! text-[12px]!">
               <Info size={12} strokeWidth={1.75} />
@@ -92,17 +99,18 @@ export function Settings() {
           )}
         </div>
 
-        <TabsContent value="appearance" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-6 mt-0! pr-1">
-          <AppearanceTab />
-          <PillTab />
-        </TabsContent>
-
         <TabsContent value="general" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-5 mt-0! pr-1">
           <GeneralTab />
         </TabsContent>
 
         <TabsContent value="voice" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-3 mt-0! pr-1">
           <VoiceTab />
+        </TabsContent>
+
+        <TabsContent value="appearance" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-6 mt-0! pr-1">
+          <AppearanceTab />
+          <PillTab />
+          <WaveformTab />
         </TabsContent>
 
         <TabsContent value="about" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-3 mt-0! pr-1">

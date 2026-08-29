@@ -311,7 +311,7 @@ export function VoiceTab() {
         loadedVariant ? 'border-(--accent-soft) bg-(--accent-soft)' : 'border-(--border-soft) bg-(--panel)'
       }`}>
         <span className={`grid size-7 shrink-0 place-items-center rounded-(--r-sm) ${
-          loadedVariant ? 'border border-(--accent) bg-(--accent-soft)' : 'border border-dashed border-(--border) text-muted-foreground'
+          loadedVariant ? 'bg-(--accent-soft)' : 'text-muted-foreground'
         }`}>
           {shownVendor
             ? <VendorMark vendor={shownVendor} className="size-4" />

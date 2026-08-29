@@ -97,7 +97,7 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
 
   cancelDownload: async (id: ModelId) => {
     try {
-      await invoke<boolean>(COMMANDS.CANCEL_MODEL_DOWNLOAD, { id })
+      await invoke<void>(COMMANDS.CANCEL_MODEL_DOWNLOAD, { id })
     } catch { /* ignore */ }
   },
 

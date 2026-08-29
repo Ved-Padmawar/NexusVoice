@@ -1,31 +1,8 @@
-//! Window & shell commands: show/hide the main window, open the logs folder.
+//! Window & shell commands: forward webview logs, open the logs folder.
 
 use tauri::{AppHandle, Manager};
 
 use super::error::ApiError;
-
-#[tauri::command]
-pub async fn show_main_window(app: AppHandle) -> Result<(), ApiError> {
-    if let Some(window) = app.get_webview_window("main") {
-        window
-            .show()
-            .map_err(|e| ApiError::new("window_error", e.to_string()))?;
-        window
-            .set_focus()
-            .map_err(|e| ApiError::new("window_error", e.to_string()))?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn hide_main_window(app: AppHandle) -> Result<(), ApiError> {
-    if let Some(window) = app.get_webview_window("main") {
-        window
-            .hide()
-            .map_err(|e| ApiError::new("window_error", e.to_string()))?;
-    }
-    Ok(())
-}
 
 /// Forward a log record from the webview into the unified backend log file,
 /// so frontend errors land in the same structured log as backend events.

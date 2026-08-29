@@ -68,14 +68,14 @@ export function Dictionary() {
       <div className="flex-1 min-h-0 overflow-hidden px-8 pt-7 pb-4 flex flex-col gap-5">
 
         {/* Hero */}
-        <div className="flex items-center justify-between gap-4 pb-5 border-b border-(--border-soft)">
-          <div className="flex items-center gap-3.5">
-            <div className="w-9 h-9 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-              <BookOpen size={18} strokeWidth={2} />
+        <div className="flex items-center justify-between gap-4 pb-3.5 border-b border-(--border-soft)">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
+              <BookOpen size={16} strokeWidth={2} />
             </div>
-            <div>
-              <h1 className="text-[18px] font-bold tracking-tight text-(--fg) leading-[1.1] m-0">Dictionary</h1>
-              <p className="text-[12px] text-muted-foreground mt-0.75 m-0">Custom phonetics and word replacements.</p>
+            <div className="min-w-0">
+              <h1 className="text-[16px] font-bold tracking-tight text-(--fg) leading-[1.1] m-0">Dictionary</h1>
+              <p className="text-[11px] text-muted-foreground mt-0.5 m-0 truncate">Custom phonetics and word replacements.</p>
             </div>
           </div>
         </div>

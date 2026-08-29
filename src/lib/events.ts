@@ -25,7 +25,6 @@ export const EVENTS = {
   TRANSCRIPTION_ERROR:      'transcription-error',
 
   // Dictionary
-  DICTIONARY_UPDATED: 'dictionary:updated',
 
   // Auth
   AUTH_READY:           'auth:ready',
@@ -33,6 +32,7 @@ export const EVENTS = {
 
   // Pill
   PILL_THEME_CHANGED: 'pill:theme-changed',
+  PILL_WAVEFORM_STYLE_CHANGED: 'pill:waveform-style-changed',
   PILL_WAVEFORM: 'pill:waveform',
 } as const
 

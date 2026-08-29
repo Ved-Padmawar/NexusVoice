@@ -227,7 +227,6 @@ fn main() {
 
             // Spawn: hardware detection (blocking syscalls — must not run on main thread)
             {
-                let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     use hardware::detector::detect_profile;
                     use hardware::sysinfo_provider::SysinfoProvider;
@@ -257,17 +256,6 @@ fn main() {
                         hw.vram_gb
                     );
                     log::info!("Recommended model: {}", recommended.display_name);
-
-                    let _ = app_handle.emit(
-                        "hardware:profile",
-                        serde_json::json!({
-                            "gpuName": hw.gpu_type,
-                            "executionProvider": hw.execution_provider,
-                            "vramGb": hw.vram_gb,
-                            "ramGb": hw.ram_gb,
-                            "recommendedModel": recommended.display_name,
-                        }),
-                    );
                 });
             }
 
@@ -426,7 +414,6 @@ fn main() {
             commands::pause_dictation,
             commands::resume_dictation,
             commands::commit_dictation,
-            commands::cancel_dictation,
             commands::get_usage_stats,
             commands::get_transcripts,
             commands::search_transcripts,
@@ -436,9 +423,6 @@ fn main() {
             commands::delete_transcript,
             commands::update_dictionary,
             commands::delete_dictionary_entry,
-            commands::apply_dictionary,
-            commands::show_main_window,
-            commands::hide_main_window,
             commands::type_text,
             commands::register_hotkey,
             commands::unregister_hotkey,
@@ -454,7 +438,6 @@ fn main() {
             commands::set_model_override,
             commands::get_language_options,
             commands::set_language,
-            commands::clear_model_override,
             commands::get_hardware_profile,
             commands::get_model_catalog,
             commands::get_downloaded_models,

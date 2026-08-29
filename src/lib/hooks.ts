@@ -29,24 +29,3 @@ export function useEventListener<T>(event: EventName, handler: (payload: T) => v
     return () => { unlisten.then(fn => fn()).catch(() => {}) }
   }, [event])
 }
-
-/** Calls callback when a mousedown occurs outside the given ref. */
-export function useClickOutside<T extends HTMLElement>(
-  ref: React.RefObject<T | null>,
-  callback: () => void,
-  enabled = true
-) {
-  const callbackRef = useRef(callback)
-  useLayoutEffect(() => { callbackRef.current = callback })
-
-  useEffect(() => {
-    if (!enabled) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        callbackRef.current()
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [ref, enabled])
-}

@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.15.0-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.15.1-violet?style=flat-square)
 
 </div>
 
@@ -39,7 +39,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **Push-to-talk** — hold any custom hotkey to record, release to transcribe and paste
 - **Live streaming transcription** — your speech is transcribed as you talk, so there's barely anything left to process when you release the hotkey
 - **Dictation Mode** — a hands-free alternative: press a hotkey to start, then pause/resume and save from the pill or by hotkey — ideal for longer, uninterrupted dictation
-- **Microphone selection** — pick which input device records your voice (Settings → Voice); defaults to the system default and falls back to it automatically if your chosen mic is unplugged
+- **Microphone selection** — pick which input device records your voice (Settings → General); defaults to the system default and falls back to it automatically if your chosen mic is unplugged
 - **100% local** — transcription runs entirely on your machine, nothing is sent to the cloud
 - **GPU-accelerated** — auto-detects NVIDIA (CUDA), AMD/Intel (Vulkan), falls back to CPU
 - **Live or on-release** — streaming models show text as you speak; the rest transcribe when you stop
@@ -192,7 +192,7 @@ npm run tauri dev
 ## Usage
 
 1. Launch NexusVoice — it appears in the system tray
-2. Go to **Settings → Shortcuts** and set your recording hotkey (and, optionally, a separate Dictation hotkey)
+2. Go to **Settings → General** and set your recording hotkey (and, optionally, a separate Dictation hotkey)
 3. Choose your Whisper model in the first-run picker — the recommended one is pre-selected for your hardware
 4. Click into any text field in any app
 5. **Push-to-talk:** hold your hotkey → speak → release
