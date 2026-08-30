@@ -1,9 +1,13 @@
 fn main() {
-    // Linux loads libtranscribe from beside the binary; deb/rpm install it into
-    // the app-private /usr/lib/nexusvoice. Windows resolves DLLs from the exe
-    // directory and needs no rpath.
+    // Each Linux bundler lands the resources somewhere different, so list every
+    // layout. deb/rpm use /usr/lib/<productName> — capitalised; a case mismatch
+    // is silent at build time and fatal at launch. Windows needs no rpath.
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
-        println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../lib/nexusvoice:$ORIGIN/../lib");
+        const RPATH: &str =
+            "$ORIGIN:$ORIGIN/../lib/NexusVoice:$ORIGIN/../lib/nexusvoice:$ORIGIN/../lib";
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{RPATH}");
+        // Otherwise the rpath isn't inherited by the ggml modules transcribe dlopen's.
+        println!("cargo:rustc-link-arg=-Wl,--disable-new-dtags");
     }
 
     stage_transcribe_runtime_libs();
