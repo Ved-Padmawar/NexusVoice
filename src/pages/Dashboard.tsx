@@ -348,7 +348,7 @@ export function Dashboard() {
       </AnimatePresence>
 
       {/* Stats */}
-      <SectionState status={statsStatus} error={statsError} onRetry={loadStats} skeleton={<StatsSkeleton />}>
+      <SectionState status={statsStatus} error={statsError} onRetry={loadStats} skeleton={<StatsSkeleton />} hasData={stats != null}>
       <div className="grid grid-cols-4 gap-2.5">
         {STATS.map(({ key, label, fmt, Icon }, i) => {
           const raw = stats?.[key as keyof typeof stats] as number | undefined

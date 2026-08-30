@@ -55,14 +55,7 @@ async fn test_migration_0003_upgrade_preserves_data() {
     let sql_0003 = include_str!("../src/database/migrations/0003_word_frequency.sql");
     apply_sql(&pool, sql_0003).await;
 
-    // ── 5. Assert word_frequency table exists and is empty ───────────────────
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM word_frequency")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(count, 0, "word_frequency should be empty after migration");
-
-    // ── 6. Assert all existing data survived ────────────────────────────────
+    // ── 5. Assert all existing data survived ────────────────────────────────
     let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
         .fetch_one(&pool)
         .await
@@ -83,17 +76,6 @@ async fn test_migration_0003_upgrade_preserves_data() {
         .await
         .unwrap();
     assert_eq!(dict_count, 1, "dictionary data should survive upgrade");
-
-    // ── 7. Assert word_frequency is functional ───────────────────────────────
-    sqlx::query("INSERT INTO word_frequency (word, count, dismissed) VALUES ('nexus', 1, 0)")
-        .execute(&pool)
-        .await
-        .unwrap();
-    let word: String = sqlx::query_scalar("SELECT word FROM word_frequency WHERE word = 'nexus'")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert_eq!(word, "nexus");
 }
 
 #[tokio::test]
@@ -157,12 +139,6 @@ async fn test_migration_recovery_backup_and_recreate() {
         .await
         .unwrap();
     assert_eq!(user_count, 0, "fresh DB has no user rows");
-
-    let wf_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM word_frequency")
-        .fetch_one(&fresh_pool)
-        .await
-        .unwrap();
-    assert_eq!(wf_count, 0, "word_frequency table exists and is empty");
 
     // Backup contains the original data
     let bak_url = format!("sqlite://{}", bak_path.to_string_lossy().replace('\\', "/"));

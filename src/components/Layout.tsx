@@ -1,9 +1,10 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router'
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import clsx from 'clsx'
 import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, ArrowUp, Download, RotateCcw } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { getName } from '@tauri-apps/api/app'
 import { useAppStore } from '../store/useAppStore'
 import { ROUTES } from '../lib/routes'
 import logoUrl from '../assets/logo.png'
@@ -182,6 +183,13 @@ export function Layout() {
     }
   }, [location.pathname, setActiveRoute])
 
+  const [isDev, setIsDev] = useState(false)
+  useEffect(() => {
+    getName()
+      .then(name => setIsDev(name.toLowerCase().endsWith('dev')))
+      .catch(() => setIsDev(false))
+  }, [])
+
   const handleLogout = useCallback(async () => {
     await logout()
     navigate('/auth', { replace: true })
@@ -198,7 +206,7 @@ export function Layout() {
         {/* Sidebar */}
         <aside className="w-(--sidebar-w) shrink-0 h-full bg-(--panel) border-r border-(--border) flex flex-col relative z-10">
           {/* Brand */}
-          <div className="px-3.5 pt-9 pb-3 border-b border-(--border-soft)">
+          <div className="px-3.5 pt-7 pb-3.5 flex items-center border-b border-(--border-soft)">
             <Link to="/" className="flex items-center gap-2.25 no-underline group">
               {/* Real app icon (cyan/steel split tile + waveform) — same mark as
                   the taskbar/tray icon, so branding is consistent everywhere. */}
@@ -208,7 +216,14 @@ export function Layout() {
                 className="w-9 h-9 rounded-(--r-md) shrink-0"
               />
               <div>
-                <div className="text-[13px] font-black tracking-[-0.02em] leading-none"><span className="text-(--fg)">Nexus</span><span className="text-(--accent)">Voice</span></div>
+                <div className="flex items-center gap-1.5">
+                  <div className="text-[13px] font-black tracking-[-0.02em] leading-none"><span className="text-(--fg)">Nexus</span><span className="text-(--accent)">Voice</span></div>
+                  {isDev && (
+                    <span className="px-1.25 py-0.25 rounded-(--r-xs) bg-(--accent-soft) text-(--accent) text-[9px] font-bold uppercase tracking-[0.06em] leading-none">
+                      Dev
+                    </span>
+                  )}
+                </div>
                 <div className="text-[10px] text-(--fg-2) mt-0.5 tracking-[0.03em]">v{__APP_VERSION__}</div>
               </div>
             </Link>

@@ -125,6 +125,181 @@ fn from_ms_maps_to_native_rate() {
     assert_eq!(from_ms(-5, 48_000), 0);
 }
 
+/// Build a hypothesis of `texts` as one segment, 400 cs apart.
+fn hypothesis(texts: &[&str], end_ms: i64) -> Vec<TimedSegment> {
+    vec![TimedSegment {
+        words: texts
+            .iter()
+            .enumerate()
+            .map(|(i, t)| word(t, i64::try_from(i).expect("test index") * 400 + 400))
+            .collect(),
+        end_ms,
+    }]
+}
+
+#[test]
+fn nothing_is_committed_from_a_single_hypothesis() {
+    // LocalAgreement-2 needs two decodes to agree before anything is confirmed.
+    let mut session = StreamingSession::new();
+    session.segments = hypothesis(&[" hello", " world"], 800);
+    session.commit_agreed();
+
+    assert_eq!(session.committed, "");
+    assert_eq!(session.committed_words, 0);
+}
+
+#[test]
+fn agreeing_hypotheses_commit_their_shared_prefix() {
+    let mut session = StreamingSession::new();
+    session.segments = hypothesis(&[" the", " quick", " brown"], 1200);
+    session.commit_agreed();
+
+    // Second decode agrees on "the quick" but revises the third word.
+    session.segments = hypothesis(&[" the", " quick", " brownish", " fox"], 1600);
+    session.commit_agreed();
+
+    assert_eq!(session.committed, "the quick");
+    assert_eq!(session.committed_words, 2);
+}
+
+#[test]
+fn committed_text_survives_a_disagreeing_decode() {
+    let mut session = StreamingSession::new();
+    session.segments = hypothesis(&[" one", " two"], 800);
+    session.commit_agreed();
+    session.segments = hypothesis(&[" one", " two"], 800);
+    session.commit_agreed();
+    assert_eq!(session.committed, "one two");
+
+    // A later hypothesis that disagrees entirely past the committed prefix.
+    session.segments = hypothesis(&[" one", " two", " zebra"], 1200);
+    session.commit_agreed();
+
+    assert_eq!(
+        session.committed, "one two",
+        "committed text must never shrink"
+    );
+    assert_eq!(session.committed_words, 2);
+}
+
+#[test]
+fn commits_accumulate_across_successive_agreements() {
+    let mut session = StreamingSession::new();
+    for texts in [
+        &[" alpha"][..],
+        &[" alpha", " beta"][..],
+        &[" alpha", " beta", " gamma"][..],
+        &[" alpha", " beta", " gamma", " delta"][..],
+    ] {
+        let end_ms = i64::try_from(texts.len()).expect("test length") * 400;
+        session.segments = hypothesis(texts, end_ms);
+        session.commit_agreed();
+    }
+
+    // Each decode confirms the previous one's new word.
+    assert_eq!(session.committed, "alpha beta gamma");
+    assert_eq!(session.committed_words, 3);
+}
+
+#[test]
+fn punctuation_attaches_to_the_committed_word() {
+    let mut session = StreamingSession::new();
+    session.segments = hypothesis(&[" hello", ",", " world"], 1200);
+    session.commit_agreed();
+    session.segments = hypothesis(&[" hello", ",", " world"], 1200);
+    session.commit_agreed();
+
+    assert_eq!(session.committed, "hello, world");
+}
+
+#[test]
+fn trim_cuts_at_a_committed_segment_boundary_without_touching_text() {
+    let mut session = StreamingSession::new();
+    let native_rate = 16_000;
+    session.segments = vec![
+        TimedSegment {
+            words: vec![word(" one", 400), word(" two", 800)],
+            end_ms: 800,
+        },
+        TimedSegment {
+            words: vec![word(" three", 1200)],
+            end_ms: 1200,
+        },
+    ];
+    session.committed = "one two".to_string();
+    session.committed_words = 2;
+    let total_len = 20 * native_rate as usize;
+
+    assert!(session.trim(total_len, native_rate));
+
+    // Audio and hypothesis advance; the transcript is untouched.
+    assert_eq!(session.committed, "one two");
+    assert_eq!(session.window_start, from_ms(800, native_rate));
+    assert_eq!(session.committed_words, 0);
+    assert_eq!(session.segments.len(), 1);
+}
+
+#[test]
+fn trim_is_a_noop_when_no_segment_is_fully_committed() {
+    let mut session = StreamingSession::new();
+    let native_rate = 16_000;
+    session.segments = vec![
+        TimedSegment {
+            words: vec![word(" one", 400), word(" two", 800)],
+            end_ms: 800,
+        },
+        TimedSegment {
+            words: vec![word(" three", 1200)],
+            end_ms: 1200,
+        },
+    ];
+    session.committed = "one".to_string();
+    session.committed_words = 1;
+
+    assert!(!session.trim(20 * native_rate as usize, native_rate));
+    assert_eq!(session.window_start, 0);
+}
+
+#[test]
+fn committing_continues_across_a_trim() {
+    let mut session = StreamingSession::new();
+    let native_rate = 16_000;
+
+    // Two identical decodes commit the whole hypothesis.
+    for _ in 0..2 {
+        session.segments = vec![
+            TimedSegment {
+                words: vec![word(" one", 400), word(" two", 800)],
+                end_ms: 800,
+            },
+            TimedSegment {
+                words: vec![word(" three", 1200)],
+                end_ms: 1200,
+            },
+        ];
+        session.commit_agreed();
+    }
+    assert_eq!(session.committed, "one two three");
+    assert_eq!(session.committed_words, 3);
+
+    // The first segment is fully committed, so it can be cut away.
+    assert!(session.trim(20 * native_rate as usize, native_rate));
+    assert_eq!(session.window_start, from_ms(800, native_rate));
+    assert_eq!(
+        session.committed_words, 1,
+        "only \"three\" is still in view"
+    );
+
+    // Post-trim hypotheses are relative to the new window start, so "three"
+    // leads and must not be committed twice.
+    for _ in 0..2 {
+        session.segments = hypothesis(&[" three", " four"], 800);
+        session.commit_agreed();
+    }
+
+    assert_eq!(session.committed, "one two three four");
+}
+
 #[test]
 fn force_trim_cuts_a_single_growing_segment_at_a_word_boundary() {
     let mut session = StreamingSession::new();
@@ -139,32 +314,29 @@ fn force_trim_cuts_a_single_growing_segment_at_a_word_boundary() {
         ],
         end_ms: 2000,
     }];
-    session.confirmed_words = 4;
+    session.committed = "one two three four".to_string();
+    session.committed_words = 4;
     let total_len = 20 * native_rate as usize;
 
     session.force_trim(total_len, native_rate);
 
+    // A buffer cut only — the text was committed on agreement, not here.
     assert_eq!(session.committed, "one two three four");
     assert_eq!(session.window_start, from_ms(1600 * 10, native_rate));
-    assert_eq!(session.confirmed_words, 0);
+    assert_eq!(session.committed_words, 0);
     assert_eq!(session.segments[0].words.len(), 1);
     assert_eq!(session.segments[0].words[0].text, " five");
 }
 
 #[test]
-fn force_trim_is_a_noop_when_nothing_is_confirmed() {
+fn force_trim_is_a_noop_when_nothing_is_committed() {
     let mut session = StreamingSession::new();
     let native_rate = 16_000;
-    session.segments = vec![TimedSegment {
-        words: vec![word(" one", 400), word(" two", 800)],
-        end_ms: 2000,
-    }];
-    session.confirmed_words = 0;
-    let total_len = 20 * native_rate as usize;
+    session.segments = hypothesis(&[" one", " two"], 2000);
+    session.committed_words = 0;
 
-    session.force_trim(total_len, native_rate);
+    session.force_trim(20 * native_rate as usize, native_rate);
 
-    assert_eq!(session.committed, "");
     assert_eq!(session.window_start, 0);
 }
 
@@ -179,12 +351,12 @@ fn force_trim_is_a_noop_without_dtw_timestamps() {
         }],
         end_ms: 2000,
     }];
-    session.confirmed_words = 1;
-    let total_len = 20 * native_rate as usize;
+    session.committed = "hello".to_string();
+    session.committed_words = 1;
 
-    session.force_trim(total_len, native_rate);
+    session.force_trim(20 * native_rate as usize, native_rate);
 
-    assert_eq!(session.committed, "");
+    assert_eq!(session.committed, "hello");
     assert_eq!(session.window_start, 0);
 }
 
@@ -196,11 +368,10 @@ fn force_trim_is_a_noop_when_it_would_leave_too_little_window() {
         words: vec![word(" hello", 1990)],
         end_ms: 2000,
     }];
-    session.confirmed_words = 1;
-    let total_len = 20 * native_rate as usize;
+    session.committed = "hello".to_string();
+    session.committed_words = 1;
 
-    session.force_trim(total_len, native_rate);
+    session.force_trim(20 * native_rate as usize, native_rate);
 
-    assert_eq!(session.committed, "");
     assert_eq!(session.window_start, 0);
 }

@@ -11,6 +11,21 @@ const LOG_MAX_SIZE: u128 = 10 * 1024 * 1024;
 
 /// A short id identifying this app run, attached to every structured log line so
 /// lines from one session can be grouped when logs from multiple runs interleave.
+/// Models live in the release data dir even in dev, so a dev build reuses
+/// downloads. Everything else stays per-identifier. Dev's dir is the release
+/// one plus a `.dev` suffix.
+fn shared_models_dir(app_data_dir: &std::path::Path) -> std::path::PathBuf {
+    let shared_root = app_data_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .and_then(|n| n.strip_suffix(".dev"))
+        .map_or_else(
+            || app_data_dir.to_path_buf(),
+            |release| app_data_dir.with_file_name(release),
+        );
+    shared_root.join("models")
+}
+
 fn session_id() -> &'static str {
     use std::sync::OnceLock;
     static SESSION_ID: OnceLock<String> = OnceLock::new();
@@ -157,7 +172,7 @@ fn main() {
             let language_path = app_data_dir.join("language");
             let format_config_path = app_data_dir.join("format_config.json");
             let input_device_path = app_data_dir.join("input_device");
-            let models_dir = app_data_dir.join("models");
+            let models_dir = shared_models_dir(&app_data_dir);
             std::fs::create_dir_all(&models_dir)?;
             // Nothing can be mid-download at startup, so any .part file is
             // debris from a crash or a quit during a download.

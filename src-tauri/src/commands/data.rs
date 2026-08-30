@@ -79,6 +79,23 @@ impl PageQuery {
     fn sort_desc(&self) -> bool {
         !self.sort_asc.unwrap_or(false)
     }
+
+    fn start_bound(&self) -> Option<&str> {
+        self.from.as_deref()
+    }
+
+    /// Inclusive upper bound. The picker sends a bare `YYYY-MM-DD` but
+    /// `created_at` is `YYYY-MM-DD HH:MM:SS`, compared lexicographically, so a
+    /// bare date would exclude the whole day it names.
+    fn end_bound(&self) -> Option<String> {
+        self.to.as_deref().map(|t| {
+            if t.len() == 10 {
+                format!("{t} 23:59:59")
+            } else {
+                t.to_string()
+            }
+        })
+    }
 }
 
 #[tauri::command]
@@ -87,12 +104,13 @@ pub async fn get_transcripts(
     page: PageQuery,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
     let repo = TranscriptRepository::new(state.db().await.clone());
+    let to = page.end_bound();
     let items = repo
         .list_keyset(
             page.limit(),
             page.cursor(),
-            page.from.as_deref(),
-            page.to.as_deref(),
+            page.start_bound(),
+            to.as_deref(),
             page.sort_desc(),
         )
         .await?;
@@ -118,19 +136,7 @@ pub async fn search_transcripts(
         return Ok(vec![]);
     }
 
-    // Load user vocabulary from word_frequency table for fuzzy matching.
-    // Best-effort: fuzzy matching is an enhancement, so an empty vocab on failure
-    // just skips it — but log so the failure isn't fully silent.
-    let vocab: Vec<String> =
-        sqlx::query_scalar("SELECT word FROM word_frequency ORDER BY count DESC LIMIT 2000")
-            .fetch_all(state.db().await)
-            .await
-            .unwrap_or_else(|e| {
-                log::warn!("vocab load for fuzzy search failed: {e}");
-                Vec::new()
-            });
-
-    let fts_query = TranscriptRepository::build_fts_query(&query, &vocab);
+    let fts_query = TranscriptRepository::build_fts_query(&query);
 
     // An all-punctuation query can normalize to an empty FTS string — that's
     // "no searchable terms", not an error.
@@ -140,13 +146,14 @@ pub async fn search_transcripts(
 
     // Propagate real DB/FTS errors instead of masking them as empty results.
     let repo = TranscriptRepository::new(state.db().await.clone());
+    let to = page.end_bound();
     let items = repo
         .search(
             &fts_query,
             page.limit(),
             page.cursor(),
-            page.from.as_deref(),
-            page.to.as_deref(),
+            page.start_bound(),
+            to.as_deref(),
             page.sort_desc(),
         )
         .await?;

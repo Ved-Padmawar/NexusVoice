@@ -1,5 +1,5 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from "vite";
+import { defineConfig, withFilter } from "vite";
 import { resolve } from "path";
 import react from "@vitejs/plugin-react";
 import svgr from "vite-plugin-svgr";
@@ -15,7 +15,11 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   // svgr: provider marks import as components so they can be tinted.
-  plugins: [react(), svgr(), tailwindcss()],
+  plugins: [
+    react(),
+    withFilter(svgr(), { load: { id: /\.svg\?react$/ } }),
+    tailwindcss({ optimize: false }),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),

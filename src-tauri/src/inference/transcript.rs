@@ -18,12 +18,6 @@ pub struct TimedSegment {
     pub end_ms: i64,
 }
 
-/// Join segments into a transcript.
-pub fn join_segments(segments: &[TimedSegment]) -> String {
-    let words: Vec<Word> = segments.iter().flat_map(|s| s.words.clone()).collect();
-    join_words(&words)
-}
-
 /// Join words into a transcript, attaching trailing punctuation to its word.
 pub fn join_words(words: &[Word]) -> String {
     let mut out = String::new();

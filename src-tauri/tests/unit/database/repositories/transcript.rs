@@ -192,3 +192,123 @@ async fn keyset_respects_date_range_with_cursor() {
         .expect("page");
     assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![4, 3, 2]);
 }
+
+#[tokio::test]
+async fn search_pages_newest_first_without_repeats() {
+    let pool = pool().await;
+    for i in 1..=6 {
+        insert(
+            &pool,
+            &format!("meeting notes {i}"),
+            &format!("2026-01-0{i} 00:00:00"),
+        )
+        .await;
+    }
+    let repo = TranscriptRepository::new(pool);
+
+    let page1 = repo
+        .search("\"meeting\"", 3, None, None, None, true)
+        .await
+        .expect("page 1");
+    assert_eq!(
+        page1.iter().map(|r| r.id).collect::<Vec<_>>(),
+        vec![6, 5, 4]
+    );
+
+    // Search keys its cursor on id alone, so created_at here is inert.
+    let last = page1.last().expect("row");
+    let page2 = repo
+        .search(
+            "\"meeting\"",
+            3,
+            Some(Cursor {
+                created_at: "",
+                id: last.id,
+            }),
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("page 2");
+    assert_eq!(
+        page2.iter().map(|r| r.id).collect::<Vec<_>>(),
+        vec![3, 2, 1]
+    );
+}
+
+#[tokio::test]
+async fn search_ascending_walks_forward() {
+    let pool = pool().await;
+    for i in 1..=4 {
+        insert(
+            &pool,
+            &format!("report {i}"),
+            &format!("2026-01-0{i} 00:00:00"),
+        )
+        .await;
+    }
+    let repo = TranscriptRepository::new(pool);
+
+    let rows = repo
+        .search("\"report\"", 2, None, None, None, false)
+        .await
+        .expect("page");
+    assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![1, 2]);
+}
+
+#[tokio::test]
+async fn search_respects_the_date_range() {
+    let pool = pool().await;
+    for i in 1..=5 {
+        insert(
+            &pool,
+            &format!("invoice {i}"),
+            &format!("2026-01-0{i} 12:00:00"),
+        )
+        .await;
+    }
+    let repo = TranscriptRepository::new(pool);
+
+    // End bound is already widened to end-of-day by the command layer.
+    let rows = repo
+        .search(
+            "\"invoice\"",
+            10,
+            None,
+            Some("2026-01-02 00:00:00"),
+            Some("2026-01-04 23:59:59"),
+            true,
+        )
+        .await
+        .expect("page");
+    assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![4, 3, 2]);
+}
+
+/// A bare `YYYY-MM-DD` upper bound compares lexicographically against
+/// `YYYY-MM-DD HH:MM:SS`, so without widening it excludes the day it names.
+#[tokio::test]
+async fn a_bare_end_date_would_exclude_its_own_day() {
+    let pool = pool().await;
+    insert(&pool, "morning", "2026-01-15 09:00:00").await;
+    insert(&pool, "evening", "2026-01-15 21:00:00").await;
+    let repo = TranscriptRepository::new(pool);
+
+    let narrow = repo
+        .list_keyset(10, None, Some("2026-01-15"), Some("2026-01-15"), true)
+        .await
+        .expect("narrow");
+    assert!(narrow.is_empty(), "bare bound drops the whole day");
+
+    let widened = repo
+        .list_keyset(
+            10,
+            None,
+            Some("2026-01-15"),
+            Some("2026-01-15 23:59:59"),
+            true,
+        )
+        .await
+        .expect("widened");
+    assert_eq!(widened.len(), 2);
+}

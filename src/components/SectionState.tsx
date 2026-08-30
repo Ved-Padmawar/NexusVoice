@@ -14,6 +14,9 @@ interface Props {
   children: ReactNode
   /** Delay before the skeleton appears, to avoid flashing on fast loads. */
   loaderDelayMs?: number
+  /** Content is already on screen: a reload updates it in place instead of
+   * unmounting it for the skeleton. */
+  hasData?: boolean
 }
 
 /**
@@ -22,10 +25,10 @@ interface Props {
  * - `error`   → inline message + Retry (re-runs the section's own fetch)
  * - else      → children
  */
-export function SectionState({ status, error, onRetry, skeleton, children, loaderDelayMs = 250 }: Props) {
+export function SectionState({ status, error, onRetry, skeleton, children, loaderDelayMs = 250, hasData = false }: Props) {
   const showSkeleton = useDelayedFlag(status === 'loading', loaderDelayMs)
 
-  if (status === 'error') {
+  if (status === 'error' && !hasData) {
     return (
       <div
         role="alert"
@@ -48,7 +51,7 @@ export function SectionState({ status, error, onRetry, skeleton, children, loade
     )
   }
 
-  if (status === 'loading') {
+  if (status === 'loading' && !hasData) {
     return showSkeleton ? <>{skeleton}</> : null
   }
 

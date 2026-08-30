@@ -1,6 +1,4 @@
 //! Streaming decode for models that own their session state.
-//!
-//! Adapted from Handy (github.com/cjpais/Handy, MIT).
 
 use transcribe_cpp::{RunOptions, Stream, StreamOptions};
 

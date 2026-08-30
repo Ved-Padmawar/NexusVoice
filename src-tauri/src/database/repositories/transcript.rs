@@ -136,16 +136,13 @@ impl TranscriptRepository {
         .await
     }
 
-    /// Transforms a user query into an FTS5 query string.
-    /// For each query word:
-    ///   - Always includes the word itself and a prefix variant (word*)
-    ///   - Uses `strsim::jaro_winkler` to find close matches from the user's vocabulary
-    ///     (score >= 0.88 and not identical) and adds them as OR alternatives
+    /// Transforms a user query into an FTS5 query string: each word plus a
+    /// prefix variant (`word*`), OR-ed together.
     ///
     /// Every term is emitted as a **quoted FTS5 string literal** so user input
     /// containing FTS syntax characters (`"`, `-`, `:`, `*`, `(`, `^`, etc.) is
     /// treated as literal text instead of breaking the MATCH grammar.
-    pub fn build_fts_query(query: &str, vocab: &[String]) -> String {
+    pub fn build_fts_query(query: &str) -> String {
         // Wrap a token as a quoted FTS5 literal, doubling embedded quotes.
         fn quote(token: &str) -> String {
             format!("\"{}\"", token.replace('"', "\"\""))
@@ -167,20 +164,6 @@ impl TranscriptRepository {
                     variants.push(format!("{}*", quote(&w_lower)));
                 }
 
-                // Fuzzy matches from user vocabulary via Jaro-Winkler
-                if w_lower.len() >= 4 {
-                    for candidate in vocab {
-                        let c_lower = candidate.to_lowercase();
-                        if c_lower == w_lower {
-                            continue;
-                        }
-                        let score = strsim::jaro_winkler(&w_lower, &c_lower);
-                        if score >= 0.88 {
-                            variants.push(quote(&c_lower));
-                        }
-                    }
-                }
-
                 Some(variants.join(" OR "))
             })
             .collect();
@@ -190,8 +173,17 @@ impl TranscriptRepository {
 
     /// FTS5 search with optional date range and sort order.
     ///
-    /// Results are ordered by date (not BM25 rank), so the same `(created_at, id)`
-    /// cursor as `list_keyset` applies.
+    /// Ordered by `rowid` (= `transcripts.id`), not by `created_at`. Ordering by
+    /// `created_at` forces SQLite to materialize *every* match into a temp B-tree
+    /// and sort it before `LIMIT` discards all but a page — cost scales with the
+    /// number of matches, not the page size, so a common word costs ~70 ms per
+    /// 50 k matched rows. Ordering by `rowid` lets FTS5 walk its own index and
+    /// stop at `LIMIT` (~0.1 ms).
+    ///
+    /// This is equivalent **only because `created_at` is never written
+    /// explicitly**: `create` omits the column, so it always takes
+    /// `CURRENT_TIMESTAMP` and ids therefore rise with time. Backdating a row
+    /// would break both this ordering and the cursor below.
     pub async fn search(
         &self,
         query: &str,
@@ -209,8 +201,8 @@ impl TranscriptRepository {
                  WHERE transcripts_fts MATCH ?
                    AND (? IS NULL OR t.created_at >= ?)
                    AND (? IS NULL OR t.created_at <= ?)
-                   AND (t.created_at < ? OR (t.created_at = ? AND t.id < ?))
-                 ORDER BY t.created_at DESC, t.id DESC
+                   AND transcripts_fts.rowid < ?
+                 ORDER BY transcripts_fts.rowid DESC
                  LIMIT ?"
             }
             (false, true) => {
@@ -220,8 +212,8 @@ impl TranscriptRepository {
                  WHERE transcripts_fts MATCH ?
                    AND (? IS NULL OR t.created_at >= ?)
                    AND (? IS NULL OR t.created_at <= ?)
-                   AND (t.created_at > ? OR (t.created_at = ? AND t.id > ?))
-                 ORDER BY t.created_at ASC, t.id ASC
+                   AND transcripts_fts.rowid > ?
+                 ORDER BY transcripts_fts.rowid ASC
                  LIMIT ?"
             }
             (true, false) => {
@@ -231,7 +223,7 @@ impl TranscriptRepository {
                  WHERE transcripts_fts MATCH ?
                    AND (? IS NULL OR t.created_at >= ?)
                    AND (? IS NULL OR t.created_at <= ?)
-                 ORDER BY t.created_at DESC, t.id DESC
+                 ORDER BY transcripts_fts.rowid DESC
                  LIMIT ?"
             }
             (false, false) => {
@@ -241,7 +233,7 @@ impl TranscriptRepository {
                  WHERE transcripts_fts MATCH ?
                    AND (? IS NULL OR t.created_at >= ?)
                    AND (? IS NULL OR t.created_at <= ?)
-                 ORDER BY t.created_at ASC, t.id ASC
+                 ORDER BY transcripts_fts.rowid ASC
                  LIMIT ?"
             }
         };
@@ -253,7 +245,7 @@ impl TranscriptRepository {
             .bind(to)
             .bind(to);
         if let Some(c) = cursor {
-            q = q.bind(c.created_at).bind(c.created_at).bind(c.id);
+            q = q.bind(c.id);
         }
         q.bind(limit).fetch_all(&self.pool).await
     }

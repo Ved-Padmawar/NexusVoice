@@ -1,61 +1,50 @@
 //! Growing-window streaming transcription with `LocalAgreement-2` confirmation.
 //!
-//! The *active window* — audio after the last trim point — is re-decoded whenever
-//! [`MIN_NEW_AUDIO_SECS`] of new audio arrives, so every hypothesis keeps full
-//! sentence context. LocalAgreement-2 confirms the prefix
-//! two consecutive hypotheses agree on; once the window outgrows
-//! [`TRIM_AFTER_SECS`] it is trimmed at a confirmed segment boundary and
-//! that text is committed, never to be revised. [`finalize`] decodes only the
-//! remaining window, so end-of-recording latency is bounded by the trim
-//! threshold, not the recording length. A session that never streamed degrades
-//! to a single-pass decode of the whole recording.
+//! The active window is re-decoded whenever [`MIN_NEW_AUDIO_SECS`] of new audio
+//! arrives; re-decoding the same audio is what lets a later pass revise an
+//! earlier guess.
+//!
+//! Committing and trimming are separate. Words are committed once two
+//! consecutive hypotheses agree on them and are never revised; trimming only
+//! drops audio already behind the committed text, so a trim that finds no cut
+//! point costs compute, never text.
 
 use std::sync::{Arc, Mutex};
 
-use crate::inference::transcript::join_segments;
+use crate::inference::transcript::{join_words, Word};
 use crate::inference::{TimedSegment, TranscriptionEngine};
 
-/// Minimum new audio before the window is re-decoded (the minimum chunk size).
-/// A slow decode just means the next one absorbs more audio — self-adaptive latency.
+/// A slow decode just means the next absorbs more audio — self-adaptive latency.
 const MIN_NEW_AUDIO_SECS: f64 = 1.0;
-/// Window length that triggers a trim. Kept well under the 15 s reference
-/// default: shorter keeps mid-recording decodes cheap on Vulkan while still
-/// giving ample context.
+/// Well under the 15 s reference default: keeps mid-recording decodes cheap on Vulkan.
 const TRIM_AFTER_SECS: f64 = 8.0;
-/// Window length past which `trim()` failing to find a segment boundary
-/// (continuous speech, one still-growing segment) triggers a word-level
-/// cut instead — see `force_trim`.
+/// Window length past which a segment-boundary trim gives way to a word-level cut.
 const FORCE_TRIM_SECS: f64 = 12.0;
-/// Audio a trim must leave in the window (decoders need ≥1 s of audio).
+/// Audio a trim must leave behind — decoders need ≥1 s.
 const MIN_WINDOW_SECS: f64 = 2.0;
-/// Max committed words fed back as the decode prompt.
 const PROMPT_TAIL_WORDS: usize = 30;
 
-/// VAD frame size at 16 kHz — earshot requires exactly 256 samples (16 ms).
+/// earshot requires exactly 256 samples (16 ms) per frame.
 const VAD_CHUNK_16K: usize = 256;
-/// Score ≥ this starts a speech region.
 const VAD_SPEECH_ENTER: f32 = 0.5;
-/// Frames kept before the first speech frame, ≈32 ms of lead-in.
 const VAD_PAD_FRAMES: usize = 2;
 
 /// State of one recording's streaming transcription. Created when recording
 /// starts, polled by the stream worker, consumed by [`finalize`].
 #[derive(Debug, Default)]
 pub struct StreamingSession {
-    /// Text committed by window trims. Never revised — the core invariant.
+    /// Text confirmed by LocalAgreement-2. Never revised.
     committed: String,
     /// Native-rate buffer index where the active window starts.
     window_start: usize,
     /// Native-rate buffer length at the last decode; gates decode cadence.
     decoded_len: usize,
-    /// Normalized words of the previous hypothesis (`LocalAgreement` input).
+    /// Normalized words of the previous hypothesis, past `committed_words`.
     prev_norm: Vec<String>,
-    /// Leading words of the latest hypothesis confirmed by two consecutive
-    /// hypotheses agreeing. Gates where the window may be trimmed.
-    confirmed_words: usize,
-    /// Latest hypothesis over the active window.
+    /// Leading words of `segments` already committed. They stay in `segments`
+    /// so a trim can still find their timestamps.
+    committed_words: usize,
     segments: Vec<TimedSegment>,
-    /// Whether leading silence has been located and skipped (done once).
     lead_trimmed: bool,
 }
 
@@ -64,15 +53,13 @@ impl StreamingSession {
         Self::default()
     }
 
-    /// Where the active window starts, as a native-rate buffer index. The
-    /// stream worker snapshots the buffer from here.
+    /// Native-rate buffer index the stream worker snapshots the window from.
     pub const fn window_start(&self) -> usize {
         self.window_start
     }
 
-    /// Whether a `poll` over a buffer of `total_len` samples would decode.
-    /// Lets the stream worker skip copying the window on polls that would bail
-    /// on the same gate anyway.
+    /// Whether a `poll` over a buffer of `total_len` samples would decode. Lets
+    /// the worker skip copying the window on polls that would bail anyway.
     pub fn would_decode(&self, total_len: usize, native_rate: u32) -> bool {
         if native_rate == 0 {
             return false;
@@ -81,9 +68,9 @@ impl StreamingSession {
         to_secs(new_samples, native_rate) >= MIN_NEW_AUDIO_SECS
     }
 
-    /// One streaming step: decode if enough new audio arrived, fold the
-    /// hypothesis into the agreement state, trim if the window outgrew the
-    /// threshold. Work accumulates in the session; finalize reads it out.
+    /// One streaming step: decode if enough new audio arrived, commit whatever
+    /// two consecutive hypotheses now agree on, then trim the window if it
+    /// outgrew the threshold.
     ///
     /// `window` is the buffer from [`Self::window_start`] onward, at the mic's
     /// native rate. Decodes synchronously — call from a blocking thread.
@@ -104,8 +91,7 @@ impl StreamingSession {
 
         let mut prepared = crate::preprocess::to_16k(window, native_rate);
         if !self.lead_trimmed {
-            // Skip the silent lead-in once speech appears. `decoded_len` stays
-            // put so the next poll re-checks the grown buffer.
+            // `decoded_len` stays put so the next poll re-checks the grown buffer.
             let Some(skip_16k) = lead_speech_offset(&prepared) else {
                 return;
             };
@@ -141,24 +127,41 @@ impl StreamingSession {
             segments.len(),
         );
 
-        // LocalAgreement-2: confirm the prefix two consecutive hypotheses share.
-        let new_norm = normalized_words(&segments);
-        self.confirmed_words = common_prefix_len(&self.prev_norm, &new_norm);
-        self.prev_norm = new_norm;
         self.segments = segments;
+        self.commit_agreed();
 
         let window_secs = to_secs(total_len - self.window_start, native_rate);
-        if window_secs > TRIM_AFTER_SECS {
-            let trimmed = self.trim(total_len, native_rate);
-            if !trimmed && window_secs > FORCE_TRIM_SECS {
-                self.force_trim(total_len, native_rate);
-            }
+        if window_secs > TRIM_AFTER_SECS
+            && !self.trim(total_len, native_rate)
+            && window_secs > FORCE_TRIM_SECS
+        {
+            self.force_trim(total_len, native_rate);
         }
     }
 
-    /// Trim the window at the last completed segment boundary inside the
-    /// confirmed prefix, committing that text. The last segment never
-    /// qualifies — it is still growing. Returns whether a trim happened.
+    /// Commit the prefix this hypothesis shares with the previous one. Both are
+    /// compared past `committed_words`, so the committed prefix only ever grows.
+    fn commit_agreed(&mut self) {
+        let fresh: Vec<Word> = self
+            .segments
+            .iter()
+            .flat_map(|s| &s.words)
+            .skip(self.committed_words)
+            .cloned()
+            .collect();
+        let norm: Vec<String> = fresh.iter().map(|w| normalize_word(&w.text)).collect();
+
+        let agreed = common_prefix_len(&self.prev_norm, &norm);
+        if agreed > 0 {
+            push_text(&mut self.committed, &join_words(&fresh[..agreed]));
+            self.committed_words += agreed;
+        }
+        self.prev_norm = norm[agreed..].to_vec();
+    }
+
+    /// Drop the audio behind the last completed segment boundary inside the
+    /// committed prefix. Purely a buffer cut — the text is already committed.
+    /// The last segment never qualifies: it is still growing.
     fn trim(&mut self, total_len: usize, native_rate: u32) -> bool {
         let mut cum_words = 0;
         let mut cut: Option<(usize, usize, i64)> = None; // (segment idx, words, end_ms)
@@ -169,7 +172,7 @@ impl StreamingSession {
             .take(self.segments.len().saturating_sub(1))
         {
             cum_words += seg.words.len();
-            if cum_words > self.confirmed_words {
+            if cum_words > self.committed_words {
                 continue;
             }
             let boundary = self.window_start + from_ms(seg.end_ms, native_rate);
@@ -181,22 +184,19 @@ impl StreamingSession {
         let Some((idx, words, end_ms)) = cut else {
             return false;
         };
-        push_text(&mut self.committed, &join_segments(&self.segments[..=idx]));
         self.window_start += from_ms(end_ms, native_rate);
         self.segments.drain(..=idx);
-        self.prev_norm.drain(..words.min(self.prev_norm.len()));
-        self.confirmed_words -= words;
+        self.committed_words -= words;
         true
     }
 
-    /// Fallback when `trim()` finds no segment boundary: cuts inside the
-    /// first (still-growing) segment at a word boundary using DTW end
-    /// timestamps. No-op without timestamps or without `MIN_WINDOW_SECS` left.
+    /// Fallback when [`Self::trim`] finds no segment boundary: cuts inside the
+    /// first segment at a committed word boundary using DTW end timestamps.
     fn force_trim(&mut self, total_len: usize, native_rate: u32) {
         let Some(first) = self.segments.first() else {
             return;
         };
-        let take_words = self.confirmed_words.min(first.words.len());
+        let take_words = self.committed_words.min(first.words.len());
         let Some(cut_word_idx) = (0..take_words)
             .rev()
             .find(|&i| first.words[i].end_cs.is_some())
@@ -210,20 +210,16 @@ impl StreamingSession {
         }
 
         let words = cut_word_idx + 1;
-        push_text(
-            &mut self.committed,
-            &crate::inference::transcript::join_words(&first.words[..words]),
-        );
         self.window_start = boundary;
         self.segments[0].words.drain(..words);
         if self.segments[0].words.is_empty() {
             self.segments.remove(0);
         }
-        self.prev_norm.drain(..words.min(self.prev_norm.len()));
-        self.confirmed_words = self.confirmed_words.saturating_sub(words);
+        self.committed_words -= words;
     }
 
-    /// Decode the remaining window and return the full transcript.
+    /// Decode the remaining window and append whatever follows the committed
+    /// prefix — this pass re-covers committed audio too, so its head is dropped.
     fn finish(
         mut self,
         window: &[f32],
@@ -254,7 +250,13 @@ impl StreamingSession {
         };
         match guard.transcribe_segments(&leveled, &prompt) {
             Ok(segments) => {
-                push_text(&mut self.committed, &join_segments(&segments));
+                let tail: Vec<Word> = segments
+                    .iter()
+                    .flat_map(|s| &s.words)
+                    .skip(self.committed_words)
+                    .cloned()
+                    .collect();
+                push_text(&mut self.committed, &join_words(&tail));
                 self.committed
             }
             Err(e) => {
@@ -267,7 +269,7 @@ impl StreamingSession {
 
 /// Finalize a recording: decode the audio the session hasn't committed yet and
 /// return the complete transcript. `None` (recording never streamed) decodes
-/// the whole buffer in one pass, exactly like the previous pipeline.
+/// the whole buffer in one pass.
 pub fn finalize(
     session: Option<StreamingSession>,
     buffer: &[f32],
@@ -291,7 +293,7 @@ fn push_text(out: &mut String, text: &str) {
     out.push_str(text);
 }
 
-/// The last [`PROMPT_TAIL_WORDS`] words of the committed text, used as the
+/// The last [`PROMPT_TAIL_WORDS`] words of the committed text, fed back as the
 /// next decode's prompt.
 fn prompt_tail(committed: &str) -> String {
     let words: Vec<&str> = committed.split_whitespace().collect();
@@ -299,17 +301,7 @@ fn prompt_tail(committed: &str) -> String {
     words[start..].join(" ")
 }
 
-/// Flatten a hypothesis into normalized words for agreement comparison.
-fn normalized_words(segments: &[TimedSegment]) -> Vec<String> {
-    segments
-        .iter()
-        .flat_map(|s| &s.words)
-        .map(|w| normalize_word(&w.text))
-        .collect()
-}
-
-/// Case- and punctuation-insensitive form of a word. Models often flip
-/// "Okay," ↔ "okay" between decodes; agreement shouldn't reset over that.
+/// Models flip "Okay," ↔ "okay" between decodes; agreement shouldn't reset over that.
 fn normalize_word(word: &str) -> String {
     word.chars()
         .filter(|c| c.is_alphanumeric())
@@ -317,30 +309,26 @@ fn normalize_word(word: &str) -> String {
         .to_lowercase()
 }
 
-/// Length of the longest common prefix of two word sequences.
 fn common_prefix_len(a: &[String], b: &[String]) -> usize {
     a.iter().zip(b).take_while(|(x, y)| x == y).count()
 }
 
-/// Seconds represented by `samples` at `native_rate`.
 #[allow(clippy::cast_precision_loss)] // audio-sized buffers fit f64 exactly enough
 fn to_secs(samples: usize, native_rate: u32) -> f64 {
     samples as f64 / f64::from(native_rate)
 }
 
-/// Native-rate samples equivalent to `samples_16k` at 16 kHz.
 fn from_16k(samples_16k: usize, native_rate: u32) -> usize {
     samples_16k * native_rate as usize / 16_000
 }
 
-/// Native-rate samples equivalent to `ms` milliseconds.
 #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)] // clamped non-negative; ms fits usize
 fn from_ms(ms: i64, native_rate: u32) -> usize {
     (ms.max(0) as usize) * native_rate as usize / 1000
 }
 
 /// First sample of confident speech in a 16 kHz buffer, padded back by
-/// [`VAD_PAD_FRAMES`]. `None` when no speech has been detected yet.
+/// [`VAD_PAD_FRAMES`].
 ///
 /// Only the lead-in is ever trimmed — marking the *end* of speech this way
 /// silently truncates real dictation. Interior pauses are left alone.

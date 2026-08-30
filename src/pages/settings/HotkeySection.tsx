@@ -239,7 +239,7 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
               type="button"
               aria-label={`Remove ${config.title.toLowerCase()}`}
               title="Remove"
-              className="inline-flex items-center justify-center w-7 h-7 rounded-(--r-sm) bg-transparent border-none cursor-pointer text-(--fg-2) transition-colors duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-(--danger)"
+              className="inline-flex items-center justify-center w-7 h-7 rounded-(--r-sm) bg-transparent border-none cursor-pointer text-(--fg-2) transition-colors duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-destructive"
               onClick={handleRemoveHotkey}
             >
               <X size={12} strokeWidth={2} />
