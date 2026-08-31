@@ -39,7 +39,6 @@ export type TranscriptSlice = {
   setFilters: (from: string | null, to: string | null, sortAsc: boolean) => Promise<void>
   loadMoreTranscripts: () => Promise<void>
   searchTranscripts: (query: string) => Promise<void>
-  addTranscript: (content: string) => Promise<void>
   deleteTranscript: (id: number) => Promise<void>
 }
 
@@ -116,18 +115,28 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
   },
 
   // The scroll sentinel refires while visible, so admit one fetch at a time.
+  // Pages whichever view is on screen; both share `transcriptHasMore`.
   loadMoreTranscripts: async () => {
-    const { transcripts, transcriptHasMore, transcriptLoadingMore, filterFrom, filterTo, filterSortAsc } = get()
+    const { transcripts, searchResults, searchQuery, transcriptHasMore, transcriptLoadingMore, filterFrom, filterTo, filterSortAsc } = get()
     if (!transcriptHasMore || transcriptLoadingMore) return
+
+    const query = searchQuery.trim()
+    const searching = query.length > 0
+    const loaded = searching ? searchResults : transcripts
+
     set({ transcriptLoadingMore: true })
     try {
+      const command = searching ? COMMANDS.SEARCH_TRANSCRIPTS : COMMANDS.GET_TRANSCRIPTS
+      const page = { limit: PAGE_SIZE, ...cursorOf(loaded), from: filterFrom, to: filterTo, sortAsc: filterSortAsc }
       const more = z.array(TranscriptSchema).parse(
-        await invoke<unknown>(COMMANDS.GET_TRANSCRIPTS, { page: { limit: PAGE_SIZE, ...cursorOf(transcripts), from: filterFrom, to: filterTo, sortAsc: filterSortAsc } })
+        await invoke<unknown>(command, searching ? { query, page } : { page })
       )
       set((state) => {
-        const seen = new Set(state.transcripts.map(t => t.id))
+        const previous = searching ? state.searchResults : state.transcripts
+        const seen = new Set(previous.map(t => t.id))
+        const merged = [...previous, ...more.filter(t => !seen.has(t.id))]
         return {
-          transcripts: [...state.transcripts, ...more.filter(t => !seen.has(t.id))],
+          ...(searching ? { searchResults: merged } : { transcripts: merged }),
           transcriptHasMore: more.length === PAGE_SIZE,
           transcriptLoadingMore: false,
         }
@@ -142,16 +151,17 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
   searchTranscripts: async (query: string) => {
     set({ searchQuery: query })
     if (!query.trim()) {
-      set({ searchResults: [], isSearching: false, transcriptsStatus: 'success', transcriptsError: null })
+      // Paging reverts to the feed, which is already fully loaded behind the results.
+      set({ searchResults: [], isSearching: false, transcriptsStatus: 'success', transcriptsError: null, transcriptHasMore: true })
       return
     }
-    set({ isSearching: true, transcriptsStatus: 'loading', transcriptsError: null })
+    set({ isSearching: true, transcriptsStatus: 'loading', transcriptsError: null, transcriptHasMore: true })
     const { filterFrom, filterTo, filterSortAsc } = get()
     try {
       const results = z.array(TranscriptSchema).parse(
         await invoke<unknown>(COMMANDS.SEARCH_TRANSCRIPTS, { query, page: { limit: PAGE_SIZE, cursorCreatedAt: null, cursorId: null, from: filterFrom, to: filterTo, sortAsc: filterSortAsc } })
       )
-      set({ searchResults: results, transcriptsStatus: 'success' })
+      set({ searchResults: results, transcriptsStatus: 'success', transcriptHasMore: results.length === PAGE_SIZE })
     } catch (e) {
       set({ searchResults: [], transcriptsStatus: 'error', transcriptsError: extractErrorMessage(e, 'Search failed') })
     } finally {
@@ -167,17 +177,6 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
       await get().searchTranscripts(searchQuery)
     } else {
       await get().setFilters(filterFrom, filterTo, filterSortAsc)
-    }
-  },
-
-  addTranscript: async (content) => {
-    try {
-      const newTranscript = TranscriptSchema.parse(
-        await invoke<unknown>(COMMANDS.SAVE_TRANSCRIPT, { content })
-      )
-      set((state) => ({ transcripts: [newTranscript, ...state.transcripts] }))
-    } catch (e) {
-      toast.error(extractErrorMessage(e, 'Failed to save transcript'))
     }
   },
 

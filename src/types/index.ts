@@ -51,3 +51,17 @@ export type HardwareProfile = {
   ramGb: number
   recommendedModel: string
 }
+
+export type InjectionTool = {
+  name: string
+  available: boolean
+  preferred: boolean
+  installHint: string
+}
+
+export type InjectionStatus = {
+  configurable: boolean
+  session: string
+  selected: string | null
+  tools: InjectionTool[]
+}

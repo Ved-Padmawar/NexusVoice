@@ -12,6 +12,7 @@ export const EVENTS = {
   MODEL_DOWNLOAD_CANCELLED: 'model-download-cancelled',
   MODEL_EVICTED:            'model-evicted',
   MODEL_SWITCHED:           'model-switched',
+  LANGUAGE_RESET:           'language-reset',
 
   // Hotkey
   HOTKEY_PRESSED:  'hotkey-pressed',

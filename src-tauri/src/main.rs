@@ -46,9 +46,11 @@ mod commands;
 mod database;
 mod hardware;
 mod inference;
+mod injection;
 mod llm;
 mod postprocess;
 mod preprocess;
+mod remote;
 mod state;
 mod transcribe;
 mod transcription;
@@ -77,8 +79,8 @@ fn main() {
         Err(e) => log::warn!("transcribe.cpp backend init failed: {e}"),
     }
 
-    // Panic hook — writes panic info to log before crashing.
-    // Note: only active in debug builds since release profile uses panic = "abort".
+    // Panic hook — writes panic info to log before crashing. Debug only; release
+    // unwinds so `catch_unwind` on the recording path can recover instead.
     #[cfg(debug_assertions)]
     {
         let default_hook = std::panic::take_hook();
@@ -131,7 +133,12 @@ fn main() {
                 let _ = (window, event);
             }
         })
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        // A second launch is either a dictation flag (the Wayland path, where
+        // the desktop owns the shortcut) or the user reopening the window.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if remote::handle_args(app, &args) {
+                return;
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -199,19 +206,19 @@ fn main() {
                     let db_path = state.app_data_dir.join("nexusvoice.db");
 
                     // Open database (may run migrations — this is the slow part)
-                    let pool = match database::connection::open_database(&db_path).await {
-                        Ok(p) => p,
+                    let result = database::connection::open_database(&db_path).await;
+                    let opened = result.clone();
+                    // Publish either outcome, so waiting commands are released.
+                    state.set_database(result);
+
+                    let pool = match opened {
+                        Ok(pool) => pool,
                         Err(e) => {
                             log::error!("database init failed: {e}");
                             let _ = app_handle.emit("auth:unauthenticated", ());
                             return;
                         }
                     };
-
-                    // Wire up pool + auth service
-                    let auth_service = auth::AuthService::new(pool.clone());
-                    state.set_pool(pool.clone());
-                    state.set_auth(auth_service);
 
                     log::info!("database ready");
 
@@ -228,14 +235,15 @@ fn main() {
 
                     // Restore the persisted session: if a user is recorded in
                     // app_session, they stay signed in across restarts.
-                    match state.auth().await.current_user().await {
-                        Ok(Some(user)) => {
-                            state.set_auth_session(user.id).await;
-                            let _ = app_handle.emit("auth:ready", user.id);
-                        }
-                        _ => {
-                            let _ = app_handle.emit("auth:unauthenticated", ());
-                        }
+                    let restored = match state.auth().await {
+                        Ok(auth) => auth.current_user().await.ok().flatten(),
+                        Err(_) => None,
+                    };
+                    if let Some(user) = restored {
+                        state.set_auth_session(user.id).await;
+                        let _ = app_handle.emit("auth:ready", user.id);
+                    } else {
+                        let _ = app_handle.emit("auth:unauthenticated", ());
                     }
                 });
             }
@@ -281,6 +289,11 @@ fn main() {
                     commands::restore_registered_hotkeys(&app_handle).await;
                 });
             }
+
+            // Global shortcuts cannot be registered under Wayland, so dictation
+            // is also reachable by signal for users who bind it themselves.
+            #[cfg(target_os = "linux")]
+            remote::listen_for_signals(app.handle().clone());
 
             // Spawn: eagerly pre-load the Whisper engine so the first transcription is instant.
             // Model selection reads the override from disk, not the DB, so this does not wait
@@ -434,11 +447,11 @@ fn main() {
             commands::search_transcripts,
             commands::export_transcripts,
             commands::get_dictionary,
-            commands::save_transcript,
             commands::delete_transcript,
             commands::update_dictionary,
             commands::delete_dictionary_entry,
             commands::type_text,
+            commands::get_injection_status,
             commands::register_hotkey,
             commands::unregister_hotkey,
             commands::register_dictation_hotkey,

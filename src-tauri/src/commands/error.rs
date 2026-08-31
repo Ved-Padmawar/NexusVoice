@@ -19,6 +19,12 @@ impl ApiError {
     }
 }
 
+impl From<crate::state::DbUnavailable> for ApiError {
+    fn from(value: crate::state::DbUnavailable) -> Self {
+        Self::new("database_unavailable", value.0)
+    }
+}
+
 impl From<sqlx::Error> for ApiError {
     fn from(value: sqlx::Error) -> Self {
         Self::new("database_error", map_db_error(&value))

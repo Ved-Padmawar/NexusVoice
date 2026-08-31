@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.15.3-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.15.4-violet?style=flat-square)
 
 </div>
 
@@ -146,11 +146,16 @@ Download the latest build for your platform from [Releases](../../releases/lates
 |-----------|-------------|
 | `NexusVoice_x.x.x_x64-setup.exe` | Everyone — CPU + GPU (Intel, AMD, NVIDIA) |
 
-**Linux** (`.deb` for Debian/Ubuntu/Zorin; `.rpm` for Fedora/RHEL)
+**Linux**
 
 | Build | Who it's for |
 |-------|-------------|
-| `NexusVoice_x.x.x_amd64.deb` / `.rpm` | Everyone — CPU + GPU (Intel, AMD, **and NVIDIA**) |
+| `NexusVoice_x.x.x_amd64.AppImage` | Recommended — runs anywhere and **auto-updates in place** |
+| `NexusVoice_x.x.x_amd64.deb` | Debian, Ubuntu, Zorin — update via `apt` |
+| `NexusVoice_x.x.x.x86_64.rpm` | Fedora, RHEL — update via `dnf` |
+
+Only the AppImage can update itself: Tauri'''s updater has no `.deb`/`.rpm`
+installer, so package installs are updated through the package manager.
 
 One build covers every machine: GPU backends are loaded at runtime and the CPU
 path is selected per instruction set, so there is no separate CUDA download.
@@ -160,6 +165,38 @@ path is selected per instruction set, so there is no separate CUDA download.
 - **Linux:** WebKitGTK 4.1 (`libwebkit2gtk-4.1`) and `libxdo3`, both pulled in automatically by the `.deb`/`.rpm`. For GPU acceleration, install your distro's Vulkan driver (Mesa for AMD/Intel, the NVIDIA driver for NVIDIA).
 
 No Rust, Node, CMake, or any dev tools needed on the target machine.
+
+### Linux setup
+
+Wayland does not let an application send keystrokes or claim a global hotkey on
+its own, so two things need a one-time setup on Wayland desktops. Neither is
+needed on X11 beyond installing `xdotool`.
+
+**1. Install a text-injection tool** — unless your desktop provides one.
+NexusVoice first asks the desktop portal for permission to type, which needs
+nothing installed and works on current GNOME and KDE. Where the portal is
+unavailable, it falls back to a helper tool. Settings › General › Text injection
+shows what was found and what will be used.
+
+| Desktop | Install |
+|---------|---------|
+| X11 (any) | `sudo apt install xdotool` |
+| GNOME / KDE Wayland | usually nothing — approve the portal prompt on first use |
+| GNOME (portal unavailable) | `sudo apt install ydotool`, then `sudo systemctl enable --now ydotool` |
+| sway / wlroots | `sudo apt install wtype` |
+
+`ydotool` works on every compositor because it writes through `/dev/uinput`,
+below the display server — it just needs its daemon running.
+
+**2. Bind the dictation shortcut yourself.** On Wayland the compositor owns key
+grabs, so add a custom shortcut in your desktop'''s keyboard settings pointing at:
+
+```
+nexusvoice --toggle-dictation
+```
+
+`--commit-dictation` and `--cancel-dictation` are also available, and
+`pkill -USR2 nexusvoice` toggles dictation if you prefer a signal.
 
 > _macOS support is implemented in the codebase but not yet distributed — macOS builds require Apple code-signing/notarization, which is planned for a future release._
 

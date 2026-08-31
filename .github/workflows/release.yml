@@ -155,10 +155,22 @@ jobs:
           workspaces: src-tauri
           cache-targets: false
 
-      # Windows builds all bundles (NSIS/MSI). Linux builds deb + rpm ONLY —
-      # the AppImage path (linuxdeploy) is unreliable on CI runners (needs FUSE;
-      # fails with "failed to run linuxdeploy"), while deb/rpm build cleanly and
-      # cover Debian/Ubuntu/Zorin/Fedora. AppImage can be revisited later.
+      # Tauri's mirrored linuxdeploy bundles a `strip` too old to process
+      # libraries built with current toolchains, which is the "failed to run
+      # linuxdeploy" that previously kept AppImage out of this release. Putting
+      # a current upstream build in Tauri's tool cache is the fix.
+      # `--appimage-extract-and-run` avoids needing FUSE on the runner.
+      - name: Install linuxdeploy
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          TOOLS="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
+          mkdir -p "$TOOLS"
+          curl -fsSL --retry 3 -o "$TOOLS/linuxdeploy-x86_64.AppImage" \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x "$TOOLS/linuxdeploy-x86_64.AppImage"
+          "$TOOLS/linuxdeploy-x86_64.AppImage" --appimage-extract-and-run --version
+
       # Every CPU variant is compiled and selected at runtime, so the binary
       # never inherits the runner's ISA and fault on older CPUs (0xc000001d).
       - name: Build (Windows)
@@ -168,38 +180,62 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build -- --features gpu
 
+      # deb and rpm cover package-manager installs; the AppImage is additionally
+      # the only Linux bundle Tauri emits an updater artifact for, so it is what
+      # makes auto-update work at all on Linux.
       - name: Build (Linux)
         if: runner.os == 'Linux'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build --bundles deb,rpm -- --features gpu
-
-      # ── Windows: collect the NSIS updater artifact (installer + .sig) ─────────
-      # Windows ships auto-updates via the NSIS installer. Linux ships .deb/.rpm
-      # which are not Tauri updater targets, so Linux has no updater artifact —
-      # Linux users update by reinstalling the package.
-      - name: Collect updater artifact (Windows)
-        if: runner.os == 'Windows'
-        shell: python
+          # The Vulkan loader and Wayland client must come from the user's
+          # graphics stack; bundling the runner's copies shadows a newer Mesa
+          # or ICD and breaks GPU inference on rolling-release distros.
+          LINUXDEPLOY_EXCLUDED_LIBRARIES: "libvulkan.so*;libwayland-client.so*"
+          # appimagetool writes this as X-AppImage-Version, which desktop
+          # integration tools (Gear Lever) read to track installed versions.
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        shell: bash
         run: |
-          import glob, pathlib
+          set -euo pipefail
+          export LINUXDEPLOY_OUTPUT_VERSION="${GITHUB_REF_NAME#v}"
+          npx tauri build --bundles deb,rpm,appimage -- --features gpu
 
-          target_dir = "C:/b"
-          installer = pathlib.Path(sorted(glob.glob(f"{target_dir}/release/bundle/nsis/*.exe"))[0])
-          sig = pathlib.Path(f"{installer}.sig").read_text().strip()
-          pathlib.Path("updater-sig.txt").write_text(sig)
-          pathlib.Path("updater-name.txt").write_text(installer.name)
-          print(f"updater artifact: {installer.name}")
+      # Collect the updater artifact each OS produces: NSIS on Windows, the
+      # AppImage on Linux. deb and rpm are not updater targets — those users
+      # update through their package manager.
+      - name: Collect updater artifact
+        shell: python
+        env:
+          UPDATER_PLATFORM: ${{ runner.os == 'Windows' && 'windows-x86_64' || 'linux-x86_64' }}
+          BUNDLE_GLOB: ${{ runner.os == 'Windows' && 'C:/b/release/bundle/nsis/*.exe' || '.cargo-target/release/bundle/appimage/*.AppImage' }}
+        run: |
+          import glob, os, pathlib
+
+          # `*.AppImage` also matches the `.sig` sitting beside it, so the
+          # signature files are filtered out before picking the bundle.
+          matches = sorted(
+            m for m in glob.glob(os.environ["BUNDLE_GLOB"]) if not m.endswith(".sig")
+          )
+          if not matches:
+            raise SystemExit(f"no updater bundle matched {os.environ['BUNDLE_GLOB']}")
+
+          bundle = pathlib.Path(matches[0])
+          pathlib.Path("updater-sig.txt").write_text(
+            pathlib.Path(f"{bundle}.sig").read_text().strip()
+          )
+          pathlib.Path("updater-name.txt").write_text(bundle.name)
+          pathlib.Path("updater-platform.txt").write_text(os.environ["UPDATER_PLATFORM"])
+          print(f"updater artifact: {bundle.name} ({os.environ['UPDATER_PLATFORM']})")
 
       - name: Upload updater signature
-        if: runner.os == 'Windows'
         uses: actions/upload-artifact@v7.0.1
         with:
           name: sig-${{ matrix.os }}-${{ matrix.variant }}
           path: |
             updater-sig.txt
             updater-name.txt
+            updater-platform.txt
 
       - name: Upload release artifacts (Windows)
         if: runner.os == 'Windows'
@@ -222,6 +258,8 @@ jobs:
           files: |
             .cargo-target/release/bundle/deb/*.deb
             .cargo-target/release/bundle/rpm/*.rpm
+            .cargo-target/release/bundle/appimage/*.AppImage
+            .cargo-target/release/bundle/appimage/*.AppImage.sig
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -249,17 +287,20 @@ jobs:
           base = f"https://github.com/{repo}/releases/download/{tag}"
           pub_date = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-          # Only Windows ships an updater artifact (NSIS); Linux .deb/.rpm are
-          # not updater targets. Found by name because download-artifact nests
-          # several artifacts but unpacks a lone one straight into `path`.
+          # Found by name because download-artifact nests several artifacts but
+          # unpacks a lone one straight into `path`.
           sigs = sorted(pathlib.Path("sigs").rglob("updater-sig.txt"))
           print("found:", [str(p) for p in sigs])
 
           platforms = {}
           for sig_path in sigs:
-            sig = sig_path.read_text().strip()
-            name = (sig_path.parent / "updater-name.txt").read_text().strip()
-            platforms["windows-x86_64"] = {"signature": sig, "url": f"{base}/{name}"}
+            entry = sig_path.parent
+            platform = (entry / "updater-platform.txt").read_text().strip()
+            name = (entry / "updater-name.txt").read_text().strip()
+            platforms[platform] = {
+              "signature": sig_path.read_text().strip(),
+              "url": f"{base}/{name}",
+            }
 
           # An empty map ships a manifest every client rejects.
           if not platforms:

@@ -54,6 +54,14 @@ impl DictionaryRepository {
         Ok(result.rows_affected() > 0)
     }
 
+    pub async fn delete_by_term(&self, term: &str) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM dictionary WHERE term = ?")
+            .bind(term)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn upsert(
         &self,
         input: CreateDictionaryEntry,

@@ -18,8 +18,6 @@ fn main() {
 /// Stage transcribe-cpp's shared libraries and ggml backend modules into
 /// `transcribe-libs/` so the bundler ships them beside the executable. Without
 /// them the app registers zero compute devices.
-///
-/// Adapted from Handy (github.com/cjpais/Handy, MIT).
 fn stage_transcribe_runtime_libs() {
     use std::collections::{BTreeMap, BTreeSet};
     use std::path::PathBuf;

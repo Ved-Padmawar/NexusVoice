@@ -29,7 +29,8 @@ pub async fn format_transcript(cfg: &FormatConfig, raw: &str) -> Result<String, 
     // length, so ~2× the input tokens (≈ len/4 chars each) plus headroom is
     // plenty. Without a cap, a looping local model generates until the 60 s
     // timeout and the user waits the full minute before the raw fallback.
-    let max_tokens = u32::try_from(raw.len() / 2 + 256).unwrap_or(u32::MAX);
+    // Chars, not bytes — non-Latin dictation would inflate the cap.
+    let max_tokens = u32::try_from(raw.chars().count() / 2 + 256).unwrap_or(u32::MAX);
 
     let system = build_system_prompt();
 
@@ -93,11 +94,16 @@ pub async fn test_connection(cfg: &FormatConfig) -> Result<(), String> {
 /// Strip reasoning tags some models emit (e.g. Qwen `<think>…</think>`) and any
 /// stray chat markers, then trim.
 fn strip_artifacts(text: &str) -> String {
+    const OPEN: &str = "<think>";
+    const CLOSE: &str = "</think>";
+
     let mut s = text.trim();
-    if let Some(rest) = s.strip_prefix("<think>") {
-        if let Some(end) = rest.find("</think>") {
-            s = rest[end + "</think>".len()..].trim_start();
-        }
+    // Models emit several blocks, and the tag casing is not guaranteed.
+    while s.len() >= OPEN.len() && s[..OPEN.len()].eq_ignore_ascii_case(OPEN) {
+        let Some(end) = s.to_ascii_lowercase().find(CLOSE) else {
+            break;
+        };
+        s = s[end + CLOSE.len()..].trim_start();
     }
     s.trim().to_string()
 }

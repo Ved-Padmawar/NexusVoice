@@ -13,7 +13,7 @@ export type DictionarySlice = {
   dictionaryStatus: AsyncStatus
   dictionaryError: string | null
   loadDictionary: () => Promise<void>
-  updateDictionary: (term: string, replacement: string) => Promise<void>
+  updateDictionary: (term: string, replacement: string, previousTerm?: string) => Promise<void>
   deleteDictionaryEntry: (id: number) => Promise<void>
 }
 
@@ -36,13 +36,16 @@ export const createDictionarySlice: StateCreator<AppState, [], [], DictionarySli
     }
   },
 
-  updateDictionary: async (term, replacement) => {
+  updateDictionary: async (term, replacement, previousTerm) => {
     try {
       const newEntry = DictionaryEntrySchema.parse(
-        await invoke<unknown>(COMMANDS.UPDATE_DICTIONARY, { term, replacement })
+        await invoke<unknown>(COMMANDS.UPDATE_DICTIONARY, { term, replacement, previousTerm })
       )
       set((state) => {
-        const index = state.dictionary.findIndex((d) => d.term === term)
+        // A rename replaces the row it renamed, so match the old term too.
+        const index = state.dictionary.findIndex(
+          (d) => d.term === term || (previousTerm !== undefined && d.term === previousTerm),
+        )
         if (index > -1) {
           const newDictionary = [...state.dictionary]
           newDictionary[index] = newEntry

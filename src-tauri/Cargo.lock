@@ -144,6 +144,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ashpd"
+version = "0.13.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb8421aaa9644a5faf26735f258b669b15f063313ef8f8e2bdb28912a1a6f111"
+dependencies = [
+ "enumflags2",
+ "futures-util",
+ "getrandom 0.4.3",
+ "serde",
+ "serde_repr",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2133,9 +2148,9 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hermit-abi"
-version = "0.5.2"
+version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
+checksum = "e17592d60ebacc7d5e169f4663c5f84f9161cc90328abcfe8456f41e4dfcb284"
 
 [[package]]
 name = "hex"
@@ -2997,10 +3012,11 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexusvoice"
-version = "1.15.3"
+version = "1.15.4"
 dependencies = [
  "argon2",
  "ash",
+ "ashpd",
  "chrono",
  "cpal",
  "earshot",
@@ -3017,6 +3033,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "signal-hook",
  "sqlx",
  "strsim",
  "sysinfo",
@@ -4585,6 +4602,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "signal-hook"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d881a16cf4426aa584979d30bd82cb33429027e42122b169753d6ef1085ed6e2"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
 name = "signal-hook-registry"
 version = "1.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5249,9 +5276,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-clipboard-manager"
-version = "2.3.2"
+version = "2.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "206dc20af4ed210748ba945c2774e60fd0acd52b9a73a028402caf809e9b6ecf"
+checksum = "4136fb69d967753d000423d7e5f863f89bf949efbdfbecb43a580426a01a0194"
 dependencies = [
  "arboard",
  "log",
@@ -5279,9 +5306,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-log"
-version = "2.9.0"
+version = "2.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6792296e6f389268016c77db21ebae1fc0568f2fccf88b1ec7e2ea71330afb4c"
+checksum = "b4e8861142c21636b03ff6eb9682a073814112e35220435670738a8be7b49896"
 dependencies = [
  "android_logger",
  "fern",
@@ -5310,9 +5337,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-single-instance"
-version = "2.4.3"
+version = "2.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3214becf9ef5783c0ae99a3bb25adf5353a7a16ebf53e74b909e29205735c6c"
+checksum = "5cd0cb5c412a5071b69bab6a6df1583cbb89460d4a83b6a24769b08d15b6b1e1"
 dependencies = [
  "serde",
  "serde_json",
@@ -5326,9 +5353,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-updater"
-version = "2.10.1"
+version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "806d9dac662c2e4594ff03c647a552f2c9bd544e7d0f683ec58f872f952ce4af"
+checksum = "b28d8cabdeb0564f03ae261963de4bc3d98321cd3d213e76a81b7d344e5df606"
 dependencies = [
  "base64 0.22.1",
  "dirs",
@@ -5600,8 +5627,10 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
+ "tracing",
  "windows-sys 0.61.2",
 ]
 
@@ -7144,6 +7173,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_repr",
+ "tokio",
  "tracing",
  "uds_windows",
  "uuid",

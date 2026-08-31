@@ -2,8 +2,9 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Zap, Check, HardDrive, Cpu, Globe, Radio, Download, Loader2 } from 'lucide-react'
+import { Zap, Check, HardDrive, Cpu, Globe, Radio, Download, Loader2, RefreshCw } from 'lucide-react'
 import { COMMANDS } from '../lib/commands'
+import { extractErrorMessage } from '../lib/errors'
 import { formatModelSize, isStreaming, modelNameToId, sortForDisplay, type ModelId } from '../lib/models'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
@@ -21,6 +22,9 @@ export function ModelPickerModal() {
   const [selected, setSelected] = useState<ModelId | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
+  // Otherwise Confirm sits disabled with no explanation when a probe fails.
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     // Returning user whose modelChosen got reset but model is on disk: skip the modal.
@@ -28,8 +32,13 @@ export function ModelPickerModal() {
       .then(info => { if (info.downloaded) setModelChosen(true) })
       .catch(() => {})
 
-    void refreshCatalog()
-  }, [setModelChosen, refreshCatalog])
+    // refreshCatalog swallows its own errors, so an empty catalog is the signal.
+    void refreshCatalog().then(() => {
+      setLoadError(
+        useAppStore.getState().catalog.length === 0 ? 'Could not load the model catalog.' : null,
+      )
+    })
+  }, [setModelChosen, refreshCatalog, reloadKey])
 
   useEffect(() => {
     if (catalog.length === 0) return
@@ -38,7 +47,10 @@ export function ModelPickerModal() {
         setProfile(p)
         setSelected(modelNameToId(p.recommendedModel, catalog))
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        // A model can still be picked by hand; only the recommendation is lost.
+        setLoadError(extractErrorMessage(e, 'Could not detect your hardware'))
+      })
   }, [catalog])
 
   const handleConfirm = async () => {
@@ -235,11 +247,21 @@ export function ModelPickerModal() {
                 animate={{ opacity: 1 }}
                 className="flex items-center justify-between gap-4"
               >
-                <p className="text-[11px] text-muted-foreground m-0 min-w-0 truncate">
-                  {selectedModel
-                    ? `${selectedModel.displayName} · ${formatModelSize(selectedModel.sizeBytes)} download`
-                    : 'Select a model to continue'}
+                <p className={`text-[11px] m-0 min-w-0 truncate ${loadError ? 'text-(--danger)' : 'text-muted-foreground'}`}>
+                  {loadError ??
+                    (selectedModel
+                      ? `${selectedModel.displayName} · ${formatModelSize(selectedModel.sizeBytes)} download`
+                      : 'Select a model to continue')}
                 </p>
+                {loadError && catalog.length === 0 ? (
+                  <Button
+                    className="shrink-0 min-w-44 gap-2"
+                    onClick={() => setReloadKey(k => k + 1)}
+                  >
+                    <RefreshCw size={14} strokeWidth={2} />
+                    Try again
+                  </Button>
+                ) : (
                 <Button
                   className="shrink-0 min-w-44 gap-2"
                   onClick={handleConfirm}
@@ -257,6 +279,7 @@ export function ModelPickerModal() {
                     </>
                   )}
                 </Button>
+                )}
               </motion.div>
             )}
           </AnimatePresence>

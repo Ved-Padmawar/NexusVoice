@@ -1,6 +1,6 @@
 [package]
 name = "nexusvoice"
-version = "1.15.3"
+version = "1.15.4"
 edition = "2021"
 
 [features]
@@ -59,6 +59,10 @@ metal = "0.30"
 [target.'cfg(target_os = "linux")'.dependencies]
 ash = "0.38"
 transcribe-cpp = { version = "0.2", features = ["dynamic-backends"] }
+# Wayland refuses global key grabs, so dictation is also triggerable by signal.
+signal-hook = "0.3"
+# xdg-desktop-portal: the sanctioned way to type on Wayland, no helper tool.
+ashpd = { version = "0.13", default-features = false, features = ["tokio", "remote_desktop", "screencast"] }
 
 [dev-dependencies]
 tempfile = "3"

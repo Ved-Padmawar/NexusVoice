@@ -61,8 +61,9 @@ pub async fn open_database(db_path: &Path) -> Result<SqlitePool, String> {
             );
             pool.close().await;
 
-            // Backup existing DB so user data isn't silently discarded
-            let bak = db_path.with_extension("db.bak");
+            // Timestamped, so a second recovery cannot overwrite the first backup.
+            let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+            let bak = db_path.with_extension(format!("db.{stamp}.bak"));
             if let Err(e) = std::fs::copy(db_path, &bak) {
                 log::warn!("could not write backup to {}: {e}", bak.display());
             } else {

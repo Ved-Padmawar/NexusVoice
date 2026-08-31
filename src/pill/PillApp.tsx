@@ -152,6 +152,10 @@ export function PillApp() {
     tooltipTimerRef.current = setTimeout(() => setTooltip(''), 3000)
   }, [])
 
+  useEffect(() => () => {
+    if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current)
+  }, [])
+
 
   // Check model status and listen for download events
   useEffect(() => {

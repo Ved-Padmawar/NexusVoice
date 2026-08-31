@@ -73,3 +73,78 @@ pub struct AuthStateResponse {
     pub authenticated: bool,
     pub user_id: Option<i64>,
 }
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InjectionTool {
+    pub name: String,
+    pub available: bool,
+    pub preferred: bool,
+    pub install_hint: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InjectionStatus {
+    /// `true` where injection needs external tools the user must install.
+    pub configurable: bool,
+    /// Human-readable session, e.g. "Wayland (GNOME)". Empty off Linux.
+    pub session: String,
+    pub selected: Option<String>,
+    /// Best first.
+    pub tools: Vec<InjectionTool>,
+}
+
+impl InjectionStatus {
+    /// Async to match the Linux arm, which probes the desktop portal.
+    #[cfg(not(target_os = "linux"))]
+    #[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
+    pub async fn detect() -> Self {
+        Self {
+            configurable: false,
+            session: String::new(),
+            selected: None,
+            tools: Vec::new(),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub async fn detect() -> Self {
+        use crate::injection::{linux, session};
+
+        let session = session::detect();
+        let portal = linux::portal_available().await;
+        let selected = linux::selected();
+
+        // The portal leads the list because it is tried first and needs no
+        // install; the tools below it are the fallback where it is unsupported.
+        let mut tools = Vec::new();
+        if session.is_wayland() {
+            tools.push(InjectionTool {
+                name: "desktop portal".to_string(),
+                available: portal,
+                preferred: portal,
+                install_hint: "built into your desktop — approve the permission prompt".to_string(),
+            });
+        }
+        tools.extend(linux::candidates(session).iter().map(|tool| InjectionTool {
+            name: tool.binary().to_string(),
+            available: tool.available(),
+            preferred: !portal && selected == Some(*tool),
+            install_hint: tool.install_hint().to_string(),
+        }));
+
+        let active = if portal {
+            Some("desktop portal".to_string())
+        } else {
+            selected.map(|tool| tool.binary().to_string())
+        };
+
+        Self {
+            configurable: true,
+            session: session.describe(),
+            selected: active,
+            tools,
+        }
+    }
+}

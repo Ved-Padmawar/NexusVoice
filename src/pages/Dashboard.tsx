@@ -10,6 +10,7 @@ import {
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../lib/commands'
 import { toast } from 'sonner'
+import { extractErrorMessage } from '../lib/errors'
 import { useAppStore } from '../store/useAppStore'
 import { ROUTES } from '../lib/routes'
 import { fmtTime, fmtDate, downloadBlob } from '../lib/utils'
@@ -70,6 +71,8 @@ function ExportButton() {
         downloadBlob(content, `nexusvoice-transcripts-${date}.json`, 'application/json')
         toast.success(`Exported ${items.length} transcript${items.length !== 1 ? 's' : ''} as JSON`)
       }
+    } catch (e) {
+      toast.error(extractErrorMessage(e, 'Export failed'))
     } finally {
       setExporting(false)
     }
@@ -136,7 +139,7 @@ function CopyButton({ text }: { text: string }) {
       setCopied(true)
       if (timerRef.current) clearTimeout(timerRef.current)
       timerRef.current = setTimeout(() => setCopied(false), 2000)
-    }).catch(() => {})
+    }).catch(() => toast.error('Could not copy to the clipboard'))
   }
   return (
     <button
@@ -454,8 +457,8 @@ export function Dashboard() {
               ))}
             </AnimatePresence>
 
-            {/* Infinite scroll sentinel — only shown when not searching */}
-            {!isSearchMode && transcriptHasMore && (
+            {/* Infinite scroll sentinel — pages the feed and search alike. */}
+            {transcriptHasMore && (
               <div ref={sentinelRef} className="flex items-center justify-center py-4">
                 <motion.div className="w-4 h-4 rounded-full border-2 border-(--border) border-t-(--accent)" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
               </div>

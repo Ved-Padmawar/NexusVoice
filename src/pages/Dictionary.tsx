@@ -58,7 +58,7 @@ export function Dictionary() {
     if (!t || !r) return
     setEditSaving(true)
     try {
-      await updateDictionary(t, r)
+      await updateDictionary(t, r, dictionary.find((d) => d.id === editId)?.term)
       cancelEdit()
     } finally { setEditSaving(false) }
   }

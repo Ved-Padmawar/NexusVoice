@@ -66,12 +66,18 @@ pub async fn send(
         temperature,
     };
 
-    let resp = client
+    let mut req = client
         .post(ENDPOINT)
-        .header("x-api-key", active.api_key.trim())
         .header("anthropic-version", API_VERSION)
         .json(&body)
-        .timeout(timeout)
+        .timeout(timeout);
+
+    let key = active.api_key.trim();
+    if !key.is_empty() {
+        req = req.header("x-api-key", key);
+    }
+
+    let resp = req
         .send()
         .await
         .map_err(|e| format!("request failed: {e}"))?;

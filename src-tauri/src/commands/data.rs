@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::database::dto::{dictionary::CreateDictionaryEntry, transcript::CreateTranscript};
+use crate::database::dto::dictionary::CreateDictionaryEntry;
 use crate::database::repositories::{
     dictionary::DictionaryRepository,
     transcript::{Cursor, TranscriptRepository},
@@ -24,7 +24,7 @@ pub struct UsageStatsResponse {
 
 #[tauri::command]
 pub async fn get_usage_stats(state: State<'_, AppState>) -> Result<UsageStatsResponse, ApiError> {
-    let repo = TranscriptRepository::new(state.db().await.clone());
+    let repo = TranscriptRepository::new(state.db().await?.clone());
     let (total_sessions, total_words, total_duration_seconds) = repo.get_stats().await?;
 
     #[allow(clippy::cast_possible_truncation)] // durations and word counts fit i64
@@ -103,7 +103,7 @@ pub async fn get_transcripts(
     state: State<'_, AppState>,
     page: PageQuery,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
-    let repo = TranscriptRepository::new(state.db().await.clone());
+    let repo = TranscriptRepository::new(state.db().await?.clone());
     let to = page.end_bound();
     let items = repo
         .list_keyset(
@@ -121,7 +121,7 @@ pub async fn get_transcripts(
 pub async fn export_transcripts(
     state: State<'_, AppState>,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
-    let repo = TranscriptRepository::new(state.db().await.clone());
+    let repo = TranscriptRepository::new(state.db().await?.clone());
     let items = repo.list_all().await?;
     Ok(items.into_iter().map(TranscriptResponse::from).collect())
 }
@@ -145,7 +145,7 @@ pub async fn search_transcripts(
     }
 
     // Propagate real DB/FTS errors instead of masking them as empty results.
-    let repo = TranscriptRepository::new(state.db().await.clone());
+    let repo = TranscriptRepository::new(state.db().await?.clone());
     let to = page.end_bound();
     let items = repo
         .search(
@@ -161,32 +161,8 @@ pub async fn search_transcripts(
 }
 
 #[tauri::command]
-pub async fn save_transcript(
-    state: State<'_, AppState>,
-    content: String,
-) -> Result<TranscriptResponse, ApiError> {
-    if content.trim().is_empty() {
-        return Err(ApiError::new(
-            "invalid_input",
-            "transcript content cannot be empty",
-        ));
-    }
-    let repo = TranscriptRepository::new(state.db().await.clone());
-    #[allow(clippy::cast_possible_wrap)]
-    let word_count = content.split_whitespace().count() as i64;
-    let transcript = repo
-        .create(CreateTranscript {
-            content,
-            word_count,
-            duration_seconds: None,
-        })
-        .await?;
-    Ok(transcript.into())
-}
-
-#[tauri::command]
 pub async fn delete_transcript(state: State<'_, AppState>, id: i64) -> Result<(), ApiError> {
-    let repo = TranscriptRepository::new(state.db().await.clone());
+    let repo = TranscriptRepository::new(state.db().await?.clone());
     repo.delete_by_id(id).await?;
     Ok(())
 }
@@ -203,13 +179,16 @@ pub async fn get_dictionary(
         .collect())
 }
 
+/// The upsert keys on `term`, so a rename inserts a new row; `previous_term`
+/// names the old one to drop, or it lingers and keeps rewriting dictation.
 #[tauri::command]
 pub async fn update_dictionary(
     state: State<'_, AppState>,
     term: String,
     replacement: String,
+    previous_term: Option<String>,
 ) -> Result<DictionaryResponse, ApiError> {
-    let repo = DictionaryRepository::new(state.db().await.clone());
+    let repo = DictionaryRepository::new(state.db().await?.clone());
     let entry = repo
         .upsert(CreateDictionaryEntry {
             term: term.clone(),
@@ -217,19 +196,25 @@ pub async fn update_dictionary(
         })
         .await?;
 
+    let renamed_from = previous_term.filter(|previous| previous != &entry.term);
+    if let Some(previous) = &renamed_from {
+        repo.delete_by_term(previous).await?;
+    }
+
     // Update in-memory cache: O(1) insert/replace via HashMap
-    state
-        .dict_cache
-        .write()
-        .await
-        .insert(entry.term.clone(), entry.clone());
+    let mut cache = state.dict_cache.write().await;
+    if let Some(previous) = &renamed_from {
+        cache.remove(previous);
+    }
+    cache.insert(entry.term.clone(), entry.clone());
+    drop(cache);
 
     Ok(entry.into())
 }
 
 #[tauri::command]
 pub async fn delete_dictionary_entry(state: State<'_, AppState>, id: i64) -> Result<(), ApiError> {
-    let repo = DictionaryRepository::new(state.db().await.clone());
+    let repo = DictionaryRepository::new(state.db().await?.clone());
     if repo.delete_by_id(id).await? {
         let mut cache = state.dict_cache.write().await;
         cache.retain(|_, e| e.id != id);

@@ -5,7 +5,7 @@ use std::sync::{
 };
 
 use sqlx::SqlitePool;
-use tokio::sync::{Mutex, OnceCell, RwLock};
+use tokio::sync::{Mutex, RwLock, SetOnce};
 
 use std::collections::HashMap;
 
@@ -213,12 +213,17 @@ impl Downloads {
     }
 }
 
+/// Database init failed. Commands surface this instead of waiting forever.
+pub struct DbUnavailable(pub String);
+
+pub struct DatabaseHandle {
+    pub pool: SqlitePool,
+    pub auth: AuthService,
+}
+
 pub struct AppState {
-    /// Database pool — initialized asynchronously after setup returns.
-    /// All commands that need the DB call `db()` which awaits readiness.
-    db: OnceCell<SqlitePool>,
-    /// Auth service — initialized after the DB is ready.
-    auth_cell: OnceCell<AuthService>,
+    /// Set once by the startup task; `db()`/`auth()` wait on it.
+    db: SetOnce<Result<DatabaseHandle, String>>,
     pub app_data_dir: PathBuf,
     pub hotkeys_path: PathBuf,
     pub model_override_path: PathBuf,
@@ -274,8 +279,7 @@ impl AppState {
         models_dir: PathBuf,
     ) -> Self {
         Self {
-            db: OnceCell::new(),
-            auth_cell: OnceCell::new(),
+            db: SetOnce::new(),
             app_data_dir,
             hotkeys_path,
             model_override_path,
@@ -305,38 +309,29 @@ impl AppState {
         }
     }
 
-    /// Set the database pool once it's ready (called from the background init task).
-    pub fn set_pool(&self, pool: SqlitePool) {
-        let _ = self.db.set(pool);
+    /// Called once, by the startup task.
+    pub fn set_database(&self, result: Result<SqlitePool, String>) {
+        let handle = result.map(|pool| DatabaseHandle {
+            auth: AuthService::new(pool.clone()),
+            pool,
+        });
+        let _ = self.db.set(handle);
     }
 
-    /// Set the auth service once the pool is ready.
-    pub fn set_auth(&self, auth: AuthService) {
-        let _ = self.auth_cell.set(auth);
-    }
-
-    /// Get the database pool, waiting if it's still initializing.
-    pub async fn db(&self) -> &SqlitePool {
+    async fn database(&self) -> Result<&DatabaseHandle, DbUnavailable> {
         self.db
-            .get_or_init(|| async {
-                // This branch should never execute — the pool is always set by the init task.
-                // But if somehow it does, open the DB as a fallback.
-                let db_path = self.app_data_dir.join("nexusvoice.db");
-                crate::database::connection::open_database(&db_path)
-                    .await
-                    .expect("fallback database init failed")
-            })
+            .wait()
             .await
+            .as_ref()
+            .map_err(|e| DbUnavailable(e.clone()))
     }
 
-    /// Get the auth service, waiting if it's still initializing.
-    pub async fn auth(&self) -> &AuthService {
-        self.auth_cell
-            .get_or_init(|| async {
-                let pool = self.db().await.clone();
-                AuthService::new(pool)
-            })
-            .await
+    pub async fn db(&self) -> Result<&SqlitePool, DbUnavailable> {
+        Ok(&self.database().await?.pool)
+    }
+
+    pub async fn auth(&self) -> Result<&AuthService, DbUnavailable> {
+        Ok(&self.database().await?.auth)
     }
 
     /// Get or load the cached `TranscriptionEngine`.
@@ -382,8 +377,37 @@ impl AppState {
         .map_err(|e| format!("engine load task failed: {e}"))??;
 
         let arc = Arc::new(std::sync::Mutex::new(engine));
+        self.reset_language_if_unsupported(&arc, saved.as_deref());
         *self.engine.lock().await = Some(Arc::clone(&arc));
         Ok(arc)
+    }
+
+    /// Otherwise every decode silently falls back to English and the picker
+    /// still shows a language the model cannot speak.
+    pub(crate) fn reset_language_if_unsupported(
+        &self,
+        engine: &std::sync::Mutex<TranscriptionEngine>,
+        saved: Option<&str>,
+    ) -> bool {
+        use crate::inference::language::{primary_of, AUTO, DEFAULT};
+
+        let Some(code) = saved.filter(|c| *c != AUTO && *c != DEFAULT) else {
+            return false;
+        };
+        let Ok(guard) = engine.lock() else {
+            return false;
+        };
+        let languages = guard.languages();
+        if languages.is_empty() || languages.iter().any(|l| l == code || primary_of(l) == code) {
+            return false;
+        }
+        drop(guard);
+
+        if let Err(e) = self.save_language(Some(DEFAULT)) {
+            log::warn!("could not reset unsupported language {code}: {e}");
+            return false;
+        }
+        true
     }
 
     pub async fn current_user_id(&self) -> Option<i64> {

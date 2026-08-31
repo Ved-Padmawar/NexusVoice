@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useState } from 'react'
 import { MicrophoneSection } from './MicrophoneSection'
 import { LanguageSection } from './LanguageSection'
 import { HotkeySection } from './HotkeySection'
+import { TextInjectionSection } from './TextInjectionSection'
 import { FormattingToggle } from '../../components/FormattingToggle'
 import { useAppStore } from '../../store/useAppStore'
 
@@ -34,6 +35,8 @@ export const GeneralTab = memo(function GeneralTab() {
       <div className="rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
         <HotkeySection />
       </div>
+
+      <TextInjectionSection />
     </div>
   )
 })

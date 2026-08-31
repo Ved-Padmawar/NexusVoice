@@ -176,8 +176,14 @@ fn warm_engine_in_background(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let state = app.state::<AppState>();
+        let before = state.load_language();
         if let Err(e) = state.get_or_load_engine().await {
             log::debug!("skipping eager warmup: {e}");
+            return;
+        }
+        // The load resets a language the new model can't speak.
+        if before.is_some() && state.load_language() != before {
+            let _ = app.emit("language-reset", before);
         }
     });
 }

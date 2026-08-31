@@ -20,6 +20,7 @@ export const COMMANDS = {
   RESUME_DICTATION:    'resume_dictation',
   COMMIT_DICTATION:    'commit_dictation',
   TYPE_TEXT:           'type_text',
+  GET_INJECTION_STATUS: 'get_injection_status',
 
   // Hotkey
   REGISTER_HOTKEY:     'register_hotkey',
@@ -32,7 +33,6 @@ export const COMMANDS = {
 
   // Data
   GET_TRANSCRIPTS:        'get_transcripts',
-  SAVE_TRANSCRIPT:        'save_transcript',
   DELETE_TRANSCRIPT:      'delete_transcript',
   EXPORT_TRANSCRIPTS:     'export_transcripts',
   GET_USAGE_STATS:        'get_usage_stats',

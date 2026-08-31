@@ -7,6 +7,7 @@ use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{ErrorKind, SampleFormat};
 
 use crate::audio::WaveformMeter;
+use crate::state::lock_recovering;
 
 /// Conversion helper: normalize any cpal sample type to f32 in [-1.0, 1.0].
 pub trait ToF32 {
@@ -150,7 +151,7 @@ pub fn capture_microphone(
     let sample_format = config.sample_format();
     let stream_config: cpal::StreamConfig = config.into();
 
-    *native_rate.lock().expect("native_rate lock poisoned") = sample_rate;
+    *lock_recovering(&native_rate) = sample_rate;
     waveform.reset(sample_rate);
 
     // The callback gates on `capturing`, not `running`: when the user releases
@@ -215,7 +216,7 @@ pub fn capture_microphone(
 
     // Notify stop_transcription that the stream is fully stopped and buffer is ready.
     let (lock, cvar) = &*done;
-    *lock.lock().expect("capture_done lock poisoned") = true;
+    *lock_recovering(lock) = true;
     cvar.notify_one();
 
     Ok(())

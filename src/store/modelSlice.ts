@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event'
 import { COMMANDS } from '../lib/commands'
 import { EVENTS } from '../lib/events'
 import { fetchModelCatalog, modelNameToId, type CatalogModel, type ModelId } from '../lib/models'
+import { toast } from 'sonner'
 import type { ModelInfo } from '../types'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
@@ -146,7 +147,10 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
     })
     // Deleted the active model but another is on disk: backend switched to it.
     const u8 = await listen(EVENTS.MODEL_SWITCHED, () => { void get().refreshModelInfo() })
-    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8() }
+    const u9 = await listen(EVENTS.LANGUAGE_RESET, () => {
+      toast.info('This model does not support your dictation language — switched to English.')
+    })
+    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9() }
   },
 })
 

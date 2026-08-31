@@ -244,7 +244,7 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
     transcription::spawn_finalize(
         app,
         FinalizeContext {
-            pool: state.db().await.clone(),
+            pool: state.db().await?.clone(),
             dict_cache: Arc::clone(&state.dict_cache),
             engine,
             engine_cache: Arc::clone(&state.engine),

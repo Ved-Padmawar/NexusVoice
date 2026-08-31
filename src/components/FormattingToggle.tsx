@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -22,6 +23,18 @@ type FormatConfig = {
 }
 
 const EMPTY_PROFILE: Profile = { baseUrl: '', model: '', apiKey: '' }
+
+const ProfileSchema = z.object({
+  baseUrl: z.string(),
+  model: z.string(),
+  apiKey: z.string(),
+})
+
+const FormatConfigSchema = z.object({
+  enabled: z.boolean(),
+  provider: z.string(),
+  profiles: z.record(z.string(), ProfileSchema),
+})
 
 const activeProfile = (c: FormatConfig): Profile =>
   c.profiles?.[c.provider] ?? EMPTY_PROFILE
@@ -57,9 +70,12 @@ export function FormattingToggle() {
   const [modalOpen, setModalOpen] = useState(false)
 
   const refresh = useCallback(() => {
-    invoke<FormatConfig>(COMMANDS.GET_FORMAT_CONFIG)
-      // A missing config must not blank out the defaults.
-      .then((c) => setConfig(c ? { ...DEFAULT_CONFIG, ...c } : DEFAULT_CONFIG))
+    invoke<unknown>(COMMANDS.GET_FORMAT_CONFIG)
+      // A missing or malformed config must not blank out the defaults.
+      .then((c) => {
+        const parsed = FormatConfigSchema.partial().safeParse(c ?? {})
+        setConfig(parsed.success ? { ...DEFAULT_CONFIG, ...parsed.data } : DEFAULT_CONFIG)
+      })
       .catch(() => {})
   }, [])
 

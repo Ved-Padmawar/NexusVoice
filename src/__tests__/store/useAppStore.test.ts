@@ -190,19 +190,6 @@ describe('useAppStore — loadMoreTranscripts', () => {
   })
 })
 
-describe('useAppStore — addTranscript', () => {
-  it('prepends new transcript to list', async () => {
-    const newT = { id: 99, content: 'new one', wordCount: 2, durationSeconds: null, createdAt: '' }
-    mockInvoke.mockImplementation((cmd) => {
-      if (cmd === 'save_transcript') return Promise.resolve(newT)
-      return Promise.resolve(undefined)
-    })
-    await useAppStore.getState().addTranscript('new one')
-    const transcripts = useAppStore.getState().transcripts
-    expect(transcripts[0].id).toBe(99)
-  })
-})
-
 describe('useAppStore — updateDictionary', () => {
   it('adds new entry to dictionary', async () => {
     const entry = { id: 1, term: 'teh', replacement: 'the', hits: 0, createdAt: '' }
@@ -212,6 +199,18 @@ describe('useAppStore — updateDictionary', () => {
     })
     await useAppStore.getState().updateDictionary('teh', 'the')
     expect(useAppStore.getState().dictionary[0].term).toBe('teh')
+  })
+
+  it('replaces the renamed row instead of adding a second one', async () => {
+    const renamed = { id: 1, term: 'hte', replacement: 'the', hits: 0, createdAt: '' }
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'update_dictionary') return Promise.resolve(renamed)
+      return Promise.resolve(undefined)
+    })
+    await useAppStore.getState().updateDictionary('hte', 'the', 'teh')
+    const dictionary = useAppStore.getState().dictionary
+    expect(dictionary).toHaveLength(1)
+    expect(dictionary[0].term).toBe('hte')
   })
 
   it('updates existing entry in place', async () => {
