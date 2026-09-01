@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.15.4-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.16.0-violet?style=flat-square)
 
 </div>
 
@@ -42,7 +42,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **Microphone selection** — pick which input device records your voice (Settings → General); defaults to the system default and falls back to it automatically if your chosen mic is unplugged
 - **100% local** — transcription runs entirely on your machine, nothing is sent to the cloud
 - **GPU-accelerated** — auto-detects NVIDIA (CUDA), AMD/Intel (Vulkan), falls back to CPU
-- **Live or on-release** — streaming models show text as you speak; the rest transcribe when you stop
+- **Live transcript in the pill (optional)** — the pill expands into a card and fills in as you speak, on any model. Off by default (Settings → General)
 - **Smart model selection** — picks the best model for your hardware automatically
 - **First-run model picker** — choose your model on first login with a hardware-aware recommendation, then download on demand
 - **Personal dictionary** — map spoken words to their correct form (e.g. "gonna" → "going to")
@@ -94,7 +94,7 @@ Moonshine families. A few of the picks:
 | Moonshine Streaming Small   | 199&nbsp;MB | Live, low memory use            |
 | Whisper Tiny                | 44&nbsp;MB  | Fastest, lowest accuracy        |
 
-Models marked **live** transcribe as you speak; the rest transcribe when you stop. All run locally, and all are quantized for smaller downloads and faster inference at near-identical accuracy. On first login a model picker lets you choose — the app recommends the best one for your hardware. You can change it anytime in Settings → Voice, where you can also delete downloaded models. Models download from HuggingFace and are cached locally.
+Models marked **live** are fed audio incrementally and own their decode session; the rest re-read a growing window instead. Both transcribe while you speak, so either can drive the live transcript card. All run locally, and all are quantized for smaller downloads and faster inference at near-identical accuracy. On first login a model picker lets you choose — the app recommends the best one for your hardware. You can change it anytime in Settings → Voice, where you can also delete downloaded models. Models download from HuggingFace and are cached locally.
 
 ---
 

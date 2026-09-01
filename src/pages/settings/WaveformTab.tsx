@@ -19,7 +19,7 @@ const WAVEFORM_STYLES: StyleDef[] = [
   { id: 'bars',  label: 'Bars',  hint: 'live level meter' },
   { id: 'memo',  label: 'Memo',  hint: 'scrolling voice note' },
   { id: 'eq',    label: 'EQ',    hint: 'retro equalizer' },
-  { id: 'steps', label: 'Steps', hint: 'chunky pixel wave' },
+  { id: 'spectrum', label: 'Spectrum', hint: 'analyser columns' },
 ]
 
 const MIN_H = 3

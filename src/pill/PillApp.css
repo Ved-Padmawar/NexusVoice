@@ -12,30 +12,35 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
-  width: 104px;
-  height: 32px;
+  width: 100%;
+  height: 100%;
   background: transparent !important;
   overflow: hidden;
   font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
+/* Bottom-anchored so the card grows upward. The 6px is slack for the pill's
+   border and shadow; the window is sized to include it. */
 body {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
+  padding-bottom: 6px;
 }
 
 #root {
   width: 100%;
   height: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
   background: transparent !important;
 }
 
-/* ===== Pill ===== */
+/* ===== Pill =====
+   Geometry is framer-motion's, not CSS — a transition on the same property
+   fights the animation frame and stutters mid-morph. */
 .pill {
   height: 32px;
   border-radius: 999px;
@@ -51,14 +56,101 @@ body {
   background: #0f0f18;
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
-
-  transition:
-    border-color 0.3s ease,
-    background 0.3s ease,
-    box-shadow 0.3s ease;
 }
 
 .pill:active { cursor: grabbing; }
+
+/* Only the card stacks; the capsule keeps its original row. */
+.pill--expanded {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 0;
+  padding: 0;
+}
+
+/* ===== Expanded (Tide) =====
+   The accent wash pooling at the bottom edge — the surface reading as live. */
+.pill__tide {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.pill__transcript {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  z-index: 1;
+  padding: 19px 19px 8px;
+  font-size: 13.5px;
+  line-height: 1.62;
+  letter-spacing: -0.007em;
+  text-align: left;
+  /* Laid out at the final width, or the wrap changes every frame as it grows. */
+  width: var(--card-w);
+  box-sizing: border-box;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+}
+
+.pill__transcript::-webkit-scrollbar { width: 0; }
+
+.pill__committed { color: rgba(255,255,255,0.95); }
+.pill__tentative { color: rgba(255,255,255,0.45); }
+
+.pill__caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  vertical-align: -0.16em;
+  margin-left: 3px;
+  border-radius: 999px;
+  background: #78a2f4;
+}
+
+/* `display:contents` leaves the strip's children as direct children of
+   `.pill` — the exact row the capsule always laid out. */
+.pill__strip {
+  display: contents;
+}
+
+.pill--expanded .pill__strip {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  z-index: 1;
+  height: 42px;
+  padding: 0 13px 4px 15px;
+}
+
+.pill--expanded.pill--dictation .pill__strip,
+.pill--expanded.pill--dictation-paused .pill__strip {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 22px;
+  gap: 8px;
+}
+
+/* `display:none`, not opacity — with margin-left:auto an invisible hint still
+   reserves width and eats the waveform's row. */
+.pill__hint {
+  display: none;
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+  color: rgba(255,255,255,0.38);
+}
+
+.pill--expanded .pill__hint { display: block; }
 
 /* ===== Recording ===== */
 .pill--recording {
@@ -67,8 +159,12 @@ body {
 
 .pill--dictation,
 .pill--dictation-paused {
-  padding: 0 5px;
   border-color: rgba(255, 255, 255, 0.18);
+}
+
+.pill--dictation:not(.pill--expanded),
+.pill--dictation-paused:not(.pill--expanded) {
+  padding: 0 5px;
 }
 
 .pill--dictation-paused {
@@ -78,7 +174,6 @@ body {
 
 /* ===== Processing — morphs to circle ===== */
 .pill--processing {
-  padding: 0;
   border-color: rgba(120, 162, 244, 0.6);
   background: #0c0c16;
   box-shadow: none;
@@ -86,7 +181,6 @@ body {
 
 /* ===== Downloading — morphs to circle ===== */
 .pill--downloading {
-  padding: 0;
   border-color: rgba(245, 158, 11, 0.7);
   background: #0f0e0c;
   box-shadow: none;
@@ -133,6 +227,21 @@ body {
   z-index: 1;
 }
 
+/* Fixed width AND basis so canvas and DOM bars land on identical geometry. */
+.pill--expanded .pill__wave-slot {
+  flex: 0 0 54px;
+  width: 54px;
+  max-width: 54px;
+  min-width: 0;
+  overflow: hidden;
+  justify-content: flex-start;
+}
+
+.pill--expanded.pill--dictation .pill__wave-slot,
+.pill--expanded.pill--dictation-paused .pill__wave-slot {
+  justify-content: center;
+}
+
 .pill__bar {
   flex: 1;
   max-width: 4px;
@@ -152,6 +261,11 @@ body {
   gap: 3px;
   position: relative;
   z-index: 2;
+}
+
+/* Canvas styles draw left of their slot's centre; `bars` fills its slot. */
+.pill__dictation > .pill__waveform:has(canvas) {
+  margin-left: 3px;
 }
 
 .pill__waveform--dictation {
@@ -261,6 +375,9 @@ body {
 .pill[data-pill-theme="steel"] .pill__icon { color: #b8cce0; }
 .pill[data-pill-theme="steel"] .pill__bar { background: #b8cce0; }
 .pill[data-pill-theme="steel"] .pill__brand { color: rgba(200,215,235,0.80); }
+.pill[data-pill-theme="steel"] .pill__committed { color: rgba(236,241,248,0.95); }
+.pill[data-pill-theme="steel"] .pill__tentative { color: rgba(200,215,235,0.45); }
+.pill[data-pill-theme="steel"] .pill__caret { background: #b8cce0; }
 
 /* ===== Canvas ===== */
 .pill[data-pill-theme="canvas"] { background: #ffffff; border-color: rgba(0,0,0,0.10); box-shadow: 0 2px 12px rgba(0,0,0,0.10), 0 1px 3px rgba(0,0,0,0.07); }
@@ -277,6 +394,10 @@ body {
 .pill[data-pill-theme="canvas"] .pill__control { color: rgba(20,20,45,0.75); background: rgba(20,20,45,0.07); }
 .pill[data-pill-theme="canvas"] .pill__control:hover { color: rgba(20,20,45,0.95); background: rgba(20,20,45,0.12); }
 .pill[data-pill-theme="canvas"] .pill__control--commit { color: #15803d; background: rgba(34,197,94,0.16); }
+.pill[data-pill-theme="canvas"] .pill__committed { color: rgba(20,20,45,0.92); }
+.pill[data-pill-theme="canvas"] .pill__tentative { color: rgba(58,91,217,0.55); }
+.pill[data-pill-theme="canvas"] .pill__caret { background: #3a5bd9; }
+.pill[data-pill-theme="canvas"] .pill__hint { color: rgba(20,20,45,0.38); }
 
 /* ===== Midnight ===== */
 .pill[data-pill-theme="midnight"] { background: #0a0d14; border-color: rgba(26,209,209,0.16); box-shadow: inset 0 1px 0 rgba(255,255,255,0.04); }
@@ -289,6 +410,9 @@ body {
 .pill[data-pill-theme="midnight"] .pill__icon { color: #1ad1d1; }
 .pill[data-pill-theme="midnight"] .pill__bar { background: #1ad1d1; }
 .pill[data-pill-theme="midnight"] .pill__brand { color: rgba(236,238,244,0.80); }
+.pill[data-pill-theme="midnight"] .pill__committed { color: rgba(236,238,244,0.95); }
+.pill[data-pill-theme="midnight"] .pill__tentative { color: rgba(26,209,209,0.50); }
+.pill[data-pill-theme="midnight"] .pill__caret { background: #1ad1d1; }
 
 /* ===== Dawn ===== */
 .pill[data-pill-theme="dawn"] { background: #fff6f4; border-color: rgba(120,60,40,0.14); box-shadow: 0 2px 12px rgba(90,40,20,0.12), 0 1px 3px rgba(90,40,20,0.08); }
@@ -305,3 +429,7 @@ body {
 .pill[data-pill-theme="dawn"] .pill__control { color: rgba(37,22,20,0.75); background: rgba(37,22,20,0.07); }
 .pill[data-pill-theme="dawn"] .pill__control:hover { color: rgba(37,22,20,0.95); background: rgba(37,22,20,0.12); }
 .pill[data-pill-theme="dawn"] .pill__control--commit { color: #15803d; background: rgba(34,197,94,0.16); }
+.pill[data-pill-theme="dawn"] .pill__committed { color: rgba(37,22,20,0.92); }
+.pill[data-pill-theme="dawn"] .pill__tentative { color: rgba(228,56,0,0.55); }
+.pill[data-pill-theme="dawn"] .pill__caret { background: #e43800; }
+.pill[data-pill-theme="dawn"] .pill__hint { color: rgba(37,22,20,0.38); }

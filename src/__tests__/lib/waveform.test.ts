@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { WAVEFORM_RENDERERS, isCanvasStyle, BARS } from '../../lib/waveform'
 import type { WaveformStyle } from '../../store/uiSlice'
 
-const STYLES: WaveformStyle[] = ['bars', 'memo', 'eq', 'steps']
+const STYLES: WaveformStyle[] = ['bars', 'memo', 'eq', 'spectrum']
 
 describe('waveform renderers', () => {
   it('has a canvas renderer for every style except bars', () => {

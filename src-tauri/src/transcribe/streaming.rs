@@ -34,6 +34,27 @@ impl<'a> StreamSession<'a> {
         }
     }
 
+    /// Transcript so far, split into settled and still-revising text. Models
+    /// that leave `committed` empty fall back to holding only the tail in flux.
+    pub fn partial(&self) -> (String, String) {
+        const IN_FLUX_WORDS: usize = 4;
+
+        let text = self.stream.text();
+        if !text.committed.is_empty() {
+            return (text.committed, text.tentative);
+        }
+
+        let words: Vec<&str> = text.full.split_whitespace().collect();
+        if words.len() <= IN_FLUX_WORDS {
+            return (String::new(), text.full);
+        }
+        let split = words.len() - IN_FLUX_WORDS;
+        (
+            words[..split].join(" "),
+            format!(" {}", words[split..].join(" ")),
+        )
+    }
+
     /// Flush the stream and return the complete transcript. `None` means the
     /// caller should fall back to a single-shot decode of the buffered audio.
     pub fn finalize(mut self) -> Option<String> {

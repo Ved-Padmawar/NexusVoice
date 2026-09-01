@@ -48,6 +48,7 @@ mod hardware;
 mod inference;
 mod injection;
 mod llm;
+mod pill_geometry;
 mod postprocess;
 mod preprocess;
 mod remote;
@@ -377,12 +378,12 @@ fn main() {
                             .and_then(tauri::WebviewWindowBuilder::build)
                         {
                             Ok(pill) => {
+                                let (pill_w, pill_h) = crate::pill_geometry::capsule_window();
+                                let _ = pill.set_size(tauri::LogicalSize::new(pill_w, pill_h));
                                 // Position: centered horizontally, near bottom of primary monitor
                                 if let Some(monitor) = pill.primary_monitor().ok().flatten() {
                                     let screen = monitor.size();
                                     let scale = monitor.scale_factor();
-                                    let pill_w = 104.0;
-                                    let pill_h = 44.0;
                                     let margin = 72.0;
                                     let logical_w = f64::from(screen.width) / scale;
                                     let logical_h = f64::from(screen.height) / scale;
@@ -474,6 +475,7 @@ fn main() {
             commands::set_format_config,
             commands::test_format_connection,
             commands::open_logs_folder,
+            commands::resize_pill,
             commands::log_frontend,
         ])
         .build(tauri::generate_context!())

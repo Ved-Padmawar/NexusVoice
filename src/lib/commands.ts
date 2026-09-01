@@ -61,6 +61,7 @@ export const COMMANDS = {
 
   // System
   OPEN_LOGS_FOLDER: 'open_logs_folder',
+  RESIZE_PILL:      'resize_pill',
   LOG_FRONTEND:     'log_frontend',
 } as const
 

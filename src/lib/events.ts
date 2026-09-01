@@ -24,6 +24,8 @@ export const EVENTS = {
   TRANSCRIPT_NEW:           'transcript:new',
   TRANSCRIPTION_COMPLETE:   'transcription-complete',
   TRANSCRIPTION_ERROR:      'transcription-error',
+  TRANSCRIPTION_PARTIAL:     'transcription-partial',
+  TRANSCRIPTION_PARTIAL_END: 'transcription-partial-end',
 
   // Dictionary
 
@@ -35,6 +37,7 @@ export const EVENTS = {
   PILL_THEME_CHANGED: 'pill:theme-changed',
   PILL_WAVEFORM_STYLE_CHANGED: 'pill:waveform-style-changed',
   PILL_WAVEFORM: 'pill:waveform',
+  PILL_LIVE_TRANSCRIPT_CHANGED: 'pill:live-transcript-changed',
 } as const
 
 export type AppEvent = typeof EVENTS[keyof typeof EVENTS]

@@ -139,6 +139,24 @@ impl StreamingSession {
         }
     }
 
+    /// Transcript so far, split into LocalAgreement-confirmed text and the
+    /// hypothesis tail still open to revision.
+    pub fn partial(&self) -> (String, String) {
+        let pending: Vec<Word> = self
+            .segments
+            .iter()
+            .flat_map(|s| &s.words)
+            .skip(self.committed_words)
+            .cloned()
+            .collect();
+        let tentative = if pending.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", join_words(&pending).trim())
+        };
+        (self.committed.clone(), tentative)
+    }
+
     /// Commit the prefix this hypothesis shares with the previous one. Both are
     /// compared past `committed_words`, so the committed prefix only ever grows.
     fn commit_agreed(&mut self) {

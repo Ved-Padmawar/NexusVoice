@@ -16,6 +16,29 @@ use crate::postprocess::DictionaryCorrectionEngine;
 use crate::state::{lock_recovering, AppState, DictCache};
 use crate::transcribe::{Route, StreamSession};
 
+/// Live transcript sent to the pill. Both decode paths produce the same split,
+/// so the pill never needs to know which one ran.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PartialTranscript {
+    committed: String,
+    tentative: String,
+}
+
+/// Push one live-transcript frame to the pill, skipping empty ones.
+fn emit_partial(app: &AppHandle, (committed, tentative): (String, String)) {
+    if committed.is_empty() && tentative.is_empty() {
+        return;
+    }
+    let _ = app.emit(
+        "transcription-partial",
+        PartialTranscript {
+            committed,
+            tentative,
+        },
+    );
+}
+
 /// Poll cadence of the stream worker. Decode frequency is governed by the
 /// pipeline's minimum-new-audio gate, not this; polling is just the check.
 const STREAM_POLL: std::time::Duration = std::time::Duration::from_millis(200);
@@ -43,7 +66,7 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
 
     spawn_engine_load(app);
     spawn_waveform_emitter(app, state);
-    spawn_stream_worker(state);
+    spawn_stream_worker(app, state);
 
     std::thread::spawn(move || {
         if let Err(e) = crate::audio::capture_microphone(
@@ -94,19 +117,20 @@ fn spawn_engine_load(app: &AppHandle) {
 
 /// Spawn the worker that decodes while recording. The engine may still be
 /// loading, so both start and each exits if the other owns this recording.
-fn spawn_stream_worker(state: &AppState) {
-    spawn_local_agreement_worker(state);
-    spawn_native_stream_worker(state);
+fn spawn_stream_worker(app: &AppHandle, state: &AppState) {
+    spawn_local_agreement_worker(app, state);
+    spawn_native_stream_worker(app, state);
 }
 
 /// Feed captured audio into a streaming model's own session, stashing the
 /// finished transcript for finalize to collect.
-fn spawn_native_stream_worker(state: &AppState) {
+fn spawn_native_stream_worker(app: &AppHandle, state: &AppState) {
     let running = Arc::clone(&state.transcription_running);
     let audio_buffer = Arc::clone(&state.audio_buffer);
     let native_rate = Arc::clone(&state.native_sample_rate);
     let engine_cache = Arc::clone(&state.engine);
     let streamed = Arc::clone(&state.streamed_text);
+    let app = app.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
         // Wait for the engine, which loads in parallel with capture starting.
@@ -148,11 +172,12 @@ fn spawn_native_stream_worker(state: &AppState) {
                 chunk
             };
             let prepared = crate::preprocess::to_16k(&chunk, rate);
-            if !prepared.is_empty() {
-                stream.feed(&prepared);
+            if !prepared.is_empty() && stream.feed(&prepared) {
+                emit_partial(&app, stream.partial());
             }
         }
 
+        let _ = app.emit("transcription-partial-end", ());
         *lock_recovering(&streamed) = stream.finalize();
     });
 }
@@ -160,12 +185,13 @@ fn spawn_native_stream_worker(state: &AppState) {
 /// Feed the growing buffer to the `StreamingSession` so finalize only has the
 /// tail left to decode. Needs a cached engine; without one finalize decodes
 /// everything in one pass.
-fn spawn_local_agreement_worker(state: &AppState) {
+fn spawn_local_agreement_worker(app: &AppHandle, state: &AppState) {
     let running = Arc::clone(&state.transcription_running);
     let audio_buffer = Arc::clone(&state.audio_buffer);
     let native_rate = Arc::clone(&state.native_sample_rate);
     let session_slot = Arc::clone(&state.stream_session);
     let engine_cache = Arc::clone(&state.engine);
+    let app = app.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
         // Logged once — the loop polls continuously.
@@ -219,7 +245,11 @@ fn spawn_local_agreement_worker(state: &AppState) {
                 *engine_cache.blocking_lock() = None;
                 break;
             }
+
+            emit_partial(&app, session.partial());
         }
+
+        let _ = app.emit("transcription-partial-end", ());
     });
 }
 

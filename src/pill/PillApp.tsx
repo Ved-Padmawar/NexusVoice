@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { motion } from 'framer-motion'
+import { useEffect, useState, useCallback, useRef, useMemo, useLayoutEffect } from 'react'
+import { motion, AnimatePresence, useReducedMotion, useMotionValue, animate } from 'framer-motion'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -24,9 +24,26 @@ const PILL_WIDTH: Record<string, number> = {
   error: 104,
 }
 
+// The pill element's own box; the window around it is sized by pill_geometry.rs.
+const CARD_W = 332
+const CARD_MIN_H = 84
+const CARD_MAX_H = 186
+const CARD_RADIUS = 28
+const STRIP_H = 42
+const TEXT_PAD = 27
+
+const CAPSULE_W = 104
+const CAPSULE_H = 32
+
 const pillSpring = { type: 'spring' as const, stiffness: 380, damping: 30, mass: 0.8 }
+const cardSpring = { type: 'spring' as const, stiffness: 210, damping: 32, mass: 1 }
+const growSpring = { type: 'spring' as const, stiffness: 260, damping: 34, mass: 0.9 }
+/** Critically damped — a bounce on close reads as the pill wobbling shut. */
+const collapseSpring = { type: 'spring' as const, stiffness: 400, damping: 40, mass: 0.7 }
 
 type PillState = 'idle' | 'recording' | 'dictation' | 'dictation-paused' | 'processing' | 'error' | 'downloading'
+
+type LivePartial = { committed: string; tentative: string }
 
 const MIN_H = 3
 const MAX_H = 16
@@ -39,25 +56,14 @@ const SPINNER_COLORS: Record<PillTheme, { proc: [string, string]; dl: [string, s
   dawn:     { proc: ['rgba(228,56,0,0.15)',    'rgba(228,56,0,0.9)'],    dl: ['rgba(245,158,11,0.15)', 'rgba(245,158,11,0.9)'] },
 }
 
-function readPillTheme(): PillTheme {
+function readPersisted<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(STORE_PERSIST_KEY)
-    if (!raw) return 'steel'
-    const parsed = JSON.parse(raw) as { state?: { pillTheme?: PillTheme } }
-    return parsed?.state?.pillTheme ?? 'steel'
+    if (!raw) return fallback
+    const parsed = JSON.parse(raw) as { state?: Record<string, unknown> }
+    return (parsed?.state?.[key] as T) ?? fallback
   } catch {
-    return 'steel'
-  }
-}
-
-function readWaveformStyle(): WaveformStyle {
-  try {
-    const raw = localStorage.getItem(STORE_PERSIST_KEY)
-    if (!raw) return 'bars'
-    const parsed = JSON.parse(raw) as { state?: { waveformStyle?: WaveformStyle } }
-    return parsed?.state?.waveformStyle ?? 'bars'
-  } catch {
-    return 'bars'
+    return fallback
   }
 }
 
@@ -69,23 +75,38 @@ export function PillApp() {
   const [tooltip, setTooltip] = useState('')
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [barHeights, setBarHeights] = useState(FLAT_BARS)
-  const [pillTheme, setPillTheme] = useState<PillTheme>(readPillTheme)
-  const [waveformStyle, setWaveformStyle] = useState<WaveformStyle>(readWaveformStyle)
+  const [pillTheme, setPillTheme] = useState<PillTheme>(() => readPersisted<PillTheme>('pillTheme', 'steel'))
+  const [waveformStyle, setWaveformStyle] = useState<WaveformStyle>(() => readPersisted<WaveformStyle>('waveformStyle', 'bars'))
+  const [liveTranscript, setLiveTranscript] = useState(() => readPersisted<boolean>('liveTranscript', false))
+  const [partial, setPartial] = useState<LivePartial | null>(null)
+  const [roomy, setRoomy] = useState(false)
+  const cardHeight = useMotionValue(CAPSULE_H)
   // Canvas styles read levels off a ref so a 30 Hz stream never re-renders.
   const levelsRef = useRef<number[]>(new Array(FLAT_BARS.length).fill(0))
   const stateRef = useRef<PillState>('idle')
+  const textRef = useRef<HTMLDivElement | null>(null)
+  const innerRef = useRef<HTMLSpanElement | null>(null)
+  const reduceMotion = useReducedMotion()
+
+  const isRecording = state === 'recording'
+  const isDictation = state === 'dictation' || state === 'dictation-paused'
+  const isPaused = state === 'dictation-paused'
+
+  const wantsCard =
+    liveTranscript && (isRecording || isDictation) && partial !== null
+  // Opening waits on the window being large enough, or the card is clipped for
+  // the frames the resize IPC takes. Closing does not — the shrink trails it.
+  const expanded = wantsCard && roomy
 
   useEffect(() => {
     stateRef.current = state
   }, [state])
 
-  // Start dragging the window on mousedown
   const handleDragStart = useCallback((e: React.MouseEvent) => {
-    // Only drag from the pill body, not buttons
     if ((e.target as HTMLElement).closest('button')) return
     e.preventDefault()
-    // startDragging must be called without await so it fires synchronously
-    // on the same mousedown event tick — awaiting it breaks drag on Windows
+    // startDragging must fire synchronously on the mousedown tick — awaiting
+    // it breaks drag on Windows.
     void getCurrentWindow().startDragging()
   }, [])
 
@@ -100,36 +121,35 @@ export function PillApp() {
       const levels = e.payload
       if (levels.length !== FLAT_BARS.length) return
       const norm = levels.map((lvl) => Math.min(Math.max(lvl, 0), 1))
-      // Canvas styles poll this ref; the DOM `bars` style needs React state.
       levelsRef.current = norm
       setBarHeights(norm.map((v) => Math.max(MIN_H, Math.round(MIN_H + (MAX_H - MIN_H) * v))))
     }).then(fn => { if (!cancelled) unlisten = fn; else fn() })
     return () => { cancelled = true; unlisten?.() }
   }, [])
 
-  // Sync waveform style from main window via event
   useEffect(() => {
     let cancelled = false
-    let unlisten: (() => void) | undefined
-    listen<WaveformStyle>(EVENTS.PILL_WAVEFORM_STYLE_CHANGED, (e) => {
-      if (!cancelled) setWaveformStyle(e.payload)
-    }).then(fn => { if (!cancelled) unlisten = fn; else fn() })
-    return () => { cancelled = true; unlisten?.() }
+    const unlisteners: (() => void)[] = []
+    const setup = async () => {
+      const u1 = await listen<WaveformStyle>(EVENTS.PILL_WAVEFORM_STYLE_CHANGED, (e) => {
+        if (!cancelled) setWaveformStyle(e.payload)
+      })
+      unlisteners.push(u1)
+      const u2 = await listen<PillTheme>(EVENTS.PILL_THEME_CHANGED, (e) => {
+        if (!cancelled) setPillTheme(e.payload)
+      })
+      unlisteners.push(u2)
+      const u3 = await listen<boolean>(EVENTS.PILL_LIVE_TRANSCRIPT_CHANGED, (e) => {
+        if (!cancelled) setLiveTranscript(e.payload)
+      })
+      unlisteners.push(u3)
+    }
+    setup()
+    return () => { cancelled = true; unlisteners.forEach(fn => fn()) }
   }, [])
 
-  // Ensure pill stays above the Windows taskbar at runtime
   useEffect(() => {
     void getCurrentWindow().setAlwaysOnTop(true)
-  }, [])
-
-  // Sync pill theme from main window via event
-  useEffect(() => {
-    let cancelled = false
-    let unlisten: (() => void) | undefined
-    listen<PillTheme>(EVENTS.PILL_THEME_CHANGED, (e) => {
-      if (!cancelled) setPillTheme(e.payload)
-    }).then(fn => { if (!cancelled) unlisten = fn; else fn() })
-    return () => { cancelled = true; unlisten?.() }
   }, [])
 
   const isRecordingRef = useRef(false)
@@ -156,34 +176,28 @@ export function PillApp() {
     if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current)
   }, [])
 
-
   // Check model status and listen for download events
   useEffect(() => {
     let cancelled = false
     const unlisteners: (() => void)[] = []
 
-    // Fire model info fetch independently — don't block listener registration.
-    // Only apply the result if no download event has already set the state,
-    // to avoid racing with in-flight progress events.
+    // Skip if a download event already set the state — that one is fresher.
     invoke<ModelInfo>(COMMANDS.GET_MODEL_INFO)
       .then(info => {
         if (cancelled) return
         setState(current => {
-          if (current === 'downloading') return current // already driven by events
+          if (current === 'downloading') return current
           if (info.downloading) {
             modelReadyRef.current = false
             return 'downloading'
           }
-          if (info.downloaded) {
-            modelReadyRef.current = true
-          }
+          if (info.downloaded) modelReadyRef.current = true
           return current
         })
       })
-      .catch(() => { /* ignore */ })
+      .catch(() => {})
 
     const setup = async () => {
-      // Events for ongoing progress updates
       const um1 = await listen(EVENTS.MODEL_DOWNLOAD_START, () => {
         if (cancelled) return
         modelReadyRef.current = false
@@ -245,13 +259,32 @@ export function PillApp() {
   useEffect(() => {
     let cancelled = false
     const unlisteners: (() => void)[] = []
+    const setup = async () => {
+      const u1 = await listen<LivePartial>(EVENTS.TRANSCRIPTION_PARTIAL, (e) => {
+        if (cancelled) return
+        const p = e.payload
+        if (!p || (!p.committed && !p.tentative)) return
+        setPartial(p)
+      })
+      unlisteners.push(u1)
+      const u2 = await listen(EVENTS.TRANSCRIPTION_PARTIAL_END, () => {
+        if (!cancelled) setPartial(null)
+      })
+      unlisteners.push(u2)
+    }
+    setup()
+    return () => { cancelled = true; unlisteners.forEach(fn => fn()) }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const unlisteners: (() => void)[] = []
 
     const setup = async () => {
       const u1 = await listen(EVENTS.HOTKEY_PRESSED, async () => {
         if (isRecordingRef.current || isDictationRef.current) return
         // A finalize is still running — starting now would race it.
         if (stateRef.current === 'processing') return
-        // Block recording if model not ready
         if (!modelReadyRef.current) {
           showTooltip(stateRef.current === 'downloading' ? 'Model downloading… please wait' : 'No model installed — download one in Settings')
           return
@@ -278,6 +311,7 @@ export function PillApp() {
 
       const u2 = await listen(EVENTS.HOTKEY_RELEASED, async () => {
         if (!isRecordingRef.current) return
+        setPartial(null)
         setState('processing')
         try {
           await serialize(() => invoke(COMMANDS.STOP_TRANSCRIPTION))
@@ -300,6 +334,7 @@ export function PillApp() {
             await invoke(COMMANDS.TYPE_TEXT, { text })
           } catch { /* clipboard briefly locked — text is still on clipboard, user can paste */ }
         }
+        setPartial(null)
         setState('idle')
         isRecordingRef.current = false
         isDictationRef.current = false
@@ -309,6 +344,7 @@ export function PillApp() {
 
       const u4 = await listen<string>(EVENTS.TRANSCRIPTION_ERROR, (event) => {
         setErrorMsg(event.payload ?? 'Transcription failed')
+        setPartial(null)
         setState('error')
         isRecordingRef.current = false
         isDictationRef.current = false
@@ -355,6 +391,7 @@ export function PillApp() {
 
       const u6 = await listen(EVENTS.DICTATION_COMMIT_HOTKEY_PRESSED, async () => {
         if (!isDictationRef.current || isRecordingRef.current || stateRef.current === 'processing') return
+        setPartial(null)
         setState('processing')
         try {
           await invoke(COMMANDS.COMMIT_DICTATION)
@@ -377,6 +414,44 @@ export function PillApp() {
     }
   }, [showTooltip, serialize])
 
+  // Grown once, shrunk back on close; everything between is compositor work.
+  // Skipped until actually grown, so a pill that never expands is never moved.
+  const grownRef = useRef(false)
+  useEffect(() => {
+    let cancelled = false
+    if (wantsCard) {
+      grownRef.current = true
+      invoke(COMMANDS.RESIZE_PILL, { expanded: true })
+        .then(() => { if (!cancelled) setRoomy(true) })
+        .catch(() => {})
+      return () => { cancelled = true }
+    }
+    if (!grownRef.current) return
+    grownRef.current = false
+    // The window follows only once the box has settled; resizing mid-spring tears.
+    const seq = animate(cardHeight, CAPSULE_H, reduceMotion ? { duration: 0 } : collapseSpring)
+    seq.then(() => {
+      if (cancelled) return
+      setRoomy(false)
+      void invoke(COMMANDS.RESIZE_PILL, { expanded: false }).catch(() => {})
+    }).catch(() => {})
+    return () => { cancelled = true; seq.stop() }
+  }, [wantsCard, cardHeight, reduceMotion])
+
+  // Measure the inner span, not the scroller — scrollHeight clamps at the
+  // ceiling, stalling growth. Height rides a MotionValue so partials don't
+  // re-render.
+  useLayoutEffect(() => {
+    if (!expanded) return
+    // A not-yet-painted span measures 0, which the clamp turns into the ceiling.
+    const inner = innerRef.current?.offsetHeight ?? 0
+    if (inner === 0) return
+    const want = Math.min(CARD_MAX_H, Math.max(CARD_MIN_H, STRIP_H + inner + TEXT_PAD))
+    animate(cardHeight, want, reduceMotion ? { duration: 0 } : growSpring)
+    const el = textRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [expanded, partial, cardHeight, reduceMotion])
+
   const handleToggleDictationPause = useCallback(async () => {
     try {
       if (state === 'dictation') {
@@ -396,6 +471,7 @@ export function PillApp() {
 
   const handleCommitDictation = useCallback(async () => {
     if (!isDictationRef.current) return
+    setPartial(null)
     setState('processing')
     try {
       await invoke(COMMANDS.COMMIT_DICTATION)
@@ -407,94 +483,164 @@ export function PillApp() {
     }
   }, [])
 
-  /**
-   * The waveform, in whichever style the user picked. `bars` stays DOM-based
-   * (it predates the others and animates via CSS); the rest are canvas.
-   * Widths follow PILL_WIDTH minus the padding, icon and controls around it.
-   */
+  const theme = useMemo(() => pillThemeDef(pillTheme), [pillTheme])
+
+  /** A canvas is sized in pixels, so it is keyed on its slot — remounting at
+   *  the final width rather than stretching from the old one. */
   const renderWaveform = (dictation = false) => {
-    if (waveformStyle === 'bars') {
-      return (
-        <div className={`pill__waveform${dictation ? ' pill__waveform--dictation' : ''}`}>
-          {barHeights.map((h, i) => (
-            <span key={i} className="pill__bar" style={{ height: `${h}px` }} />
-          ))}
-        </div>
-      )
-    }
+    const width = expanded ? 54 : (dictation ? 45 : 42)
     return (
-      <WaveformCanvas
-        style={waveformStyle}
-        width={dictation ? 48 : 42}
-        height={20}
-        levelsRef={levelsRef}
-        accent={pillThemeDef(pillTheme).accentRgb}
-      />
+      <div className={`pill__waveform pill__wave-slot${dictation ? ' pill__waveform--dictation' : ''}`}>
+        {waveformStyle === 'bars'
+          ? barHeights.map((h, i) => (
+              <span key={i} className="pill__bar" style={{ height: `${h}px` }} />
+            ))
+          : (
+            <WaveformCanvas
+              key={`${waveformStyle}-${width}`}
+              style={waveformStyle}
+              width={width}
+              height={20}
+              levelsRef={levelsRef}
+              accent={theme.accentRgb}
+            />
+          )}
+      </div>
     )
   }
 
-  return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      {/* Tooltip bubble — shown when recording blocked */}
-      {tooltip && (
-        <div className="pill-tooltip">{tooltip}</div>
+  const showIcon = state === 'idle' || state === 'recording' || state === 'error'
+
+  const stripContent = (
+    <>
+      {showIcon && (
+        <div className="pill__icon">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+            <path d="M19 10a7 7 0 0 1-14 0"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+            <line x1="9" y1="22" x2="15" y2="22"/>
+          </svg>
+        </div>
       )}
 
-      <motion.div
-        className={`pill pill--${state}`}
-        data-pill-theme={pillTheme}
-        initial={{ width: 104 }}
-        animate={{ width: PILL_WIDTH[state] ?? 104 }}
+      {state === 'idle' && <span className="pill__brand">NexusVoice</span>}
 
-        transition={pillSpring}
-        style={{ overflow: 'hidden' }}
+      {isRecording && (
+        <>
+          {renderWaveform()}
+          <span className="pill__hint">Hold to speak</span>
+        </>
+      )}
+
+      {isDictation && (
+        <>
+          <button
+            type="button"
+            className="pill__control"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={handleToggleDictationPause}
+            aria-label={isPaused ? 'Resume dictation' : 'Pause dictation'}
+            title={isPaused ? 'Resume' : 'Pause'}
+          >
+            {isPaused ? <Play size={11} strokeWidth={2.4} /> : <Pause size={11} strokeWidth={2.4} />}
+          </button>
+          {renderWaveform(true)}
+          <button
+            type="button"
+            className="pill__control pill__control--commit"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={handleCommitDictation}
+            aria-label="Commit dictation"
+            title="Save"
+          >
+            <Check size={12} strokeWidth={2.5} />
+          </button>
+        </>
+      )}
+
+      {state === 'error' && <span className="pill__error-label" title={errorMsg}>Error</span>}
+    </>
+  )
+
+  const showStrip = state !== 'processing' && state !== 'downloading'
+
+  return (
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+      {tooltip && <div className="pill-tooltip">{tooltip}</div>}
+
+      <motion.div
+        className={`pill pill--${state}${expanded ? ' pill--expanded' : ''}`}
+        data-pill-theme={pillTheme}
+        initial={false}
+        animate={{
+          width: expanded ? CARD_W : (PILL_WIDTH[state] ?? CAPSULE_W),
+          borderRadius: expanded ? CARD_RADIUS : 999,
+        }}
+        transition={
+          reduceMotion ? { duration: 0 }
+          : expanded ? cardSpring
+          // Closing from a card — must match the height's spring, or width and
+          // height shut on different curves.
+          : roomy ? collapseSpring
+          : pillSpring
+        }
+        style={{ height: cardHeight, overflow: 'hidden' }}
         onMouseDown={handleDragStart}
         role="status"
         aria-label={`NexusVoice: ${state}`}
       >
-        {/* Icon — only shown when pill is full width */}
-        {(state === 'idle' || state === 'recording' || state === 'error') && (
-          <div className="pill__icon">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
-              <path d="M19 10a7 7 0 0 1-14 0"/>
-              <line x1="12" y1="19" x2="12" y2="22"/>
-              <line x1="9" y1="22" x2="15" y2="22"/>
-            </svg>
-          </div>
-        )}
+        <AnimatePresence>
+          {expanded && (
+            <motion.div
+              key="tide"
+              className="pill__tide"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{
+                height: 88,
+                opacity: isPaused ? 0.4 : 1,
+                transition: reduceMotion ? { duration: 0 } : { height: growSpring, opacity: { duration: 0.3 } },
+              }}
+              exit={{ opacity: 0, transition: { duration: reduceMotion ? 0 : 0.09 } }}
+              style={{ background: `linear-gradient(to top, rgba(${theme.accentRgb},0.16), transparent)` }}
+            />
+          )}
+        </AnimatePresence>
 
-        {state === 'idle' && (
-          <span className="pill__brand">NexusVoice</span>
-        )}
-        {state === 'recording' && renderWaveform()}
-        {(state === 'dictation' || state === 'dictation-paused') && (
-          <div className="pill__dictation" aria-label={state === 'dictation-paused' ? 'Dictation paused' : 'Dictation recording'}>
-            <button
-              type="button"
-              className="pill__control"
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={handleToggleDictationPause}
-              aria-label={state === 'dictation-paused' ? 'Resume dictation' : 'Pause dictation'}
-              title={state === 'dictation-paused' ? 'Resume' : 'Pause'}
+        <AnimatePresence>
+          {expanded && (
+            <motion.div
+              key="transcript"
+              ref={textRef}
+              className="pill__transcript"
+              style={{ '--card-w': `${CARD_W}px` } as React.CSSProperties}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1, transition: reduceMotion ? { duration: 0 } : { duration: 0.24, delay: 0.14 } }}
+              exit={{ opacity: 0, transition: { duration: reduceMotion ? 0 : 0.09 } }}
             >
-              {state === 'dictation-paused' ? <Play size={11} strokeWidth={2.4} /> : <Pause size={11} strokeWidth={2.4} />}
-            </button>
-            {renderWaveform(true)}
-            <button
-              type="button"
-              className="pill__control pill__control--commit"
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={handleCommitDictation}
-              aria-label="Commit dictation"
-              title="Save"
-            >
-              <Check size={12} strokeWidth={2.5} />
-            </button>
-          </div>
-        )}
-        {state === 'error' && (
-          <span className="pill__error-label" title={errorMsg}>Error</span>
+              <span ref={innerRef} style={{ display: 'block' }}>
+                <span className="pill__committed">{partial?.committed}</span>
+                {partial?.tentative && <> <span className="pill__tentative">{partial.tentative}</span></>}
+                {!isPaused && (
+                  <motion.span
+                    className="pill__caret"
+                    animate={{ opacity: [1, 1, 0.15, 0.15] }}
+                    transition={{ duration: 1.05, times: [0, 0.55, 0.5501, 1], repeat: Infinity, ease: 'linear' }}
+                  />
+                )}
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {showStrip && (
+          isDictation && !expanded ? (
+            <div className="pill__dictation" aria-label={isPaused ? 'Dictation paused' : 'Dictation recording'}>
+              {stripContent}
+            </div>
+          ) : (
+            <div className="pill__strip">{stripContent}</div>
+          )
         )}
 
         {state === 'processing' && (

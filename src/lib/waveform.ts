@@ -18,6 +18,12 @@ export const ACCENT_RGB = '120,162,244'
 /** Resting thickness, matching `bars`' MIN_H so silence looks the same in every style. */
 export const REST_H = 3
 
+/** Headroom so a loud syllable doesn't pin a style to its ceiling. */
+const PEAK_SCALE = 0.8
+
+/** Mic icon height; bottom-anchored styles sit on its foot. */
+const ICON_H = 11
+
 /** Per-canvas scratch. Renderers lazily populate their own slot. */
 export type RenderState = Record<string, unknown>
 
@@ -53,13 +59,11 @@ type EqState = {
   phase: number
 }
 
-type StepsState = {
-  hist: number[]
-  scroll: number
-  phase: number
-  peakSince: number
-  flick: number[]
-  flickRate: number[]
+type SpectrumState = {
+  bins: number
+  val: number[]
+  seed: number[]
+  t: number
 }
 
 /** Symmetric bars scrolling right to left — the voice-message look. */
@@ -92,7 +96,7 @@ function memo({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idle
 
   for (let i = 0; i < s.n; i++) {
     const v = s.hist[i]
-    const half = Math.max(REST_H / 2, (v * (height - 2)) / 2)
+    const half = Math.max(REST_H / 2, (v * PEAK_SCALE * (height - 2)) / 2)
     const x = i * s.slot + s.slot / 2 - s.scroll
     if (x < -s.barW || x > width + s.barW) continue
 
@@ -106,7 +110,7 @@ function memo({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idle
   }
 
   const leadX = (s.n - 1) * s.slot + s.slot / 2 - s.scroll
-  const leadHalf = Math.max(REST_H / 2, (s.hist[s.n - 1] * (height - 2)) / 2)
+  const leadHalf = Math.max(REST_H / 2, (s.hist[s.n - 1] * PEAK_SCALE * (height - 2)) / 2)
   ctx.beginPath()
   ctx.arc(leadX, midY - leadHalf, 1.3, 0, Math.PI * 2)
   ctx.fillStyle = `rgba(${accent},1)`
@@ -129,10 +133,11 @@ function eq({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idleMo
   }
   s.phase += dt
 
-  const SEG = 6
+  const SEG = 10
   const slot = width / BARS
   const barW = Math.max(1.2, slot - 1.4)
-  const segH = (height - 2) / SEG
+  // Scale the ladder, not just how many rungs light.
+  const segH = ((height - 2) * PEAK_SCALE) / SEG
   const midY = height / 2
 
   for (let i = 0; i < BARS; i++) {
@@ -143,7 +148,7 @@ function eq({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idleMo
       s.peak[i] = s.smooth[i]
       s.peakVel[i] = 0
     } else {
-      s.peakVel[i] += 0.25 * dt
+      s.peakVel[i] += 0.9 * dt
       s.peak[i] -= s.peakVel[i] * dt
       if (s.peak[i] < s.smooth[i]) {
         s.peak[i] = s.smooth[i]
@@ -156,7 +161,8 @@ function eq({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idleMo
     const cx = i * slot + slot / 2
     const litCount = s.smooth[i] * SEG
     const idle = idleMotion ? 0.10 + (Math.sin(s.phase * 2.0 + i * 0.6) * 0.5 + 0.5) * 0.10 : 0
-    const baseLit = Math.max(litCount, idle)
+    // 0..1, the scale `segMid` is on — a 0..SEG count lights every segment.
+    const baseLit = Math.max(s.smooth[i], idle)
 
     // The segment grid goes dark at zero, which reads as broken.
     ctx.fillStyle = `rgba(${accent},0.85)`
@@ -176,7 +182,7 @@ function eq({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idleMo
     }
 
     if (s.peak[i] * SEG > 0.05) {
-      const peakHalf = (s.peak[i] * (height - 2)) / 2
+      const peakHalf = (s.peak[i] * PEAK_SCALE * (height - 2)) / 2
       ctx.fillStyle = `rgba(${accent},1)`
       ctx.beginPath()
       ctx.arc(cx, midY - peakHalf, 1.1, 0, Math.PI * 2)
@@ -195,60 +201,54 @@ function eq({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idleMo
   }
 }
 
-/** Chunky pixel silhouette scrolling right to left. */
-function steps({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idleMotion = false }: RenderArgs) {
+/** Analyser columns, low frequencies left. The 8 bands are interpolated across
+ *  a finer grid and jittered per column, or they move in lockstep as blocks. */
+function spectrum({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idleMotion = false }: RenderArgs) {
   ctx.clearRect(0, 0, width, height)
 
-  const PX = 2
-  const cols = Math.floor(width / PX)
-  const rows = Math.floor(height / PX)
-  const half = rows / 2
-  const maxHalf = half - 1
-
-  let s = state.steps as StepsState | undefined
-  if (!s || s.hist.length !== cols) {
+  const BINS = Math.max(12, Math.min(30, Math.round(width / 3)))
+  let s = state.spectrum as SpectrumState | undefined
+  if (!s || s.bins !== BINS) {
     s = {
-      hist: new Array(cols).fill(0),
-      scroll: 0,
-      phase: 0,
-      peakSince: 0,
-      flick: Array.from({ length: cols }, (_, i) => i * 0.5),
-      flickRate: Array.from({ length: cols }, (_, i) => 2.5 + (i % 4) * 0.7),
+      bins: BINS,
+      val: new Array(BINS).fill(0),
+      seed: Array.from({ length: BINS }, () => Math.random() * Math.PI * 2),
+      t: 0,
     }
-    state.steps = s
+    state.spectrum = s
+  }
+  s.t += dt
+
+  const bandAt = (t: number) => {
+    const x = t * (BARS - 1)
+    const i = Math.min(BARS - 2, Math.floor(x))
+    const f = x - i
+    const v = (levels[i] ?? 0) * (1 - f) + (levels[i + 1] ?? 0) * f
+    return v * (1 + t * 1.15)
   }
 
-  s.phase += dt
-  for (let i = 0; i < cols; i++) s.flick[i] += dt * s.flickRate[i]
-  s.peakSince = Math.max(s.peakSince, Math.max(...levels))
+  const slot = width / BINS
+  const colW = Math.max(1.4, Math.min(2.6, slot * 0.55))
+  const r = colW / 2
+  const floorY = height / 2 + ICON_H / 2
+  const maxH = (floorY - 1) * PEAK_SCALE
 
-  s.scroll += 26 * dt
-  while (s.scroll >= PX) {
-    s.scroll -= PX
-    const idle = idleMotion ? 0.05 + (Math.sin(s.phase * 1.6) * 0.5 + 0.5) * 0.05 : 0
-    s.hist.push(Math.max(s.peakSince, idle))
-    s.hist.shift()
-    s.peakSince = 0
-  }
+  ctx.fillStyle = `rgba(${accent},0.92)`
 
-  for (let i = 0; i < cols; i++) {
-    const x = i * PX
-    const v = s.hist[i]
-    const recency = i / (cols - 1)
-    const flicker = 0.88 + Math.sin(s.flick[i]) * 0.12
-    const baseAlpha = Math.min(1, (0.32 + recency * 0.5 + v * 0.25) * flicker)
+  for (let i = 0; i < BINS; i++) {
+    const t = BINS === 1 ? 0 : i / (BINS - 1)
+    const jitter = 0.72 + (Math.sin(s.t * 9 + s.seed[i]) * 0.5 + 0.5) * 0.55
+    const idle = idleMotion ? 0.05 + (Math.sin(s.t * 1.8 + i * 0.4) * 0.5 + 0.5) * 0.06 : 0
+    const target = Math.min(1, Math.max(bandAt(t) * jitter, idle))
+    const rising = target > s.val[i]
+    s.val[i] += (target - s.val[i]) * (rising ? 0.55 : 0.16)
 
-    const idle = idleMotion ? 0.05 + (Math.sin(s.phase * 1.4 + i * 0.3) * 0.5 + 0.5) * 0.05 : 0
-    // Rests at 4px, not REST_H: a 2px grid can't express 3.
-    const halfRows = Math.round(Math.max(v, idle) * maxHalf)
+    const x = i * slot + (slot - colW) / 2
+    const h = Math.max(REST_H, s.val[i] * maxH)
 
-    for (let r = 0; r <= halfRows; r++) {
-      const isRim = r === halfRows && halfRows > 0
-      const alpha = isRim ? Math.min(1, baseAlpha + 0.25) : baseAlpha
-      ctx.fillStyle = `rgba(${accent},${alpha.toFixed(3)})`
-      ctx.fillRect(x, (half - 1 - r) * PX, PX, PX)
-      ctx.fillRect(x, (half + r) * PX, PX, PX)
-    }
+    ctx.beginPath()
+    ctx.roundRect(x, floorY - h, colW, h, [r, r, 0, 0])
+    ctx.fill()
   }
 }
 
@@ -256,7 +256,7 @@ function steps({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idl
 export const WAVEFORM_RENDERERS: Partial<Record<WaveformStyle, (a: RenderArgs) => void>> = {
   memo,
   eq,
-  steps,
+  spectrum,
 }
 
 export function isCanvasStyle(style: WaveformStyle): boolean {
