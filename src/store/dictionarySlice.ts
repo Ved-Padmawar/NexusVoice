@@ -1,5 +1,4 @@
-import { z } from 'zod'
-import { DictionaryEntrySchema, type DictionaryEntry } from '../types'
+import type { DictionaryEntry } from '../types'
 import { COMMANDS } from '../lib/commands'
 import { invoke } from '@tauri-apps/api/core'
 import { toast } from 'sonner'
@@ -17,18 +16,15 @@ export type DictionarySlice = {
   deleteDictionaryEntry: (id: number) => Promise<void>
 }
 
-export const createDictionarySlice: StateCreator<AppState, [], [], DictionarySlice> = (set, get) => ({
+export const createDictionarySlice: StateCreator<AppState, [], [], DictionarySlice> = (set) => ({
   dictionary: [],
   dictionaryStatus: 'idle',
   dictionaryError: null,
 
   loadDictionary: async () => {
-    if (!get().user) return
     set({ dictionaryStatus: 'loading', dictionaryError: null })
     try {
-      const dictionary = z.array(DictionaryEntrySchema).parse(
-        await invoke<unknown>(COMMANDS.GET_DICTIONARY)
-      )
+      const dictionary = await invoke<DictionaryEntry[]>(COMMANDS.GET_DICTIONARY)
       set({ dictionary, dictionaryStatus: 'success' })
     } catch (e) {
       const message = extractErrorMessage(e, 'Failed to load dictionary')
@@ -38,9 +34,7 @@ export const createDictionarySlice: StateCreator<AppState, [], [], DictionarySli
 
   updateDictionary: async (term, replacement, previousTerm) => {
     try {
-      const newEntry = DictionaryEntrySchema.parse(
-        await invoke<unknown>(COMMANDS.UPDATE_DICTIONARY, { term, replacement, previousTerm })
-      )
+      const newEntry = await invoke<DictionaryEntry>(COMMANDS.UPDATE_DICTIONARY, { term, replacement, previousTerm })
       set((state) => {
         // A rename replaces the row it renamed, so match the old term too.
         const index = state.dictionary.findIndex(

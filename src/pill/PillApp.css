@@ -268,6 +268,12 @@ body {
   margin-left: 3px;
 }
 
+/* `bars` is DOM-rendered, so the nudge above skips it; it stretches to fill
+   the slot and needs a smaller correction. */
+.pill__dictation > .pill__waveform:not(:has(canvas)) {
+  margin-left: 2px;
+}
+
 .pill__waveform--dictation {
   min-width: 0;
   gap: 1.5px;

@@ -61,7 +61,7 @@ function PillSwatch({ t, active, onPick }: { t: PillThemeDef; active: boolean; o
         {[t.bg, t.border, t.brand, t.accent].map((c, i) => (
           <span
             key={i}
-            className="h-6 w-[13px]"
+            className="h-6 w-3.25"
             style={{ background: `linear-gradient(${c}, ${c}), ${t.bg}` }}
           />
         ))}
@@ -78,7 +78,7 @@ function PillSwatch({ t, active, onPick }: { t: PillThemeDef; active: boolean; o
 
       {active && (
         <span className="grid size-4 shrink-0 place-items-center rounded-full bg-(--accent)">
-          <Check size={9} strokeWidth={3.5} className="text-(--accent-fg)" />
+          <Check size={9} strokeWidth={3.5} className="text-primary-foreground" />
         </span>
       )}
     </motion.button>

@@ -1,4 +1,3 @@
-import { z } from 'zod'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -23,18 +22,6 @@ type FormatConfig = {
 }
 
 const EMPTY_PROFILE: Profile = { baseUrl: '', model: '', apiKey: '' }
-
-const ProfileSchema = z.object({
-  baseUrl: z.string(),
-  model: z.string(),
-  apiKey: z.string(),
-})
-
-const FormatConfigSchema = z.object({
-  enabled: z.boolean(),
-  provider: z.string(),
-  profiles: z.record(z.string(), ProfileSchema),
-})
 
 const activeProfile = (c: FormatConfig): Profile =>
   c.profiles?.[c.provider] ?? EMPTY_PROFILE
@@ -70,12 +57,9 @@ export function FormattingToggle() {
   const [modalOpen, setModalOpen] = useState(false)
 
   const refresh = useCallback(() => {
-    invoke<unknown>(COMMANDS.GET_FORMAT_CONFIG)
-      // A missing or malformed config must not blank out the defaults.
-      .then((c) => {
-        const parsed = FormatConfigSchema.partial().safeParse(c ?? {})
-        setConfig(parsed.success ? { ...DEFAULT_CONFIG, ...parsed.data } : DEFAULT_CONFIG)
-      })
+    invoke<Partial<FormatConfig> | null>(COMMANDS.GET_FORMAT_CONFIG)
+      // A missing config must not blank out the defaults.
+      .then((c) => setConfig({ ...DEFAULT_CONFIG, ...(c ?? {}) }))
       .catch(() => {})
   }, [])
 
@@ -232,9 +216,11 @@ function ProviderModal({
     },
   })
 
+  // Mirrors `FormatConfig::is_usable` (llm/config.rs), which decides for real —
+  // this only greys out the buttons. The key is optional there (blank means no
+  // auth header, for local servers), so it must not gate submission here.
   const canSubmit =
     model.trim() !== '' &&
-    (!preset.needsKey || apiKey.trim() !== '') &&
     (!showBaseUrl || baseUrl.trim() !== '')
 
   // Show the test result icon briefly, then revert the button to its ready

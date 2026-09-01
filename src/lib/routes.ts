@@ -2,7 +2,6 @@ export const ROUTES = {
   DASHBOARD: '/',
   DICTIONARY: '/dictionary',
   SETTINGS: '/settings',
-  AUTH: '/auth',
 } as const
 
 export type AppRoute = typeof ROUTES[keyof typeof ROUTES]

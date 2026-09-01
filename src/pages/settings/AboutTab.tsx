@@ -66,7 +66,7 @@ export function AboutTab() {
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <span className="text-[16px] font-bold tracking-[-0.025em] text-(--fg)">NexusVoice</span>
+            <span className="text-[16px] font-bold tracking-tight text-(--fg)">NexusVoice</span>
             <span className="text-[12px] font-medium tabular-nums text-muted-foreground">
               v{__APP_VERSION__}
             </span>

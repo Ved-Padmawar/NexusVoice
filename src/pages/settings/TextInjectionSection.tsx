@@ -42,7 +42,7 @@ export function TextInjectionSection() {
       <div className="flex items-center gap-2.5">
         <span
           className={`grid size-7 shrink-0 place-items-center rounded-(--r-sm) ${
-            ready ? 'bg-(--accent-soft) text-(--accent)' : 'text-(--danger)'
+            ready ? 'bg-(--accent-soft) text-(--accent)' : 'text-destructive'
           }`}
         >
           {ready ? <KeyboardIcon size={14} strokeWidth={2} /> : <TriangleAlert size={14} strokeWidth={2} />}
@@ -62,7 +62,7 @@ export function TextInjectionSection() {
           onClick={recheck}
           disabled={checking}
           title="Check again"
-          className="flex shrink-0 items-center gap-1.5 rounded-(--r-sm) border border-(--border) bg-(--surface) px-2 py-1 text-[11px] font-medium text-(--fg-2) cursor-pointer transition-colors duration-(--t-fast) hover:bg-(--surface-hover) hover:text-(--fg) disabled:opacity-50"
+          className="flex shrink-0 items-center gap-1.5 rounded-(--r-sm) border border-(--border) bg-(--surface) px-2 py-1 text-[11px] font-medium text-(--fg-2) cursor-pointer transition-colors duration-(--t-fast) hover:bg-accent hover:text-(--fg) disabled:opacity-50"
         >
           <RefreshCw size={11} strokeWidth={1.75} className={checking ? 'animate-spin' : undefined} />
           <span className="leading-none">Recheck</span>

@@ -1,67 +1,10 @@
-import { z } from 'zod'
-
-export const UserSchema = z.object({
-  id: z.number(),
-  email: z.string(),
-})
-
-export const TranscriptSchema = z.object({
-  id: z.number(),
-  content: z.string(),
-  wordCount: z.number(),
-  durationSeconds: z.number().nullable(),
-  createdAt: z.string(),
-})
-
-export const DictionaryEntrySchema = z.object({
-  id: z.number(),
-  term: z.string(),
-  replacement: z.string(),
-  hits: z.number(),
-  createdAt: z.string(),
-})
-
-export const UsageStatsSchema = z.object({
-  totalWords: z.number(),
-  speakingTimeSeconds: z.number(),
-  totalSessions: z.number(),
-  avgPaceWpm: z.number(),
-})
-
-export const AuthStateSchema = z.object({
-  authenticated: z.boolean(),
-  userId: z.number().nullable(),
-})
-
-export type User = z.infer<typeof UserSchema>
-export type Transcript = z.infer<typeof TranscriptSchema>
-export type DictionaryEntry = z.infer<typeof DictionaryEntrySchema>
-export type UsageStats = z.infer<typeof UsageStatsSchema>
-
-export type ModelInfo = {
-  downloaded: boolean
-  downloading: boolean
-  modelName: string
-}
-
-export type HardwareProfile = {
-  gpuName: string
-  executionProvider: string
-  vramGb: number
-  ramGb: number
-  recommendedModel: string
-}
-
-export type InjectionTool = {
-  name: string
-  available: boolean
-  preferred: boolean
-  installHint: string
-}
-
-export type InjectionStatus = {
-  configurable: boolean
-  session: string
-  selected: string | null
-  tools: InjectionTool[]
-}
+// Generated from the Rust types — never redeclare by hand. Regenerate: `cargo run`.
+export type {
+  TranscriptResponse as Transcript,
+  DictionaryResponse as DictionaryEntry,
+  UsageStatsResponse as UsageStats,
+  ModelInfoResponse as ModelInfo,
+  HardwareProfileResponse as HardwareProfile,
+  InjectionTool,
+  InjectionStatus,
+} from '../bindings'

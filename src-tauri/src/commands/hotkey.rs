@@ -6,7 +6,7 @@ use crate::state::{AppState, HotkeyKind};
 
 use super::error::ApiError;
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, specta::Type)]
 pub struct RegisteredHotkeys {
     pub ptt: Vec<String>,
     pub dictation: Vec<String>,
@@ -14,6 +14,7 @@ pub struct RegisteredHotkeys {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn register_hotkey(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -48,6 +49,7 @@ pub async fn register_hotkey(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn unregister_hotkey(app: AppHandle, state: State<'_, AppState>) -> Result<(), ApiError> {
     let prev_ptt = state.current_hotkey.lock().await.clone();
     let dictation_hotkey = state.current_dictation_hotkey.lock().await.clone();
@@ -69,6 +71,7 @@ pub async fn unregister_hotkey(app: AppHandle, state: State<'_, AppState>) -> Re
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn register_dictation_hotkey(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -99,6 +102,7 @@ pub async fn register_dictation_hotkey(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn unregister_dictation_hotkey(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -123,6 +127,7 @@ pub async fn unregister_dictation_hotkey(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn register_dictation_commit_hotkey(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -153,6 +158,7 @@ pub async fn register_dictation_commit_hotkey(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn unregister_dictation_commit_hotkey(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -172,6 +178,7 @@ pub async fn unregister_dictation_commit_hotkey(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_registered_hotkeys(
     state: State<'_, AppState>,
 ) -> Result<RegisteredHotkeys, ApiError> {

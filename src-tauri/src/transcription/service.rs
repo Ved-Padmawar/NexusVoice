@@ -1,7 +1,7 @@
 //! Transcription orchestration extracted from the command layer.
 
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar};
 
 use tauri::{AppHandle, Emitter};
 
@@ -63,6 +63,7 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
     // Reset the done + ready flags before starting a new capture session.
     *lock_recovering(&capture_done.0) = false;
     *lock_recovering(&capture_ready.0) = false;
+    *lock_recovering(&state.stream_done.0) = false;
 
     spawn_engine_load(app);
     spawn_waveform_emitter(app, state);
@@ -122,6 +123,16 @@ fn spawn_stream_worker(app: &AppHandle, state: &AppState) {
     spawn_native_stream_worker(app, state);
 }
 
+/// Signals on drop, so the worker's early returns all unblock finalize.
+struct StreamDone(Arc<(std::sync::Mutex<bool>, Condvar)>);
+
+impl Drop for StreamDone {
+    fn drop(&mut self) {
+        *lock_recovering(&self.0 .0) = true;
+        self.0 .1.notify_all();
+    }
+}
+
 /// Feed captured audio into a streaming model's own session, stashing the
 /// finished transcript for finalize to collect.
 fn spawn_native_stream_worker(app: &AppHandle, state: &AppState) {
@@ -130,9 +141,12 @@ fn spawn_native_stream_worker(app: &AppHandle, state: &AppState) {
     let native_rate = Arc::clone(&state.native_sample_rate);
     let engine_cache = Arc::clone(&state.engine);
     let streamed = Arc::clone(&state.streamed_text);
+    let stream_done = Arc::clone(&state.stream_done);
     let app = app.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
+        let _done = StreamDone(stream_done);
+
         // Wait for the engine, which loads in parallel with capture starting.
         let engine = loop {
             if !running.load(Ordering::SeqCst) {
@@ -288,6 +302,9 @@ pub struct FinalizeContext {
     /// Formatter config to apply to the final transcript. `None` when formatting is
     /// disabled or unconfigured — the raw transcript is then used unchanged.
     pub format: Option<FormatConfig>,
+    /// App that had focus when recording started: shapes the formatter's output
+    /// and labels the transcript in the UI.
+    pub focus: Option<crate::focus::FocusTarget>,
 }
 
 /// Spawn the finalize task: resolve the transcript, optionally LLM-format it,
@@ -305,6 +322,7 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
         captured_rate,
         duration_seconds,
         format,
+        focus,
     } = ctx;
 
     tauri::async_runtime::spawn(async move {
@@ -365,7 +383,8 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
         // transcript so a misconfigured or unreachable formatter never drops
         // the user's dictation.
         let formatted_text = if let Some(cfg) = format {
-            match crate::llm::client::format_transcript(&cfg, &raw_text).await {
+            let category = focus.as_ref().map(|f| f.category);
+            match crate::llm::client::format_transcript(&cfg, &raw_text, category).await {
                 Ok(t) if !t.trim().is_empty() => t,
                 Ok(_) => {
                     log::warn!("formatter returned empty output — using raw transcript");
@@ -406,6 +425,7 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
                 content: text.clone(),
                 word_count,
                 duration_seconds,
+                target_app: focus.map(|f| f.name),
             })
             .await
         {

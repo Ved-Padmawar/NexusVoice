@@ -10,17 +10,11 @@ use crate::transcription::{self, service::FinalizeContext};
 use super::error::ApiError;
 
 #[tauri::command]
+#[specta::specta]
 pub async fn start_transcription(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), ApiError> {
-    if state.current_user_id().await.is_none() {
-        return Err(ApiError::new(
-            "unauthenticated",
-            "must be logged in to transcribe",
-        ));
-    }
-
     if !state.try_start_transcription() {
         return Err(ApiError::new(
             "transcription_already_running",
@@ -43,6 +37,7 @@ pub async fn start_transcription(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn stop_transcription(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -58,14 +53,8 @@ pub async fn stop_transcription(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn start_dictation(app: AppHandle, state: State<'_, AppState>) -> Result<(), ApiError> {
-    if state.current_user_id().await.is_none() {
-        return Err(ApiError::new(
-            "unauthenticated",
-            "must be logged in to transcribe",
-        ));
-    }
-
     if !state.try_start_transcription() {
         return Err(ApiError::new(
             "transcription_already_running",
@@ -88,6 +77,7 @@ pub async fn start_dictation(app: AppHandle, state: State<'_, AppState>) -> Resu
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn pause_dictation(state: State<'_, AppState>) -> Result<(), ApiError> {
     ensure_dictation_active(&state)?;
 
@@ -103,6 +93,7 @@ pub async fn pause_dictation(state: State<'_, AppState>) -> Result<(), ApiError>
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn resume_dictation(state: State<'_, AppState>) -> Result<(), ApiError> {
     ensure_dictation_active(&state)?;
 
@@ -118,6 +109,7 @@ pub async fn resume_dictation(state: State<'_, AppState>) -> Result<(), ApiError
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn commit_dictation(app: AppHandle, state: State<'_, AppState>) -> Result<(), ApiError> {
     ensure_dictation_active(&state)?;
 
@@ -188,6 +180,24 @@ async fn wait_for_capture_done(state: &AppState) {
     .ok();
 }
 
+/// The streaming worker writes `streamed_text` only after `running` goes
+/// false, so reading it straight after `capture_done` loses the tail.
+async fn wait_for_stream_done(state: &AppState) {
+    const STREAM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+    let stream_done = Arc::clone(&state.stream_done);
+    tauri::async_runtime::spawn_blocking(move || {
+        let (lock, cvar) = &*stream_done;
+        let (_guard, timeout) = cvar
+            .wait_timeout_while(lock_recovering(lock), STREAM_TIMEOUT, |done| !*done)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if timeout.timed_out() {
+            log::warn!("stream-done signal missed — finalizing without the streamed tail");
+        }
+    })
+    .await
+    .ok();
+}
+
 async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<(), ApiError> {
     const MIN_DURATION_SECS: f64 = 0.5;
 
@@ -199,6 +209,7 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
     }
 
     wait_for_capture_done(state).await;
+    wait_for_stream_done(state).await;
 
     // Session first, audio buffer second — the lock order the stream worker
     // uses. Taking the session waits out any in-flight stream decode.
@@ -254,6 +265,7 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
             captured_rate,
             duration_seconds,
             format,
+            focus: state.take_focus_target(),
         },
     );
 
@@ -268,7 +280,7 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
 
 /// A selectable microphone. `is_default` marks the OS default; `is_selected`
 /// marks the user's saved preference (or the default when none is saved).
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct InputDeviceInfo {
     pub name: String,
@@ -279,6 +291,7 @@ pub struct InputDeviceInfo {
 /// List usable input devices, excluding loopback/virtual endpoints. The first
 /// entry the UI shows is "Default"; these are the named alternatives.
 #[tauri::command]
+#[specta::specta]
 pub fn list_input_devices(state: State<'_, AppState>) -> Vec<InputDeviceInfo> {
     let selected = state.load_input_device();
     crate::audio::list_input_devices()
@@ -294,6 +307,7 @@ pub fn list_input_devices(state: State<'_, AppState>) -> Vec<InputDeviceInfo> {
 /// Choose an input device by name. Pass `None` (or omit) to follow the OS
 /// default. Takes effect on the next recording — the current one is unaffected.
 #[tauri::command]
+#[specta::specta]
 pub fn set_input_device(state: State<'_, AppState>, name: Option<String>) -> Result<(), ApiError> {
     match name {
         Some(name) if !name.trim().is_empty() => state

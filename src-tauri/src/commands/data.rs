@@ -13,7 +13,7 @@ use crate::state::AppState;
 use super::dto::{DictionaryResponse, TranscriptResponse};
 use super::error::ApiError;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageStatsResponse {
     pub total_words: i64,
@@ -23,6 +23,7 @@ pub struct UsageStatsResponse {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_usage_stats(state: State<'_, AppState>) -> Result<UsageStatsResponse, ApiError> {
     let repo = TranscriptRepository::new(state.db().await?.clone());
     let (total_sessions, total_words, total_duration_seconds) = repo.get_stats().await?;
@@ -49,7 +50,7 @@ const MAX_PAGE_SIZE: i64 = 200;
 const DEFAULT_PAGE_SIZE: i64 = 50;
 
 /// Pagination, cursor and filter args shared by the transcript list and search.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PageQuery {
     limit: Option<i64>,
@@ -99,6 +100,7 @@ impl PageQuery {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_transcripts(
     state: State<'_, AppState>,
     page: PageQuery,
@@ -118,6 +120,7 @@ pub async fn get_transcripts(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn export_transcripts(
     state: State<'_, AppState>,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
@@ -127,6 +130,7 @@ pub async fn export_transcripts(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn search_transcripts(
     state: State<'_, AppState>,
     query: String,
@@ -161,6 +165,7 @@ pub async fn search_transcripts(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn delete_transcript(state: State<'_, AppState>, id: i64) -> Result<(), ApiError> {
     let repo = TranscriptRepository::new(state.db().await?.clone());
     repo.delete_by_id(id).await?;
@@ -168,6 +173,7 @@ pub async fn delete_transcript(state: State<'_, AppState>, id: i64) -> Result<()
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_dictionary(
     state: State<'_, AppState>,
 ) -> Result<Vec<DictionaryResponse>, ApiError> {
@@ -182,6 +188,7 @@ pub async fn get_dictionary(
 /// The upsert keys on `term`, so a rename inserts a new row; `previous_term`
 /// names the old one to drop, or it lingers and keeps rewriting dictation.
 #[tauri::command]
+#[specta::specta]
 pub async fn update_dictionary(
     state: State<'_, AppState>,
     term: String,
@@ -213,6 +220,7 @@ pub async fn update_dictionary(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn delete_dictionary_entry(state: State<'_, AppState>, id: i64) -> Result<(), ApiError> {
     let repo = DictionaryRepository::new(state.db().await?.clone());
     if repo.delete_by_id(id).await? {

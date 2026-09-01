@@ -29,5 +29,9 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Owned by tsconfig.bindings.json, which relaxes the unused-symbol rules the
+  // generated file can't satisfy.
+  "exclude": ["src/bindings.ts"],
+  "references": [{ "path": "./tsconfig.bindings.json" }]
 }

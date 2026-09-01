@@ -34,24 +34,24 @@ function ThemePreview({ t }: { t: ThemeDef }) {
       {/* Rail */}
       <div className="absolute inset-y-0 left-0 w-13" style={{ background: t.panel, borderRight: `1px solid ${t.border}` }}>
         <div className="flex items-center gap-1.5 px-2 pt-2.5">
-          <div className="size-1.75 rounded-[2px]" style={{ background: t.accent }} />
-          <div className="h-[3px] w-6 rounded-full opacity-70" style={{ background: t.muted }} />
+          <div className="size-1.75 rounded-xs" style={{ background: t.accent }} />
+          <div className="h-0.75 w-6 rounded-full opacity-70" style={{ background: t.muted }} />
         </div>
         <div className="mt-3.5 flex flex-col gap-1.25 px-1.5">
           <div className="flex items-center gap-1.5 rounded-[3px] px-1.5 py-1" style={{ background: `${t.accent}22` }}>
             <div className="size-1.25 rounded-[1px]" style={{ background: t.accent }} />
-            <div className="h-[3px] w-5.5 rounded-full" style={{ background: t.accent }} />
+            <div className="h-0.75 w-5.5 rounded-full" style={{ background: t.accent }} />
           </div>
           {[0, 1].map((i) => (
             <div key={i} className="flex items-center gap-1.5 px-1.5 py-1">
               <div className="size-1.25 rounded-[1px] opacity-45" style={{ background: t.muted }} />
-              <div className="h-[3px] w-4.5 rounded-full opacity-35" style={{ background: t.muted }} />
+              <div className="h-0.75 w-4.5 rounded-full opacity-35" style={{ background: t.muted }} />
             </div>
           ))}
         </div>
         <div className="absolute inset-x-1.5 bottom-2 flex items-center gap-1.5 rounded-[3px] px-1.5 py-1" style={{ background: t.surface }}>
           <div className="size-2 rounded-full opacity-60" style={{ background: t.accent }} />
-          <div className="h-[3px] w-5 rounded-full opacity-40" style={{ background: t.muted }} />
+          <div className="h-0.75 w-5 rounded-full opacity-40" style={{ background: t.muted }} />
         </div>
       </div>
 
@@ -66,7 +66,7 @@ function ThemePreview({ t }: { t: ThemeDef }) {
         <div className="flex items-center gap-2 px-2.5 pb-2">
           <div className="min-w-0">
             <div className="h-1 w-10 rounded-full opacity-90" style={{ background: t.fg }} />
-            <div className="mt-1 h-[3px] w-14 rounded-full opacity-40" style={{ background: t.muted }} />
+            <div className="mt-1 h-0.75 w-14 rounded-full opacity-40" style={{ background: t.muted }} />
           </div>
           <div className="ml-auto h-2.5 w-11 rounded-[3px]" style={{ background: t.surface, border: `1px solid ${t.border}` }} />
         </div>
@@ -75,19 +75,19 @@ function ThemePreview({ t }: { t: ThemeDef }) {
           <div className="flex flex-1 flex-col gap-1.5">
             {[100, 84, 94].map((w, i) => (
               <div key={i} className="rounded-[3px] px-1.5 py-1.25" style={{ background: t.panel }}>
-                <div className="h-[3px] rounded-full opacity-65" style={{ background: t.fg, width: `${w}%` }} />
-                <div className="mt-1 h-[3px] w-[56%] rounded-full opacity-30" style={{ background: t.muted }} />
+                <div className="h-0.75 rounded-full opacity-65" style={{ background: t.fg, width: `${w}%` }} />
+                <div className="mt-1 h-0.75 w-[56%] rounded-full opacity-30" style={{ background: t.muted }} />
               </div>
             ))}
           </div>
           <div className="flex w-15 shrink-0 flex-col gap-1.5">
             <div className="rounded-[3px] p-1.5" style={{ background: t.panel }}>
               <div className="h-1.5 w-7 rounded-full opacity-85" style={{ background: t.fg }} />
-              <div className="mt-1.25 h-2 w-full rounded-[2px] opacity-30" style={{ background: t.accent }} />
+              <div className="mt-1.25 h-2 w-full rounded-xs opacity-30" style={{ background: t.accent }} />
             </div>
             <div className="rounded-[3px] p-1.5" style={{ background: `${t.accent}1f`, border: `1px solid ${t.accent}44` }}>
-              <div className="h-[3px] w-6 rounded-full" style={{ background: t.accent }} />
-              <div className="mt-1 h-[3px] w-8 rounded-full opacity-50" style={{ background: t.accent }} />
+              <div className="h-0.75 w-6 rounded-full" style={{ background: t.accent }} />
+              <div className="mt-1 h-0.75 w-8 rounded-full opacity-50" style={{ background: t.accent }} />
             </div>
           </div>
         </div>
@@ -114,7 +114,7 @@ function ThemeSwatch({ t, active, onPick }: { t: ThemeDef; active: boolean; onPi
     >
       <span className="flex shrink-0 overflow-hidden rounded-(--r-xs) border border-(--border-soft)">
         {[t.bg, t.panel, t.surface, t.border, t.muted, t.accent].map((c, i) => (
-          <span key={i} className="h-6 w-[9px]" style={{ background: c }} />
+          <span key={i} className="h-6 w-2.25" style={{ background: c }} />
         ))}
       </span>
 
@@ -129,7 +129,7 @@ function ThemeSwatch({ t, active, onPick }: { t: ThemeDef; active: boolean; onPi
 
       {active && (
         <span className="grid size-4 shrink-0 place-items-center rounded-full bg-(--accent)">
-          <Check size={9} strokeWidth={3.5} className="text-(--accent-fg)" />
+          <Check size={9} strokeWidth={3.5} className="text-primary-foreground" />
         </span>
       )}
     </motion.button>

@@ -1,6 +1,5 @@
-import { z } from 'zod'
 import { COMMANDS } from '../lib/commands'
-import { TranscriptSchema, UsageStatsSchema, type Transcript, type UsageStats } from '../types'
+import type { Transcript, UsageStats } from '../types'
 import { invoke } from '@tauri-apps/api/core'
 import { toast } from 'sonner'
 import type { StateCreator } from 'zustand'
@@ -59,7 +58,6 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
   statsError: null,
 
   loadTranscripts: async () => {
-    if (!get().user) return
     set({
       transcriptsStatus: 'loading',
       transcriptsError: null,
@@ -72,9 +70,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
       searchResults: [],
     })
     try {
-      const transcripts = z.array(TranscriptSchema).parse(
-        await invoke<unknown>(COMMANDS.GET_TRANSCRIPTS, { page: { limit: PAGE_SIZE, cursorCreatedAt: null, cursorId: null, from: null, to: null, sortAsc: false } })
-      )
+      const transcripts = await invoke<Transcript[]>(COMMANDS.GET_TRANSCRIPTS, { page: { limit: PAGE_SIZE, cursorCreatedAt: null, cursorId: null, from: null, to: null, sortAsc: false } })
       set({
         transcripts,
         transcriptHasMore: transcripts.length === PAGE_SIZE,
@@ -87,11 +83,10 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
   },
 
   loadStats: async () => {
-    if (!get().user) return
     set({ statsStatus: 'loading', statsError: null })
     try {
-      const raw = await invoke<unknown>(COMMANDS.GET_USAGE_STATS)
-      set({ stats: UsageStatsSchema.parse(raw), statsStatus: 'success' })
+      const raw = await invoke<UsageStats>(COMMANDS.GET_USAGE_STATS)
+      set({ stats: raw, statsStatus: 'success' })
     } catch (e) {
       const message = extractErrorMessage(e, 'Failed to load usage stats')
       set({ stats: null, statsStatus: 'error', statsError: message })
@@ -101,9 +96,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
   setFilters: async (from, to, sortAsc) => {
     set({ filterFrom: from, filterTo: to, filterSortAsc: sortAsc, transcriptHasMore: true, transcriptLoadingMore: false, transcripts: [], transcriptsStatus: 'loading', transcriptsError: null })
     try {
-      const items = z.array(TranscriptSchema).parse(
-        await invoke<unknown>(COMMANDS.GET_TRANSCRIPTS, { page: { limit: PAGE_SIZE, cursorCreatedAt: null, cursorId: null, from, to, sortAsc } })
-      )
+      const items = await invoke<Transcript[]>(COMMANDS.GET_TRANSCRIPTS, { page: { limit: PAGE_SIZE, cursorCreatedAt: null, cursorId: null, from, to, sortAsc } })
       set({ transcripts: items, transcriptHasMore: items.length === PAGE_SIZE, transcriptsStatus: 'success' })
     } catch (e) {
       set({ transcriptsStatus: 'error', transcriptsError: extractErrorMessage(e, 'Failed to load transcripts') })
@@ -128,9 +121,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     try {
       const command = searching ? COMMANDS.SEARCH_TRANSCRIPTS : COMMANDS.GET_TRANSCRIPTS
       const page = { limit: PAGE_SIZE, ...cursorOf(loaded), from: filterFrom, to: filterTo, sortAsc: filterSortAsc }
-      const more = z.array(TranscriptSchema).parse(
-        await invoke<unknown>(command, searching ? { query, page } : { page })
-      )
+      const more = await invoke<Transcript[]>(command, searching ? { query, page } : { page })
       set((state) => {
         const previous = searching ? state.searchResults : state.transcripts
         const seen = new Set(previous.map(t => t.id))
@@ -158,9 +149,7 @@ export const createTranscriptSlice: StateCreator<AppState, [], [], TranscriptSli
     set({ isSearching: true, transcriptsStatus: 'loading', transcriptsError: null, transcriptHasMore: true })
     const { filterFrom, filterTo, filterSortAsc } = get()
     try {
-      const results = z.array(TranscriptSchema).parse(
-        await invoke<unknown>(COMMANDS.SEARCH_TRANSCRIPTS, { query, page: { limit: PAGE_SIZE, cursorCreatedAt: null, cursorId: null, from: filterFrom, to: filterTo, sortAsc: filterSortAsc } })
-      )
+      const results = await invoke<Transcript[]>(COMMANDS.SEARCH_TRANSCRIPTS, { query, page: { limit: PAGE_SIZE, cursorCreatedAt: null, cursorId: null, from: filterFrom, to: filterTo, sortAsc: filterSortAsc } })
       set({ searchResults: results, transcriptsStatus: 'success', transcriptHasMore: results.length === PAGE_SIZE })
     } catch (e) {
       set({ searchResults: [], transcriptsStatus: 'error', transcriptsError: extractErrorMessage(e, 'Search failed') })

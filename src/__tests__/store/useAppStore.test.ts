@@ -15,13 +15,13 @@ const page = (start: number, count: number) =>
     content: `t${start + i}`,
     wordCount: 1,
     durationSeconds: null,
+    targetApp: null,
     createdAt: `2026-01-01T00:00:${String(start + i + 1).padStart(2, '0')}`,
   }))
 
 beforeEach(() => {
   mockInvoke.mockReset()
   useAppStore.setState({
-    user: null,
     transcripts: [],
     transcriptHasMore: true,
     transcriptLoadingMore: false,
@@ -39,7 +39,8 @@ beforeEach(() => {
     dictionaryError: null,
     statsStatus: 'idle',
     statsError: null,
-    authChecking: false,
+    starting: false,
+    startupError: null,
     hasHotkey: false,
     modelReady: false,
     downloads: {},
@@ -53,51 +54,28 @@ describe('useAppStore — theme', () => {
   })
 })
 
-describe('useAppStore — login', () => {
-  it('sets user on success', async () => {
-    mockInvoke.mockImplementation((cmd) => {
-      if (cmd === 'login') return Promise.resolve({ id: 1, email: 'test@example.com' })
-      return Promise.resolve(undefined)
-    })
-
-    await useAppStore.getState().login('test@example.com', 'password')
+describe('useAppStore — startup', () => {
+  it('loads data once the database is ready', async () => {
+    mockInvoke.mockResolvedValue([])
+    await useAppStore.getState().startup()
     const state = useAppStore.getState()
-    expect(state.user?.email).toBe('test@example.com')
+    expect(state.starting).toBe(false)
+    expect(state.startupError).toBeNull()
+    expect(mockInvoke).toHaveBeenCalledWith('wait_for_app_ready')
   })
 
-  it('calls the login command with email and password', async () => {
-    mockInvoke.mockImplementation((cmd) => {
-      if (cmd === 'login') return Promise.resolve({ id: 1, email: 'test@example.com' })
-      return Promise.resolve(undefined)
-    })
-
-    await useAppStore.getState().login('test@example.com', 'password')
-    expect(mockInvoke).toHaveBeenCalledWith('login', { email: 'test@example.com', password: 'password' })
-  })
-
-  it('throws on failed login', async () => {
-    mockInvoke.mockRejectedValue({ message: 'Invalid credentials' })
-    await expect(useAppStore.getState().login('bad@example.com', 'wrong')).rejects.toThrow()
-  })
-})
-
-describe('useAppStore — logout', () => {
-  it('clears user and data', async () => {
-    useAppStore.setState({
-      user: { id: 1, email: 'test@example.com' },
-      transcripts: [{ id: 1, content: 'hello', wordCount: 1, durationSeconds: null, createdAt: '' }],
-    })
-    mockInvoke.mockResolvedValue(undefined)
-    await useAppStore.getState().logout()
+  it('records the error when the database is unavailable', async () => {
+    mockInvoke.mockRejectedValue({ code: 'database_unavailable', message: 'disk is full' })
+    await useAppStore.getState().startup()
     const state = useAppStore.getState()
-    expect(state.user).toBeNull()
-    expect(state.transcripts).toHaveLength(0)
+    expect(state.starting).toBe(false)
+    expect(state.startupError).toBe('disk is full')
   })
 })
 
 describe('useAppStore — searchTranscripts', () => {
   it('sets searchResults on success', async () => {
-    const results = [{ id: 1, content: 'hello world', wordCount: 2, durationSeconds: null, createdAt: '' }]
+    const results = [{ id: 1, content: 'hello world', wordCount: 2, durationSeconds: null, targetApp: null, createdAt: '' }]
     mockInvoke.mockImplementation((cmd) => {
       if (cmd === 'search_transcripts') return Promise.resolve(results)
       return Promise.resolve(undefined)
@@ -108,7 +86,7 @@ describe('useAppStore — searchTranscripts', () => {
   })
 
   it('clears results on empty query', async () => {
-    useAppStore.setState({ searchResults: [{ id: 1, content: 'x', wordCount: 1, durationSeconds: null, createdAt: '' }] })
+    useAppStore.setState({ searchResults: [{ id: 1, content: 'x', wordCount: 1, durationSeconds: null, targetApp: null, createdAt: '' }] })
     await useAppStore.getState().searchTranscripts('')
     expect(useAppStore.getState().searchResults).toHaveLength(0)
   })

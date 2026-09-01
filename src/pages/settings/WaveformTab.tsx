@@ -205,7 +205,7 @@ function StyleSwatch({ s, active, onPick, levelsRef, theme }: {
 
       {active && (
         <span className="grid size-4 shrink-0 place-items-center rounded-full bg-(--accent)">
-          <Check size={9} strokeWidth={3.5} className="text-(--accent-fg)" />
+          <Check size={9} strokeWidth={3.5} className="text-primary-foreground" />
         </span>
       )}
     </motion.button>

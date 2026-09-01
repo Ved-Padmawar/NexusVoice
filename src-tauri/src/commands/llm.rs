@@ -10,11 +10,13 @@ use crate::state::AppState;
 use super::error::ApiError;
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_format_config(state: State<'_, AppState>) -> Result<FormatConfig, ApiError> {
     Ok(state.load_format_config())
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn set_format_config(
     state: State<'_, AppState>,
     config: FormatConfig,
@@ -27,6 +29,7 @@ pub async fn set_format_config(
 /// Validate a candidate config (from the provider modal's "Test" button) by
 /// sending one trivial formatting request. Does not persist anything.
 #[tauri::command]
+#[specta::specta]
 pub async fn test_format_connection(config: FormatConfig) -> Result<(), ApiError> {
     let active = config.active();
     if config.provider != "anthropic" && active.base_url.trim().is_empty() {

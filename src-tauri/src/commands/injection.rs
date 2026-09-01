@@ -5,6 +5,7 @@ use tauri::AppHandle;
 use super::error::ApiError;
 
 #[tauri::command]
+#[specta::specta]
 pub async fn type_text(app: AppHandle, text: String) -> Result<(), ApiError> {
     crate::injection::type_text(&app, &text)
         .await
@@ -13,6 +14,7 @@ pub async fn type_text(app: AppHandle, text: String) -> Result<(), ApiError> {
 
 /// Linux-only; the clipboard platforms have nothing to configure.
 #[tauri::command]
+#[specta::specta]
 pub async fn get_injection_status() -> Result<super::dto::InjectionStatus, ApiError> {
     Ok(super::dto::InjectionStatus::detect().await)
 }

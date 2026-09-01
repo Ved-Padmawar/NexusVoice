@@ -35,8 +35,8 @@ class MockIntersectionObserver {
 vi.stubGlobal('IntersectionObserver', MockIntersectionObserver)
 
 const sampleTranscripts = [
-  { id: 1, content: 'Hello world', wordCount: 2, durationSeconds: 5, createdAt: new Date().toISOString() },
-  { id: 2, content: 'Testing search', wordCount: 2, durationSeconds: 3, createdAt: new Date().toISOString() },
+  { id: 1, content: 'Hello world', wordCount: 2, durationSeconds: 5, targetApp: 'VS Code', createdAt: new Date().toISOString() },
+  { id: 2, content: 'Testing search', wordCount: 2, durationSeconds: 3, targetApp: null, createdAt: new Date().toISOString() },
 ]
 
 function renderDashboard() {
@@ -93,6 +93,17 @@ describe('Dashboard — transcripts', () => {
     renderDashboard()
     expect(screen.getByText('2')).toBeInTheDocument()
   })
+
+  it('labels a transcript with the app it was dictated into', () => {
+    renderDashboard()
+    expect(screen.getByText(/Pasted in VS Code/)).toBeInTheDocument()
+  })
+
+  it('omits the app label when the target app is unknown', () => {
+    renderDashboard()
+    // The second fixture has targetApp: null — only one label should render.
+    expect(screen.getAllByText(/Pasted in/)).toHaveLength(1)
+  })
 })
 
 describe('Dashboard — search', () => {
@@ -118,7 +129,7 @@ describe('Dashboard — search', () => {
 
   it('shows search results when query matches', () => {
     useAppStore.setState({
-      searchResults: [{ id: 1, content: 'Hello world', wordCount: 2, durationSeconds: null, createdAt: '' }],
+      searchResults: [{ id: 1, content: 'Hello world', wordCount: 2, durationSeconds: null, targetApp: null, createdAt: '' }],
       isSearching: false,
     })
     renderDashboard()

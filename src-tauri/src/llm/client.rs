@@ -9,6 +9,7 @@ use super::anthropic;
 use super::config::FormatConfig;
 use super::openai::{self, ChatMessage, ChatRequest};
 use super::prompt::build_system_prompt;
+use crate::focus::AppCategory;
 
 /// Upper bound on a formatting request. Local models can be slow; cloud is fast.
 /// Kept generous so a slow local model doesn't spuriously fail, but bounded so a
@@ -17,9 +18,16 @@ const REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// Format `raw` via the configured endpoint. Returns the cleaned text.
 ///
+/// `destination` is the kind of app the transcript is headed for, when known;
+/// it tunes presentation only.
+///
 /// Errors are returned (not panicked) so the caller can fall back to the raw
 /// transcript — a formatter failure must never drop the user's dictation.
-pub async fn format_transcript(cfg: &FormatConfig, raw: &str) -> Result<String, String> {
+pub async fn format_transcript(
+    cfg: &FormatConfig,
+    raw: &str,
+    destination: Option<AppCategory>,
+) -> Result<String, String> {
     let raw = raw.trim();
     if raw.is_empty() {
         return Ok(String::new());
@@ -32,7 +40,7 @@ pub async fn format_transcript(cfg: &FormatConfig, raw: &str) -> Result<String, 
     // Chars, not bytes — non-Latin dictation would inflate the cap.
     let max_tokens = u32::try_from(raw.chars().count() / 2 + 256).unwrap_or(u32::MAX);
 
-    let system = build_system_prompt();
+    let system = build_system_prompt(destination);
 
     let active = cfg.active();
     let text = if cfg.provider == "anthropic" {

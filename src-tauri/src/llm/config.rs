@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 /// One provider's endpoint details.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
     /// Base URL up to (not including) `/chat/completions`. Unused by
@@ -24,7 +24,7 @@ pub struct Profile {
 }
 
 /// Persisted formatter configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct FormatConfig {
     /// Whether the LLM formatting stage runs.

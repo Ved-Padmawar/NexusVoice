@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { createAuthSlice, type AuthSlice } from './authSlice'
+import { createAppSlice, type AppSlice } from './appSlice'
 import { createTranscriptSlice, type TranscriptSlice } from './transcriptSlice'
 import { createDictionarySlice, type DictionarySlice } from './dictionarySlice'
 import { createModelSlice, type ModelSlice } from './modelSlice'
@@ -17,9 +17,9 @@ export type ThemeName =
   | 'breeze'
   | 'blossom'
 
-export type AppState = AuthSlice & TranscriptSlice & DictionarySlice & ModelSlice & UiSlice & UpdateSlice
+export type AppState = AppSlice & TranscriptSlice & DictionarySlice & ModelSlice & UiSlice & UpdateSlice
 
-export type { User, Transcript, DictionaryEntry, UsageStats } from '../types'
+export type { Transcript, DictionaryEntry, UsageStats } from '../types'
 export type { PillTheme } from './uiSlice'
 
 export const STORE_PERSIST_KEY = 'nexus-voice-storage'
@@ -27,7 +27,7 @@ export const STORE_PERSIST_KEY = 'nexus-voice-storage'
 export const useAppStore = create<AppState>()(
   persist(
     (...args) => ({
-      ...createAuthSlice(...args),
+      ...createAppSlice(...args),
       ...createTranscriptSlice(...args),
       ...createDictionarySlice(...args),
       ...createModelSlice(...args),

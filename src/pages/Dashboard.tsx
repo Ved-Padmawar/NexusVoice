@@ -438,7 +438,12 @@ export function Dashboard() {
                   <div className="nv-edge [--edge:var(--border-soft)] hover:[--edge:var(--border)] col-start-2 row-start-1 bg-(--panel) rounded-(--r-lg) px-3.5 py-3 flex flex-col gap-2 hover:bg-(--surface)">
                     <p className="text-[13px] text-(--fg) leading-[1.6] m-0">{item.content}</p>
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-muted-foreground tabular-nums">{fmtDate(item.createdAt)}</span>
+                      <span className="text-[10px] text-muted-foreground tabular-nums">
+                        {fmtDate(item.createdAt)}
+                        {item.targetApp && (
+                          <span className="normal-nums"> · Pasted in {item.targetApp}</span>
+                        )}
+                      </span>
                       <div className="flex items-center gap-0.5">
                         <CopyButton text={item.content} />
                         <button

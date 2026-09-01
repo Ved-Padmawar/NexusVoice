@@ -3,7 +3,7 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager,
+    Manager,
 };
 
 // 10 MB in bytes
@@ -41,9 +41,9 @@ fn session_id() -> &'static str {
 }
 
 mod audio;
-mod auth;
 mod commands;
 mod database;
+mod focus;
 mod hardware;
 mod inference;
 mod injection;
@@ -55,6 +55,56 @@ mod remote;
 mod state;
 mod transcribe;
 mod transcription;
+
+/// The command registry, and the single source of the generated TS bindings.
+/// Adding a command here is what puts it in `src/bindings.ts`.
+fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
+    tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
+        commands::start_transcription,
+        commands::stop_transcription,
+        commands::list_input_devices,
+        commands::set_input_device,
+        commands::start_dictation,
+        commands::pause_dictation,
+        commands::resume_dictation,
+        commands::commit_dictation,
+        commands::get_usage_stats,
+        commands::get_transcripts,
+        commands::search_transcripts,
+        commands::export_transcripts,
+        commands::get_dictionary,
+        commands::delete_transcript,
+        commands::update_dictionary,
+        commands::delete_dictionary_entry,
+        commands::type_text,
+        commands::get_injection_status,
+        commands::register_hotkey,
+        commands::unregister_hotkey,
+        commands::register_dictation_hotkey,
+        commands::unregister_dictation_hotkey,
+        commands::register_dictation_commit_hotkey,
+        commands::unregister_dictation_commit_hotkey,
+        commands::get_registered_hotkeys,
+        commands::get_model_info,
+        commands::start_model_download,
+        commands::get_active_downloads,
+        commands::cancel_model_download,
+        commands::set_model_override,
+        commands::get_language_options,
+        commands::set_language,
+        commands::get_hardware_profile,
+        commands::get_model_catalog,
+        commands::get_downloaded_models,
+        commands::delete_model,
+        commands::get_format_config,
+        commands::set_format_config,
+        commands::test_format_connection,
+        commands::open_logs_folder,
+        commands::resize_pill,
+        commands::log_frontend,
+        commands::wait_for_app_ready,
+    ])
+}
 
 #[allow(clippy::too_many_lines)] // Tauri setup is inherently long — splitting adds no clarity
 fn main() {
@@ -111,6 +161,18 @@ fn main() {
     let log_level = log::LevelFilter::Info;
     #[cfg(not(debug_assertions))]
     let log_level = log::LevelFilter::Info;
+
+    let specta_builder = command_bindings();
+
+    // Debug only: regenerate the TS bindings. Release builds ship the committed file.
+    #[cfg(debug_assertions)]
+    specta_builder
+        .export(
+            specta_typescript::Typescript::default()
+                .bigint(specta_typescript::BigIntExportBehavior::Number),
+            "../src/bindings.ts",
+        )
+        .expect("failed to export typescript bindings");
 
     tauri::Builder::default()
         .on_window_event(|window, event| {
@@ -187,7 +249,7 @@ fn main() {
             inference::downloader::clean_stale_parts(&models_dir);
 
             // Create state immediately with NO blocking I/O.
-            // DB + auth are initialized asynchronously after setup returns.
+            // The DB is initialized asynchronously after setup returns.
             let app_state = state::AppState::new(
                 app_data_dir,
                 hotkeys_path,
@@ -199,7 +261,7 @@ fn main() {
             );
             app.manage(app_state);
 
-            // Spawn: DB init + auth + dict cache + re-auth — fully async, never blocks main thread
+            // Spawn: DB init + dict cache — fully async, never blocks main thread
             {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
@@ -216,7 +278,6 @@ fn main() {
                         Ok(pool) => pool,
                         Err(e) => {
                             log::error!("database init failed: {e}");
-                            let _ = app_handle.emit("auth:unauthenticated", ());
                             return;
                         }
                     };
@@ -232,19 +293,6 @@ fn main() {
                             .unwrap_or_default();
                         *state.dict_cache.write().await =
                             entries.into_iter().map(|e| (e.term.clone(), e)).collect();
-                    }
-
-                    // Restore the persisted session: if a user is recorded in
-                    // app_session, they stay signed in across restarts.
-                    let restored = match state.auth().await {
-                        Ok(auth) => auth.current_user().await.ok().flatten(),
-                        Err(_) => None,
-                    };
-                    if let Some(user) = restored {
-                        state.set_auth_session(user.id).await;
-                        let _ = app_handle.emit("auth:ready", user.id);
-                    } else {
-                        let _ = app_handle.emit("auth:unauthenticated", ());
                     }
                 });
             }
@@ -429,55 +477,7 @@ fn main() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            commands::get_auth_state,
-            commands::get_current_user,
-            commands::register,
-            commands::login,
-            commands::logout,
-            commands::start_transcription,
-            commands::stop_transcription,
-            commands::list_input_devices,
-            commands::set_input_device,
-            commands::start_dictation,
-            commands::pause_dictation,
-            commands::resume_dictation,
-            commands::commit_dictation,
-            commands::get_usage_stats,
-            commands::get_transcripts,
-            commands::search_transcripts,
-            commands::export_transcripts,
-            commands::get_dictionary,
-            commands::delete_transcript,
-            commands::update_dictionary,
-            commands::delete_dictionary_entry,
-            commands::type_text,
-            commands::get_injection_status,
-            commands::register_hotkey,
-            commands::unregister_hotkey,
-            commands::register_dictation_hotkey,
-            commands::unregister_dictation_hotkey,
-            commands::register_dictation_commit_hotkey,
-            commands::unregister_dictation_commit_hotkey,
-            commands::get_registered_hotkeys,
-            commands::get_model_info,
-            commands::start_model_download,
-            commands::get_active_downloads,
-            commands::cancel_model_download,
-            commands::set_model_override,
-            commands::get_language_options,
-            commands::set_language,
-            commands::get_hardware_profile,
-            commands::get_model_catalog,
-            commands::get_downloaded_models,
-            commands::delete_model,
-            commands::get_format_config,
-            commands::set_format_config,
-            commands::test_format_connection,
-            commands::open_logs_folder,
-            commands::resize_pill,
-            commands::log_frontend,
-        ])
+        .invoke_handler(specta_builder.invoke_handler())
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {

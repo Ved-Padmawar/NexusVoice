@@ -31,14 +31,24 @@ describe("App", () => {
       transcripts: [],
       dictionary: [],
       theme: "abyss",
-      authChecking: false,
+      starting: false,
+      // Otherwise the first-run model picker mounts over the app.
+      modelChosen: true,
     });
   });
 
-  it("renders NexusVoice title after load", async () => {
+  it("renders the app shell after load", async () => {
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByText("NexusVoice")).toBeInTheDocument();
+      expect(screen.getByAltText("NexusVoice")).toBeInTheDocument();
     });
+  });
+
+  it("shows the dashboard, with no sign-in step", async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getByRole("link", { name: /dashboard/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/log in/i)).not.toBeInTheDocument();
   });
 });

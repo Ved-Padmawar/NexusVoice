@@ -9,7 +9,6 @@ use tokio::sync::{Mutex, RwLock, SetOnce};
 
 use std::collections::HashMap;
 
-use crate::auth::AuthService;
 use crate::database::models::dictionary::DictionaryEntry;
 use crate::inference::TranscriptionEngine;
 use crate::llm::FormatConfig;
@@ -79,11 +78,6 @@ impl HotkeyKind {
             Self::DictationCommit => "dictationCommit",
         }
     }
-}
-
-#[derive(Debug, Default)]
-pub struct AuthSession {
-    pub user_id: Option<i64>,
 }
 
 /// How many models may transfer at once. Extras wait in `Queued` rather than
@@ -216,21 +210,15 @@ impl Downloads {
 /// Database init failed. Commands surface this instead of waiting forever.
 pub struct DbUnavailable(pub String);
 
-pub struct DatabaseHandle {
-    pub pool: SqlitePool,
-    pub auth: AuthService,
-}
-
 pub struct AppState {
-    /// Set once by the startup task; `db()`/`auth()` wait on it.
-    db: SetOnce<Result<DatabaseHandle, String>>,
+    /// Set once by the startup task; `db()` waits on it.
+    db: SetOnce<Result<SqlitePool, String>>,
     pub app_data_dir: PathBuf,
     pub hotkeys_path: PathBuf,
     pub model_override_path: PathBuf,
     pub language_path: PathBuf,
     pub format_config_path: PathBuf,
     pub input_device_path: PathBuf,
-    pub auth_session: Mutex<AuthSession>,
     pub transcription_running: Arc<AtomicBool>,
     pub recording_mode: Arc<AtomicU8>,
     pub session_phase: Arc<AtomicU8>,
@@ -255,12 +243,17 @@ pub struct AppState {
     /// Transcript produced by a streaming-native model, published when its
     /// worker finalizes. `None` means finalize decodes the buffer itself.
     pub streamed_text: Arc<std::sync::Mutex<Option<String>>>,
+    /// App that had focus when this recording started. Consumed by finalize.
+    pub focus_target: Arc<std::sync::Mutex<Option<crate::focus::FocusTarget>>>,
     pub downloads: Arc<Downloads>,
     /// In-memory dictionary cache — loaded at startup, mutated on add/delete.
     pub dict_cache: DictCache,
     /// Signalled by the capture thread when it has fully stopped and dropped the stream.
     /// `stop_transcription` waits on this instead of sleeping a fixed duration.
     pub capture_done: Arc<(std::sync::Mutex<bool>, Condvar)>,
+    /// Signalled when the streaming-native worker finalizes. It owns its
+    /// session locally, so there is no lock for finalize to block on.
+    pub stream_done: Arc<(std::sync::Mutex<bool>, Condvar)>,
     /// Signalled by the capture callback on its first sample, so
     /// `start_transcription` doesn't report "started" until the mic is producing
     /// audio (cpal warms up after `play()`, clipping leading speech otherwise).
@@ -286,7 +279,6 @@ impl AppState {
             language_path,
             format_config_path,
             input_device_path,
-            auth_session: Mutex::new(AuthSession::default()),
             transcription_running: Arc::new(AtomicBool::new(false)),
             recording_mode: Arc::new(AtomicU8::new(RecordingMode::PushToTalk as u8)),
             session_phase: Arc::new(AtomicU8::new(SessionPhase::Idle as u8)),
@@ -302,36 +294,26 @@ impl AppState {
             engine_load: Arc::new(Mutex::new(())),
             stream_session: Arc::new(std::sync::Mutex::new(None)),
             streamed_text: Arc::new(std::sync::Mutex::new(None)),
+            focus_target: Arc::new(std::sync::Mutex::new(None)),
             downloads: Arc::new(Downloads::new()),
             dict_cache: Arc::new(RwLock::new(HashMap::new())),
             capture_done: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
+            stream_done: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
             capture_ready: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
         }
     }
 
     /// Called once, by the startup task.
     pub fn set_database(&self, result: Result<SqlitePool, String>) {
-        let handle = result.map(|pool| DatabaseHandle {
-            auth: AuthService::new(pool.clone()),
-            pool,
-        });
-        let _ = self.db.set(handle);
+        let _ = self.db.set(result);
     }
 
-    async fn database(&self) -> Result<&DatabaseHandle, DbUnavailable> {
+    pub async fn db(&self) -> Result<&SqlitePool, DbUnavailable> {
         self.db
             .wait()
             .await
             .as_ref()
             .map_err(|e| DbUnavailable(e.clone()))
-    }
-
-    pub async fn db(&self) -> Result<&SqlitePool, DbUnavailable> {
-        Ok(&self.database().await?.pool)
-    }
-
-    pub async fn auth(&self) -> Result<&AuthService, DbUnavailable> {
-        Ok(&self.database().await?.auth)
     }
 
     /// Get or load the cached `TranscriptionEngine`.
@@ -408,20 +390,6 @@ impl AppState {
             return false;
         }
         true
-    }
-
-    pub async fn current_user_id(&self) -> Option<i64> {
-        self.auth_session.lock().await.user_id
-    }
-
-    /// Mirror the signed-in user id in memory (the persisted source of truth is
-    /// the `app_session` table, written by `AuthService`).
-    pub async fn set_auth_session(&self, user_id: i64) {
-        self.auth_session.lock().await.user_id = Some(user_id);
-    }
-
-    pub async fn clear_auth_session(&self) {
-        self.auth_session.lock().await.user_id = None;
     }
 
     fn read_hotkeys(&self) -> HashMap<String, String> {
@@ -531,10 +499,12 @@ impl AppState {
         std::fs::write(&self.format_config_path, json)
     }
 
-    /// Arm a fresh streaming session for the recording about to start.
+    /// Arm a fresh streaming session for the recording about to start, and note
+    /// which app has focus — the hotkey press is the moment that means anything.
     pub fn begin_stream_session(&self) {
         *lock_recovering(&self.stream_session) = Some(crate::transcribe::StreamingSession::new());
         *lock_recovering(&self.streamed_text) = None;
+        *lock_recovering(&self.focus_target) = crate::focus::foreground_app();
     }
 
     /// Take the streaming session for finalize (or to discard it on cancel).
@@ -546,6 +516,11 @@ impl AppState {
     /// Take the transcript a streaming-native model produced, if one ran.
     pub fn take_streamed_text(&self) -> Option<String> {
         lock_recovering(&self.streamed_text).take()
+    }
+
+    /// Take the app captured at recording start, for finalize.
+    pub fn take_focus_target(&self) -> Option<crate::focus::FocusTarget> {
+        lock_recovering(&self.focus_target).take()
     }
 
     pub fn try_start_transcription(&self) -> bool {
@@ -586,6 +561,8 @@ impl AppState {
         self.capture_paused.store(false, Ordering::SeqCst);
         self.set_session_phase(SessionPhase::Idle);
         self.set_recording_mode(RecordingMode::PushToTalk);
+        // An aborted recording returns before finalize takes this.
+        *lock_recovering(&self.focus_target) = None;
     }
 }
 

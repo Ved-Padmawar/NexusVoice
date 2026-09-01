@@ -1,5 +1,0 @@
-CREATE TABLE IF NOT EXISTS word_frequency (
-  word TEXT PRIMARY KEY,
-  count INTEGER NOT NULL DEFAULT 1,
-  dismissed INTEGER NOT NULL DEFAULT 0
-);

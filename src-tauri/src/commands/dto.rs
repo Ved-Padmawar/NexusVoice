@@ -1,35 +1,19 @@
 //! Serializable response types returned to the frontend, with `From` conversions
-//! from the internal database models / auth types.
+//! from the internal database models.
 
 use serde::Serialize;
 
-use crate::database::models::{dictionary::DictionaryEntry, transcript::Transcript, user::User};
+use crate::database::models::{dictionary::DictionaryEntry, transcript::Transcript};
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UserResponse {
-    pub id: i64,
-    pub email: String,
-    pub created_at: String,
-}
-
-impl From<User> for UserResponse {
-    fn from(value: User) -> Self {
-        Self {
-            id: value.id,
-            email: value.email,
-            created_at: value.created_at.to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptResponse {
     pub id: i64,
     pub content: String,
     pub word_count: i64,
     pub duration_seconds: Option<f64>,
+    /// App the transcript was dictated into; `None` when it wasn't determined.
+    pub target_app: Option<String>,
     pub created_at: String,
 }
 
@@ -40,12 +24,13 @@ impl From<Transcript> for TranscriptResponse {
             content: value.content,
             word_count: value.word_count,
             duration_seconds: value.duration_seconds,
+            target_app: value.target_app,
             created_at: value.created_at.to_string(),
         }
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DictionaryResponse {
     pub id: i64,
@@ -67,14 +52,7 @@ impl From<DictionaryEntry> for DictionaryResponse {
     }
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AuthStateResponse {
-    pub authenticated: bool,
-    pub user_id: Option<i64>,
-}
-
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct InjectionTool {
     pub name: String,
@@ -83,7 +61,7 @@ pub struct InjectionTool {
     pub install_hint: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct InjectionStatus {
     /// `true` where injection needs external tools the user must install.

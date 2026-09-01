@@ -1,7 +1,3 @@
-/**
- * Centralized Tauri event name constants.
- * Use these instead of raw string literals so renames are caught at compile time.
- */
 export const EVENTS = {
   // Model download lifecycle
   MODEL_DOWNLOAD_START:     'model-download-start',
@@ -26,12 +22,6 @@ export const EVENTS = {
   TRANSCRIPTION_ERROR:      'transcription-error',
   TRANSCRIPTION_PARTIAL:     'transcription-partial',
   TRANSCRIPTION_PARTIAL_END: 'transcription-partial-end',
-
-  // Dictionary
-
-  // Auth
-  AUTH_READY:           'auth:ready',
-  AUTH_UNAUTHENTICATED: 'auth:unauthenticated',
 
   // Pill
   PILL_THEME_CHANGED: 'pill:theme-changed',

@@ -1,10 +1,8 @@
-//! Shared API error type returned by every command, plus DB/auth error mapping.
+//! Shared API error type returned by every command, plus DB error mapping.
 
 use serde::Serialize;
 
-use crate::auth::AuthError;
-
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 pub struct ApiError {
     code: String,
     message: String,
@@ -28,19 +26,6 @@ impl From<crate::state::DbUnavailable> for ApiError {
 impl From<sqlx::Error> for ApiError {
     fn from(value: sqlx::Error) -> Self {
         Self::new("database_error", map_db_error(&value))
-    }
-}
-
-impl From<AuthError> for ApiError {
-    fn from(value: AuthError) -> Self {
-        match value {
-            AuthError::EmailTaken => Self::new("email_taken", "email already registered"),
-            AuthError::InvalidCredentials => {
-                Self::new("invalid_credentials", "invalid credentials")
-            }
-            AuthError::PasswordHash => Self::new("password_hash_failed", "password hashing failed"),
-            AuthError::Database(err) => Self::new("database_error", map_db_error(&err)),
-        }
     }
 }
 

@@ -1,12 +1,8 @@
 use sqlx::sqlite::SqlitePoolOptions;
 
 use super::connection::init_database;
-use super::dto::{
-    dictionary::CreateDictionaryEntry, transcript::CreateTranscript, user::CreateUser,
-};
-use super::repositories::{
-    dictionary::DictionaryRepository, transcript::TranscriptRepository, user::UserRepository,
-};
+use super::dto::{dictionary::CreateDictionaryEntry, transcript::CreateTranscript};
+use super::repositories::{dictionary::DictionaryRepository, transcript::TranscriptRepository};
 
 #[tokio::test]
 async fn database_roundtrip() {
@@ -17,31 +13,15 @@ async fn database_roundtrip() {
         .expect("pool");
     init_database(&pool).await.expect("migrations");
 
-    let users = UserRepository::new(pool.clone());
     let transcripts = TranscriptRepository::new(pool.clone());
     let dictionary = DictionaryRepository::new(pool.clone());
-
-    let user = users
-        .create(CreateUser {
-            email: "user@example.com".to_string(),
-            password_hash: "hash".to_string(),
-        })
-        .await
-        .expect("create user");
-
-    let fetched = users
-        .get_by_email("user@example.com")
-        .await
-        .expect("get by email")
-        .expect("user exists");
-
-    assert_eq!(user.id, fetched.id);
 
     let transcript = transcripts
         .create(CreateTranscript {
             content: "hello".to_string(),
             word_count: 1,
             duration_seconds: None,
+            target_app: Some("VS Code".to_string()),
         })
         .await
         .expect("create transcript");
@@ -53,6 +33,7 @@ async fn database_roundtrip() {
         .expect("transcript exists");
 
     assert_eq!(fetched_transcript.content, "hello");
+    assert_eq!(fetched_transcript.target_app.as_deref(), Some("VS Code"));
 
     let entry = dictionary
         .create(CreateDictionaryEntry {

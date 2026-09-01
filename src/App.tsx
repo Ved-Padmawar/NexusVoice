@@ -9,24 +9,22 @@ import { EVENTS } from './lib/events'
 import { ROUTES } from './lib/routes'
 import { useEventListener, useDelayedFlag } from './lib/hooks'
 import { Layout } from './components/Layout'
-import { AuthGuard } from './components/AuthGuard'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { ModelPickerModal } from './components/ModelPickerModal'
 
 const Spinner = () => (
-  <motion.div className="w-7 h-7 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)]" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
+  <motion.div className="w-7 h-7 rounded-full border-2 border-(--border) border-t-(--accent)" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
 )
 
 /** Full-screen startup loader. Spinner appears only after a short delay so a fast
- * auth check doesn't flash it; the themed background shows immediately. */
+ * database open doesn't flash it; the themed background shows immediately. */
 function StartupLoader() {
   const showSpinner = useDelayedFlag(true, 250)
   return (
-    <div className="flex flex-col items-center justify-center min-h-dvh gap-[14px] bg-[var(--bg)]" role="status" aria-live="polite" data-tauri-drag-region>
+    <div className="flex flex-col items-center justify-center min-h-dvh gap-3.5 bg-background" role="status" aria-live="polite" data-tauri-drag-region>
       {showSpinner && (
         <>
           <Spinner />
-          <p className="text-[12px] text-[var(--muted)]">Loading…</p>
+          <p className="text-[12px] text-muted-foreground">Loading…</p>
         </>
       )}
     </div>
@@ -37,24 +35,24 @@ function StartupLoader() {
 function RouteFallback() {
   const showSpinner = useDelayedFlag(true, 250)
   return (
-    <div className="flex items-center justify-center min-h-dvh bg-[var(--bg)]" role="status" data-tauri-drag-region>
+    <div className="flex items-center justify-center min-h-dvh bg-background" role="status" data-tauri-drag-region>
       {showSpinner && <Spinner />}
     </div>
   )
 }
 
-const Auth = lazy(() => import('./pages/Auth').then(m => ({ default: m.Auth })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
 const Dictionary = lazy(() => import('./pages/Dictionary').then(m => ({ default: m.Dictionary })))
+// Shown once, on first run. Eager, it put its whole tree on every startup.
+const ModelPickerModal = lazy(() => import('./components/ModelPickerModal').then(m => ({ default: m.ModelPickerModal })))
 
 function App() {
-  const { theme, user, authChecking, activeRoute, modelChosen, listenForAuthReady, listenForModelEvents } = useAppStore()
+  const { theme, starting, activeRoute, modelChosen, startup, listenForModelEvents } = useAppStore()
 
   useEffect(() => {
-    const cleanup = listenForAuthReady()
-    return () => { cleanup.then(fn => fn()).catch(() => {}) }
-  }, [listenForAuthReady])
+    startup()
+  }, [startup])
 
   useEffect(() => {
     const cleanup = listenForModelEvents()
@@ -85,18 +83,21 @@ function App() {
     return () => { unlisten.then(fn => fn()) }
   }, [])
 
-  if (authChecking) {
+  if (starting) {
     return <StartupLoader />
   }
-
-  const initialRoute = user ? activeRoute : '/'
 
   return (
     <BrowserRouter>
       <Suspense fallback={<RouteFallback />}>
-        <AnimatedRoutes initialRoute={initialRoute} user={user} />
+        <AnimatedRoutes initialRoute={activeRoute} />
       </Suspense>
-      {user && !modelChosen && <ModelPickerModal />}
+      {/* No fallback: nothing should flash on screen while the chunk loads. */}
+      {!modelChosen && (
+        <Suspense fallback={null}>
+          <ModelPickerModal />
+        </Suspense>
+      )}
       <Toaster
         position="bottom-right"
         toastOptions={{
@@ -129,33 +130,26 @@ function PageTransition({ id, children }: { id: string; children: ReactNode }) {
   )
 }
 
-function AnimatedRoutes({ initialRoute, user }: { initialRoute: string; user: { id: number; email: string } | null }) {
+function AnimatedRoutes({ initialRoute }: { initialRoute: string }) {
   const location = useLocation()
   return (
     <Routes location={location}>
       <Route path={ROUTES.DASHBOARD} element={<Layout />}>
         <Route index element={
-          <AuthGuard>
-            <ErrorBoundary>
-              <PageTransition id="dashboard"><Dashboard /></PageTransition>
-            </ErrorBoundary>
-          </AuthGuard>
+          <ErrorBoundary>
+            <PageTransition id="dashboard"><Dashboard /></PageTransition>
+          </ErrorBoundary>
         } />
         <Route path={ROUTES.SETTINGS.slice(1)} element={
-          <AuthGuard>
-            <ErrorBoundary>
-              <PageTransition id="settings"><Settings /></PageTransition>
-            </ErrorBoundary>
-          </AuthGuard>
+          <ErrorBoundary>
+            <PageTransition id="settings"><Settings /></PageTransition>
+          </ErrorBoundary>
         } />
         <Route path={ROUTES.DICTIONARY.slice(1)} element={
-          <AuthGuard>
-            <ErrorBoundary>
-              <PageTransition id="dictionary"><Dictionary /></PageTransition>
-            </ErrorBoundary>
-          </AuthGuard>
+          <ErrorBoundary>
+            <PageTransition id="dictionary"><Dictionary /></PageTransition>
+          </ErrorBoundary>
         } />
-        <Route path={ROUTES.AUTH.slice(1)} element={user ? <Navigate to={ROUTES.DASHBOARD} replace /> : <Auth />} />
         <Route path="*" element={<Navigate to={initialRoute} replace />} />
       </Route>
     </Routes>

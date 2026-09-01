@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../../lib/commands'
@@ -11,12 +11,16 @@ import {
   Check, Cpu, Database, Download, Globe, HardDrive, Mic, Radio, Search, X,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { ModelManagerModal } from '../../components/ModelManagerModal'
 import { VendorMark } from '../../components/ui/VendorMark'
 import { vendorForFamily } from '../../lib/vendors'
 import type { HardwareProfile } from '../../types'
 import { useAppStore } from '../../store/useAppStore'
 import type { Download as ModelDownload } from '../../store/modelSlice'
+
+// Opens on demand, so its tree stays out of the Settings chunk.
+const ModelManagerModal = lazy(() =>
+  import('../../components/ModelManagerModal').then(m => ({ default: m.ModelManagerModal }))
+)
 
 type DownloadedModel = {
   variant: string
@@ -419,13 +423,15 @@ export function VoiceTab() {
 
       <AnimatePresence>
         {managerOpen && (
-          <ModelManagerModal
-            onClose={() => {
-              setManagerOpen(false)
-              refreshOnDisk()
-              void refreshModelInfo()
-            }}
-          />
+          <Suspense fallback={null}>
+            <ModelManagerModal
+              onClose={() => {
+                setManagerOpen(false)
+                refreshOnDisk()
+                void refreshModelInfo()
+              }}
+            />
+          </Suspense>
         )}
       </AnimatePresence>
     </div>

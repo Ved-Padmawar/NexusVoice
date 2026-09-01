@@ -15,7 +15,7 @@ use super::error::ApiError;
 // Downloaded-model management
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadedModel {
     pub variant: String,
@@ -25,7 +25,7 @@ pub struct DownloadedModel {
 }
 
 /// The full catalog, for the model picker.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogModel {
     pub id: String,
@@ -45,6 +45,7 @@ pub struct CatalogModel {
 /// The catalog with per-model download state, so the picker renders from one
 /// source of truth instead of a hardcoded frontend list.
 #[tauri::command]
+#[specta::specta]
 pub fn get_model_catalog(state: State<'_, AppState>) -> Vec<CatalogModel> {
     use crate::inference::provider::{detect_backend, select_model};
 
@@ -74,6 +75,7 @@ pub fn get_model_catalog(state: State<'_, AppState>) -> Vec<CatalogModel> {
 
 /// List all model files currently on disk.
 #[tauri::command]
+#[specta::specta]
 pub fn get_downloaded_models(state: State<'_, AppState>) -> Vec<DownloadedModel> {
     use crate::inference::provider::{detect_backend, select_model};
 
@@ -100,6 +102,7 @@ pub fn get_downloaded_models(state: State<'_, AppState>) -> Vec<DownloadedModel>
 /// including the active one — transcription then surfaces a "no model" error
 /// until another is downloaded.
 #[tauri::command]
+#[specta::specta]
 pub async fn delete_model(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -154,6 +157,7 @@ pub async fn delete_model(
 /// warms the newly selected model in the background, so the first transcription
 /// after a switch isn't stalled by load.
 #[tauri::command]
+#[specta::specta]
 pub async fn set_model_override(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -192,7 +196,7 @@ fn warm_engine_in_background(app: &AppHandle) {
 // Dictation language
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LanguageOption {
     /// ISO code, or `auto` for the detect-per-decode sentinel.
@@ -201,7 +205,7 @@ pub struct LanguageOption {
     pub is_selected: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LanguageSettings {
     /// Whether the active model handles anything but English.
@@ -214,6 +218,7 @@ pub struct LanguageSettings {
 /// from the loaded model itself; an English-only model reports
 /// `supported: false` and no options.
 #[tauri::command]
+#[specta::specta]
 pub async fn get_language_options(
     state: State<'_, AppState>,
 ) -> Result<LanguageSettings, ApiError> {
@@ -287,6 +292,7 @@ pub async fn get_language_options(
 /// Set the dictation language. The loaded engine is repointed rather than
 /// evicted — language is a per-run option, so a reload would be pure cost.
 #[tauri::command]
+#[specta::specta]
 pub async fn set_language(
     state: State<'_, AppState>,
     code: Option<String>,
@@ -334,7 +340,7 @@ pub async fn set_language(
 // Hardware profile
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct HardwareProfileResponse {
     pub gpu_name: String,
@@ -345,6 +351,7 @@ pub struct HardwareProfileResponse {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_hardware_profile() -> Result<HardwareProfileResponse, ApiError> {
     use crate::inference::provider::recommend_model;
 
@@ -364,18 +371,18 @@ pub async fn get_hardware_profile() -> Result<HardwareProfileResponse, ApiError>
 // Model download status / control
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, specta::Type)]
 struct DownloadEvent {
     id: String,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, specta::Type)]
 struct DownloadErrorEvent {
     id: String,
     error: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ActiveDownload {
     pub id: String,
@@ -384,7 +391,7 @@ pub struct ActiveDownload {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfoResponse {
     pub downloaded: bool,
@@ -393,6 +400,7 @@ pub struct ModelInfoResponse {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_model_info(state: State<'_, AppState>) -> Result<ModelInfoResponse, ApiError> {
     use crate::inference::provider::{detect_backend, select_model};
 
@@ -409,6 +417,7 @@ pub async fn get_model_info(state: State<'_, AppState>) -> Result<ModelInfoRespo
 /// cancelled download can't leave the override pointing at a missing file.
 /// Beyond `MAX_CONCURRENT_DOWNLOADS` it waits in `Queued`.
 #[tauri::command]
+#[specta::specta]
 pub async fn start_model_download(
     id: String,
     app: AppHandle,
@@ -477,6 +486,7 @@ pub async fn start_model_download(
 /// a transfer arrives after the file is published; the download then stands and
 /// the caller learns that from `model-download-complete`.
 #[tauri::command]
+#[specta::specta]
 pub fn cancel_model_download(id: String, state: State<'_, AppState>) {
     state.downloads.cancel(&id);
 }
@@ -484,6 +494,7 @@ pub fn cancel_model_download(id: String, state: State<'_, AppState>) {
 /// Every download queued, running, or holding an error, so the UI can rehydrate
 /// after a reload without waiting for the next event.
 #[tauri::command]
+#[specta::specta]
 pub fn get_active_downloads(state: State<'_, AppState>) -> Vec<ActiveDownload> {
     state
         .downloads

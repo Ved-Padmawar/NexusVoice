@@ -30,6 +30,6 @@ async fn format_transcript_short_circuits_on_empty_input() {
     // Empty/whitespace input must return empty WITHOUT making an HTTP call,
     // so a blank dictation never hits the network or a misconfigured endpoint.
     let cfg = FormatConfig::default();
-    assert_eq!(format_transcript(&cfg, "   ").await.unwrap(), "");
-    assert_eq!(format_transcript(&cfg, "").await.unwrap(), "");
+    assert_eq!(format_transcript(&cfg, "   ", None).await.unwrap(), "");
+    assert_eq!(format_transcript(&cfg, "", None).await.unwrap(), "");
 }

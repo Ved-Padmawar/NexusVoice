@@ -1,15 +1,4 @@
-/**
- * Centralized Tauri command name constants.
- * Use these instead of raw string literals so renames are caught at compile time.
- */
 export const COMMANDS = {
-  // Auth (local-profile model — no tokens)
-  LOGIN:                'login',
-  REGISTER:             'register',
-  LOGOUT:               'logout',
-  GET_AUTH_STATE:       'get_auth_state',
-  GET_CURRENT_USER:     'get_current_user',
-
   // Transcription
   START_TRANSCRIPTION: 'start_transcription',
   STOP_TRANSCRIPTION:  'stop_transcription',
@@ -60,6 +49,7 @@ export const COMMANDS = {
   TEST_FORMAT_CONNECTION:  'test_format_connection',
 
   // System
+  WAIT_FOR_APP_READY: 'wait_for_app_ready',
   OPEN_LOGS_FOLDER: 'open_logs_folder',
   RESIZE_PILL:      'resize_pill',
   LOG_FRONTEND:     'log_frontend',

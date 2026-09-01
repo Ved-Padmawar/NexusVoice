@@ -1,13 +1,25 @@
 //! Window & shell commands: forward webview logs, open the logs folder.
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
+
+use crate::state::AppState;
 
 use super::error::ApiError;
+
+/// Resolves once the database is open. A command, not an event — an event fired
+/// before the webview attaches its listener would be missed, wedging startup.
+#[tauri::command]
+#[specta::specta]
+pub async fn wait_for_app_ready(state: State<'_, AppState>) -> Result<(), ApiError> {
+    state.db().await?;
+    Ok(())
+}
 
 /// Forward a log record from the webview into the unified backend log file,
 /// so frontend errors land in the same structured log as backend events.
 /// `level` is one of: error, warn, info, debug, trace (defaults to info).
 #[tauri::command]
+#[specta::specta]
 pub fn log_frontend(level: String, message: String, context: Option<String>) {
     let msg = match context {
         Some(ctx) if !ctx.is_empty() => format!("[frontend] {message} {ctx}"),
@@ -23,6 +35,7 @@ pub fn log_frontend(level: String, message: String, context: Option<String>) {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn open_logs_folder(app: AppHandle) -> Result<(), ApiError> {
     let logs_dir = app
         .path()
@@ -40,6 +53,7 @@ static PILL_ANCHOR: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new
 /// Resize the pill window to one of its two shapes, keeping its bottom-centre
 /// fixed so the capsule stays put while the card grows above it.
 #[tauri::command]
+#[specta::specta]
 pub fn resize_pill(app: AppHandle, expanded: bool) -> Result<(), ApiError> {
     use crate::pill_geometry::{capsule_window, card_window};
 

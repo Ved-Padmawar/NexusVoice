@@ -1,8 +1,8 @@
-import { Outlet, Link, useLocation, useNavigate } from 'react-router'
-import { useEffect, useCallback, useState } from 'react'
+import { Outlet, Link, useLocation } from 'react-router'
+import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import clsx from 'clsx'
-import { LayoutDashboard, BookOpen, Settings2, LogOut, Zap, X, ArrowUp, Download, RotateCcw } from 'lucide-react'
+import { LayoutDashboard, BookOpen, Settings2, X, ArrowUp, Download, RotateCcw } from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getName } from '@tauri-apps/api/app'
 import { useAppStore } from '../store/useAppStore'
@@ -47,8 +47,7 @@ function TitleBar() {
   )
 }
 
-/** Update prompt above the account row. Installs in place — the About tab is
- *  the secondary path, not the only one. */
+/** Installs in place — the About tab is the secondary path, not the only one. */
 function UpdatePrompt() {
   const status = useAppStore(s => s.updateStatus)
   const version = useAppStore(s => s.updateVersion)
@@ -173,14 +172,11 @@ const NAV = [
 ]
 
 export function Layout() {
-  const { user, logout, setActiveRoute } = useAppStore()
+  const setActiveRoute = useAppStore((s) => s.setActiveRoute)
   const location = useLocation()
-  const navigate = useNavigate()
 
   useEffect(() => {
-    if (location.pathname !== ROUTES.AUTH) {
-      setActiveRoute(location.pathname)
-    }
+    setActiveRoute(location.pathname)
   }, [location.pathname, setActiveRoute])
 
   const [isDev, setIsDev] = useState(false)
@@ -190,22 +186,11 @@ export function Layout() {
       .catch(() => setIsDev(false))
   }, [])
 
-  const handleLogout = useCallback(async () => {
-    await logout()
-    navigate('/auth', { replace: true })
-  }, [logout, navigate])
-
-  if (location.pathname === ROUTES.AUTH) return <Outlet />
-
-  const initials = user?.email?.charAt(0).toUpperCase() ?? '?'
-
   return (
     <div className="relative flex flex-col h-dvh overflow-hidden bg-background">
       <TitleBar />
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Sidebar */}
         <aside className="w-(--sidebar-w) shrink-0 h-full bg-(--panel) border-r border-(--border) flex flex-col relative z-10">
-          {/* Brand */}
           <div className="px-3.5 pt-7 pb-3.5 flex items-center border-b border-(--border-soft)">
             <Link to="/" className="flex items-center gap-2.25 no-underline group">
               {/* Real app icon (cyan/steel split tile + waveform) — same mark as
@@ -219,7 +204,7 @@ export function Layout() {
                 <div className="flex items-center gap-1.5">
                   <div className="text-[13px] font-black tracking-[-0.02em] leading-none"><span className="text-(--fg)">Nexus</span><span className="text-(--accent)">Voice</span></div>
                   {isDev && (
-                    <span className="px-1.25 py-0.25 rounded-(--r-xs) bg-(--accent-soft) text-(--accent) text-[9px] font-bold uppercase tracking-[0.06em] leading-none">
+                    <span className="px-1.25 py-px rounded-(--r-xs) bg-(--accent-soft) text-(--accent) text-[9px] font-bold uppercase tracking-[0.06em] leading-none">
                       Dev
                     </span>
                   )}
@@ -229,7 +214,6 @@ export function Layout() {
             </Link>
           </div>
 
-          {/* Nav */}
           <nav className="flex-1 p-2 flex flex-col gap-px overflow-y-auto">
             {NAV.map(({ path, label, Icon }) => {
               const active = location.pathname === path
@@ -244,7 +228,6 @@ export function Layout() {
                       : 'text-muted-foreground hover:text-(--fg) hover:bg-(--surface)'
                   )}
                 >
-                  {/* Active indicator */}
                   {active && (
                     <span className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-0.75 rounded-r-[3px] bg-(--accent)" />
                   )}
@@ -263,44 +246,8 @@ export function Layout() {
           </nav>
 
           <UpdatePrompt />
-
-          {/* Footer */}
-          <div className="px-2 pb-3 pt-2 border-t border-(--border-soft)">
-            {user ? (
-              <div className="flex items-center gap-2 px-2.5 py-1.75 rounded-(--r-md) bg-(--surface) border border-(--border-soft)">
-                <div className="w-6 h-6 rounded-full bg-(--accent-soft) text-(--accent) flex items-center justify-center text-[10px] font-bold shrink-0 uppercase border border-(--accent-soft)">
-                  {initials}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-(--fg-2) whitespace-nowrap overflow-hidden text-ellipsis font-medium">{user.email}</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  title="Log out"
-                  className="bg-transparent border-none cursor-pointer text-muted-foreground p-1 rounded-(--r-sm) flex items-center justify-center shrink-0 transition-colors duration-(--t-fast) hover:text-destructive"
-                >
-                  <LogOut size={13} strokeWidth={1.75} />
-                </button>
-              </div>
-            ) : (
-              <Link
-                to="/auth"
-                className={clsx(
-                  'flex items-center gap-2.25 px-2.5 py-1.75 rounded-(--r-md) no-underline text-[13px] font-medium transition-[color,background] duration-(--t-fast)',
-                  location.pathname === ROUTES.AUTH
-                    ? 'text-(--fg) bg-(--surface)'
-                    : 'text-muted-foreground hover:text-(--fg) hover:bg-(--surface)'
-                )}
-              >
-                <Zap size={15} strokeWidth={1.75} className="w-4 h-4 shrink-0" />
-                <span>Log in</span>
-              </Link>
-            )}
-          </div>
         </aside>
 
-        {/* Main */}
         <div className="flex-1 min-w-0 h-full overflow-hidden flex flex-col items-center">
           <main className="flex-1 w-full overflow-hidden flex flex-col min-h-0">
             <Outlet />

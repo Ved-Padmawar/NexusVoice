@@ -26,13 +26,14 @@ impl TranscriptRepository {
 
     pub async fn create(&self, input: CreateTranscript) -> Result<Transcript, sqlx::Error> {
         sqlx::query_as::<_, Transcript>(
-            "INSERT INTO transcripts (content, word_count, duration_seconds)
-             VALUES (?, ?, ?)
-             RETURNING id, content, word_count, duration_seconds, created_at",
+            "INSERT INTO transcripts (content, word_count, duration_seconds, target_app)
+             VALUES (?, ?, ?, ?)
+             RETURNING id, content, word_count, duration_seconds, target_app, created_at",
         )
         .bind(input.content)
         .bind(input.word_count)
         .bind(input.duration_seconds)
+        .bind(input.target_app)
         .fetch_one(&self.pool)
         .await
     }
@@ -40,7 +41,7 @@ impl TranscriptRepository {
     #[allow(dead_code)]
     pub async fn get_by_id(&self, id: i64) -> Result<Option<Transcript>, sqlx::Error> {
         sqlx::query_as::<_, Transcript>(
-            "SELECT id, content, word_count, duration_seconds, created_at FROM transcripts WHERE id = ?",
+            "SELECT id, content, word_count, duration_seconds, target_app, created_at FROM transcripts WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -72,7 +73,7 @@ impl TranscriptRepository {
         // the same second with an id past the cursor's.
         let sql = match (sort_desc, cursor.is_some()) {
             (true, true) => {
-                "SELECT id, content, word_count, duration_seconds, created_at
+                "SELECT id, content, word_count, duration_seconds, target_app, created_at
                  FROM transcripts
                  WHERE (? IS NULL OR created_at >= ?)
                    AND (? IS NULL OR created_at <= ?)
@@ -81,7 +82,7 @@ impl TranscriptRepository {
                  LIMIT ?"
             }
             (false, true) => {
-                "SELECT id, content, word_count, duration_seconds, created_at
+                "SELECT id, content, word_count, duration_seconds, target_app, created_at
                  FROM transcripts
                  WHERE (? IS NULL OR created_at >= ?)
                    AND (? IS NULL OR created_at <= ?)
@@ -90,7 +91,7 @@ impl TranscriptRepository {
                  LIMIT ?"
             }
             (true, false) => {
-                "SELECT id, content, word_count, duration_seconds, created_at
+                "SELECT id, content, word_count, duration_seconds, target_app, created_at
                  FROM transcripts
                  WHERE (? IS NULL OR created_at >= ?)
                    AND (? IS NULL OR created_at <= ?)
@@ -98,7 +99,7 @@ impl TranscriptRepository {
                  LIMIT ?"
             }
             (false, false) => {
-                "SELECT id, content, word_count, duration_seconds, created_at
+                "SELECT id, content, word_count, duration_seconds, target_app, created_at
                  FROM transcripts
                  WHERE (? IS NULL OR created_at >= ?)
                    AND (? IS NULL OR created_at <= ?)
@@ -129,7 +130,7 @@ impl TranscriptRepository {
     /// Returns all transcripts ordered by date — used for export.
     pub async fn list_all(&self) -> Result<Vec<Transcript>, sqlx::Error> {
         sqlx::query_as::<_, Transcript>(
-            "SELECT id, content, word_count, duration_seconds, created_at
+            "SELECT id, content, word_count, duration_seconds, target_app, created_at
              FROM transcripts ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
@@ -195,7 +196,7 @@ impl TranscriptRepository {
     ) -> Result<Vec<Transcript>, sqlx::Error> {
         let sql = match (sort_desc, cursor.is_some()) {
             (true, true) => {
-                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.created_at
+                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.target_app, t.created_at
                  FROM transcripts_fts
                  JOIN transcripts t ON transcripts_fts.rowid = t.id
                  WHERE transcripts_fts MATCH ?
@@ -206,7 +207,7 @@ impl TranscriptRepository {
                  LIMIT ?"
             }
             (false, true) => {
-                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.created_at
+                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.target_app, t.created_at
                  FROM transcripts_fts
                  JOIN transcripts t ON transcripts_fts.rowid = t.id
                  WHERE transcripts_fts MATCH ?
@@ -217,7 +218,7 @@ impl TranscriptRepository {
                  LIMIT ?"
             }
             (true, false) => {
-                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.created_at
+                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.target_app, t.created_at
                  FROM transcripts_fts
                  JOIN transcripts t ON transcripts_fts.rowid = t.id
                  WHERE transcripts_fts MATCH ?
@@ -227,7 +228,7 @@ impl TranscriptRepository {
                  LIMIT ?"
             }
             (false, false) => {
-                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.created_at
+                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.target_app, t.created_at
                  FROM transcripts_fts
                  JOIN transcripts t ON transcripts_fts.rowid = t.id
                  WHERE transcripts_fts MATCH ?
