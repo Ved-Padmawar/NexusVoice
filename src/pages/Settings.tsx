@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { useRef, useEffect } from 'react'
 import { useLocation } from 'react-router'
 import { invoke } from '@tauri-apps/api/core'
@@ -22,7 +23,10 @@ const SUBTITLE: Record<SettingsTab, string> = {
 }
 
 export function Settings() {
-  const { activeSettingsTab, setActiveSettingsTab } = useAppStore()
+  const { activeSettingsTab, setActiveSettingsTab } = useAppStore(useShallow(s => ({
+    activeSettingsTab: s.activeSettingsTab,
+    setActiveSettingsTab: s.setActiveSettingsTab,
+  })))
   const location = useLocation()
 
   const initialLocationState = useRef(location.state)

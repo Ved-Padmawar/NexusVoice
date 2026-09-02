@@ -12,12 +12,20 @@ import { COMMANDS } from '../lib/commands'
 import { toast } from 'sonner'
 import { extractErrorMessage } from '../lib/errors'
 import { useAppStore } from '../store/useAppStore'
+import {
+  useTranscripts,
+  useTranscriptSearch,
+  useStats,
+  useDeleteTranscript,
+  NO_FILTERS,
+  type TranscriptFilters,
+} from '../lib/queries'
 import { ROUTES } from '../lib/routes'
 import { fmtTime, fmtDate, downloadBlob } from '../lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { SectionState } from '../components/SectionState'
-import type { Transcript } from '../store/useAppStore'
+import type { Transcript } from '../types'
 
 function StatsSkeleton() {
   return (
@@ -156,8 +164,13 @@ function CopyButton({ text }: { text: string }) {
 
 type DateMode = 'range' | 'on'
 
-function FilterDropdown() {
-  const { filterFrom, filterTo, filterSortAsc, setFilters } = useAppStore()
+type FilterDropdownProps = {
+  filters: TranscriptFilters
+  onChange: (filters: TranscriptFilters) => void
+}
+
+function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
+  const { from: filterFrom, to: filterTo, sortAsc: filterSortAsc } = filters
   const [open, setOpen] = useState(false)
   const [dateMode, setDateMode] = useState<DateMode>('range')
   const [from, setFrom] = useState(filterFrom ?? '')
@@ -178,15 +191,15 @@ function FilterDropdown() {
 
   const apply = () => {
     if (dateMode === 'on' && on) {
-      setFilters(on, on, sortAsc)
+      onChange({ from: on, to: on, sortAsc })
     } else {
-      setFilters(from || null, to || null, sortAsc)
+      onChange({ from: from || null, to: to || null, sortAsc })
     }
     setOpen(false)
   }
   const reset = () => {
     setFrom(''); setTo(''); setOn(''); setSortAsc(false)
-    setFilters(null, null, false)
+    onChange(NO_FILTERS)
     setOpen(false)
   }
 
@@ -279,44 +292,44 @@ function FilterDropdown() {
 }
 
 export function Dashboard() {
-  const {
-    transcripts, transcriptHasMore, searchResults, isSearching, stats, hasHotkey,
-    transcriptsStatus, transcriptsError, statsStatus, statsError,
-    loadStats, retryTranscripts, searchTranscripts, deleteTranscript,
-  } = useAppStore()
+  const hasHotkey = useAppStore(s => s.hasHotkey)
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [filters, setFilters] = useState<TranscriptFilters>(NO_FILTERS)
   const observerRef = useRef<IntersectionObserver | null>(null)
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const isSearchMode = query.trim().length > 0
-  const displayItems = isSearchMode ? searchResults : transcripts
+  const isSearchMode = searchTerm.length > 0
+  const feed = useTranscripts(filters, !isSearchMode)
+  const search = useTranscriptSearch(searchTerm, filters)
+  const active = isSearchMode ? search : feed
+  const stats = useStats()
+  const deleteTranscript = useDeleteTranscript()
+
+  const displayItems = active.data?.pages.flat() ?? []
+  const feedCount = feed.data?.pages.flat().length ?? 0
 
   // A ref callback, not an effect: the sentinel mounts only after the feed's
   // skeleton is replaced, which changes no effect dependency — an effect would
-  // read a null ref and never re-run. Reads the action off the store at fire time
-  // so the observer isn't rebuilt on every store update.
+  // read a null ref and never re-run.
+  const { fetchNextPage, hasNextPage, isFetching } = active
+  const canFetchNext = hasNextPage && !isFetching
   const sentinelRef = useCallback((node: HTMLDivElement | null) => {
     observerRef.current?.disconnect()
-    if (!node) return
+    if (!node || !canFetchNext) return
     observerRef.current = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) void useAppStore.getState().loadMoreTranscripts() },
+      (entries) => { if (entries[0].isIntersecting) void fetchNextPage() },
       { threshold: 0.1 }
     )
     observerRef.current.observe(node)
-  }, [])
+  }, [canFetchNext, fetchNextPage])
 
   useEffect(() => () => observerRef.current?.disconnect(), [])
 
-  // Clear search timer on unmount to prevent state updates on unmounted component
-  useEffect(() => () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }, [])
-
-  // Debounced search
-  const handleSearch = useCallback((value: string) => {
-    setQuery(value)
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
-    searchTimerRef.current = setTimeout(() => searchTranscripts(value), 300)
-  }, [searchTranscripts])
+  useEffect(() => {
+    const id = setTimeout(() => setSearchTerm(query.trim()), 300)
+    return () => clearTimeout(id)
+  }, [query])
 
   return (
     <div className="flex flex-col h-full overflow-hidden px-8 pt-7 pb-4 gap-5">
@@ -351,17 +364,14 @@ export function Dashboard() {
       </AnimatePresence>
 
       {/* Stats */}
-      <SectionState status={statsStatus} error={statsError} onRetry={loadStats} skeleton={<StatsSkeleton />} hasData={stats != null}>
+      <SectionState status={stats.status} error={stats.error?.message} onRetry={stats.refetch} skeleton={<StatsSkeleton />} hasData={stats.data != null}>
       <div className="grid grid-cols-4 gap-2.5">
-        {STATS.map(({ key, label, fmt, Icon }, i) => {
-          const raw = stats?.[key as keyof typeof stats] as number | undefined
+        {STATS.map(({ key, label, fmt, Icon }) => {
+          const raw = stats.data?.[key as keyof typeof stats.data] as number | undefined
           return (
-            <motion.div
+            <div
               key={key}
               className="flex items-center gap-3.5 px-4.5 py-4 rounded-(--r-xl) bg-(--panel) border border-(--border) cursor-default"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.22, delay: i * 0.06 }}
             >
               <div className="w-9 h-9 rounded-(--r-md) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
                 <Icon size={15} strokeWidth={1.75} />
@@ -370,7 +380,7 @@ export function Dashboard() {
                 <span className="text-[20px] font-bold tracking-[-0.03em] text-(--fg) leading-none tabular-nums">{raw != null ? fmt(raw) : '—'}</span>
                 <span className="text-[11px] text-muted-foreground font-medium">{label}</span>
               </div>
-            </motion.div>
+            </div>
           )
         })}
       </div>
@@ -380,20 +390,20 @@ export function Dashboard() {
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
         <div className="flex items-center gap-2.5 mb-4 pr-3">
           <h2 className="text-[13px] font-semibold text-(--fg-2) tracking-[-0.01em] m-0">Recent activity</h2>
-          {!isSearchMode && transcripts.length > 0 && (
+          {!isSearchMode && feedCount > 0 && (
             <span className="inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-(--accent-soft) text-(--accent) text-[10px] font-bold tracking-[0.02em]">
-              {transcripts.length}
+              {feedCount}
             </span>
           )}
           <div className="ml-auto flex items-center gap-2">
           <ExportButton />
-          <FilterDropdown />
+          <FilterDropdown filters={filters} onChange={setFilters} />
           {/* Search bar */}
           <div className="relative flex items-center">
             <Search size={12} strokeWidth={2} className="absolute left-2.25 text-muted-foreground pointer-events-none" />
             <Input
               value={query}
-              onChange={e => handleSearch(e.target.value)}
+              onChange={e => setQuery(e.target.value)}
               placeholder="Search transcripts…"
               className="pl-7 h-7 text-[12px] w-45"
             />
@@ -402,12 +412,12 @@ export function Dashboard() {
         </div>
 
         <SectionState
-          status={transcriptsStatus}
-          error={transcriptsError}
-          onRetry={retryTranscripts}
+          status={active.status}
+          error={active.error?.message}
+          onRetry={active.refetch}
           skeleton={<FeedSkeleton />}
         >
-        {displayItems.length === 0 && !isSearching ? (
+        {displayItems.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-14 px-6 text-center">
             <div className="w-14 h-14 rounded-full border-[1.5px] border-dashed border-(--border) flex items-center justify-center text-muted-foreground">
               {isSearchMode ? <Search size={20} strokeWidth={1.5} /> : <Mic size={20} strokeWidth={1.5} />}
@@ -449,7 +459,7 @@ export function Dashboard() {
                         <button
                           type="button"
                           className="inline-flex items-center gap-1 bg-transparent border-none cursor-pointer text-[10px] font-medium px-1.5 py-0.5 rounded-(--r-sm) tracking-[0.02em] transition-colors duration-(--t-fast) text-muted-foreground hover:text-destructive"
-                          onClick={() => deleteTranscript(item.id)}
+                          onClick={() => deleteTranscript.mutate(item.id)}
                           title="Delete transcript"
                         >
                           <Trash2 size={11} strokeWidth={2} />
@@ -463,7 +473,7 @@ export function Dashboard() {
             </AnimatePresence>
 
             {/* Infinite scroll sentinel — pages the feed and search alike. */}
-            {transcriptHasMore && (
+            {hasNextPage && (
               <div ref={sentinelRef} className="flex items-center justify-center py-4">
                 <motion.div className="w-4 h-4 rounded-full border-2 border-(--border) border-t-(--accent)" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
               </div>

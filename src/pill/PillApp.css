@@ -138,6 +138,13 @@ body {
   gap: 8px;
 }
 
+/* A fast result can show the idle label before the height spring finishes, so
+   cap the 42px control row and use capsule padding to keep the label centred. */
+.pill--closing .pill__strip:not([aria-hidden]) {
+  height: min(32px, 100%);
+  padding: 0 10px 0 8px;
+}
+
 /* `display:none`, not opacity — with margin-left:auto an invisible hint still
    reserves width and eats the waveform's row. */
 .pill__hint {
@@ -439,3 +446,18 @@ body {
 .pill[data-pill-theme="dawn"] .pill__tentative { color: rgba(228,56,0,0.55); }
 .pill[data-pill-theme="dawn"] .pill__caret { background: #e43800; }
 .pill[data-pill-theme="dawn"] .pill__hint { color: rgba(37,22,20,0.38); }
+.pill__spinner-slot {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+/* The parent morphs between rectangles and circles. The rotating ring must
+   stay square throughout, or it becomes an ellipse clipped by the pill. */
+.pill__spinner {
+  width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+}

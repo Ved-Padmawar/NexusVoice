@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { useState, useCallback, useRef, useEffect, memo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../../lib/commands'
@@ -286,7 +287,11 @@ const HOTKEY_CONFIGS: HotkeyConfig[] = [
 ]
 
 export function HotkeySection() {
-  const { hasHotkey, hasDictationHotkey, hasDictationCommitHotkey } = useAppStore()
+  const { hasHotkey, hasDictationHotkey, hasDictationCommitHotkey } = useAppStore(useShallow(s => ({
+    hasHotkey: s.hasHotkey,
+    hasDictationHotkey: s.hasDictationHotkey,
+    hasDictationCommitHotkey: s.hasDictationCommitHotkey,
+  })))
   const [currentHotkeys, setCurrentHotkeys] = useState<Record<HotkeyKind, string | null>>({
     ptt: null,
     dictation: null,

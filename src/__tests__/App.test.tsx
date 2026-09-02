@@ -12,6 +12,7 @@ vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: vi.fn(() => ({
     onCloseRequested: vi.fn(() => Promise.resolve(() => {})),
     hide: vi.fn(() => Promise.resolve()),
+    show: vi.fn(() => Promise.resolve()),
   })),
 }));
 
@@ -28,8 +29,6 @@ describe("App", () => {
       return Promise.resolve(undefined);
     });
     useAppStore.setState({
-      transcripts: [],
-      dictionary: [],
       theme: "abyss",
       starting: false,
       // Otherwise the first-run model picker mounts over the app.

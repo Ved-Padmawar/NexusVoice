@@ -7,6 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getName } from '@tauri-apps/api/app'
 import { useAppStore } from '../store/useAppStore'
 import { ROUTES } from '../lib/routes'
+import { preloadRoute } from '../lib/routeModules'
 import logoUrl from '../assets/logo.png'
 
 function TitleBar() {
@@ -221,6 +222,8 @@ export function Layout() {
                 <Link
                   key={path}
                   to={path}
+                  onPointerEnter={() => preloadRoute(path)}
+                  onFocus={() => preloadRoute(path)}
                   className={clsx(
                     'flex items-center gap-2.25 px-2.5 py-1.75 rounded-(--r-md) no-underline text-[13px] font-medium transition-[color,background] duration-(--t-fast) relative group',
                     active

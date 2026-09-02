@@ -1,15 +1,23 @@
-import { useEffect, lazy, Suspense, type ReactNode } from 'react'
+import { useShallow } from 'zustand/react/shallow'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router'
 import { motion } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Toaster } from 'sonner'
 
-import { useAppStore, type Transcript } from './store/useAppStore'
+import { QueryClientProvider } from '@tanstack/react-query'
+
+import { useAppStore } from './store/useAppStore'
+import { queryClient, addTranscript } from './lib/queries'
+import type { Transcript } from './types'
 import { EVENTS } from './lib/events'
 import { ROUTES } from './lib/routes'
 import { useEventListener, useDelayedFlag } from './lib/hooks'
 import { Layout } from './components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { Dashboard } from './pages/Dashboard'
+import { SettingsPage as Settings, DictionaryPage as Dictionary, preloadRoute } from './lib/routeModules'
+import { showMainWindow } from './lib/showMainWindow'
 
 const Spinner = () => (
   <motion.div className="w-7 h-7 rounded-full border-2 border-(--border) border-t-(--accent)" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
@@ -41,14 +49,36 @@ function RouteFallback() {
   )
 }
 
-const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
-const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
-const Dictionary = lazy(() => import('./pages/Dictionary').then(m => ({ default: m.Dictionary })))
 // Shown once, on first run. Eager, it put its whole tree on every startup.
 const ModelPickerModal = lazy(() => import('./components/ModelPickerModal').then(m => ({ default: m.ModelPickerModal })))
 
 function App() {
-  const { theme, starting, activeRoute, modelChosen, startup, listenForModelEvents } = useAppStore()
+  const { theme, starting, modelChosen, startup, listenForModelEvents } = useAppStore(useShallow(s => ({
+    theme: s.theme,
+    starting: s.starting,
+    modelChosen: s.modelChosen,
+    startup: s.startup,
+    listenForModelEvents: s.listenForModelEvents,
+  })))
+  const [initialRoute] = useState(() => useAppStore.getState().activeRoute)
+
+  useEffect(() => {
+    if (starting) return
+    // Let the themed, populated page paint before revealing the native window.
+    let frame = requestAnimationFrame(() => { frame = requestAnimationFrame(showMainWindow) })
+    return () => cancelAnimationFrame(frame)
+  }, [starting])
+
+  useEffect(() => {
+    if (starting) return
+    const preload = () => { preloadRoute(ROUTES.SETTINGS); preloadRoute(ROUTES.DICTIONARY) }
+    if ('requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(preload, { timeout: 1000 })
+      return () => window.cancelIdleCallback(id)
+    }
+    const id = setTimeout(preload, 200)
+    return () => clearTimeout(id)
+  }, [starting])
 
   useEffect(() => {
     startup()
@@ -66,10 +96,7 @@ function App() {
     return () => clearTimeout(t)
   }, [])
 
-  useEventListener<Transcript>(EVENTS.TRANSCRIPT_NEW, (t) => {
-    useAppStore.setState(s => ({ transcripts: [t, ...s.transcripts] }))
-    useAppStore.getState().loadStats()
-  })
+  useEventListener<Transcript>(EVENTS.TRANSCRIPT_NEW, addTranscript)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -88,66 +115,51 @@ function App() {
   }
 
   return (
-    <BrowserRouter>
-      <Suspense fallback={<RouteFallback />}>
-        <AnimatedRoutes initialRoute={activeRoute} />
-      </Suspense>
-      {/* No fallback: nothing should flash on screen while the chunk loads. */}
-      {!modelChosen && (
-        <Suspense fallback={null}>
-          <ModelPickerModal />
-        </Suspense>
-      )}
-      <Toaster
-        position="bottom-right"
-        toastOptions={{
-          style: {
-            background: 'var(--panel)',
-            border: '1px solid var(--border)',
-            color: 'var(--fg)',
-            fontSize: '13px',
-            borderRadius: 'var(--r-lg)',
-            boxShadow: 'var(--shadow-md)',
-          },
-        }}
-      />
-    </BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <AppRoutes initialRoute={initialRoute} />
+        {/* No fallback: nothing should flash on screen while the chunk loads. */}
+        {!modelChosen && (
+          <Suspense fallback={null}>
+            <ModelPickerModal />
+          </Suspense>
+        )}
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            style: {
+              background: 'var(--panel)',
+              border: '1px solid var(--border)',
+              color: 'var(--fg)',
+              fontSize: '13px',
+              borderRadius: 'var(--r-lg)',
+              boxShadow: 'var(--shadow-md)',
+            },
+          }}
+        />
+      </BrowserRouter>
+    </QueryClientProvider>
   )
 }
 
-const pageVariants = {
-  initial: { opacity: 0, y: 6 },
-  animate: { opacity: 1, y: 0 },
-  exit:    { opacity: 0, y: -6 },
-}
-const pageTransition = { duration: 0.18, ease: 'easeInOut' as const }
-
-function PageTransition({ id, children }: { id: string; children: ReactNode }) {
-  return (
-    <motion.div key={id} className="contents" variants={pageVariants} initial="initial" animate="animate" exit="exit" transition={pageTransition}>
-      {children}
-    </motion.div>
-  )
-}
-
-function AnimatedRoutes({ initialRoute }: { initialRoute: string }) {
+function AppRoutes({ initialRoute }: { initialRoute: string }) {
   const location = useLocation()
   return (
     <Routes location={location}>
       <Route path={ROUTES.DASHBOARD} element={<Layout />}>
         <Route index element={
           <ErrorBoundary>
-            <PageTransition id="dashboard"><Dashboard /></PageTransition>
+            <Dashboard />
           </ErrorBoundary>
         } />
         <Route path={ROUTES.SETTINGS.slice(1)} element={
           <ErrorBoundary>
-            <PageTransition id="settings"><Settings /></PageTransition>
+            <Suspense fallback={<RouteFallback />}><Settings /></Suspense>
           </ErrorBoundary>
         } />
         <Route path={ROUTES.DICTIONARY.slice(1)} element={
           <ErrorBoundary>
-            <PageTransition id="dictionary"><Dictionary /></PageTransition>
+            <Suspense fallback={<RouteFallback />}><Dictionary /></Suspense>
           </ErrorBoundary>
         } />
         <Route path="*" element={<Navigate to={initialRoute} replace />} />

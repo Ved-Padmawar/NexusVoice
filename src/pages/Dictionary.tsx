@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { toast } from 'sonner'
 import { Trash2, BookOpen, Plus, Pencil, Check, X, Mic } from 'lucide-react'
-import { useAppStore } from '../store/useAppStore'
+import { useDictionary, useUpdateDictionary, useDeleteDictionaryEntry } from '../lib/queries'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { SectionState } from '../components/SectionState'
@@ -23,7 +23,9 @@ function DictionarySkeleton() {
 }
 
 export function Dictionary() {
-  const { dictionary, dictionaryStatus, dictionaryError, loadDictionary, updateDictionary, deleteDictionaryEntry } = useAppStore()
+  const { data: dictionary = [], status, error, refetch } = useDictionary()
+  const updateDictionary = useUpdateDictionary()
+  const deleteDictionaryEntry = useDeleteDictionaryEntry()
 
   const [term, setTerm] = useState('')
   const [replacement, setReplacement] = useState('')
@@ -39,9 +41,11 @@ export function Dictionary() {
     if (!t || !r) return
     setSaving(true)
     try {
-      await updateDictionary(t, r)
+      await updateDictionary.mutateAsync({ term: t, replacement: r })
       setTerm(''); setReplacement('')
       toast.success('Entry saved')
+    } catch {
+      // The mutation reports the error; keep the inputs available for retry.
     } finally { setSaving(false) }
   }
 
@@ -58,8 +62,14 @@ export function Dictionary() {
     if (!t || !r) return
     setEditSaving(true)
     try {
-      await updateDictionary(t, r, dictionary.find((d) => d.id === editId)?.term)
+      await updateDictionary.mutateAsync({
+        term: t,
+        replacement: r,
+        previousTerm: dictionary.find((d) => d.id === editId)?.term,
+      })
       cancelEdit()
+    } catch {
+      // The mutation reports the error; preserve the edit for retry.
     } finally { setEditSaving(false) }
   }
 
@@ -126,7 +136,7 @@ export function Dictionary() {
 
           <div className="flex-1 min-h-0 border border-(--border) rounded-(--r-xl) bg-background overflow-hidden flex flex-col">
             <div className="flex-1 min-h-0 overflow-y-auto">
-              <SectionState status={dictionaryStatus} error={dictionaryError} onRetry={loadDictionary} skeleton={<DictionarySkeleton />}>
+              <SectionState status={status} error={error?.message} onRetry={refetch} skeleton={<DictionarySkeleton />}>
               {dictionary.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-8 px-4 text-center">
                   <div className="w-9 h-9 rounded-(--r-lg) bg-(--surface) border border-(--border-soft) flex items-center justify-center text-muted-foreground opacity-80">
@@ -197,7 +207,7 @@ export function Dictionary() {
                                   <button type="button" className="w-7 h-7 flex items-center justify-center rounded-(--r-md) border-none bg-transparent cursor-pointer text-muted-foreground transition-[background,color] duration-(--t-fast) hover:bg-(--accent-soft) hover:text-(--accent)" onClick={() => startEdit(entry.id, entry.term, entry.replacement)}>
                                     <Pencil size={14} strokeWidth={1.75} />
                                   </button>
-                                  <button type="button" className="w-7 h-7 flex items-center justify-center rounded-(--r-md) border-none bg-transparent cursor-pointer text-muted-foreground transition-[background,color] duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-destructive" onClick={() => deleteDictionaryEntry(entry.id)}>
+                                  <button type="button" className="w-7 h-7 flex items-center justify-center rounded-(--r-md) border-none bg-transparent cursor-pointer text-muted-foreground transition-[background,color] duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-destructive" onClick={() => deleteDictionaryEntry.mutate(entry.id)}>
                                     <Trash2 size={14} strokeWidth={1.75} />
                                   </button>
                                 </div>

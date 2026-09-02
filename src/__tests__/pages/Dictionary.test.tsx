@@ -1,53 +1,69 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { Dictionary } from '../../pages/Dictionary'
-import { useAppStore } from '../../store/useAppStore'
+import { invoke } from '@tauri-apps/api/core'
+import { renderWithQuery } from '../utils'
+import type { DictionaryEntry } from '../../types'
+import { toast } from 'sonner'
 
-vi.mock('sonner', () => ({ toast: { success: vi.fn() } }))
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
-const mockUpdateDictionary = vi.fn()
-const mockDeleteDictionaryEntry = vi.fn()
+const mockInvoke = vi.mocked(invoke)
 
-const sampleEntry = { id: 1, term: 'teh', replacement: 'the', hits: 3, createdAt: '' }
+const sampleEntry: DictionaryEntry = { id: 1, term: 'teh', replacement: 'the', hits: 3, createdAt: '' }
+
+function mockBackend(entries: DictionaryEntry[] = []) {
+  mockInvoke.mockImplementation((cmd) => {
+    if (cmd === 'get_dictionary') return Promise.resolve(entries)
+    if (cmd === 'update_dictionary') return Promise.resolve(sampleEntry)
+    return Promise.resolve(undefined)
+  })
+}
+
+const render = () => renderWithQuery(<Dictionary />)
 
 beforeEach(() => {
-  mockUpdateDictionary.mockReset()
-  mockDeleteDictionaryEntry.mockReset()
-  mockUpdateDictionary.mockResolvedValue(undefined)
-  mockDeleteDictionaryEntry.mockResolvedValue(undefined)
-  useAppStore.setState({
-    dictionary: [],
-    error: null,
-    updateDictionary: mockUpdateDictionary,
-    deleteDictionaryEntry: mockDeleteDictionaryEntry,
-  } as never)
+  mockInvoke.mockReset()
+  mockBackend()
 })
 
 describe('Dictionary — empty state', () => {
-  it('shows empty state when no entries', () => {
-    render(<Dictionary />)
-    expect(screen.getByText(/no entries yet/i)).toBeInTheDocument()
+  it('shows empty state when no entries', async () => {
+    render()
+    expect(await screen.findByText(/no entries yet/i)).toBeInTheDocument()
   })
 })
 
 describe('Dictionary — add entry', () => {
+  it('keeps failed additions available for retry without an unhandled rejection', async () => {
+    mockInvoke.mockImplementation(cmd => cmd === 'update_dictionary' ? Promise.reject(new Error('Write failed')) : Promise.resolve([]))
+    render()
+    fireEvent.change(screen.getByPlaceholderText(/e.g. teh/i), { target: { value: 'teh' } })
+    fireEvent.change(screen.getByPlaceholderText(/e.g. the/i), { target: { value: 'the' } })
+    fireEvent.click(screen.getByRole('button', { name: /add to dictionary/i }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Write failed'))
+    expect(screen.getByDisplayValue('teh')).toBeEnabled()
+    expect(screen.getByDisplayValue('the')).toBeEnabled()
+  })
+
   it('Add button is disabled when inputs are empty', () => {
-    render(<Dictionary />)
+    render()
     expect(screen.getByRole('button', { name: /add to dictionary/i })).toBeDisabled()
   })
 
-  it('calls updateDictionary with term and replacement', async () => {
-    render(<Dictionary />)
+  it('sends the term and replacement to the backend', async () => {
+    render()
     fireEvent.change(screen.getByPlaceholderText(/e.g. teh/i), { target: { value: 'teh' } })
     fireEvent.change(screen.getByPlaceholderText(/e.g. the/i), { target: { value: 'the' } })
     fireEvent.click(screen.getByRole('button', { name: /add to dictionary/i }))
     await waitFor(() => {
-      expect(mockUpdateDictionary).toHaveBeenCalledWith('teh', 'the')
+      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'teh', replacement: 'the' })
     })
   })
 
   it('clears inputs after successful add', async () => {
-    render(<Dictionary />)
+    render()
     const termInput = screen.getByPlaceholderText(/e.g. teh/i)
     const replacementInput = screen.getByPlaceholderText(/e.g. the/i)
     fireEvent.change(termInput, { target: { value: 'teh' } })
@@ -60,55 +76,85 @@ describe('Dictionary — add entry', () => {
   })
 
   it('submits on Enter key in replacement input', async () => {
-    render(<Dictionary />)
+    render()
     fireEvent.change(screen.getByPlaceholderText(/e.g. teh/i), { target: { value: 'gonna' } })
     const replacementInput = screen.getByPlaceholderText(/e.g. the/i)
     fireEvent.change(replacementInput, { target: { value: 'going to' } })
     fireEvent.keyDown(replacementInput, { key: 'Enter' })
     await waitFor(() => {
-      expect(mockUpdateDictionary).toHaveBeenCalledWith('gonna', 'going to')
+      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'gonna', replacement: 'going to' })
     })
   })
 })
 
 describe('Dictionary — existing entries', () => {
   beforeEach(() => {
-    useAppStore.setState({ dictionary: [sampleEntry] } as never)
+    mockBackend([sampleEntry])
   })
 
-  it('renders entry term and replacement', () => {
-    render(<Dictionary />)
-    expect(screen.getByText('teh')).toBeInTheDocument()
+  it('preserves a failed edit for retry without an unhandled rejection', async () => {
+    mockInvoke.mockImplementation(cmd => cmd === 'update_dictionary' ? Promise.reject(new Error('Edit failed')) : Promise.resolve([sampleEntry]))
+    render()
+    await screen.findByText('teh')
+    fireEvent.click(screen.getAllByRole('button').find(b => b.querySelector('svg.lucide-pencil'))!)
+    fireEvent.change(screen.getByDisplayValue('teh'), { target: { value: 'hte' } })
+    fireEvent.keyDown(screen.getByDisplayValue('the'), { key: 'Enter' })
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Edit failed'))
+    expect(screen.getByDisplayValue('hte')).toBeEnabled()
+    expect(screen.getByDisplayValue('the')).toBeEnabled()
+  })
+
+  it('renders entry term and replacement', async () => {
+    render()
+    expect(await screen.findByText('teh')).toBeInTheDocument()
     expect(screen.getByText('the')).toBeInTheDocument()
   })
 
-  it('calls deleteDictionaryEntry when delete clicked', async () => {
-    render(<Dictionary />)
+  it('deletes the entry by id when delete is clicked', async () => {
+    render()
+    await screen.findByText('teh')
     // Trash button (last icon button in the row)
-    const buttons = screen.getAllByRole('button')
-    const deleteBtn = buttons.find(b => b.querySelector('svg.lucide-trash-2'))
+    const deleteBtn = screen.getAllByRole('button').find(b => b.querySelector('svg.lucide-trash-2'))
     if (deleteBtn) fireEvent.click(deleteBtn)
     await waitFor(() => {
-      expect(mockDeleteDictionaryEntry).toHaveBeenCalledWith(1)
+      expect(mockInvoke).toHaveBeenCalledWith('delete_dictionary_entry', { id: 1 })
     })
   })
 
-  it('enters edit mode on pencil click', () => {
-    render(<Dictionary />)
-    const buttons = screen.getAllByRole('button')
-    const editBtn = buttons.find(b => b.querySelector('svg.lucide-pencil'))
+  it('sends the previous term when an entry is renamed', async () => {
+    render()
+    await screen.findByText('teh')
+    const editBtn = screen.getAllByRole('button').find(b => b.querySelector('svg.lucide-pencil'))
+    fireEvent.click(editBtn!)
+
+    const termInput = await screen.findByDisplayValue('teh')
+    fireEvent.change(termInput, { target: { value: 'hte' } })
+    fireEvent.keyDown(screen.getByDisplayValue('the'), { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', {
+        term: 'hte',
+        replacement: 'the',
+        previousTerm: 'teh',
+      })
+    })
+  })
+
+  it('enters edit mode on pencil click', async () => {
+    render()
+    await screen.findByText('teh')
+    const editBtn = screen.getAllByRole('button').find(b => b.querySelector('svg.lucide-pencil'))
     if (editBtn) fireEvent.click(editBtn)
     expect(screen.getAllByRole('textbox').length).toBeGreaterThan(0)
   })
 
-  it('cancels edit mode on X click', () => {
-    render(<Dictionary />)
-    const buttons = screen.getAllByRole('button')
-    const editBtn = buttons.find(b => b.querySelector('svg.lucide-pencil'))
+  it('cancels edit mode on X click', async () => {
+    render()
+    await screen.findByText('teh')
+    const editBtn = screen.getAllByRole('button').find(b => b.querySelector('svg.lucide-pencil'))
     if (editBtn) fireEvent.click(editBtn)
     // After entering edit mode, find the X (cancel) button
-    const allButtons = screen.getAllByRole('button')
-    const cancelBtn = allButtons.find(b => b.querySelector('svg.lucide-x'))
+    const cancelBtn = screen.getAllByRole('button').find(b => b.querySelector('svg.lucide-x'))
     if (cancelBtn) fireEvent.click(cancelBtn)
     expect(screen.getByText('teh')).toBeInTheDocument()
   })

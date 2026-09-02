@@ -11,7 +11,7 @@ import type { ModelInfo } from '../types'
 import type { PillTheme, WaveformStyle } from '../store/uiSlice'
 import { WaveformCanvas } from '../components/WaveformCanvas'
 import { pillThemeDef } from '../lib/pillThemes'
-import { STORE_PERSIST_KEY } from '../store/useAppStore'
+import { STORE_PERSIST_KEY } from '../store/persistKey'
 import './PillApp.css'
 
 const PILL_WIDTH: Record<string, number> = {
@@ -49,6 +49,25 @@ const MIN_H = 3
 const MAX_H = 16
 const FLAT_BARS = [3, 3, 3, 3, 3, 3, 3, 3]
 
+function updateBar(bar: HTMLSpanElement | null, level: number) {
+  if (!bar) return
+  const height = `${Math.round(MIN_H + (MAX_H - MIN_H) * level)}px`
+  if (bar.style.height !== height) bar.style.height = height
+}
+
+function Spinner({ colors }: { colors: [string, string] }) {
+  return (
+    <div className="pill__spinner-slot">
+      <motion.div
+        className="pill__spinner"
+        style={{ borderRadius: '50%', border: `1.5px solid ${colors[0]}`, borderTopColor: colors[1] }}
+        animate={{ rotate: 360 }}
+        transition={{ duration: 1, ease: 'linear', repeat: Infinity }}
+      />
+    </div>
+  )
+}
+
 const SPINNER_COLORS: Record<PillTheme, { proc: [string, string]; dl: [string, string] }> = {
   steel:    { proc: ['rgba(148,168,200,0.15)', 'rgba(148,168,200,0.9)'], dl: ['rgba(245,158,11,0.15)', 'rgba(245,158,11,0.9)'] },
   midnight: { proc: ['rgba(26,209,209,0.15)',  'rgba(26,209,209,0.9)'],  dl: ['rgba(245,158,11,0.15)', 'rgba(245,158,11,0.9)'] },
@@ -74,7 +93,7 @@ export function PillApp() {
   const modelReadyRef = useRef(false)
   const [tooltip, setTooltip] = useState('')
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [barHeights, setBarHeights] = useState(FLAT_BARS)
+  const barsRef = useRef<(HTMLSpanElement | null)[]>([])
   const [pillTheme, setPillTheme] = useState<PillTheme>(() => readPersisted<PillTheme>('pillTheme', 'steel'))
   const [waveformStyle, setWaveformStyle] = useState<WaveformStyle>(() => readPersisted<WaveformStyle>('waveformStyle', 'bars'))
   const [liveTranscript, setLiveTranscript] = useState(() => readPersisted<boolean>('liveTranscript', false))
@@ -120,9 +139,11 @@ export function PillApp() {
       if (cancelled) return
       const levels = e.payload
       if (levels.length !== FLAT_BARS.length) return
-      const norm = levels.map((lvl) => Math.min(Math.max(lvl, 0), 1))
+      const norm = levels.map((lvl) => Number.isFinite(lvl) ? Math.min(Math.max(lvl, 0), 1) : 0)
       levelsRef.current = norm
-      setBarHeights(norm.map((v) => Math.max(MIN_H, Math.round(MIN_H + (MAX_H - MIN_H) * v))))
+      // Keep the existing CSS height easing without rendering the whole pill
+      // for every audio frame. Canvas styles consume the same levels ref.
+      barsRef.current.forEach((bar, i) => updateBar(bar, norm[i]))
     }).then(fn => { if (!cancelled) unlisten = fn; else fn() })
     return () => { cancelled = true; unlisten?.() }
   }, [])
@@ -134,14 +155,17 @@ export function PillApp() {
       const u1 = await listen<WaveformStyle>(EVENTS.PILL_WAVEFORM_STYLE_CHANGED, (e) => {
         if (!cancelled) setWaveformStyle(e.payload)
       })
+      if (cancelled) { u1(); return }
       unlisteners.push(u1)
       const u2 = await listen<PillTheme>(EVENTS.PILL_THEME_CHANGED, (e) => {
         if (!cancelled) setPillTheme(e.payload)
       })
+      if (cancelled) { u2(); return }
       unlisteners.push(u2)
       const u3 = await listen<boolean>(EVENTS.PILL_LIVE_TRANSCRIPT_CHANGED, (e) => {
         if (!cancelled) setLiveTranscript(e.payload)
       })
+      if (cancelled) { u3(); return }
       unlisteners.push(u3)
     }
     setup()
@@ -204,6 +228,7 @@ export function PillApp() {
         setDownloadPct(0)
         setState(s => s === 'idle' ? 'downloading' : s)
       })
+      if (cancelled) { um1(); return }
       unlisteners.push(um1)
 
       const um2 = await listen<{ pct: number }>(EVENTS.MODEL_DOWNLOAD_PROGRESS, (e) => {
@@ -211,6 +236,7 @@ export function PillApp() {
         setDownloadPct(e.payload?.pct ?? 0)
         setState(s => s === 'idle' || s === 'downloading' ? 'downloading' : s)
       })
+      if (cancelled) { um2(); return }
       unlisteners.push(um2)
 
       const um3 = await listen(EVENTS.MODEL_DOWNLOAD_COMPLETE, () => {
@@ -218,12 +244,14 @@ export function PillApp() {
         modelReadyRef.current = true
         setState('idle')
       })
+      if (cancelled) { um3(); return }
       unlisteners.push(um3)
 
       const um4 = await listen(EVENTS.MODEL_DOWNLOAD_ERROR, () => {
         if (cancelled) return
         setState('idle')
       })
+      if (cancelled) { um4(); return }
       unlisteners.push(um4)
 
       const um5 = await listen(EVENTS.MODEL_DOWNLOAD_CANCELLED, () => {
@@ -231,6 +259,7 @@ export function PillApp() {
         setState('idle')
         setDownloadPct(0)
       })
+      if (cancelled) { um5(); return }
       unlisteners.push(um5)
 
       // Active model deleted — block recording until one is downloaded again.
@@ -239,6 +268,7 @@ export function PillApp() {
         modelReadyRef.current = false
         setState(s => (s === 'recording' || s === 'dictation') ? s : 'idle')
       })
+      if (cancelled) { um6(); return }
       unlisteners.push(um6)
 
       // Deleted active model but another is on disk — that one is ready.
@@ -246,6 +276,7 @@ export function PillApp() {
         if (cancelled) return
         modelReadyRef.current = true
       })
+      if (cancelled) { um7(); return }
       unlisteners.push(um7)
     }
 
@@ -266,10 +297,12 @@ export function PillApp() {
         if (!p || (!p.committed && !p.tentative)) return
         setPartial(p)
       })
+      if (cancelled) { u1(); return }
       unlisteners.push(u1)
       const u2 = await listen(EVENTS.TRANSCRIPTION_PARTIAL_END, () => {
         if (!cancelled) setPartial(null)
       })
+      if (cancelled) { u2(); return }
       unlisteners.push(u2)
     }
     setup()
@@ -414,7 +447,7 @@ export function PillApp() {
     }
   }, [showTooltip, serialize])
 
-  // Grown once, shrunk back on close; everything between is compositor work.
+  // Resize the native window once on opening and once after closing settles.
   // Skipped until actually grown, so a pill that never expands is never moved.
   const grownRef = useRef(false)
   useEffect(() => {
@@ -488,12 +521,15 @@ export function PillApp() {
   /** A canvas is sized in pixels, so it is keyed on its slot — remounting at
    *  the final width rather than stretching from the old one. */
   const renderWaveform = (dictation = false) => {
-    const width = expanded ? 54 : (dictation ? 45 : 42)
+    const width = roomy ? 54 : (dictation ? 45 : 42)
     return (
       <div className={`pill__waveform pill__wave-slot${dictation ? ' pill__waveform--dictation' : ''}`}>
         {waveformStyle === 'bars'
-          ? barHeights.map((h, i) => (
-              <span key={i} className="pill__bar" style={{ height: `${h}px` }} />
+          ? FLAT_BARS.map((_, i) => (
+              <span key={i} className="pill__bar" ref={bar => {
+                barsRef.current[i] = bar
+                updateBar(bar, levelsRef.current[i])
+              }} />
             ))
           : (
             <WaveformCanvas
@@ -570,12 +606,14 @@ export function PillApp() {
       {tooltip && <div className="pill-tooltip">{tooltip}</div>}
 
       <motion.div
-        className={`pill pill--${state}${expanded ? ' pill--expanded' : ''}`}
+        // Keep the outgoing transcript in its card layout until the close
+        // finishes. Switching to a flex row during its fade rewraps the text.
+        className={`pill pill--${state}${roomy ? ' pill--expanded' : ''}${roomy && !expanded ? ' pill--closing' : ''}`}
         data-pill-theme={pillTheme}
         initial={false}
         animate={{
           width: expanded ? CARD_W : (PILL_WIDTH[state] ?? CAPSULE_W),
-          borderRadius: expanded ? CARD_RADIUS : 999,
+          borderRadius: expanded ? CARD_RADIUS : CAPSULE_H / 2,
         }}
         transition={
           reduceMotion ? { duration: 0 }
@@ -634,7 +672,7 @@ export function PillApp() {
         </AnimatePresence>
 
         {showStrip && (
-          isDictation && !expanded ? (
+          isDictation && !roomy ? (
             <div className="pill__dictation" aria-label={isPaused ? 'Dictation paused' : 'Dictation recording'}>
               {stripContent}
             </div>
@@ -643,33 +681,14 @@ export function PillApp() {
           )
         )}
 
-        {state === 'processing' && (
-          <motion.div
-            style={{
-              position: 'absolute',
-              inset: 4,
-              borderRadius: '50%',
-              border: `1.5px solid ${SPINNER_COLORS[pillTheme].proc[0]}`,
-              borderTopColor: SPINNER_COLORS[pillTheme].proc[1],
-            }}
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1, ease: 'linear', repeat: Infinity }}
-          />
-        )}
+        {/* Preserve the transcript's bottom inset while its strip fades out. */}
+        {roomy && !showStrip && <div className="pill__strip" aria-hidden="true" />}
+
+        {state === 'processing' && <Spinner colors={SPINNER_COLORS[pillTheme].proc} />}
 
         {state === 'downloading' && (
           <>
-            <motion.div
-              style={{
-                position: 'absolute',
-                inset: 4,
-                borderRadius: '50%',
-                border: `1.5px solid ${SPINNER_COLORS[pillTheme].dl[0]}`,
-                borderTopColor: SPINNER_COLORS[pillTheme].dl[1],
-              }}
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1, ease: 'linear', repeat: Infinity }}
-            />
+            <Spinner colors={SPINNER_COLORS[pillTheme].dl} />
             <span className="pill__pct">{downloadPct}%</span>
           </>
         )}

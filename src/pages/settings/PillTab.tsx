@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { memo } from 'react'
 import { motion } from 'framer-motion'
 import { emit } from '@tauri-apps/api/event'
@@ -87,7 +88,10 @@ function PillSwatch({ t, active, onPick }: { t: PillThemeDef; active: boolean; o
 
 /** The pill floats over other apps, so it is themed separately. */
 export const PillTab = memo(function PillTab() {
-  const { pillTheme, setPillTheme } = useAppStore()
+  const { pillTheme, setPillTheme } = useAppStore(useShallow(s => ({
+    pillTheme: s.pillTheme,
+    setPillTheme: s.setPillTheme,
+  })))
   const current = PILL_THEMES.find((t) => t.id === pillTheme) ?? PILL_THEMES[0]
 
   const handleSelect = (id: PillTheme) => {

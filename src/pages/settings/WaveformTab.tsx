@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { memo, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { emit } from '@tauri-apps/api/event'
@@ -214,7 +215,11 @@ function StyleSwatch({ s, active, onPick, levelsRef, theme }: {
 
 /** How the pill draws your voice while it records. */
 export const WaveformTab = memo(function WaveformTab() {
-  const { waveformStyle, setWaveformStyle, pillTheme } = useAppStore()
+  const { waveformStyle, setWaveformStyle, pillTheme } = useAppStore(useShallow(s => ({
+    waveformStyle: s.waveformStyle,
+    setWaveformStyle: s.setWaveformStyle,
+    pillTheme: s.pillTheme,
+  })))
   const levelsRef = usePreviewLevels()
   const current = WAVEFORM_STYLES.find((s) => s.id === waveformStyle) ?? WAVEFORM_STYLES[0]
   const theme = pillThemeDef(pillTheme)

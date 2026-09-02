@@ -1,3 +1,4 @@
+import { useShallow } from 'zustand/react/shallow'
 import { memo } from 'react'
 import { motion } from 'framer-motion'
 import { Check, Moon, Sun } from 'lucide-react'
@@ -139,7 +140,10 @@ function ThemeSwatch({ t, active, onPick }: { t: ThemeDef; active: boolean; onPi
 /** Picking a theme is a before/after judgement, so the preview holds its
  *  position and only its colours move. */
 export const AppearanceTab = memo(function AppearanceTab() {
-  const { theme, setTheme } = useAppStore()
+  const { theme, setTheme } = useAppStore(useShallow(s => ({
+    theme: s.theme,
+    setTheme: s.setTheme,
+  })))
   const current = THEMES.find((t) => t.name === theme) ?? THEMES[0]
 
   return (

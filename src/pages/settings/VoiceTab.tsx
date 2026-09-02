@@ -43,11 +43,11 @@ const TIER_HEIGHTS = ['4px', '6px', '8px', '10px']
 function WeightMeter({ bytes, active }: { bytes: number; active: boolean }) {
   const tier = weightTier(bytes)
   return (
-    <span className="flex items-end gap-[2px]" title={`${TIER_LABEL[tier]} download`}>
+    <span className="flex items-end gap-0.5" title={`${TIER_LABEL[tier]} download`}>
       {[0, 1, 2, 3].map((i) => (
         <span
           key={i}
-          className="w-[3px] rounded-[1px]"
+          className="w-0.75 rounded-[1px]"
           style={{
             height: TIER_HEIGHTS[i],
             background: i <= tier ? (active ? 'var(--accent)' : 'var(--fg-2)') : 'var(--border)',
@@ -89,7 +89,7 @@ function ModelCard({
       className={`nv-edge flex flex-col gap-2.5 rounded-(--r-lg) p-3 ${
         loaded
           ? '[--edge:var(--accent)] bg-(--accent-soft)'
-          : '[--edge:var(--border-soft)] bg-(--panel) hover:[--edge:var(--border)] hover:bg-(--surface-hover) has-[button:hover]:[--edge:var(--border-soft)] has-[button:hover]:bg-(--panel)'
+          : '[--edge:var(--border-soft)] bg-(--panel) hover:[--edge:var(--border)] hover:bg-accent has-[button:hover]:[--edge:var(--border-soft)] has-[button:hover]:bg-(--panel)'
       }`}
     >
       <div className="flex gap-2.5">
@@ -198,7 +198,7 @@ function ModelCard({
             title={download?.error ?? undefined}
             className={`nv-edge flex h-7 w-full items-center justify-center gap-1.5 rounded-(--r-md) bg-(--surface) text-[12px] font-medium cursor-pointer hover:bg-(--accent-soft) hover:text-(--accent) hover:[--edge:color-mix(in_srgb,var(--accent)_45%,transparent)] disabled:cursor-not-allowed disabled:opacity-50 ${
               download?.status === 'error'
-                ? '[--edge:var(--danger)] text-(--danger)'
+                ? '[--edge:var(--danger)] text-destructive'
                 : 'text-(--fg-2)'
             }`}
           >
@@ -353,7 +353,7 @@ export function VoiceTab() {
           type="button"
           onClick={() => setManagerOpen(true)}
           title="Manage downloaded models"
-          className="flex shrink-0 items-center gap-1.5 rounded-(--r-sm) border border-(--border) bg-(--surface) px-2 py-1 text-[11px] font-medium text-(--fg-2) cursor-pointer transition-colors duration-(--t-fast) hover:bg-(--surface-hover) hover:text-(--fg)"
+          className="flex shrink-0 items-center gap-1.5 rounded-(--r-sm) border border-(--border) bg-(--surface) px-2 py-1 text-[11px] font-medium text-(--fg-2) cursor-pointer transition-colors duration-(--t-fast) hover:bg-accent hover:text-(--fg)"
         >
           <Database size={11} strokeWidth={1.75} className="shrink-0" />
           <span className="leading-none">Manage</span>

@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
 import { AlertCircle, RefreshCw } from 'lucide-react'
 import { useDelayedFlag } from '../lib/hooks'
-import type { AsyncStatus } from '../store/asyncStatus'
+
+type SectionStatus = 'pending' | 'error' | 'success'
 
 interface Props {
-  status: AsyncStatus
+  status: SectionStatus
   error?: string | null
   /** Re-run the section's own fetch. */
   onRetry: () => void
@@ -19,14 +20,8 @@ interface Props {
   hasData?: boolean
 }
 
-/**
- * Drives a section's loading / error / content UI from an {@link AsyncStatus}.
- * - `loading` → skeleton (only after `loaderDelayMs`, so fast loads don't flash)
- * - `error`   → inline message + Retry (re-runs the section's own fetch)
- * - else      → children
- */
 export function SectionState({ status, error, onRetry, skeleton, children, loaderDelayMs = 250, hasData = false }: Props) {
-  const showSkeleton = useDelayedFlag(status === 'loading', loaderDelayMs)
+  const showSkeleton = useDelayedFlag(status === 'pending', loaderDelayMs)
 
   if (status === 'error' && !hasData) {
     return (
@@ -51,7 +46,7 @@ export function SectionState({ status, error, onRetry, skeleton, children, loade
     )
   }
 
-  if (status === 'loading' && !hasData) {
+  if (status === 'pending' && !hasData) {
     return showSkeleton ? <>{skeleton}</> : null
   }
 

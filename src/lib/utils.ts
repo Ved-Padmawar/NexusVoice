@@ -13,11 +13,15 @@ export function fmtTime(s: number): string {
   return rm > 0 ? `${h}h ${rm}m` : `${h}h`
 }
 
+// Creating an Intl formatter per row dominated Dashboard render time.
+const transcriptDateFormat = new Intl.DateTimeFormat(undefined, {
+  month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+})
+
 export function fmtDate(d: string): string {
   try {
-    return new Date(d).toLocaleString(undefined, {
-      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-    })
+    const date = new Date(d)
+    return Number.isNaN(date.getTime()) ? 'Invalid Date' : transcriptDateFormat.format(date)
   } catch { return d }
 }
 

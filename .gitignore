@@ -33,6 +33,7 @@ CLAUDE.md
 
 # Local dev tools
 docs/
+scripts/perf/
 
 # Scratch files
 1.txt
