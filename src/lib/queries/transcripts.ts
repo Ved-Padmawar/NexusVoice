@@ -104,7 +104,8 @@ export async function addTranscript(transcript: Transcript) {
     if (!data) return data
     if (data.pages.some(page => page.some(row => row.id === transcript.id))) return data
     const [first = [], ...rest] = data.pages
-    return { ...data, pages: [[transcript, ...first], ...rest] }
+    const grown = [transcript, ...first]
+    return { ...data, pages: [rest.length > 0 ? grown.slice(0, PAGE_SIZE) : grown, ...rest] }
   })
   const feed = queryClient.getQueryCache().find({ queryKey, exact: true })
   // The default feed is already updated. Other filters/searches must be

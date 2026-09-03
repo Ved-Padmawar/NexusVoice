@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { WAVEFORM_RENDERERS, ACCENT_RGB, type RenderState } from '../lib/waveform'
 import type { WaveformStyle } from '../store/uiSlice'
 
@@ -24,9 +24,9 @@ export function WaveformCanvas({ style, width, height, levelsRef, accent = ACCEN
   const stateRef = useRef<RenderState>({})
 
   // A style switch must not inherit the previous style's scroll/peak state.
-  useEffect(() => { stateRef.current = {} }, [style, width, height])
+  useLayoutEffect(() => { stateRef.current = {} }, [style])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const canvas = canvasRef.current
     const render = WAVEFORM_RENDERERS[style]
     if (!canvas || !render) return
@@ -37,6 +37,10 @@ export function WaveformCanvas({ style, width, height, levelsRef, accent = ACCEN
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     ctx.scale(dpr, dpr)
+
+    // Resizing clears the backing store. Repaint before the browser can show
+    // that blank frame, retaining the same waveform history at the new size.
+    render({ ctx, width, height, levels: levelsRef.current ?? [], dt: 0, state: stateRef.current, accent, idleMotion })
 
     let raf = 0
     let last = performance.now()

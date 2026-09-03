@@ -25,6 +25,20 @@ describe('local Query cache', () => {
     expect(queryClient.getQueryData(feedKey)).toEqual(data)
   })
 
+  it('holds the first page at PAGE_SIZE so a new row never duplicates the next page', async () => {
+    const firstPage = Array.from({ length: PAGE_SIZE }, (_, i) => row(PAGE_SIZE + 1 - i))
+    const secondPage = [row(0)]
+    queryClient.setQueryData(feedKey, {
+      pages: [firstPage, secondPage],
+      pageParams: [{ cursorCreatedAt: null, cursorId: null }, { cursorCreatedAt: row(1).createdAt, cursorId: 1 }],
+    })
+    await addTranscript(row(999))
+    const loaded = queryClient.getQueryData<TranscriptPages>(feedKey)!
+    const ids = loaded.pages.flat().map(t => t.id)
+    expect(loaded.pages[0]).toHaveLength(PAGE_SIZE)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
   it('fetches only the search when the underlying feed is disabled', async () => {
     const { result } = renderHook(() => {
       useTranscripts(NO_FILTERS, false)

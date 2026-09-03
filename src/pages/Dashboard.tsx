@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Popover } from 'radix-ui'
@@ -306,8 +306,15 @@ export function Dashboard() {
   const stats = useStats()
   const deleteTranscript = useDeleteTranscript()
 
-  const displayItems = active.data?.pages.flat() ?? []
-  const feedCount = feed.data?.pages.flat().length ?? 0
+  const displayItems = useMemo(() => {
+    const rows = active.data?.pages.flat() ?? []
+    const seen = new Set<number>()
+    return rows.filter(row => !seen.has(row.id) && seen.add(row.id))
+  }, [active.data])
+  const feedCount = useMemo(
+    () => new Set(feed.data?.pages.flat().map(row => row.id) ?? []).size,
+    [feed.data],
+  )
 
   // A ref callback, not an effect: the sentinel mounts only after the feed's
   // skeleton is replaced, which changes no effect dependency — an effect would

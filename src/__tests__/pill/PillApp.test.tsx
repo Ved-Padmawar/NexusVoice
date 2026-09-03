@@ -17,6 +17,7 @@ beforeEach(() => {
   listeners.clear()
   localStorage.clear()
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   vi.mocked(invoke).mockReset().mockImplementation(cmd => Promise.resolve(cmd === 'get_model_info' ? { downloaded: true, downloading: false } : undefined))
   vi.mocked(listen).mockReset().mockImplementation(async (event, handler) => {
     const callbacks = listeners.get(event) ?? new Set()
@@ -36,6 +37,7 @@ it.each([44, 200])('keeps a transcript of height %i in its card layout until col
   await emit(EVENTS.TRANSCRIPTION_PARTIAL, { committed: 'Live transcript', tentative: '' })
   const pill = view.getByRole('status')
   await waitFor(() => expect(parseFloat(pill.style.height)).toBeGreaterThan(50))
+  vi.mocked(invoke).mockClear()
   await emit(EVENTS.HOTKEY_RELEASED)
   expect(pill).toHaveAttribute('aria-label', 'NexusVoice: processing')
   expect(pill).toHaveClass('pill--expanded')
@@ -44,6 +46,85 @@ it.each([44, 200])('keeps a transcript of height %i in its card layout until col
   await waitFor(() => expect(pill).not.toHaveClass('pill--expanded'), { timeout: 2000 })
   expect(invoke).toHaveBeenCalledWith('resize_pill', { expanded: false })
   expect(pill.querySelector('.pill__spinner')).toBeInTheDocument()
+})
+
+it('keeps outgoing words available during the transcript exit fade', async () => {
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(44)
+  const view = render(<PillApp />)
+  await waitFor(() => expect(listeners.get(EVENTS.HOTKEY_RELEASED)?.size).toBe(1))
+  await emit(EVENTS.PILL_LIVE_TRANSCRIPT_CHANGED, true)
+  await emit(EVENTS.HOTKEY_PRESSED)
+  await emit(EVENTS.TRANSCRIPTION_PARTIAL, { committed: 'Keep these words', tentative: 'visible' })
+  await waitFor(() => expect(view.getByText('Keep these words')).toBeInTheDocument())
+  await waitFor(() => expect(view.container.querySelector('.pill__transcript')).toHaveStyle({ opacity: '1' }))
+  await emit(EVENTS.HOTKEY_RELEASED)
+  expect(view.getByText('Keep these words')).toBeInTheDocument()
+  expect(view.getByText('visible')).toBeInTheDocument()
+})
+
+it('shrinks the window even when recording ends before expansion IPC resolves', async () => {
+  let finishExpansion: (() => void) | undefined
+  vi.mocked(invoke).mockImplementation((cmd, args) => {
+    if (cmd === 'get_model_info') return Promise.resolve({ downloaded: true, downloading: false })
+    if (cmd === 'resize_pill' && (args as { expanded: boolean }).expanded) {
+      return new Promise<void>(resolve => { finishExpansion = resolve })
+    }
+    return Promise.resolve()
+  })
+  const view = render(<PillApp />)
+  await waitFor(() => expect(listeners.get(EVENTS.HOTKEY_RELEASED)?.size).toBe(1))
+  await emit(EVENTS.PILL_LIVE_TRANSCRIPT_CHANGED, true)
+  await emit(EVENTS.HOTKEY_PRESSED)
+  await emit(EVENTS.TRANSCRIPTION_PARTIAL, { committed: 'Short recording', tentative: '' })
+  await waitFor(() => expect(finishExpansion).toBeTypeOf('function'))
+  vi.mocked(invoke).mockClear()
+  await emit(EVENTS.HOTKEY_RELEASED)
+  await emit(EVENTS.TRANSCRIPTION_COMPLETE, '')
+  await act(async () => finishExpansion!())
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('resize_pill', { expanded: false }))
+  expect(view.getByRole('status')).not.toHaveClass('pill--expanded')
+})
+
+it('does not let a cancelled close shrink a reopened card', async () => {
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(100)
+  const view = render(<PillApp />)
+  await waitFor(() => expect(listeners.get(EVENTS.HOTKEY_RELEASED)?.size).toBe(1))
+  await emit(EVENTS.PILL_LIVE_TRANSCRIPT_CHANGED, true)
+  await emit(EVENTS.HOTKEY_PRESSED)
+  await emit(EVENTS.TRANSCRIPTION_PARTIAL, { committed: 'First recording', tentative: '' })
+  await waitFor(() => expect(parseFloat(view.getByRole('status').style.height)).toBeGreaterThan(60))
+  vi.mocked(invoke).mockClear()
+  await emit(EVENTS.HOTKEY_RELEASED)
+  await emit(EVENTS.TRANSCRIPTION_COMPLETE, '')
+  await emit(EVENTS.HOTKEY_PRESSED)
+  await emit(EVENTS.TRANSCRIPTION_PARTIAL, { committed: 'Second recording', tentative: '' })
+  await waitFor(() => expect(parseFloat(view.getByRole('status').style.width)).toBeCloseTo(332, 0))
+  expect(invoke).not.toHaveBeenCalledWith('resize_pill', { expanded: false })
+  await emit(EVENTS.HOTKEY_RELEASED)
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('resize_pill', { expanded: false }))
+})
+
+it('restores capsule bounds on mount after a renderer reload', async () => {
+  render(<PillApp />)
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('resize_pill', { expanded: false }))
+})
+
+it('stages idle content when a card returns directly to idle without processing', async () => {
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(100)
+  const view = render(<PillApp />)
+  await waitFor(() => expect(listeners.get(EVENTS.TRANSCRIPTION_COMPLETE)?.size).toBe(1))
+  await emit(EVENTS.PILL_LIVE_TRANSCRIPT_CHANGED, true)
+  await emit(EVENTS.HOTKEY_PRESSED)
+  await emit(EVENTS.TRANSCRIPTION_PARTIAL, { committed: 'Direct result', tentative: '' })
+  const pill = view.getByRole('status')
+  await waitFor(() => expect(parseFloat(pill.style.height)).toBeGreaterThan(100))
+  await emit(EVENTS.TRANSCRIPTION_COMPLETE, '')
+  expect(pill).toHaveAttribute('aria-label', 'NexusVoice: idle')
+  expect(pill.querySelector('.pill__spinner')).not.toBeInTheDocument()
+  expect(pill.querySelector('.pill__strip')).toHaveClass('pill__strip--returning')
+  await waitFor(() => expect(pill).not.toHaveClass('pill--expanded'))
+  expect(pill.querySelector('.pill__strip')).not.toHaveClass('pill__strip--returning')
+  expect(view.getByText('NexusVoice')).toBeInTheDocument()
 })
 
 it('has one subscription per event after StrictMode remounts and cleans them all up', async () => {

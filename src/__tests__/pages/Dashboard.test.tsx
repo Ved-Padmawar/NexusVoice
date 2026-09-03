@@ -253,4 +253,18 @@ describe('Dashboard — infinite scroll sentinel', () => {
       })
     })
   })
+
+  it('renders a row once when the next page repeats it', async () => {
+    let call = 0
+    mockInvoke.mockImplementation((cmd) => {
+      if (cmd === 'get_transcripts') return Promise.resolve(call++ === 0 ? fullPage : [fullPage[49]])
+      if (cmd === 'get_usage_stats') return Promise.resolve(null)
+      return Promise.resolve(undefined)
+    })
+    renderDashboard()
+    await waitFor(() => expect(observed.size).toBeGreaterThan(0))
+    act(() => fireIntersect?.())
+    await waitFor(() => expect(call).toBe(2))
+    expect(await screen.findAllByText('row 50')).toHaveLength(1)
+  })
 })

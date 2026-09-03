@@ -71,10 +71,15 @@ function memo({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idle
   ctx.clearRect(0, 0, width, height)
 
   let s = state.memo as MemoState | undefined
-  if (!s || s.slot !== width / 28) {
+  if (!s) {
     const n = 28
     s = { hist: new Array(n).fill(0), scroll: 0, phase: 0, peakSince: 0, n, slot: width / n, barW: 1.8 }
     state.memo = s
+  }
+  if (s.slot !== width / s.n) {
+    const slot = width / s.n
+    s.scroll *= slot / s.slot
+    s.slot = slot
   }
   s.phase += dt
 
@@ -208,7 +213,7 @@ function spectrum({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, 
 
   const BINS = Math.max(12, Math.min(30, Math.round(width / 3)))
   let s = state.spectrum as SpectrumState | undefined
-  if (!s || s.bins !== BINS) {
+  if (!s) {
     s = {
       bins: BINS,
       val: new Array(BINS).fill(0),
@@ -216,6 +221,16 @@ function spectrum({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, 
       t: 0,
     }
     state.spectrum = s
+  }
+  if (s.bins !== BINS) {
+    const resample = (values: number[]) => Array.from({ length: BINS }, (_, i) => {
+      const x = i * (values.length - 1) / (BINS - 1)
+      const left = Math.floor(x)
+      return values[left] + (values[Math.min(left + 1, values.length - 1)] - values[left]) * (x - left)
+    })
+    s.val = resample(s.val)
+    s.seed = resample(s.seed)
+    s.bins = BINS
   }
   s.t += dt
 

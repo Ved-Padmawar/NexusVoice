@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useRef, useMemo, useLayoutEffect } from 'react'
-import { motion, AnimatePresence, useReducedMotion, useMotionValue, animate } from 'framer-motion'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -12,6 +12,7 @@ import type { PillTheme, WaveformStyle } from '../store/uiSlice'
 import { WaveformCanvas } from '../components/WaveformCanvas'
 import { pillThemeDef } from '../lib/pillThemes'
 import { STORE_PERSIST_KEY } from '../store/persistKey'
+import { CARD_W, usePillGeometry } from './usePillGeometry'
 import './PillApp.css'
 
 const PILL_WIDTH: Record<string, number> = {
@@ -23,23 +24,6 @@ const PILL_WIDTH: Record<string, number> = {
   downloading: 32,
   error: 104,
 }
-
-// The pill element's own box; the window around it is sized by pill_geometry.rs.
-const CARD_W = 332
-const CARD_MIN_H = 84
-const CARD_MAX_H = 186
-const CARD_RADIUS = 28
-const STRIP_H = 42
-const TEXT_PAD = 27
-
-const CAPSULE_W = 104
-const CAPSULE_H = 32
-
-const pillSpring = { type: 'spring' as const, stiffness: 380, damping: 30, mass: 0.8 }
-const cardSpring = { type: 'spring' as const, stiffness: 210, damping: 32, mass: 1 }
-const growSpring = { type: 'spring' as const, stiffness: 260, damping: 34, mass: 0.9 }
-/** Critically damped — a bounce on close reads as the pill wobbling shut. */
-const collapseSpring = { type: 'spring' as const, stiffness: 400, damping: 40, mass: 0.7 }
 
 type PillState = 'idle' | 'recording' | 'dictation' | 'dictation-paused' | 'processing' | 'error' | 'downloading'
 
@@ -98,8 +82,6 @@ export function PillApp() {
   const [waveformStyle, setWaveformStyle] = useState<WaveformStyle>(() => readPersisted<WaveformStyle>('waveformStyle', 'bars'))
   const [liveTranscript, setLiveTranscript] = useState(() => readPersisted<boolean>('liveTranscript', false))
   const [partial, setPartial] = useState<LivePartial | null>(null)
-  const [roomy, setRoomy] = useState(false)
-  const cardHeight = useMotionValue(CAPSULE_H)
   // Canvas styles read levels off a ref so a 30 Hz stream never re-renders.
   const levelsRef = useRef<number[]>(new Array(FLAT_BARS.length).fill(0))
   const stateRef = useRef<PillState>('idle')
@@ -113,9 +95,9 @@ export function PillApp() {
 
   const wantsCard =
     liveTranscript && (isRecording || isDictation) && partial !== null
-  // Opening waits on the window being large enough, or the card is clipped for
-  // the frames the resize IPC takes. Closing does not — the shrink trails it.
-  const expanded = wantsCard && roomy
+  const { roomy, expanded, width, height, radius } = usePillGeometry(
+    wantsCard, PILL_WIDTH[state], reduceMotion, innerRef, textRef,
+  )
 
   useEffect(() => {
     stateRef.current = state
@@ -447,44 +429,6 @@ export function PillApp() {
     }
   }, [showTooltip, serialize])
 
-  // Resize the native window once on opening and once after closing settles.
-  // Skipped until actually grown, so a pill that never expands is never moved.
-  const grownRef = useRef(false)
-  useEffect(() => {
-    let cancelled = false
-    if (wantsCard) {
-      grownRef.current = true
-      invoke(COMMANDS.RESIZE_PILL, { expanded: true })
-        .then(() => { if (!cancelled) setRoomy(true) })
-        .catch(() => {})
-      return () => { cancelled = true }
-    }
-    if (!grownRef.current) return
-    grownRef.current = false
-    // The window follows only once the box has settled; resizing mid-spring tears.
-    const seq = animate(cardHeight, CAPSULE_H, reduceMotion ? { duration: 0 } : collapseSpring)
-    seq.then(() => {
-      if (cancelled) return
-      setRoomy(false)
-      void invoke(COMMANDS.RESIZE_PILL, { expanded: false }).catch(() => {})
-    }).catch(() => {})
-    return () => { cancelled = true; seq.stop() }
-  }, [wantsCard, cardHeight, reduceMotion])
-
-  // Measure the inner span, not the scroller — scrollHeight clamps at the
-  // ceiling, stalling growth. Height rides a MotionValue so partials don't
-  // re-render.
-  useLayoutEffect(() => {
-    if (!expanded) return
-    // A not-yet-painted span measures 0, which the clamp turns into the ceiling.
-    const inner = innerRef.current?.offsetHeight ?? 0
-    if (inner === 0) return
-    const want = Math.min(CARD_MAX_H, Math.max(CARD_MIN_H, STRIP_H + inner + TEXT_PAD))
-    animate(cardHeight, want, reduceMotion ? { duration: 0 } : growSpring)
-    const el = textRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [expanded, partial, cardHeight, reduceMotion])
-
   const handleToggleDictationPause = useCallback(async () => {
     try {
       if (state === 'dictation') {
@@ -518,8 +462,8 @@ export function PillApp() {
 
   const theme = useMemo(() => pillThemeDef(pillTheme), [pillTheme])
 
-  /** A canvas is sized in pixels, so it is keyed on its slot — remounting at
-   *  the final width rather than stretching from the old one. */
+  /** Keep the canvas alive when its slot changes so its history and peaks
+   *  survive the capsule/card transition. */
   const renderWaveform = (dictation = false) => {
     const width = roomy ? 54 : (dictation ? 45 : 42)
     return (
@@ -533,7 +477,6 @@ export function PillApp() {
             ))
           : (
             <WaveformCanvas
-              key={`${waveformStyle}-${width}`}
               style={waveformStyle}
               width={width}
               height={20}
@@ -611,19 +554,7 @@ export function PillApp() {
         className={`pill pill--${state}${roomy ? ' pill--expanded' : ''}${roomy && !expanded ? ' pill--closing' : ''}`}
         data-pill-theme={pillTheme}
         initial={false}
-        animate={{
-          width: expanded ? CARD_W : (PILL_WIDTH[state] ?? CAPSULE_W),
-          borderRadius: expanded ? CARD_RADIUS : CAPSULE_H / 2,
-        }}
-        transition={
-          reduceMotion ? { duration: 0 }
-          : expanded ? cardSpring
-          // Closing from a card — must match the height's spring, or width and
-          // height shut on different curves.
-          : roomy ? collapseSpring
-          : pillSpring
-        }
-        style={{ height: cardHeight, overflow: 'hidden' }}
+        style={{ width, height, borderRadius: radius, overflow: 'hidden' }}
         onMouseDown={handleDragStart}
         role="status"
         aria-label={`NexusVoice: ${state}`}
@@ -637,7 +568,7 @@ export function PillApp() {
               animate={{
                 height: 88,
                 opacity: isPaused ? 0.4 : 1,
-                transition: reduceMotion ? { duration: 0 } : { height: growSpring, opacity: { duration: 0.3 } },
+                transition: reduceMotion ? { duration: 0 } : { height: { duration: 0.28, ease: [0.22, 1, 0.36, 1] }, opacity: { duration: 0.2 } },
               }}
               exit={{ opacity: 0, transition: { duration: reduceMotion ? 0 : 0.09 } }}
               style={{ background: `linear-gradient(to top, rgba(${theme.accentRgb},0.16), transparent)` }}
@@ -672,13 +603,10 @@ export function PillApp() {
         </AnimatePresence>
 
         {showStrip && (
-          isDictation && !roomy ? (
-            <div className="pill__dictation" aria-label={isPaused ? 'Dictation paused' : 'Dictation recording'}>
-              {stripContent}
-            </div>
-          ) : (
-            <div className="pill__strip">{stripContent}</div>
-          )
+          <div className={isDictation && !roomy ? 'pill__dictation' : `pill__strip${roomy && !expanded && state === 'idle' ? ' pill__strip--returning' : ''}`}
+            aria-label={isDictation ? (isPaused ? 'Dictation paused' : 'Dictation recording') : undefined}>
+            {stripContent}
+          </div>
         )}
 
         {/* Preserve the transcript's bottom inset while its strip fades out. */}

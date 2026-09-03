@@ -56,6 +56,7 @@ body {
   background: #0f0f18;
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+  transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
 .pill:active { cursor: grabbing; }
@@ -305,6 +306,7 @@ body {
   cursor: pointer;
   flex-shrink: 0;
   padding: 0;
+  transition: background-color 120ms ease, color 120ms ease, transform 120ms ease;
 }
 
 .pill__control:hover {
@@ -460,4 +462,23 @@ body {
   width: 22px;
   height: 22px;
   box-sizing: border-box;
+}
+
+/* On a direct card → idle result, reveal the capsule contents only once the
+   shell is nearly compact. Showing them at full opacity in the wide card
+   makes the label visibly sweep inward, even with monotone shape geometry. */
+.pill__strip--returning {
+  animation: pill-return-content 140ms ease-out 100ms both;
+}
+
+@keyframes pill-return-content {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill, .pill__bar, .pill__control, .pill__waveform--dictation {
+    transition: none;
+  }
+  .pill__strip--returning { animation: none; }
 }

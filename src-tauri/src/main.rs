@@ -426,11 +426,6 @@ fn main() {
                             .and_then(tauri::WebviewWindowBuilder::build)
                         {
                             Ok(pill) => {
-                                // A stable WebView2 viewport avoids a stale frame
-                                // at the new window position during native resize.
-                                #[cfg(windows)]
-                                let (pill_w, pill_h) = crate::pill_geometry::card_window();
-                                #[cfg(not(windows))]
                                 let (pill_w, pill_h) = crate::pill_geometry::capsule_window();
                                 let _ = pill.set_size(tauri::LogicalSize::new(pill_w, pill_h));
                                 // Position: centered horizontally, near bottom of primary monitor
@@ -447,25 +442,7 @@ fn main() {
                                     let y = (logical_h - pill_h - margin) as i32;
                                     let _ = pill.set_position(tauri::LogicalPosition::new(x, y));
                                 }
-                                #[cfg(windows)]
-                                {
-                                    if let Err(e) = commands::set_pill_window_region(&pill, false) {
-                                        log::error!("failed to clip pill window: {e:?}");
-                                    }
-                                    let scaled_pill = pill.clone();
-                                    pill.on_window_event(move |event| {
-                                        if matches!(event, tauri::WindowEvent::ScaleFactorChanged { .. }) {
-                                            if let Err(e) = commands::refresh_pill_window_region(&scaled_pill) {
-                                                log::warn!("failed to update pill region after DPI change: {e:?}");
-                                            }
-                                        }
-                                    });
-                                }
                                 let _ = pill.set_skip_taskbar(true);
-                                #[cfg(windows)]
-                                if let Err(e) = commands::remove_pill_native_frame(&pill) {
-                                    log::error!("failed to remove pill native frame: {e:?}");
-                                }
                                 let _ = pill.show();
                             }
                             Err(e) => log::error!("failed to create pill window: {e}"),
@@ -476,8 +453,8 @@ fn main() {
 
             // Re-assert pill Z-order periodically. Windows demotes always-on-top windows
             // when fullscreen apps appear, after Alt+Tab cycling between other apps,
-            // and on virtual-desktop switches. Use native Z-order promotion:
-            // toggling Tauri's flag also rebuilds the nonclient window frame.
+            // and on virtual-desktop switches. Tauri must toggle the flag to
+            // re-promote a window that is already marked always-on-top.
             // macOS/Linux keep always-on-top sticky, so this loop is Windows-only.
             #[cfg(windows)]
             {
@@ -491,9 +468,8 @@ fn main() {
                             if !pill.is_visible().unwrap_or(true) {
                                 let _ = pill.show();
                             }
-                            if let Err(e) = commands::raise_pill_without_activation(&pill) {
-                                log::warn!("failed to raise pill window: {e:?}");
-                            }
+                            let _ = pill.set_always_on_top(false);
+                            let _ = pill.set_always_on_top(true);
                         }
                     }
                 });
