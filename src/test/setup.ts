@@ -25,3 +25,6 @@ if (!Element.prototype.releasePointerCapture) {
 if (!Element.prototype.setPointerCapture) {
   Element.prototype.setPointerCapture = () => {};
 }
+
+// jsdom declares scrollTo but throws when called, so assign unconditionally.
+window.scrollTo = () => {};

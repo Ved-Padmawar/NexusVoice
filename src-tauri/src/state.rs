@@ -248,16 +248,12 @@ pub struct AppState {
     pub downloads: Arc<Downloads>,
     /// In-memory dictionary cache — loaded at startup, mutated on add/delete.
     pub dict_cache: DictCache,
-    /// Signalled by the capture thread when it has fully stopped and dropped the stream.
-    /// `stop_transcription` waits on this instead of sleeping a fixed duration.
-    pub capture_done: Arc<(std::sync::Mutex<bool>, Condvar)>,
     /// Signalled when the streaming-native worker finalizes. It owns its
     /// session locally, so there is no lock for finalize to block on.
     pub stream_done: Arc<(std::sync::Mutex<bool>, Condvar)>,
-    /// Signalled by the capture callback on its first sample, so
-    /// `start_transcription` doesn't report "started" until the mic is producing
-    /// audio (cpal warms up after `play()`, clipping leading speech otherwise).
-    pub capture_ready: Arc<(std::sync::Mutex<bool>, Condvar)>,
+    /// The microphone, held open across recordings so a hotkey press starts
+    /// capturing immediately instead of waiting on a device open.
+    pub mic: Arc<crate::audio::MicStream>,
 }
 
 impl AppState {
@@ -271,6 +267,19 @@ impl AppState {
         input_device_path: PathBuf,
         models_dir: PathBuf,
     ) -> Self {
+        // The capture callback writes straight into these, so the mic stream and
+        // the state share one set of Arcs.
+        let capture_paused = Arc::new(AtomicBool::new(false));
+        let audio_buffer: AudioBuffer = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let native_sample_rate: NativeSampleRate = Arc::new(std::sync::Mutex::new(44100));
+        let waveform = Arc::new(crate::audio::WaveformMeter::new(44100));
+        let mic = Arc::new(crate::audio::MicStream::new(
+            Arc::clone(&audio_buffer),
+            Arc::clone(&native_sample_rate),
+            Arc::clone(&waveform),
+            Arc::clone(&capture_paused),
+        ));
+
         Self {
             db: SetOnce::new(),
             app_data_dir,
@@ -282,13 +291,13 @@ impl AppState {
             transcription_running: Arc::new(AtomicBool::new(false)),
             recording_mode: Arc::new(AtomicU8::new(RecordingMode::PushToTalk as u8)),
             session_phase: Arc::new(AtomicU8::new(SessionPhase::Idle as u8)),
-            capture_paused: Arc::new(AtomicBool::new(false)),
+            capture_paused,
             current_hotkey: Mutex::new(None),
             current_dictation_hotkey: Mutex::new(None),
             current_dictation_commit_hotkey: Mutex::new(None),
-            audio_buffer: Arc::new(std::sync::Mutex::new(Vec::new())),
-            native_sample_rate: Arc::new(std::sync::Mutex::new(44100)),
-            waveform: Arc::new(crate::audio::WaveformMeter::new(44100)),
+            audio_buffer,
+            native_sample_rate,
+            waveform,
             models_dir,
             engine: Arc::new(Mutex::new(None)),
             engine_load: Arc::new(Mutex::new(())),
@@ -297,9 +306,8 @@ impl AppState {
             focus_target: Arc::new(std::sync::Mutex::new(None)),
             downloads: Arc::new(Downloads::new()),
             dict_cache: Arc::new(RwLock::new(HashMap::new())),
-            capture_done: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
             stream_done: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
-            capture_ready: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
+            mic,
         }
     }
 

@@ -388,6 +388,7 @@ fn main() {
                             .transcription_running
                             .store(false, std::sync::atomic::Ordering::SeqCst);
                         state.reset_recording_session();
+                        state.mic.shutdown();
                         let app_handle = app.clone();
                         tauri::async_runtime::spawn(async move {
                             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -488,6 +489,7 @@ fn main() {
                     .transcription_running
                     .store(false, std::sync::atomic::Ordering::SeqCst);
                 state.reset_recording_session();
+                state.mic.shutdown();
             }
         });
 }

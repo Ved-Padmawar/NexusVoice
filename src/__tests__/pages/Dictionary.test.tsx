@@ -114,8 +114,8 @@ describe('Dictionary — existing entries', () => {
     render()
     await screen.findByText('teh')
     // Trash button (last icon button in the row)
-    const deleteBtn = screen.getAllByRole('button').find(b => b.querySelector('svg.lucide-trash-2'))
-    if (deleteBtn) fireEvent.click(deleteBtn)
+    const deleteBtn = screen.getAllByRole('button').find(b => b.querySelector('svg.lucide-trash'))!
+    fireEvent.click(deleteBtn)
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('delete_dictionary_entry', { id: 1 })
     })

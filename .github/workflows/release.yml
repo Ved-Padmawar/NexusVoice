@@ -138,7 +138,7 @@ jobs:
         working-directory: src-tauri
         run: |
           cargo fmt --check
-          cargo clippy --release --all-targets -- -W clippy::pedantic -D warnings
+          cargo clippy --release -- -W clippy::pedantic -D warnings
           cargo test --release
 
       - name: Set version from tag

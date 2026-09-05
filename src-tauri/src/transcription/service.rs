@@ -43,63 +43,18 @@ fn emit_partial(app: &AppHandle, (committed, tentative): (String, String)) {
 /// pipeline's minimum-new-audio gate, not this; polling is just the check.
 const STREAM_POLL: std::time::Duration = std::time::Duration::from_millis(200);
 
-/// Spawn the microphone capture thread and the streaming transcription worker.
-///
-/// Capture runs on a dedicated OS thread (cpal stream); the worker incrementally
-/// transcribes the growing recording so finalize only has the tail left to do.
+/// Arm the microphone and spawn the streaming transcription workers. The mic is
+/// held open across recordings, so arming costs an atomic store, not a device open.
 pub fn start_capture(app: &AppHandle, state: &AppState) {
-    let running = Arc::clone(&state.transcription_running);
-    let paused = Arc::clone(&state.capture_paused);
-    let audio_buffer = Arc::clone(&state.audio_buffer);
-    let native_rate = Arc::clone(&state.native_sample_rate);
-    let waveform = Arc::clone(&state.waveform);
-    let capture_done = Arc::clone(&state.capture_done);
-    let capture_ready = Arc::clone(&state.capture_ready);
-    let recording_mode = Arc::clone(&state.recording_mode);
-    let session_phase = Arc::clone(&state.session_phase);
-    let preferred_device = state.load_input_device();
-    let app_handle = app.clone();
-
-    // Reset the done + ready flags before starting a new capture session.
-    *lock_recovering(&capture_done.0) = false;
-    *lock_recovering(&capture_ready.0) = false;
     *lock_recovering(&state.stream_done.0) = false;
+
+    // Arm first — it clears the previous error, which the open below may set.
+    state.mic.arm();
+    state.mic.warm_up(state.load_input_device());
 
     spawn_engine_load(app);
     spawn_waveform_emitter(app, state);
     spawn_stream_worker(app, state);
-
-    std::thread::spawn(move || {
-        if let Err(e) = crate::audio::capture_microphone(
-            Arc::clone(&running),
-            Arc::clone(&paused),
-            audio_buffer,
-            native_rate,
-            waveform,
-            Arc::clone(&capture_done),
-            Arc::clone(&capture_ready),
-            preferred_device,
-        ) {
-            log::error!("microphone capture error: {e}");
-            running.store(false, Ordering::SeqCst);
-            paused.store(false, Ordering::SeqCst);
-            recording_mode.store(
-                crate::state::RecordingMode::PushToTalk as u8,
-                Ordering::SeqCst,
-            );
-            session_phase.store(crate::state::SessionPhase::Idle as u8, Ordering::SeqCst);
-            // Signal done + ready even on error so neither stop_transcription
-            // nor start_transcription's ready wait blocks forever.
-            *lock_recovering(&capture_done.0) = true;
-            capture_done.1.notify_one();
-            *lock_recovering(&capture_ready.0) = true;
-            capture_ready.1.notify_one();
-            let _ = app_handle.emit(
-                "transcription-error",
-                crate::audio::error::friendly_capture_error(&e),
-            );
-        }
-    });
 }
 
 /// Ensure the engine is loading as soon as recording starts — startup warmup is

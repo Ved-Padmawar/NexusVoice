@@ -26,7 +26,15 @@ describe("App", () => {
     vi.mocked(invoke).mockImplementation((cmd: string) => {
       if (cmd === "get_transcripts") return Promise.resolve([]);
       if (cmd === "get_dictionary") return Promise.resolve([]);
-      return Promise.resolve(undefined);
+      // React Query rejects `undefined` as query data.
+      if (cmd === "get_usage_stats")
+        return Promise.resolve({
+          totalWords: 0,
+          speakingTimeSeconds: 0,
+          totalSessions: 0,
+          avgPaceWpm: 0,
+        });
+      return Promise.resolve(null);
     });
     useAppStore.setState({
       theme: "abyss",

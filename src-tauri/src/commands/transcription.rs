@@ -30,10 +30,7 @@ pub async fn start_transcription(
 
     transcription::start_capture(&app, &state);
 
-    // Wait until the mic is delivering audio so leading speech isn't clipped.
-    wait_for_capture_ready(&state).await;
-
-    Ok(())
+    await_capture_started(&app, &state).await
 }
 
 #[tauri::command]
@@ -70,10 +67,7 @@ pub async fn start_dictation(app: AppHandle, state: State<'_, AppState>) -> Resu
 
     transcription::start_capture(&app, &state);
 
-    // Wait until the mic is delivering audio so leading speech isn't clipped.
-    wait_for_capture_ready(&state).await;
-
-    Ok(())
+    await_capture_started(&app, &state).await
 }
 
 #[tauri::command]
@@ -148,40 +142,41 @@ fn ensure_dictation_active(state: &AppState) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// Block until the capture callback delivers its first sample (or timeout), so
-/// "started" is reported only once the mic is producing audio. The timeout
-/// guards against a device that never delivers.
-async fn wait_for_capture_ready(state: &AppState) {
-    const READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
-    let capture_ready = Arc::clone(&state.capture_ready);
+/// Report "started" only once the mic is producing audio. A warm stream
+/// delivers on the next callback; a cold open takes longer, and the timeout
+/// guards a device that never delivers. A failed open aborts the recording.
+async fn await_capture_started(app: &AppHandle, state: &AppState) -> Result<(), ApiError> {
+    const READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+    let ready = state.mic.ready_signal();
     tauri::async_runtime::spawn_blocking(move || {
-        let (lock, cvar) = &*capture_ready;
+        let (lock, cvar) = &*ready;
         let _ = cvar.wait_timeout_while(lock_recovering(lock), READY_TIMEOUT, |ready| !*ready);
     })
     .await
     .ok();
+
+    let Some(e) = state.mic.take_error() else {
+        return Ok(());
+    };
+    state.try_stop_transcription();
+    state.reset_recording_session();
+    let _ = app.emit(
+        "transcription-error",
+        crate::audio::error::friendly_capture_error(&e),
+    );
+    Err(ApiError::new("capture_failed", e))
 }
 
-/// Block until the capture thread reports it has stopped. Bounded — a missed
-/// signal finalizes on buffered audio instead of stranding the pill.
-async fn wait_for_capture_done(state: &AppState) {
-    const DONE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-    let capture_done = Arc::clone(&state.capture_done);
-    tauri::async_runtime::spawn_blocking(move || {
-        let (lock, cvar) = &*capture_done;
-        let (_guard, timeout) = cvar
-            .wait_timeout_while(lock_recovering(lock), DONE_TIMEOUT, |done| !*done)
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if timeout.timed_out() {
-            log::warn!("capture-done signal missed — finalizing on buffered audio");
-        }
-    })
-    .await
-    .ok();
+/// Stop capturing after a post-roll, leaving the device open for next time.
+async fn stop_capture(state: &AppState) {
+    let mic = Arc::clone(&state.mic);
+    tauri::async_runtime::spawn_blocking(move || mic.disarm_after_post_roll())
+        .await
+        .ok();
 }
 
 /// The streaming worker writes `streamed_text` only after `running` goes
-/// false, so reading it straight after `capture_done` loses the tail.
+/// false, so reading it straight after capture stops loses the tail.
 async fn wait_for_stream_done(state: &AppState) {
     const STREAM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
     let stream_done = Arc::clone(&state.stream_done);
@@ -208,7 +203,7 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
         ));
     }
 
-    wait_for_capture_done(state).await;
+    stop_capture(state).await;
     wait_for_stream_done(state).await;
 
     // Session first, audio buffer second — the lock order the stream worker
@@ -310,11 +305,16 @@ pub fn list_input_devices(state: State<'_, AppState>) -> Vec<InputDeviceInfo> {
 #[specta::specta]
 pub fn set_input_device(state: State<'_, AppState>, name: Option<String>) -> Result<(), ApiError> {
     match name {
-        Some(name) if !name.trim().is_empty() => state
-            .save_input_device(name.trim())
-            .map_err(|e| ApiError::new("io_error", e.to_string())),
+        Some(name) if !name.trim().is_empty() => {
+            state
+                .save_input_device(name.trim())
+                .map_err(|e| ApiError::new("io_error", e.to_string()))?;
+            state.mic.close();
+            Ok(())
+        }
         _ => {
             state.delete_input_device();
+            state.mic.close();
             Ok(())
         }
     }
