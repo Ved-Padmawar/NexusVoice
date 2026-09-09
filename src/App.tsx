@@ -1,7 +1,6 @@
 import { useShallow } from 'zustand/react/shallow'
 import { useEffect, useState, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router'
-import { motion } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Toaster } from 'sonner'
 
@@ -15,24 +14,26 @@ import { ROUTES } from './lib/routes'
 import { useEventListener, useDelayedFlag } from './lib/hooks'
 import { Layout } from './components/Layout'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { Spinner } from './components/Spinner'
 import { Dashboard } from './pages/Dashboard'
 import { SettingsPage as Settings, DictionaryPage as Dictionary, preloadRoute } from './lib/routeModules'
 import { showMainWindow } from './lib/showMainWindow'
 
-const Spinner = () => (
-  <motion.div className="w-7 h-7 rounded-full border-2 border-(--border) border-t-(--accent)" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
-)
-
-/** Full-screen startup loader. Spinner appears only after a short delay so a fast
- * database open doesn't flash it; the themed background shows immediately. */
+/** Full-screen startup loader. The spinner appears only after a short delay so
+ * a fast database open doesn't flash it; the themed ground shows immediately. */
 function StartupLoader() {
   const showSpinner = useDelayedFlag(true, 250)
   return (
-    <div className="flex flex-col items-center justify-center min-h-dvh gap-3.5 bg-background" role="status" aria-live="polite" data-tauri-drag-region>
+    <div
+      className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-(--bg)"
+      role="status"
+      aria-live="polite"
+      data-tauri-drag-region
+    >
       {showSpinner && (
         <>
-          <Spinner />
-          <p className="text-[12px] text-muted-foreground">Loading…</p>
+          <Spinner size={22} />
+          <p className="text-[12px] text-(--muted)">Loading…</p>
         </>
       )}
     </div>
@@ -43,8 +44,8 @@ function StartupLoader() {
 function RouteFallback() {
   const showSpinner = useDelayedFlag(true, 250)
   return (
-    <div className="flex items-center justify-center min-h-dvh bg-background" role="status" data-tauri-drag-region>
-      {showSpinner && <Spinner />}
+    <div className="flex min-h-dvh items-center justify-center bg-(--bg)" role="status" data-tauri-drag-region>
+      {showSpinner && <Spinner size={22} />}
     </div>
   )
 }
@@ -131,7 +132,7 @@ function App() {
               background: 'var(--panel)',
               border: '1px solid var(--border)',
               color: 'var(--fg)',
-              fontSize: '13px',
+              fontSize: '12.5px',
               borderRadius: 'var(--r-lg)',
               boxShadow: 'var(--shadow-md)',
             },

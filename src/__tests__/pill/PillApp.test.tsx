@@ -160,3 +160,38 @@ it.each(['bars', 'memo'])('updates %s audio levels without rendering the pill or
   expect(invoke).not.toHaveBeenCalled()
   if (style === 'bars') for (const bar of view.container.querySelectorAll('.pill__bar')) expect(bar).toHaveStyle({ height: '16px' })
 })
+
+// The pill only hears about models through events, and selecting one in
+// Settings used to emit nothing — so it refused to record against a model that
+// was sitting on disk. The refusal was invisible until it moved into the
+// capsule, which is what surfaced this.
+it('says so in the capsule when the hotkey is pressed with no model', async () => {
+  vi.mocked(invoke).mockImplementation(cmd =>
+    Promise.resolve(cmd === 'get_model_info' ? { downloaded: false, downloading: false } : undefined))
+  const view = render(<PillApp />)
+  await waitFor(() => expect(listeners.get(EVENTS.HOTKEY_PRESSED)?.size).toBe(1))
+
+  await emit(EVENTS.HOTKEY_PRESSED)
+
+  expect(view.getByText('No model')).toBeInTheDocument()
+  expect(invoke).not.toHaveBeenCalledWith('start_transcription', expect.anything())
+})
+
+it('records again once a model is selected, without a restart', async () => {
+  let downloaded = false
+  vi.mocked(invoke).mockImplementation(cmd =>
+    Promise.resolve(cmd === 'get_model_info' ? { downloaded, downloading: false } : undefined))
+  const view = render(<PillApp />)
+  await waitFor(() => expect(listeners.get(EVENTS.MODEL_SWITCHED)?.size).toBe(1))
+
+  await emit(EVENTS.HOTKEY_PRESSED)
+  expect(view.getByText('No model')).toBeInTheDocument()
+
+  // What set_model_override now emits.
+  downloaded = true
+  await emit(EVENTS.MODEL_SWITCHED)
+  await waitFor(() => expect(view.queryByText('No model')).not.toBeInTheDocument())
+
+  await emit(EVENTS.HOTKEY_PRESSED)
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('start_transcription'))
+})

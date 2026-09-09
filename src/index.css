@@ -13,364 +13,505 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ================================================================
-   Radix data-attribute variants (formerly from the shadcn CLI package)
+   Radix data-attribute variants
    ================================================================ */
 @custom-variant data-open {
   &:where([data-state="open"]),
-  &:where([data-open]:not([data-open="false"])) {
-    @slot;
-  }
+  &:where([data-open]:not([data-open="false"])) { @slot; }
 }
-
 @custom-variant data-closed {
   &:where([data-state="closed"]),
-  &:where([data-closed]:not([data-closed="false"])) {
-    @slot;
-  }
+  &:where([data-closed]:not([data-closed="false"])) { @slot; }
 }
-
 @custom-variant data-checked {
-  &:where([data-state="checked"]),
-  &:where([data-checked]:not([data-checked="false"])) {
-    @slot;
-  }
+  &:where([data-state="checked"]) { @slot; }
 }
-
-@custom-variant data-unchecked {
-  &:where([data-state="unchecked"]),
-  &:where([data-unchecked]:not([data-unchecked="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-selected {
-  &:where([data-selected="true"]) {
-    @slot;
-  }
-}
-
-@custom-variant data-disabled {
-  &:where([data-disabled="true"]),
-  &:where([data-disabled]:not([data-disabled="false"])) {
-    @slot;
-  }
-}
-
 @custom-variant data-active {
-  &:where([data-state="active"]),
-  &:where([data-active]:not([data-active="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-horizontal {
-  &:where([data-orientation="horizontal"]) {
-    @slot;
-  }
-}
-
-@custom-variant data-vertical {
-  &:where([data-orientation="vertical"]) {
-    @slot;
-  }
+  &:where([data-state="active"]) { @slot; }
 }
 
 /* ================================================================
-   shadcn/ui — map our CSS vars to shadcn token names
+   shadcn/ui token bridge
    ================================================================ */
 @theme inline {
-  --color-background:         var(--bg);
-  --color-foreground:         var(--fg);
-  --color-card:               var(--panel);
-  --color-card-foreground:    var(--fg);
-  --color-popover:            var(--panel);
-  --color-popover-foreground: var(--fg);
-  --color-primary:            var(--accent);
-  --color-primary-foreground: var(--accent-fg);
-  --color-secondary:          var(--surface);
+  --color-background:           var(--bg);
+  --color-foreground:           var(--fg);
+  --color-card:                 var(--panel);
+  --color-card-foreground:      var(--fg);
+  --color-popover:              var(--panel);
+  --color-popover-foreground:   var(--fg);
+  --color-primary:              var(--accent);
+  --color-primary-foreground:   var(--accent-fg);
+  --color-secondary:            var(--surface);
   --color-secondary-foreground: var(--fg);
-  --color-muted:              var(--surface);
-  --color-muted-foreground:   var(--muted);
-  --color-accent:             var(--surface-hover);
-  --color-accent-foreground:  var(--fg);
-  --color-destructive:        var(--danger);
-  --color-border:             var(--border);
-  --color-input:              var(--border);
-  --color-ring:               var(--accent);
-  --radius-sm:   4px;
-  --radius-md:   8px;
-  --radius-lg:   12px;
-  --radius-xl:   16px;
+  --color-muted:                var(--surface);
+  --color-muted-foreground:     var(--muted);
+  --color-accent:               var(--surface-hover);
+  --color-accent-foreground:    var(--fg);
+  --color-destructive:          var(--danger);
+  --color-border:               var(--border);
+  --color-input:                var(--border);
+  --color-ring:                 var(--accent);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
 }
 
-/* Suppress native WebView2/Edge password reveal button */
+/* Suppress the native WebView2 password reveal button. */
 input[type="password"]::-ms-reveal { display: none; }
 
 /* ================================================================
-   Design tokens — shared across all themes
+   Structural tokens — identical across themes
    ================================================================ */
 :root {
-  /* Radius scale */
   --r-xs: 4px;
   --r-sm: 6px;
   --r-md: 8px;
-  --r-lg: 12px;
-  --r-xl: 16px;
-  --r-2xl: 20px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+  --r-2xl: 18px;
   --r-full: 9999px;
 
-  /* Sidebar */
-  --sidebar-w: 220px;
+  /* Shell geometry. There is no rail: the window is one continuous canvas
+     with a thin brand strip on top and a floating dock at the bottom, so the
+     only horizontal budget the chrome takes is the gutter. */
+  --bar-h: 38px;          /* brand strip / drag region */
+  --gutter: 32px;         /* page inset, left and right */
+  --measure: 1120px;      /* content never grows wider than this */
 
-  /* Transitions */
-  --t-fast:   120ms cubic-bezier(0.4, 0, 0.2, 1);
-  --t-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
-  --t-spring: 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Derived, not eyeballed: the clearance is real bottom padding, so every
+     pixel it overshoots by arms the scrollbar early. */
+  --dock-item-h: 30px;
+  --dock-pad: 4px;
+  --dock-h: calc(var(--dock-item-h) + var(--dock-pad) * 2);   /* 38px */
+  --dock-gap: 24px;       /* how far the dock floats off the bottom */
+  --dock-clear: calc(var(--dock-h) + var(--dock-gap));        /* 62px */
 
-  /* Semantic (same across themes) */
-  --success:      oklch(0.70 0.17 145);
-  --success-soft: oklch(0.70 0.17 145 / 0.12);
-  --warning:      oklch(0.78 0.17 70);
-  --warning-soft: oklch(0.78 0.17 70 / 0.12);
-  --danger:       oklch(0.63 0.22 22);
-  --danger-soft:  oklch(0.63 0.22 22 / 0.14);
-  /* Window close button — Windows 11 red, intentionally not theme-tinted */
-  --color-close:  #c42b1c;
+  --t-fast: 110ms cubic-bezier(0.32, 0.72, 0, 1);
+  --t-mid:  180ms cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Windows 11 close red — deliberately not theme-tinted. */
+  --close-red: #c42b1c;
 }
 
 /* ================================================================
-   THEME: Abyss — blue-grey dark, periwinkle accent (default)
+   THEMES
+
+   Each theme sets its own *contrast character*, not just a hue:
+   how far panels step off the floor, how visible the borders are,
+   how saturated the neutrals run, and what colour sits on top of a
+   filled accent. Every control reads these, so switching a theme
+   moves buttons, switches, scrims and type — not only the wallpaper.
    ================================================================ */
+
+/* ── Abyss — cool slate, balanced contrast, periwinkle ──────────
+   The default. Clear panel steps, mid-weight borders.            */
 :root,
-:root[data-theme='abyss'] {
+[data-theme='abyss'] {
   color-scheme: dark;
-  --bg:            oklch(0.20 0.02 250);
-  --bg-alt:        oklch(0.18 0.02 250);
-  --panel:         oklch(0.24 0.02 250);
-  --panel-border:  oklch(0.30 0.02 250);
-  --surface:       oklch(0.27 0.02 250);
-  --surface-hover: oklch(0.32 0.02 250);
-  --border:        oklch(0.35 0.02 250);
-  --border-soft:   oklch(0.28 0.02 250);
-  --fg:            oklch(0.92 0.01 250);
-  --fg-2:          oklch(0.85 0.01 250);
-  --muted:         oklch(0.56 0.01 250);
-  --accent:        oklch(0.75 0.12 250);
-  --accent-hover:  oklch(0.80 0.12 250);
-  --accent-soft:   oklch(0.75 0.12 250 / 0.15);
-  --accent-fg:     oklch(0.98 0.005 0);
-  --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.30), 0 1px 2px oklch(0 0 0 / 0.20);
-  --shadow-md:     0 4px 12px oklch(0 0 0 / 0.40), 0 2px 4px oklch(0 0 0 / 0.25);
-  --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.60), 0 4px 8px oklch(0 0 0 / 0.35);
-  --glow:          0 0 20px oklch(0.75 0.12 250 / 0.25);
+  --bg:            oklch(0.20 0.020 255);
+  --bg-alt:        oklch(0.17 0.020 255);
+  --rail:          oklch(0.175 0.021 255);
+  --panel:         oklch(0.245 0.020 255);
+  --panel-2:       oklch(0.275 0.020 255);
+  --surface:       oklch(0.285 0.038 255);
+  --surface-hover: oklch(0.330 0.023 255);
+
+  --border:        oklch(0.360 0.022 255);
+  --border-strong: oklch(0.450 0.026 255);
+  --hairline:      oklch(0.290 0.020 255);
+  --track-edge:    oklch(0.400 0.024 255);
+
+  --fg:            oklch(0.95 0.010 255);
+  --fg-2:          oklch(0.84 0.014 255);
+  --muted:         oklch(0.670 0.020 255);
+  --faint:         oklch(0.565 0.020 255);
+
+  --accent:        oklch(0.755 0.125 262);
+  --accent-hover:  oklch(0.815 0.125 262);
+  --accent-soft:   oklch(0.755 0.125 262 / 0.16);
+  --accent-line:   oklch(0.755 0.125 262 / 0.42);
+  --accent-fg:     oklch(0.17 0.035 262);
+  --on-soft:       oklch(0.840 0.110 262);
+
+  --knob:          oklch(0.99 0 0);
+  --nav-on:        oklch(0.375 0.055 262);
+  --nav-on-fg:     oklch(0.945 0.045 262);
+  --overlay:       oklch(0.12 0.020 255 / 0.66);
+  --edge-light:    oklch(1 0 0 / 0.055);
+
+  --success:       oklch(0.760 0.160 152);
+  --success-soft:  oklch(0.760 0.160 152 / 0.15);
+  --warning:       oklch(0.810 0.150 78);
+  --warning-soft:  oklch(0.810 0.150 78 / 0.15);
+  --danger:        oklch(0.672 0.196 18);
+  --danger-soft:   oklch(0.672 0.196 18 / 0.16);
+  --danger-fill:   oklch(0.505 0.190 18);
+  --on-danger:     oklch(0.99 0 0);
+
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.34);
+  --shadow-md: 0 6px 18px oklch(0 0 0 / 0.42), 0 2px 5px oklch(0 0 0 / 0.28);
+  --shadow-lg: 0 18px 44px oklch(0 0 0 / 0.58), 0 5px 12px oklch(0 0 0 / 0.36);
 }
 
-/* ================================================================
-   THEME: Midnight — deep navy, vivid violet accent
-   ================================================================ */
-/* The one multi-hue theme: near-neutral indigo surfaces (chroma ≤ 0.02, so
-   they read as grey rather than tinting the whole window), a cyan accent, and
-   semantics on their own hues instead of tints of the accent. */
-:root[data-theme='midnight'] {
+/* ── Midnight — near-black, dramatic contrast, vivid cyan ───────
+   The high-contrast theme: deepest floor, brightest type, hard
+   shadows, and a light accent that needs *dark* text on top.     */
+[data-theme='midnight'] {
   color-scheme: dark;
-  --bg:            oklch(0.15 0.015 265);
-  --bg-alt:        oklch(0.12 0.018 265);
-  --panel:         oklch(0.19 0.014 265);
-  --panel-border:  oklch(0.27 0.016 265);
-  --surface:       oklch(0.23 0.013 265);
-  --surface-hover: oklch(0.28 0.015 265);
-  --border:        oklch(0.32 0.018 265);
-  --border-soft:   oklch(0.25 0.014 265);
-  --fg:            oklch(0.95 0.008 265);
-  --fg-2:          oklch(0.86 0.010 265);
-  --muted:         oklch(0.60 0.020 265);
-  --accent:        oklch(0.78 0.13 195);
-  --accent-hover:  oklch(0.84 0.12 195);
-  --accent-soft:   oklch(0.78 0.13 195 / 0.16);
-  --accent-fg:     oklch(0.16 0.02 220);
-  /* Amber, magenta and lime — far enough from the cyan accent to read as
-     their own signals rather than shades of it. */
-  --success:       oklch(0.78 0.17 145);
-  --success-soft:  oklch(0.78 0.17 145 / 0.14);
-  --warning:       oklch(0.80 0.15 75);
-  --warning-soft:  oklch(0.80 0.15 75 / 0.14);
-  --danger:        oklch(0.66 0.21 12);
-  --danger-soft:   oklch(0.66 0.21 12 / 0.16);
-  --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.45), 0 1px 2px oklch(0 0 0 / 0.30);
-  --shadow-md:     0 4px 12px oklch(0 0 0 / 0.55), 0 2px 4px oklch(0 0 0 / 0.35);
-  --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.70), 0 4px 8px oklch(0 0 0 / 0.45);
-  --glow:          0 0 20px oklch(0.78 0.13 195 / 0.30);
+  --bg:            oklch(0.115 0.014 258);
+  --bg-alt:        oklch(0.085 0.014 258);
+  --rail:          oklch(0.090 0.014 258);
+  --panel:         oklch(0.165 0.014 258);
+  --panel-2:       oklch(0.205 0.015 258);
+  --surface:       oklch(0.210 0.032 258);
+  --surface-hover: oklch(0.265 0.017 258);
+
+  --border:        oklch(0.300 0.018 258);
+  --border-strong: oklch(0.400 0.022 258);
+  --hairline:      oklch(0.225 0.015 258);
+  --track-edge:    oklch(0.360 0.020 258);
+
+  --fg:            oklch(0.98 0.006 258);
+  --fg-2:          oklch(0.875 0.010 258);
+  --muted:         oklch(0.640 0.018 258);
+  --faint:         oklch(0.555 0.018 258);
+
+  --accent:        oklch(0.815 0.135 196);
+  --accent-hover:  oklch(0.875 0.125 196);
+  --accent-soft:   oklch(0.815 0.135 196 / 0.15);
+  --accent-line:   oklch(0.815 0.135 196 / 0.45);
+  --accent-fg:     oklch(0.135 0.030 210);
+  --on-soft:       oklch(0.860 0.125 196);
+
+  --knob:          oklch(0.135 0.030 210);
+  --nav-on:        oklch(0.330 0.055 205);
+  --nav-on-fg:     oklch(0.960 0.040 196);
+  --overlay:       oklch(0.04 0.010 258 / 0.76);
+  --edge-light:    oklch(1 0 0 / 0.075);
+
+  --success:       oklch(0.800 0.175 150);
+  --success-soft:  oklch(0.800 0.175 150 / 0.15);
+  --warning:       oklch(0.830 0.160 82);
+  --warning-soft:  oklch(0.830 0.160 82 / 0.15);
+  --danger:        oklch(0.690 0.215 15);
+  --danger-soft:   oklch(0.690 0.215 15 / 0.18);
+  --danger-fill:   oklch(0.505 0.200 15);
+  --on-danger:     oklch(0.99 0 0);
+
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.55);
+  --shadow-md: 0 6px 20px oklch(0 0 0 / 0.62), 0 2px 6px oklch(0 0 0 / 0.45);
+  --shadow-lg: 0 20px 50px oklch(0 0 0 / 0.80), 0 6px 14px oklch(0 0 0 / 0.55);
 }
 
-/* ================================================================
-   THEME: Steel — dark blue-grey, cool slate accent
-   ================================================================ */
-:root[data-theme='steel'] {
+/* ── Steel — flat industrial, low contrast, structure from lines ─
+   Surfaces sit close together on purpose; borders do the work
+   that lightness steps do elsewhere, so they run brighter.       */
+[data-theme='steel'] {
   color-scheme: dark;
-  --bg:            oklch(0.18 0.02 230);
-  --bg-alt:        oklch(0.15 0.02 230);
-  --panel:         oklch(0.21 0.02 230);
-  --panel-border:  oklch(0.26 0.02 230);
-  --surface:       oklch(0.24 0.02 230);
-  --surface-hover: oklch(0.29 0.02 230);
-  --border:        oklch(0.32 0.02 230);
-  --border-soft:   oklch(0.25 0.02 230);
-  --fg:            oklch(0.90 0.01 230);
-  --fg-2:          oklch(0.80 0.02 230);
-  --muted:         oklch(0.55 0.03 230);
-  --accent:        oklch(0.75 0.06 230);
-  --accent-hover:  oklch(0.82 0.06 230);
-  --accent-soft:   oklch(0.75 0.06 230 / 0.15);
-  --accent-fg:     oklch(0.15 0.02 230);
-  --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.35), 0 1px 2px oklch(0 0 0 / 0.22);
-  --shadow-md:     0 4px 12px oklch(0 0 0 / 0.50), 0 2px 4px oklch(0 0 0 / 0.30);
-  --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.70), 0 4px 8px oklch(0 0 0 / 0.40);
-  --glow:          0 0 20px oklch(0.75 0.06 230 / 0.25);
+  --bg:            oklch(0.205 0.011 240);
+  --bg-alt:        oklch(0.185 0.011 240);
+  --rail:          oklch(0.190 0.011 240);
+  --panel:         oklch(0.232 0.011 240);
+  --panel-2:       oklch(0.252 0.011 240);
+  --surface:       oklch(0.258 0.026 240);
+  --surface-hover: oklch(0.295 0.013 240);
+
+  --border:        oklch(0.395 0.016 240);
+  --border-strong: oklch(0.480 0.020 240);
+  --hairline:      oklch(0.310 0.013 240);
+  --track-edge:    oklch(0.435 0.018 240);
+
+  --fg:            oklch(0.925 0.008 240);
+  --fg-2:          oklch(0.820 0.010 240);
+  --muted:         oklch(0.655 0.014 240);
+  --faint:         oklch(0.560 0.014 240);
+
+  --accent:        oklch(0.790 0.055 236);
+  --accent-hover:  oklch(0.855 0.055 236);
+  --accent-soft:   oklch(0.790 0.055 236 / 0.17);
+  --accent-line:   oklch(0.790 0.055 236 / 0.48);
+  --accent-fg:     oklch(0.185 0.020 236);
+  --on-soft:       oklch(0.855 0.050 236);
+
+  --knob:          oklch(0.185 0.020 236);
+  --nav-on:        oklch(0.395 0.035 236);
+  --nav-on-fg:     oklch(0.960 0.020 236);
+  --overlay:       oklch(0.14 0.010 240 / 0.68);
+  --edge-light:    oklch(1 0 0 / 0.05);
+
+  --success:       oklch(0.755 0.140 152);
+  --success-soft:  oklch(0.755 0.140 152 / 0.15);
+  --warning:       oklch(0.805 0.135 80);
+  --warning-soft:  oklch(0.805 0.135 80 / 0.15);
+  --danger:        oklch(0.665 0.180 20);
+  --danger-soft:   oklch(0.665 0.180 20 / 0.16);
+  --danger-fill:   oklch(0.505 0.180 20);
+  --on-danger:     oklch(0.99 0 0);
+
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.32);
+  --shadow-md: 0 5px 16px oklch(0 0 0 / 0.40), 0 2px 4px oklch(0 0 0 / 0.26);
+  --shadow-lg: 0 16px 40px oklch(0 0 0 / 0.56), 0 4px 10px oklch(0 0 0 / 0.34);
 }
 
-/* ================================================================
-   THEME: Pine — dark forest green, mint accent
-   ================================================================ */
-:root[data-theme='pine'] {
+/* ── Pine — warm green neutrals, soft edges, mint accent ────────
+   The most saturated dark theme; softer shadows and a gentler
+   step between panel and floor give it a matte, organic feel.    */
+[data-theme='pine'] {
   color-scheme: dark;
-  --bg:            oklch(0.22 0.02 150);
-  --bg-alt:        oklch(0.19 0.02 150);
-  --panel:         oklch(0.27 0.02 150);
-  --panel-border:  oklch(0.34 0.02 150);
-  --surface:       oklch(0.31 0.02 150);
-  --surface-hover: oklch(0.36 0.02 150);
-  --border:        oklch(0.39 0.02 150);
-  --border-soft:   oklch(0.31 0.02 150);
-  --fg:            oklch(0.92 0.01 150);
-  --fg-2:          oklch(0.84 0.01 150);
-  --muted:         oklch(0.56 0.02 150);
-  --accent:        oklch(0.72 0.14 150);
-  --accent-hover:  oklch(0.78 0.14 150);
-  --accent-soft:   oklch(0.72 0.14 150 / 0.15);
-  --accent-fg:     oklch(0.98 0.005 0);
-  --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.30), 0 1px 2px oklch(0 0 0 / 0.20);
-  --shadow-md:     0 4px 12px oklch(0 0 0 / 0.45), 0 2px 4px oklch(0 0 0 / 0.28);
-  --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.60), 0 4px 8px oklch(0 0 0 / 0.35);
-  --glow:          0 0 20px oklch(0.72 0.14 150 / 0.20);
+  --bg:            oklch(0.215 0.028 158);
+  --bg-alt:        oklch(0.190 0.028 158);
+  --rail:          oklch(0.196 0.030 158);
+  --panel:         oklch(0.262 0.029 158);
+  --panel-2:       oklch(0.295 0.029 158);
+  --surface:       oklch(0.302 0.045 158);
+  --surface-hover: oklch(0.348 0.032 158);
+
+  --border:        oklch(0.375 0.032 158);
+  --border-strong: oklch(0.460 0.038 158);
+  --hairline:      oklch(0.305 0.029 158);
+  --track-edge:    oklch(0.415 0.034 158);
+
+  --fg:            oklch(0.945 0.016 158);
+  --fg-2:          oklch(0.845 0.020 158);
+  --muted:         oklch(0.675 0.028 158);
+  --faint:         oklch(0.570 0.028 158);
+
+  --accent:        oklch(0.755 0.145 158);
+  --accent-hover:  oklch(0.815 0.140 158);
+  --accent-soft:   oklch(0.755 0.145 158 / 0.16);
+  --accent-line:   oklch(0.755 0.145 158 / 0.44);
+  --accent-fg:     oklch(0.175 0.045 158);
+  --on-soft:       oklch(0.840 0.130 158);
+
+  --knob:          oklch(0.175 0.045 158);
+  --nav-on:        oklch(0.390 0.065 158);
+  --nav-on-fg:     oklch(0.950 0.045 158);
+  --overlay:       oklch(0.13 0.025 158 / 0.66);
+  --edge-light:    oklch(1 0 0 / 0.05);
+
+  --success:       oklch(0.790 0.160 148);
+  --success-soft:  oklch(0.790 0.160 148 / 0.15);
+  --warning:       oklch(0.815 0.150 76);
+  --warning-soft:  oklch(0.815 0.150 76 / 0.15);
+  --danger:        oklch(0.675 0.190 22);
+  --danger-soft:   oklch(0.675 0.190 22 / 0.16);
+  --danger-fill:   oklch(0.505 0.185 22);
+  --on-danger:     oklch(0.99 0 0);
+
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.26);
+  --shadow-md: 0 6px 18px oklch(0 0 0 / 0.34), 0 2px 5px oklch(0 0 0 / 0.22);
+  --shadow-lg: 0 18px 42px oklch(0 0 0 / 0.50), 0 5px 12px oklch(0 0 0 / 0.30);
 }
 
-/* ================================================================
-   THEME: Canvas — clean off-white light, cobalt accent
-   ================================================================ */
-:root[data-theme='canvas'] {
+/* ── Canvas — clinical light, white panels, crisp borders ───────
+   The high-contrast light theme: pure white material lifted off a
+   grey floor, saturated cobalt, and the firmest borders of any.  */
+[data-theme='canvas'] {
   color-scheme: light;
-  --bg:            oklch(0.97 0.005 250);
-  --bg-alt:        oklch(0.94 0.005 250);
-  --panel:         oklch(1.00 0.000 0);
-  --panel-border:  oklch(0.91 0.005 250);
-  --surface:       oklch(0.95 0.005 250);
-  --surface-hover: oklch(0.92 0.008 250);
-  --border:        oklch(0.85 0.008 250);
-  --border-soft:   oklch(0.92 0.005 250);
-  --fg:            oklch(0.25 0.01 250);
-  --fg-2:          oklch(0.35 0.01 250);
-  --muted:         oklch(0.55 0.01 250);
-  --accent:        oklch(0.48 0.16 255);
-  --accent-hover:  oklch(0.42 0.16 255);
-  --accent-soft:   oklch(0.48 0.16 255 / 0.16);
-  --accent-fg:     oklch(0.98 0.01 250);
-  --shadow-sm:     0 1px 3px oklch(0.25 0.01 250 / 0.04), 0 1px 2px oklch(0.25 0.01 250 / 0.03);
-  --shadow-md:     0 4px 12px oklch(0.25 0.01 250 / 0.08), 0 2px 4px oklch(0.25 0.01 250 / 0.05);
-  --shadow-lg:     0 12px 28px oklch(0.25 0.01 250 / 0.12), 0 4px 8px oklch(0.25 0.01 250 / 0.07);
-  --glow:          0 0 20px oklch(0.48 0.16 255 / 0.15);
+  --bg:            oklch(0.962 0.004 255);
+  --bg-alt:        oklch(0.935 0.005 255);
+  --rail:          oklch(0.945 0.005 255);
+  --panel:         oklch(1.000 0.000 0);
+  --panel-2:       oklch(0.975 0.004 255);
+  --surface:       oklch(0.958 0.005 255);
+  --surface-hover: oklch(0.925 0.008 255);
+
+  --border:        oklch(0.855 0.008 255);
+  --border-strong: oklch(0.760 0.012 255);
+  --hairline:      oklch(0.905 0.006 255);
+  --track-edge:    oklch(0.800 0.012 255);
+
+  --fg:            oklch(0.215 0.014 255);
+  --fg-2:          oklch(0.360 0.014 255);
+  --muted:         oklch(0.522 0.014 255);
+  --faint:         oklch(0.618 0.012 255);
+
+  --accent:        oklch(0.505 0.185 264);
+  --accent-hover:  oklch(0.435 0.190 264);
+  --accent-soft:   oklch(0.505 0.185 264 / 0.11);
+  --accent-line:   oklch(0.505 0.185 264 / 0.35);
+  --accent-fg:     oklch(0.995 0.004 264);
+  --on-soft:       oklch(0.445 0.185 264);
+
+  --knob:          oklch(1 0 0);
+  --nav-on:        oklch(0.505 0.185 264);
+  --nav-on-fg:     oklch(0.995 0.004 264);
+  --overlay:       oklch(0.30 0.020 255 / 0.34);
+  --edge-light:    oklch(1 0 0 / 0.9);
+
+  --success:       oklch(0.520 0.150 152);
+  --success-soft:  oklch(0.520 0.150 152 / 0.12);
+  --warning:       oklch(0.640 0.150 68);
+  --warning-soft:  oklch(0.640 0.150 68 / 0.14);
+  --danger:        oklch(0.545 0.210 24);
+  --danger-soft:   oklch(0.545 0.210 24 / 0.11);
+  --danger-fill:   oklch(0.520 0.205 24);
+  --on-danger:     oklch(0.995 0 0);
+
+  --shadow-sm: 0 1px 2px oklch(0.25 0.01 255 / 0.07);
+  --shadow-md: 0 6px 18px oklch(0.25 0.01 255 / 0.10), 0 2px 5px oklch(0.25 0.01 255 / 0.06);
+  --shadow-lg: 0 18px 44px oklch(0.25 0.01 255 / 0.16), 0 5px 12px oklch(0.25 0.01 255 / 0.09);
 }
 
-/* ================================================================
-   THEME: Dawn — warm white light, orange accent
-   ================================================================ */
-:root[data-theme='dawn'] {
+/* ── Dawn — warm paper, low contrast, inverted material step ────
+   Panels sit *darker* than the floor here, like ink-printed card
+   on paper. Softest borders; the warmth does the separating.     */
+[data-theme='dawn'] {
   color-scheme: light;
-  --bg:            oklch(0.98 0.010 32);
-  --bg-alt:        oklch(0.96 0.014 32);
-  --panel:         oklch(0.93 0.020 35);
-  --panel-border:  oklch(0.87 0.024 35);
-  --surface:       oklch(0.96 0.010 32);
-  --surface-hover: oklch(0.92 0.018 32);
-  --border:        oklch(0.84 0.024 32);
-  --border-soft:   oklch(0.89 0.016 32);
-  --fg:            oklch(0.22 0.024 30);
-  --fg-2:          oklch(0.38 0.020 32);
-  --muted:         oklch(0.56 0.016 35);
-  --accent:        oklch(0.60 0.22 40);
-  --accent-hover:  oklch(0.54 0.24 40);
-  --accent-soft:   oklch(0.60 0.22 40 / 0.16);
-  --accent-fg:     oklch(1.00 0.00 0);
-  --shadow-sm:     0 1px 3px oklch(0.22 0.02 30 / 0.07), 0 1px 2px oklch(0.22 0.02 30 / 0.04);
-  --shadow-md:     0 4px 12px oklch(0.22 0.02 30 / 0.12), 0 2px 4px oklch(0.22 0.02 30 / 0.07);
-  --shadow-lg:     0 12px 28px oklch(0.22 0.02 30 / 0.18), 0 4px 8px oklch(0.22 0.02 30 / 0.10);
-  --glow:          0 0 20px oklch(0.60 0.22 40 / 0.25);
+  --bg:            oklch(0.978 0.014 74);
+  --bg-alt:        oklch(0.950 0.020 68);
+  --rail:          oklch(0.944 0.024 66);
+  --panel:         oklch(0.938 0.024 64);
+  --panel-2:       oklch(0.915 0.028 62);
+  --surface:       oklch(0.960 0.018 68);
+  --surface-hover: oklch(0.920 0.028 64);
+
+  --border:        oklch(0.855 0.034 62);
+  --border-strong: oklch(0.775 0.044 58);
+  --hairline:      oklch(0.895 0.026 64);
+  --track-edge:    oklch(0.795 0.040 62);
+
+  --fg:            oklch(0.245 0.038 48);
+  --fg-2:          oklch(0.395 0.036 50);
+  --muted:         oklch(0.500 0.032 54);
+  --faint:         oklch(0.600 0.028 58);
+
+  --accent:        oklch(0.560 0.175 46);
+  --accent-hover:  oklch(0.520 0.180 44);
+  --accent-soft:   oklch(0.560 0.175 46 / 0.14);
+  --accent-line:   oklch(0.560 0.175 46 / 0.38);
+  --accent-fg:     oklch(0.995 0.008 60);
+  --on-soft:       oklch(0.505 0.175 44);
+
+  --knob:          oklch(1 0 0);
+  --nav-on:        oklch(0.560 0.175 46);
+  --nav-on-fg:     oklch(0.995 0.008 60);
+  --overlay:       oklch(0.32 0.040 48 / 0.34);
+  --edge-light:    oklch(1 0 0 / 0.65);
+
+  --success:       oklch(0.530 0.140 150);
+  --success-soft:  oklch(0.530 0.140 150 / 0.13);
+  --warning:       oklch(0.640 0.150 74);
+  --warning-soft:  oklch(0.640 0.150 74 / 0.15);
+  --danger:        oklch(0.545 0.200 26);
+  --danger-soft:   oklch(0.545 0.200 26 / 0.12);
+  --danger-fill:   oklch(0.520 0.195 26);
+  --on-danger:     oklch(0.995 0 0);
+
+  --shadow-sm: 0 1px 2px oklch(0.30 0.04 48 / 0.09);
+  --shadow-md: 0 6px 18px oklch(0.30 0.04 48 / 0.13), 0 2px 5px oklch(0.30 0.04 48 / 0.08);
+  --shadow-lg: 0 18px 44px oklch(0.30 0.04 48 / 0.20), 0 5px 12px oklch(0.30 0.04 48 / 0.12);
 }
 
-/* ================================================================
-   THEME: Breeze — cool teal light, cyan-teal accent
-   ================================================================ */
-:root[data-theme='breeze'] {
+/* ── Breeze — cool tinted light, medium contrast, teal ──────────
+   Tinted neutrals throughout; panels lift slightly, borders sit
+   mid-weight. The calm middle of the light themes.               */
+[data-theme='breeze'] {
   color-scheme: light;
-  --bg:            oklch(0.97 0.016 200);
-  --bg-alt:        oklch(0.94 0.018 200);
-  --panel:         oklch(0.91 0.024 200);
-  --panel-border:  oklch(0.85 0.022 200);
-  --surface:       oklch(0.95 0.016 200);
-  --surface-hover: oklch(0.91 0.020 200);
-  --border:        oklch(0.82 0.020 200);
-  --border-soft:   oklch(0.88 0.018 200);
-  --fg:            oklch(0.20 0.016 200);
-  --fg-2:          oklch(0.34 0.014 200);
-  --muted:         oklch(0.52 0.016 200);
-  --accent:        oklch(0.50 0.14 200);
-  --accent-hover:  oklch(0.44 0.16 200);
-  --accent-soft:   oklch(0.50 0.14 200 / 0.16);
-  --accent-fg:     oklch(0.99 0.01 200);
-  --shadow-sm:     0 1px 3px oklch(0.20 0.01 200 / 0.06), 0 1px 2px oklch(0.20 0.01 200 / 0.04);
-  --shadow-md:     0 4px 12px oklch(0.20 0.01 200 / 0.10), 0 2px 4px oklch(0.20 0.01 200 / 0.06);
-  --shadow-lg:     0 12px 28px oklch(0.20 0.01 200 / 0.14), 0 4px 8px oklch(0.20 0.01 200 / 0.08);
-  --glow:          0 0 20px oklch(0.50 0.14 200 / 0.20);
+  --bg:            oklch(0.968 0.020 210);
+  --bg-alt:        oklch(0.940 0.024 210);
+  --rail:          oklch(0.936 0.026 210);
+  --panel:         oklch(0.990 0.010 210);
+  --panel-2:       oklch(0.958 0.020 210);
+  --surface:       oklch(0.946 0.022 210);
+  --surface-hover: oklch(0.910 0.028 210);
+
+  --border:        oklch(0.838 0.030 210);
+  --border-strong: oklch(0.740 0.040 210);
+  --hairline:      oklch(0.892 0.024 210);
+  --track-edge:    oklch(0.782 0.034 210);
+
+  --fg:            oklch(0.210 0.026 212);
+  --fg-2:          oklch(0.350 0.026 212);
+  --muted:         oklch(0.520 0.026 210);
+  --faint:         oklch(0.615 0.022 210);
+
+  --accent:        oklch(0.515 0.115 205);
+  --accent-hover:  oklch(0.445 0.125 205);
+  --accent-soft:   oklch(0.515 0.115 205 / 0.13);
+  --accent-line:   oklch(0.515 0.115 205 / 0.36);
+  --accent-fg:     oklch(0.995 0.008 205);
+  --on-soft:       oklch(0.445 0.120 205);
+
+  --knob:          oklch(1 0 0);
+  --nav-on:        oklch(0.515 0.115 205);
+  --nav-on-fg:     oklch(0.995 0.008 205);
+  --overlay:       oklch(0.26 0.030 210 / 0.34);
+  --edge-light:    oklch(1 0 0 / 0.75);
+
+  --success:       oklch(0.520 0.140 155);
+  --success-soft:  oklch(0.520 0.140 155 / 0.13);
+  --warning:       oklch(0.635 0.145 72);
+  --warning-soft:  oklch(0.635 0.145 72 / 0.14);
+  --danger:        oklch(0.540 0.200 22);
+  --danger-soft:   oklch(0.540 0.200 22 / 0.12);
+  --danger-fill:   oklch(0.515 0.195 22);
+  --on-danger:     oklch(0.995 0 0);
+
+  --shadow-sm: 0 1px 2px oklch(0.22 0.02 210 / 0.08);
+  --shadow-md: 0 6px 18px oklch(0.22 0.02 210 / 0.11), 0 2px 5px oklch(0.22 0.02 210 / 0.07);
+  --shadow-lg: 0 18px 44px oklch(0.22 0.02 210 / 0.17), 0 5px 12px oklch(0.22 0.02 210 / 0.10);
 }
 
-/* ================================================================
-   THEME: Blossom — soft rose light, pink accent
-   ================================================================ */
-:root[data-theme='blossom'] {
+/* ── Blossom — soft rose, gentle contrast, crimson ──────────────
+   The softest light theme: close surfaces, quiet borders, and the
+   accent carried mostly as a wash rather than a fill.            */
+[data-theme='blossom'] {
   color-scheme: light;
-  --bg:            oklch(0.97 0.014 355);
-  --bg-alt:        oklch(0.94 0.016 355);
-  --panel:         oklch(0.91 0.022 355);
-  --panel-border:  oklch(0.85 0.020 355);
-  --surface:       oklch(0.95 0.014 355);
-  --surface-hover: oklch(0.91 0.018 355);
-  --border:        oklch(0.83 0.018 355);
-  --border-soft:   oklch(0.89 0.016 355);
-  --fg:            oklch(0.22 0.016 355);
-  --fg-2:          oklch(0.36 0.014 355);
-  --muted:         oklch(0.54 0.016 355);
-  --accent:        oklch(0.50 0.18 355);
-  --accent-hover:  oklch(0.44 0.20 355);
-  --accent-soft:   oklch(0.50 0.18 355 / 0.16);
-  --accent-fg:     oklch(0.99 0.01 355);
-  --shadow-sm:     0 1px 3px oklch(0.22 0.01 355 / 0.06), 0 1px 2px oklch(0.22 0.01 355 / 0.04);
-  --shadow-md:     0 4px 12px oklch(0.22 0.01 355 / 0.09), 0 2px 4px oklch(0.22 0.01 355 / 0.05);
-  --shadow-lg:     0 12px 28px oklch(0.22 0.01 355 / 0.14), 0 4px 8px oklch(0.22 0.01 355 / 0.08);
-  --glow:          0 0 20px oklch(0.50 0.18 355 / 0.15);
+  --bg:            oklch(0.968 0.018 358);
+  --bg-alt:        oklch(0.942 0.022 358);
+  --rail:          oklch(0.938 0.024 358);
+  --panel:         oklch(0.988 0.010 358);
+  --panel-2:       oklch(0.958 0.018 358);
+  --surface:       oklch(0.948 0.020 358);
+  --surface-hover: oklch(0.912 0.026 358);
+
+  --border:        oklch(0.848 0.026 358);
+  --border-strong: oklch(0.755 0.036 358);
+  --hairline:      oklch(0.898 0.022 358);
+  --track-edge:    oklch(0.792 0.030 358);
+
+  --fg:            oklch(0.230 0.028 356);
+  --fg-2:          oklch(0.370 0.026 356);
+  --muted:         oklch(0.522 0.026 358);
+  --faint:         oklch(0.618 0.022 358);
+
+  --accent:        oklch(0.525 0.175 8);
+  --accent-hover:  oklch(0.455 0.185 8);
+  --accent-soft:   oklch(0.525 0.175 8 / 0.12);
+  --accent-line:   oklch(0.525 0.175 8 / 0.34);
+  --accent-fg:     oklch(0.995 0.006 8);
+  --on-soft:       oklch(0.460 0.180 8);
+
+  --knob:          oklch(1 0 0);
+  --nav-on:        oklch(0.525 0.175 8);
+  --nav-on-fg:     oklch(0.995 0.006 8);
+  --overlay:       oklch(0.28 0.030 358 / 0.34);
+  --edge-light:    oklch(1 0 0 / 0.75);
+
+  --success:       oklch(0.520 0.140 152);
+  --success-soft:  oklch(0.520 0.140 152 / 0.13);
+  --warning:       oklch(0.640 0.145 70);
+  --warning-soft:  oklch(0.640 0.145 70 / 0.14);
+  --danger:        oklch(0.545 0.205 20);
+  --danger-soft:   oklch(0.545 0.205 20 / 0.12);
+  --danger-fill:   oklch(0.520 0.200 20);
+  --on-danger:     oklch(0.995 0 0);
+
+  --shadow-sm: 0 1px 2px oklch(0.24 0.02 358 / 0.08);
+  --shadow-md: 0 6px 18px oklch(0.24 0.02 358 / 0.11), 0 2px 5px oklch(0.24 0.02 358 / 0.07);
+  --shadow-lg: 0 18px 44px oklch(0.24 0.02 358 / 0.17), 0 5px 12px oklch(0.24 0.02 358 / 0.10);
 }
 
 /* ================================================================
-   Base layer — global resets and body styles
+   Base
    ================================================================ */
 @layer base {
-  *, *::before, *::after {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-    @apply border-border;
-  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   html {
-    scroll-behavior: smooth;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -385,192 +526,537 @@ input[type="password"]::-ms-reveal { display: none; }
     font-size: 13px;
     line-height: 1.5;
     font-feature-settings: 'cv11', 'ss01', 'liga';
-    transition: background-color var(--t-normal), color var(--t-normal);
-    @apply bg-background text-foreground;
   }
 
   #root { height: 100dvh; overflow: hidden; }
 
-  button, input, select, textarea { font-family: inherit; font-size: inherit; }
+  /* Chrome is not a document: a drag across the window should not sweep up nav
+     labels, tab names and badges. Selection is re-enabled below for the text
+     the user actually owns. */
+  body { user-select: none; -webkit-user-select: none; }
+
+  /* Content worth copying: transcripts, dictionary values, and anything typed. */
+  input, textarea, [data-selectable] {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  button, input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; }
+  button { background: none; border: none; }
   a { color: var(--accent); text-decoration: none; }
 
-  /* Focus ring — only keyboard navigation */
   :focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
     border-radius: var(--r-sm);
   }
 
-  /* Scrollbar */
-  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
     background: var(--border);
     border-radius: var(--r-full);
+    border: 2px solid transparent;
+    background-clip: content-box;
   }
-  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); background-clip: content-box; }
 
-  /* Dropdown lists scroll without a visible bar — the clipped last row already
-     says the list continues, and a track inside a short popover is more chrome
-     than it is worth. */
+  /* Dropdown lists scroll without a visible bar — the clipped last row
+     already says the list continues. */
   .select-list { scrollbar-width: none; -ms-overflow-style: none; }
   .select-list::-webkit-scrollbar { width: 0; height: 0; }
 
-  /* Tauri drag regions — cannot be expressed as Tailwind utilities */
+  /* Tauri drag regions — cannot be expressed as Tailwind utilities. */
   [data-tauri-drag-region] { -webkit-app-region: drag; app-region: drag; cursor: default; }
   .no-drag { -webkit-app-region: no-drag; app-region: no-drag; }
 
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 1ms !important;
+      transition-duration: 1ms !important;
+    }
+  }
 }
 
-/* ── Component classes (shadcn slot overrides) ───────────────────── */
+/* ================================================================
+   Components
+
+   Motion policy: nothing animates on mount. Transitions answer a
+   pointer or a state change only, and run on compositor-friendly
+   properties. Buttons carry their press in the surface itself —
+   the fill steps down and the top edge-light goes out, the way a
+   real key does — rather than sliding the whole control around.
+   ================================================================ */
 @layer components {
-  /* Input */
-  .nv-input {
-    height: 34px;
-    padding: 0 10px;
-    font-size: 13px;
-    font-weight: 400;
-    /* Not fixed px — a shorter height would leave the line box overflowing. */
-    line-height: normal;
-    letter-spacing: 0;
-    font-family: inherit;
-    border-radius: var(--r-md);
-    background: var(--surface);
-    /* Inset shadow, not a border — a 1px rounded border clips off-pixel. */
-    border: 1px solid transparent;
-    box-shadow: inset 0 0 0 1px var(--border);
-    color: var(--fg);
-    outline: none;
-    width: 100%;
-    transition: box-shadow var(--t-fast);
-  }
-  .nv-input::placeholder { color: var(--muted); font-weight: 400; font-size: 13px; }
-  .nv-input:focus { box-shadow: inset 0 0 0 1px var(--accent); outline: none; }
 
-  /* Same trick for bordered controls that are not inputs. Set the edge colour
-     with --edge; the transparent border only reserves the 1px of box. */
-  .nv-edge {
-    border: 1px solid transparent;
-    box-shadow: inset 0 0 0 1px var(--edge, var(--border));
-    transition: box-shadow var(--t-fast), color var(--t-fast), background var(--t-fast);
-  }
-  .nv-input:focus-visible { outline: none; }
-  .nv-input:disabled { opacity: 0.45; cursor: not-allowed; }
-
-  /* shadcn Button — compact sizing, brand radius */
-  [data-slot="button"] {
-    border-radius: var(--r-md);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.01em;
-    transition: all var(--t-fast);
-  }
-
-  /* shadcn Label */
-  [data-slot="label"] {
-    font-size: 11.5px;
-    font-weight: 500;
-    color: var(--fg-2);
-    letter-spacing: 0.01em;
-    text-transform: none;
-  }
-
-  /* shadcn Badge */
-  [data-slot="badge"] {
-    border-radius: var(--r-sm);
-    font-size: 10px;
-    font-weight: 600;
-    padding: 2px 7px;
-    letter-spacing: 0.02em;
-  }
-
-  /* shadcn Select */
-  [data-slot="select-trigger"] {
-    height: 36px;
-    font-size: 12px;
-    border-radius: var(--r-md);
-    background: var(--surface);
-    border: 1px solid transparent;
-    box-shadow: inset 0 0 0 1px var(--border);
-    color: var(--fg);
-    padding: 0 10px;
-    gap: 6px;
-    transition: box-shadow var(--t-fast);
-    width: 100%;
-  }
-  [data-slot="select-trigger"]:hover { box-shadow: inset 0 0 0 1px var(--accent); }
-  [data-slot="select-trigger"]:focus-visible,
-  [data-slot="select-trigger"][data-state="open"] {
-    box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px var(--accent-soft);
-    outline: none;
-  }
-  [data-slot="select-content"] {
+  /* ── Raised material ─────────────────────────────────────────── */
+  .panel {
     background: var(--panel);
-    border: 1px solid transparent;
-    box-shadow: inset 0 0 0 1px var(--border), var(--shadow-lg);
-    border-radius: var(--r-lg);
-    padding: 4px;
-    min-width: 180px;
-    z-index: 9999;
+    border-radius: var(--r-xl);
+    box-shadow: inset 0 0 0 1px var(--hairline), inset 0 1px 0 var(--edge-light);
   }
-  [data-slot="select-item"] {
-    font-size: 12px;
-    color: var(--fg-2);
+  .panel-flat {
+    background: var(--panel);
+    border-radius: var(--r-xl);
+    box-shadow: inset 0 0 0 1px var(--hairline);
+  }
+
+  /* A 1px rule that survives fractional device pixels. */
+  .rule { background: var(--hairline); }
+
+  /* ── Text field ──────────────────────────────────────────────── */
+  .field {
+    height: 32px;
+    width: 100%;
+    padding: 0 10px;
+    font-size: 12.5px;
+    line-height: normal;
     border-radius: var(--r-md);
-    padding: 7px 10px;
-    cursor: pointer;
-    transition: background var(--t-fast), color var(--t-fast);
-    gap: 8px;
+    background: var(--surface);
+    color: var(--fg);
+    border: 1px solid transparent;
+    box-shadow: inset 0 0 0 1px var(--border);
+    outline: none;
+    transition: box-shadow var(--t-fast);
   }
-  [data-slot="select-item"]:hover,
-  [data-slot="select-item"][data-highlighted] {
+  .field::placeholder { color: var(--faint); }
+  .field:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--border-strong); }
+  /* `:not(:disabled)` is not redundant here — it matches the specificity of the
+     hover rule above, which otherwise outranks focus and drops the ring the
+     moment the pointer rests on the field it just focused. */
+  .field:focus:not(:disabled) { box-shadow: inset 0 0 0 1px var(--accent); }
+  .field:focus-visible { outline: none; }
+  .field:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── Buttons ─────────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    border-radius: var(--r-md);
+    font-size: 12px;
+    font-weight: 550;
+    letter-spacing: 0.005em;
+    cursor: pointer;
+    user-select: none;
+    transition:
+      background var(--t-fast),
+      color var(--t-fast),
+      box-shadow var(--t-fast),
+      transform var(--t-fast);
+  }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn > svg { flex-shrink: 0; }
+
+  /* Primary — filled accent. The press reads as the key going down:
+     fill darkens, edge-light goes out, surface drops 1px. */
+  .btn-primary {
+    background: var(--accent);
+    color: var(--accent-fg);
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.18), var(--shadow-sm);
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-primary:active:not(:disabled) {
+    background: var(--accent-hover);
+    box-shadow: inset 0 1px 2px oklch(0 0 0 / 0.22);
+    transform: translateY(1px);
+  }
+
+  /* Secondary — raised neutral. */
+  .btn-quiet {
+    background: var(--surface);
+    color: var(--fg-2);
+    box-shadow: inset 0 0 0 1px var(--border), inset 0 1px 0 var(--edge-light);
+  }
+  .btn-quiet:hover:not(:disabled) {
     background: var(--surface-hover);
     color: var(--fg);
-    outline: none;
+    box-shadow: inset 0 0 0 1px var(--border-strong), inset 0 1px 0 var(--edge-light);
   }
-  [data-slot="select-item"][data-state="checked"] { color: var(--accent); font-weight: 600; }
-  [data-slot="select-item-indicator"] { right: 8px; }
+  .btn-quiet:active:not(:disabled) {
+    background: var(--surface-hover);
+    box-shadow: inset 0 0 0 1px var(--border-strong), inset 0 1px 2px oklch(0 0 0 / 0.14);
+    transform: translateY(1px);
+  }
 
-  /* shadcn Tabs */
-  [role="tablist"] {
-    background: var(--surface);
-    border: 1px solid transparent;
-    box-shadow: inset 0 0 0 1px var(--border-soft);
-    border-radius: var(--r-lg);
-    padding: 3px;
-    gap: 2px;
-    height: auto;
+  /* Tertiary — no chrome until touched. */
+  .btn-ghost { background: transparent; color: var(--muted); }
+  .btn-ghost:hover:not(:disabled) { background: var(--surface); color: var(--fg); }
+  .btn-ghost:active:not(:disabled) { transform: translateY(1px); }
+
+  .btn-danger {
+    background: var(--danger-fill);
+    color: var(--on-danger);
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.16), var(--shadow-sm);
   }
-  [role="tab"] {
+  .btn-danger:hover:not(:disabled) { filter: brightness(1.08); }
+  .btn-danger:active:not(:disabled) {
+    box-shadow: inset 0 1px 2px oklch(0 0 0 / 0.22);
+    transform: translateY(1px);
+  }
+
+  .btn-sm { height: 26px; padding: 0 9px; font-size: 11px; gap: 5px; border-radius: var(--r-sm); }
+  .btn-lg { height: 36px; padding: 0 16px; font-size: 12.5px; }
+
+  /* ── Icon button ─────────────────────────────────────────────── */
+  .iconbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    flex-shrink: 0;
+    border-radius: var(--r-sm);
+    color: var(--muted);
+    cursor: pointer;
+    transition: background var(--t-fast), color var(--t-fast), transform var(--t-fast);
+  }
+  .iconbtn:hover:not(:disabled) { background: var(--surface-hover); color: var(--fg); }
+  .iconbtn:active:not(:disabled) { transform: scale(0.92); }
+  .iconbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .iconbtn-danger:hover:not(:disabled) { background: var(--danger-soft); color: var(--danger); }
+  .iconbtn-accent:hover:not(:disabled) { background: var(--accent-soft); color: var(--on-soft); }
+
+  /* ── Segmented control ───────────────────────────────────────── */
+  .seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    /* A rounded-edge box, not a capsule. The item radius is one step down so
+       the inner corners stay concentric with the container's. */
+    border-radius: var(--r-lg);
+    background: var(--bg-alt);
+    box-shadow: inset 0 0 0 1px var(--track-edge);
+  }
+  .seg-item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 26px;
+    padding: 0 13px;
     border-radius: var(--r-md);
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 550;
     color: var(--muted);
-    padding: 5px 14px;
-    height: auto;
-    transition: all var(--t-fast);
+    cursor: pointer;
+    transition: background var(--t-fast), color var(--t-fast), box-shadow var(--t-fast);
   }
-  [role="tab"]:hover { color: var(--fg); }
-  [role="tab"][data-state="active"] {
-    background: var(--panel);
-    color: var(--fg);
+  .seg-item:hover { color: var(--fg-2); }
+  .seg-item[data-state="active"] {
+    background: var(--nav-on);
+    color: var(--nav-on-fg);
     font-weight: 600;
     box-shadow: var(--shadow-sm);
   }
 
-  /* shadcn Alert */
-  [data-slot="alert"] {
-    border-radius: var(--r-lg);
-    font-size: 12px;
-    padding: 10px 14px;
+  /* ── Filter chips ────────────────────────────────────────────
+     Not tabs. A tab strip is a set of destinations sharing one enclosing
+     track, exactly one of them current; these narrow a list, so each chip
+     stands alone with its own outline and carries the count it would leave
+     you with. Dropping the track is what stops them reading as a tab bar.
+
+     The active chip fills with the accent wash and outlines in the accent
+     line, so "on" is a state of that one chip rather than a marker sliding
+     along a shared groove. */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    padding: 0 10px 0 11px;
+    border-radius: var(--r-full);
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--border);
+    font-size: 11.5px;
+    font-weight: 550;
+    /* A filter you are scanning to choose between, not background chrome, so
+       the resting label sits at --fg-2 rather than --muted. */
+    color: var(--fg-2);
+    cursor: pointer;
+    transition: background var(--t-fast), color var(--t-fast), box-shadow var(--t-fast);
   }
+  .chip:hover:not([data-state="active"]) {
+    background: var(--surface);
+    color: var(--fg);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+  }
+  .chip[data-state="active"] {
+    background: var(--accent-soft);
+    color: var(--on-soft);
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--accent-line);
+  }
+
+  /* The count rides inside the chip on its own ground, so the number reads
+     as data about the filter rather than as part of its name. */
+  .chip-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 17px;
+    height: 15px;
+    padding: 0 4px;
+    border-radius: var(--r-full);
+    background: var(--surface);
+    font-size: 10px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    /* --fg-2, the same step as the label beside it: on --surface, --faint
+       measured 3.0-3.7:1 and --muted 4.6-5.4:1, both of which still read as
+       washed out for a number you compare against the others. --fg-2 puts
+       every theme at 8.3-12.2:1. */
+    color: var(--fg-2);
+    transition: background var(--t-fast), color var(--t-fast);
+  }
+  .chip:hover:not([data-state="active"]) .chip-count { color: var(--fg); }
+  .chip[data-state="active"] .chip-count {
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+
+  /* ── Keycap ──────────────────────────────────────────────────── */
+  .keycap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 19px;
+    padding: 0 5px;
+    border-radius: var(--r-xs);
+    background: var(--panel-2);
+    color: var(--fg);
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1;
+    box-shadow:
+      inset 0 0 0 1px var(--border),
+      inset 0 1px 0 var(--edge-light),
+      0 1px 0 var(--border);
+  }
+
+  /* ── Switch ──────────────────────────────────────────────────── */
+  .switch {
+    position: relative;
+    width: 38px;
+    height: 22px;
+    flex-shrink: 0;
+    border-radius: var(--r-full);
+    background: var(--border);
+    cursor: pointer;
+    transition: background var(--t-mid);
+  }
+  .switch::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: var(--r-full);
+    background: var(--knob);
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--t-mid);
+  }
+  .switch[aria-checked="true"] { background: var(--accent); }
+  .switch[aria-checked="true"]::after { transform: translateX(16px); }
+  .switch:active::after { width: 19px; }
+
+  /* ── Count beside a heading ──────────────────────────────────
+     A bare tabular number next to a title reads as a stray digit that
+     drifted in. Sitting it on its own ground makes it a property of the
+     heading, and lets it be legible instead of faint. */
+  .count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: var(--r-full);
+    background: var(--surface);
+    font-size: 10.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-2);
+  }
+
+  /* ── Floating surfaces ───────────────────────────────────────── */
+  .pop {
+    background: var(--panel);
+    border-radius: var(--r-xl);
+    box-shadow: inset 0 0 0 1px var(--border), inset 0 1px 0 var(--edge-light), var(--shadow-lg);
+  }
+  .scrim { background: var(--overlay); }
+
+  /* ── Selectable card (themes, models, providers) ─────────────── */
+  .pick {
+    text-align: left;
+    cursor: pointer;
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--hairline);
+    transition: background var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast);
+  }
+  .pick:hover { background: var(--surface-hover); box-shadow: inset 0 0 0 1px var(--border); }
+  .pick:active { transform: scale(0.99); }
+  .pick[aria-pressed="true"],
+  .pick[data-on="true"] {
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px var(--accent-line);
+  }
+  .pick[aria-pressed="true"]:hover,
+  .pick[data-on="true"]:hover { background: var(--accent-soft); }
+
+  /* ── Dock ────────────────────────────────────────────────────
+     Navigation as a floating capsule, in the recording pill's language:
+     same glass, same radius, and only the current item labelled. */
+  .dock {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: var(--dock-pad);
+    border-radius: var(--r-full);
+    background: color-mix(in oklab, var(--rail) 80%, transparent);
+    backdrop-filter: blur(22px) saturate(150%);
+    -webkit-backdrop-filter: blur(22px) saturate(150%);
+    box-shadow:
+      inset 0 0 0 1px var(--border),
+      inset 0 1px 0 var(--edge-light),
+      var(--shadow-lg);
+  }
+
+  .dock-item {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    height: var(--dock-item-h);
+    padding: 0 9px;
+    border-radius: var(--r-full);
+    font-size: 12px;
+    font-weight: 550;
+    white-space: nowrap;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color var(--t-fast);
+  }
+  /* Bare glyphs need hover to supply the hit target the fill gives the
+     current item. */
+  .dock-item:hover:not([aria-current="page"]) {
+    background: var(--surface-hover);
+    color: var(--fg);
+  }
+  .dock-item[aria-current="page"] {
+    color: var(--nav-on-fg);
+    font-weight: 600;
+    cursor: default;
+  }
+  /* Sibling behind the glyph and label, so the shared layout animation
+     moves one box rather than repainting three. */
+  .dock-fill {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border-radius: var(--r-full);
+    background: var(--nav-on);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* ── Status (brand strip) ────────────────────────────────────
+     A contained object, not a glyph and a word floating in the strip.
+     The mark sits in its own tinted cap so the pill reads as one
+     component with a state, and the whole thing turns warning-toned
+     and gains a chevron when it is the way to fix something. */
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 24px;
+    padding: 0 9px 0 3px;
+    border-radius: var(--r-full);
+    font-size: 11.5px;
+    font-weight: 550;
+    color: var(--fg-2);
+    background: var(--bg-alt);
+    box-shadow: inset 0 0 0 1px var(--hairline);
+    transition: color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast);
+  }
+
+  /* The app's own waveform rather than a generic status dot: bars when it is
+     ready to listen, flatlined when it is not — which is what is wrong. */
+  .status__mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    border-radius: var(--r-full);
+    background: var(--success-soft);
+    color: var(--success);
+  }
+  .status__mark span {
+    width: 2px;
+    border-radius: 1px;
+    background: currentColor;
+    transition: height var(--t-mid);
+  }
+  .status__mark span:nth-child(1) { height: 5px; }
+  .status__mark span:nth-child(2) { height: 9px; }
+  .status__mark span:nth-child(3) { height: 6px; }
+
+  /* A download is not a fault: accent, and the bars stay up because something
+     is actually happening. */
+  .status[data-tone="busy"] {
+    color: var(--on-soft);
+    background: var(--accent-soft);
+    box-shadow: none;
+    cursor: pointer;
+  }
+  .status[data-tone="busy"]:hover { filter: brightness(1.07); }
+  .status[data-tone="busy"] .status__mark {
+    background: color-mix(in oklab, var(--accent) 20%, transparent);
+    color: var(--on-soft);
+  }
+
+  .status[data-tone="warn"] {
+    color: var(--warning);
+    background: var(--warning-soft);
+    box-shadow: none;
+    cursor: pointer;
+  }
+  .status[data-tone="warn"]:hover { filter: brightness(1.07); }
+  .status[data-tone="warn"] .status__mark {
+    background: color-mix(in oklab, var(--warning) 20%, transparent);
+    color: var(--warning);
+  }
+  .status[data-tone="warn"] .status__mark span { height: 2px; }
+
+  /* Opens a page header — an editorial mark, not another icon tile. */
+  .titlemark {
+    width: 3px;
+    height: 17px;
+    flex-shrink: 0;
+    border-radius: var(--r-full);
+    background: var(--accent);
+  }
+
+  /* Row actions stay in the layout and fade in, so nothing reflows. */
+  .row-actions { opacity: 0; transition: opacity var(--t-fast); }
+  .group:hover .row-actions,
+  .group:focus-within .row-actions { opacity: 1; }
 }
-
-
 
 /* ===================================================================
    Waveform preview (Settings → Appearance)
-   The pill's own stylesheet sizes html/body to 104px, so it can't be
+   The pill's own stylesheet sizes html/body to 104px, so it cannot be
    imported here. These mirror just the bits the preview renders.
    =================================================================== */
 .pill {

@@ -1,10 +1,12 @@
 import { memo, useCallback, useEffect, useState } from 'react'
+import { AudioLines, Keyboard } from 'lucide-react'
 import { MicrophoneSection } from './MicrophoneSection'
 import { LanguageSection } from './LanguageSection'
 import { HotkeySection } from './HotkeySection'
 import { TextInjectionSection } from './TextInjectionSection'
 import { FormattingToggle } from '../../components/FormattingToggle'
 import { LiveTranscriptToggle } from '../../components/LiveTranscriptToggle'
+import { Section } from '../../components/Section'
 import { useAppStore } from '../../store/useAppStore'
 
 /** Input first: it is what the rest of the app assumes is already right. */
@@ -21,23 +23,28 @@ export const GeneralTab = memo(function GeneralTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* `overflow-visible` — both selects open panels past the card edge. */}
-      <div
-        className={`grid gap-4 rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4 *:min-w-0 ${
-          langSupported ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'
-        }`}
+      <Section
+        title="Input"
+        Icon={AudioLines}
+        description="Where your voice comes from, and what language you speak in."
+        bodyClassName={`grid gap-4 p-4 ${langSupported ? 'grid-cols-2' : 'grid-cols-1'}`}
       >
         <MicrophoneSection />
         <LanguageSection modelId={modelId} onSupportedChange={onLangSupportedChange} />
-      </div>
+      </Section>
 
       <FormattingToggle />
 
       <LiveTranscriptToggle />
 
-      <div className="rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
+      <Section
+        title="Keyboard shortcuts"
+        Icon={Keyboard}
+        description="Global hotkeys, so dictation works without leaving the app you are typing in."
+        bodyClassName=""
+      >
         <HotkeySection />
-      </div>
+      </Section>
 
       <TextInjectionSection />
     </div>

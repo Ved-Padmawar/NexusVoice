@@ -31,7 +31,7 @@ beforeEach(() => {
 describe('Dictionary — empty state', () => {
   it('shows empty state when no entries', async () => {
     render()
-    expect(await screen.findByText(/no entries yet/i)).toBeInTheDocument()
+    expect(await screen.findByText(/no words yet/i)).toBeInTheDocument()
   })
 })
 
@@ -39,9 +39,9 @@ describe('Dictionary — add entry', () => {
   it('keeps failed additions available for retry without an unhandled rejection', async () => {
     mockInvoke.mockImplementation(cmd => cmd === 'update_dictionary' ? Promise.reject(new Error('Write failed')) : Promise.resolve([]))
     render()
-    fireEvent.change(screen.getByPlaceholderText(/e.g. teh/i), { target: { value: 'teh' } })
-    fireEvent.change(screen.getByPlaceholderText(/e.g. the/i), { target: { value: 'the' } })
-    fireEvent.click(screen.getByRole('button', { name: /add to dictionary/i }))
+    fireEvent.change(screen.getByLabelText(/word as heard/i), { target: { value: 'teh' } })
+    fireEvent.change(screen.getByLabelText(/correct it to/i), { target: { value: 'the' } })
+    fireEvent.click(screen.getByRole('button', { name: /^add/i }))
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Write failed'))
     expect(screen.getByDisplayValue('teh')).toBeEnabled()
     expect(screen.getByDisplayValue('the')).toBeEnabled()
@@ -49,14 +49,14 @@ describe('Dictionary — add entry', () => {
 
   it('Add button is disabled when inputs are empty', () => {
     render()
-    expect(screen.getByRole('button', { name: /add to dictionary/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^add/i })).toBeDisabled()
   })
 
   it('sends the term and replacement to the backend', async () => {
     render()
-    fireEvent.change(screen.getByPlaceholderText(/e.g. teh/i), { target: { value: 'teh' } })
-    fireEvent.change(screen.getByPlaceholderText(/e.g. the/i), { target: { value: 'the' } })
-    fireEvent.click(screen.getByRole('button', { name: /add to dictionary/i }))
+    fireEvent.change(screen.getByLabelText(/word as heard/i), { target: { value: 'teh' } })
+    fireEvent.change(screen.getByLabelText(/correct it to/i), { target: { value: 'the' } })
+    fireEvent.click(screen.getByRole('button', { name: /^add/i }))
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'teh', replacement: 'the' })
     })
@@ -64,11 +64,11 @@ describe('Dictionary — add entry', () => {
 
   it('clears inputs after successful add', async () => {
     render()
-    const termInput = screen.getByPlaceholderText(/e.g. teh/i)
-    const replacementInput = screen.getByPlaceholderText(/e.g. the/i)
+    const termInput = screen.getByLabelText(/word as heard/i)
+    const replacementInput = screen.getByLabelText(/correct it to/i)
     fireEvent.change(termInput, { target: { value: 'teh' } })
     fireEvent.change(replacementInput, { target: { value: 'the' } })
-    fireEvent.click(screen.getByRole('button', { name: /add to dictionary/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^add/i }))
     await waitFor(() => {
       expect((termInput as HTMLInputElement).value).toBe('')
       expect((replacementInput as HTMLInputElement).value).toBe('')
@@ -77,8 +77,8 @@ describe('Dictionary — add entry', () => {
 
   it('submits on Enter key in replacement input', async () => {
     render()
-    fireEvent.change(screen.getByPlaceholderText(/e.g. teh/i), { target: { value: 'gonna' } })
-    const replacementInput = screen.getByPlaceholderText(/e.g. the/i)
+    fireEvent.change(screen.getByLabelText(/word as heard/i), { target: { value: 'gonna' } })
+    const replacementInput = screen.getByLabelText(/correct it to/i)
     fireEvent.change(replacementInput, { target: { value: 'going to' } })
     fireEvent.keyDown(replacementInput, { key: 'Enter' })
     await waitFor(() => {
@@ -107,7 +107,7 @@ describe('Dictionary — existing entries', () => {
   it('renders entry term and replacement', async () => {
     render()
     expect(await screen.findByText('teh')).toBeInTheDocument()
-    expect(screen.getByText('the')).toBeInTheDocument()
+    expect(screen.getAllByText('the').length).toBeGreaterThan(0)
   })
 
   it('deletes the entry by id when delete is clicked', async () => {

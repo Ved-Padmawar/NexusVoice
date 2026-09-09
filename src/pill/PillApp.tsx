@@ -23,9 +23,10 @@ const PILL_WIDTH: Record<string, number> = {
   processing: 32,
   downloading: 32,
   error: 104,
+  blocked: 104,
 }
 
-type PillState = 'idle' | 'recording' | 'dictation' | 'dictation-paused' | 'processing' | 'error' | 'downloading'
+type PillState = 'idle' | 'recording' | 'dictation' | 'dictation-paused' | 'processing' | 'error' | 'downloading' | 'blocked'
 
 type LivePartial = { committed: string; tentative: string }
 
@@ -75,8 +76,7 @@ export function PillApp() {
   const [errorMsg, setErrorMsg] = useState('')
   const [downloadPct, setDownloadPct] = useState(0)
   const modelReadyRef = useRef(false)
-  const [tooltip, setTooltip] = useState('')
-  const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const blockedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const barsRef = useRef<(HTMLSpanElement | null)[]>([])
   const [pillTheme, setPillTheme] = useState<PillTheme>(() => readPersisted<PillTheme>('pillTheme', 'steel'))
   const [waveformStyle, setWaveformStyle] = useState<WaveformStyle>(() => readPersisted<WaveformStyle>('waveformStyle', 'bars'))
@@ -172,14 +172,26 @@ export function PillApp() {
     return next
   }, [])
 
-  const showTooltip = useCallback((msg: string) => {
-    setTooltip(msg)
-    if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current)
-    tooltipTimerRef.current = setTimeout(() => setTooltip(''), 3000)
+  /**
+   * Say "no model" in the capsule itself.
+   *
+   * This used to be a tooltip absolutely positioned above the pill, which the
+   * OS clipped: the pill's window is only as big as the capsule (see
+   * `pill_geometry.rs`), so anything drawn outside that box never reaches the
+   * screen. Every message the pill has to give has to fit inside its own
+   * window, the way `error` already does.
+   */
+  const showBlocked = useCallback(() => {
+    if (blockedTimerRef.current) clearTimeout(blockedTimerRef.current)
+    setState(s => (s === 'idle' ? 'blocked' : s))
+    blockedTimerRef.current = setTimeout(
+      () => setState(s => (s === 'blocked' ? 'idle' : s)),
+      2500,
+    )
   }, [])
 
   useEffect(() => () => {
-    if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current)
+    if (blockedTimerRef.current) clearTimeout(blockedTimerRef.current)
   }, [])
 
   // Check model status and listen for download events
@@ -253,10 +265,18 @@ export function PillApp() {
       if (cancelled) { um6(); return }
       unlisteners.push(um6)
 
-      // Deleted active model but another is on disk — that one is ready.
+      // The active model changed. Re-read it rather than assuming it is ready:
+      // picking an undownloaded model in Settings is a switch too, and the
+      // download events are what will clear it later.
       const um7 = await listen(EVENTS.MODEL_SWITCHED, () => {
         if (cancelled) return
-        modelReadyRef.current = true
+        invoke<ModelInfo>(COMMANDS.GET_MODEL_INFO)
+          .then(info => {
+            if (cancelled) return
+            modelReadyRef.current = info.downloaded
+            if (info.downloaded) setState(s => (s === 'blocked' ? 'idle' : s))
+          })
+          .catch(() => {})
       })
       if (cancelled) { um7(); return }
       unlisteners.push(um7)
@@ -301,7 +321,8 @@ export function PillApp() {
         // A finalize is still running — starting now would race it.
         if (stateRef.current === 'processing') return
         if (!modelReadyRef.current) {
-          showTooltip(stateRef.current === 'downloading' ? 'Model downloading… please wait' : 'No model installed — download one in Settings')
+          // 'downloading' already says so with its own spinner; leave it be.
+          showBlocked()
           return
         }
         isRecordingRef.current = true
@@ -371,7 +392,7 @@ export function PillApp() {
       const u5 = await listen(EVENTS.DICTATION_HOTKEY_PRESSED, async () => {
         if (isRecordingRef.current || stateRef.current === 'processing' || stateRef.current === 'downloading') return
         if (!modelReadyRef.current && !isDictationRef.current) {
-          showTooltip('No model installed — download one in Settings')
+          showBlocked()
           return
         }
 
@@ -427,7 +448,7 @@ export function PillApp() {
       cancelled = true
       unlisteners.forEach(fn => fn())
     }
-  }, [showTooltip, serialize])
+  }, [showBlocked, serialize])
 
   const handleToggleDictationPause = useCallback(async () => {
     try {
@@ -488,7 +509,7 @@ export function PillApp() {
     )
   }
 
-  const showIcon = state === 'idle' || state === 'recording' || state === 'error'
+  const showIcon = state === 'idle' || state === 'recording' || state === 'error' || state === 'blocked'
 
   const stripContent = (
     <>
@@ -539,6 +560,8 @@ export function PillApp() {
       )}
 
       {state === 'error' && <span className="pill__error-label" title={errorMsg}>Error</span>}
+
+      {state === 'blocked' && <span className="pill__blocked-label">No model</span>}
     </>
   )
 
@@ -546,8 +569,6 @@ export function PillApp() {
 
   return (
     <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      {tooltip && <div className="pill-tooltip">{tooltip}</div>}
-
       <motion.div
         // Keep the outgoing transcript in its card layout until the close
         // finishes. Switching to a flex row during its fade rewraps the text.

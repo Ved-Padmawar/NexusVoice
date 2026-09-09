@@ -1,15 +1,13 @@
 import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
+import { Popover } from 'radix-ui'
 import { COMMANDS } from '../../lib/commands'
 import {
   formatModelSize, isStreaming, modelNameToId, sortForDisplay,
   type CatalogModel, type ModelId,
 } from '../../lib/models'
 import { toast } from 'sonner'
-import {
-  Check, Cpu, Database, Download, Globe, HardDrive, Mic, Radio, Search, X,
-} from 'lucide-react'
+import { Check, Cpu, Database, Download, Globe, HardDrive, Info, Mic, Radio, Search, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { VendorMark } from '../../components/ui/VendorMark'
 import { vendorForFamily } from '../../lib/vendors'
@@ -50,7 +48,7 @@ function WeightMeter({ bytes, active }: { bytes: number; active: boolean }) {
           className="w-0.75 rounded-[1px]"
           style={{
             height: TIER_HEIGHTS[i],
-            background: i <= tier ? (active ? 'var(--accent)' : 'var(--fg-2)') : 'var(--border)',
+            background: i <= tier ? (active ? 'var(--accent)' : 'var(--muted)') : 'var(--border)',
           }}
         />
       ))}
@@ -58,17 +56,21 @@ function WeightMeter({ bytes, active }: { bytes: number; active: boolean }) {
   )
 }
 
-/** Card hover backs off over a control, so only one surface lights up. */
+/** Small capability marker. Reads as data, not decoration. */
+function Tag({ children, on }: { children: React.ReactNode; on?: boolean }) {
+  return (
+    <span
+      className={`flex shrink-0 items-center gap-1 rounded-(--r-xs) px-1.5 py-0.5 text-[10px] font-medium ${
+        on ? 'bg-(--accent-soft) text-(--on-soft)' : 'text-(--muted)'
+      }`}
+    >
+      {children}
+    </span>
+  )
+}
+
 function ModelCard({
-  model,
-  loaded,
-  installed,
-  recommended,
-  download,
-  disabled,
-  onDownload,
-  onUse,
-  onCancel,
+  model, loaded, installed, recommended, download, disabled, onDownload, onUse, onCancel,
 }: {
   model: CatalogModel
   loaded: boolean
@@ -82,71 +84,95 @@ function ModelCard({
 }) {
   const streaming = isStreaming(model)
   const vendor = vendorForFamily(model.family)
+  const [showDetail, setShowDetail] = useState(false)
 
   return (
     <div
-      title={model.displayName}
-      className={`nv-edge flex flex-col gap-2.5 rounded-(--r-lg) p-3 ${
+      data-on={loaded || undefined}
+      className={`flex flex-col gap-2.5 rounded-(--r-lg) p-3 transition-[background,box-shadow] duration-(--t-fast) ${
         loaded
-          ? '[--edge:var(--accent)] bg-(--accent-soft)'
-          : '[--edge:var(--border-soft)] bg-(--panel) hover:[--edge:var(--border)] hover:bg-accent has-[button:hover]:[--edge:var(--border-soft)] has-[button:hover]:bg-(--panel)'
+          ? 'bg-(--accent-soft) shadow-[inset_0_0_0_1px_var(--accent-line)]'
+          : 'bg-(--surface) shadow-[inset_0_0_0_1px_var(--hairline)] hover:shadow-[inset_0_0_0_1px_var(--border)]'
       }`}
     >
       <div className="flex gap-2.5">
         {/* The vendor that trained the model — a real mark reads faster than
             an initial, and groups the families without an accordion. */}
-        <span
-          className={`grid size-8 shrink-0 place-items-center rounded-(--r-md) ${
-            loaded
-              ? 'border border-(--accent) bg-(--accent-soft)'
-              : installed
-                ? 'border border-(--accent-soft) bg-(--accent-soft)'
-                : 'border border-(--border) bg-(--surface)'
-          }`}
-        >
+        <span className="grid size-8 shrink-0 place-items-center rounded-(--r-md) bg-(--panel) shadow-[inset_0_0_0_1px_var(--hairline)]">
           {vendor
             ? <VendorMark vendor={vendor} className="size-4.5" />
-            : <Cpu size={15} strokeWidth={1.75} className="text-muted-foreground" />}
+            : <Cpu size={15} strokeWidth={1.75} className="text-(--muted)" />}
         </span>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-1.5">
-            <span className={`min-w-0 flex-1 truncate text-[12.5px] font-semibold tracking-[-0.01em] ${loaded ? 'text-(--accent)' : 'text-(--fg)'}`}>
+            <span className={`min-w-0 flex-1 truncate text-[12.5px] font-semibold tracking-[-0.01em] ${loaded ? 'text-(--on-soft)' : 'text-(--fg)'}`}>
               {model.displayName}
             </span>
             {recommended && !loaded && (
-              <span className="shrink-0 rounded-(--r-xs) border border-(--accent-soft) bg-(--accent-soft) px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.04em] text-(--accent)">
+              <span className="shrink-0 rounded-(--r-xs) bg-(--accent-soft) px-1.5 py-px text-[9.5px] font-semibold text-(--on-soft)">
                 Best fit
               </span>
             )}
+            {/* A real popover, not the native tooltip: it is styled, instant,
+                anchored to the button rather than the whole card, and it
+                floats so the grid never reflows. */}
+            <Popover.Root open={showDetail} onOpenChange={setShowDetail}>
+              <Popover.Trigger asChild>
+                <button
+                  type="button"
+                  aria-label={`About ${model.displayName}`}
+                  className={`iconbtn size-5 shrink-0 ${showDetail ? 'bg-(--accent-soft) text-(--on-soft)' : ''}`}
+                >
+                  <Info size={12} strokeWidth={2} />
+                </button>
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content
+                  side="top"
+                  align="end"
+                  sideOffset={6}
+                  collisionPadding={12}
+                  className="pop z-50 w-60 rounded-(--r-md) p-3
+                             data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95
+                             data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="grid size-6 shrink-0 place-items-center rounded-(--r-sm) bg-(--surface) shadow-[inset_0_0_0_1px_var(--hairline)]">
+                      {vendor
+                        ? <VendorMark vendor={vendor} className="size-3.5" />
+                        : <Cpu size={12} strokeWidth={1.75} className="text-(--muted)" />}
+                    </span>
+                    <p className="m-0 min-w-0 flex-1 truncate text-[11.5px] font-semibold text-(--fg)">
+                      {model.displayName}
+                    </p>
+                  </div>
+                  <p className="m-0 mt-2 text-[11.5px] leading-[1.5] text-(--muted)">{model.detail}</p>
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
           </div>
-          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{model.description}</p>
+          <p className="mt-0.5 truncate text-[11px] text-(--muted)">{model.description}</p>
         </div>
       </div>
 
       <div className="flex items-center gap-2">
         <WeightMeter bytes={model.sizeBytes} active={loaded} />
-        <span className={`text-[11px] font-medium tabular-nums ${loaded ? 'text-(--accent)' : 'text-(--fg-2)'}`}>
+        <span className={`text-[11px] font-medium tabular-nums ${loaded ? 'text-(--on-soft)' : 'text-(--fg-2)'}`}>
           {formatModelSize(model.sizeBytes)}
         </span>
 
-        <span className="ml-auto flex items-center gap-1.5">
+        <span className="ml-auto flex items-center gap-1">
           {streaming && (
-            <span
-              title="Streaming — text appears while you speak"
-              className="flex shrink-0 items-center gap-1 rounded-(--r-xs) bg-(--accent-soft) px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.04em] text-(--accent)"
-            >
+            <Tag on>
               <Radio size={9} strokeWidth={2.5} />
               streaming
-            </span>
+            </Tag>
           )}
-          <span
-            title={model.multilingual ? 'Multilingual' : 'English only'}
-            className="flex shrink-0 items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.04em] text-muted-foreground"
-          >
+          <Tag>
             <Globe size={9} strokeWidth={2.25} />
-            {model.multilingual ? 'multi' : 'en'}
-          </span>
+            {model.multilingual ? 'multilingual' : 'English'}
+          </Tag>
         </span>
       </div>
 
@@ -155,38 +181,32 @@ function ModelCard({
         {download && download.status !== 'error' ? (
           <>
             {download.status === 'queued' ? (
-              <span className="flex-1 text-[11px] text-muted-foreground">Queued</span>
+              <span className="flex-1 text-[11px] text-(--muted)">Queued</span>
             ) : (
               <>
-                <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-(--surface)">
-                  <motion.span
-                    className="block h-full rounded-full bg-(--accent)"
-                    initial={false}
-                    animate={{ width: `${download.progress}%` }}
-                    transition={{ duration: 0.25 }}
+                <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-(--bg-alt)">
+                  <span
+                    className="block h-full rounded-full bg-(--accent) transition-[width] duration-300 ease-out"
+                    style={{ width: `${download.progress}%` }}
                   />
                 </span>
-                <span className="shrink-0 text-[11px] font-semibold tabular-nums text-(--accent)">
+                <span className="shrink-0 text-[11px] font-semibold tabular-nums text-(--on-soft)">
                   {download.progress}%
                 </span>
               </>
             )}
-            <motion.button
+            <button
               type="button"
               aria-label="Cancel download"
               title="Cancel download"
               onClick={onCancel}
-              className="grid size-5 shrink-0 place-items-center rounded-(--r-xs) text-muted-foreground cursor-pointer"
-              whileHover={{ color: 'var(--danger)', backgroundColor: 'color-mix(in srgb, var(--danger) 12%, transparent)' }}
-              whileTap={{ scale: 0.92 }}
-              transition={{ duration: 0.15 }}
+              className="iconbtn iconbtn-danger size-5"
             >
-              <X size={13} strokeWidth={2.25} />
-            </motion.button>
+              <X size={12} strokeWidth={2.25} />
+            </button>
           </>
         ) : loaded ? (
-          // `leading-none`, or the icon centres against the taller line box.
-          <span className="nv-edge [--edge:var(--accent)] flex h-7 w-full items-center justify-center gap-1.5 rounded-(--r-md) bg-(--accent-soft) text-[12px] font-semibold text-(--accent)">
+          <span className="flex h-7 w-full items-center justify-center gap-1.5 rounded-(--r-md) text-[12px] font-semibold text-(--on-soft) shadow-[inset_0_0_0_1px_var(--accent-line)]">
             <Check size={12} strokeWidth={2.5} className="shrink-0" />
             <span className="leading-none">In use</span>
           </span>
@@ -196,20 +216,14 @@ function ModelCard({
             onClick={installed ? onUse : onDownload}
             disabled={disabled}
             title={download?.error ?? undefined}
-            className={`nv-edge flex h-7 w-full items-center justify-center gap-1.5 rounded-(--r-md) bg-(--surface) text-[12px] font-medium cursor-pointer hover:bg-(--accent-soft) hover:text-(--accent) hover:[--edge:color-mix(in_srgb,var(--accent)_45%,transparent)] disabled:cursor-not-allowed disabled:opacity-50 ${
-              download?.status === 'error'
-                ? '[--edge:var(--danger)] text-destructive'
-                : 'text-(--fg-2)'
-            }`}
+            className={`btn btn-sm w-full ${download?.status === 'error' ? 'btn-quiet text-(--danger)' : 'btn-quiet'}`}
           >
             {installed ? (
-              <span className="leading-none">Use this model</span>
+              'Use this model'
             ) : (
               <>
-                <Download size={12} strokeWidth={2} className="shrink-0" />
-                <span className="leading-none">
-                  {download?.status === 'error' ? 'Retry download' : 'Download'}
-                </span>
+                <Download size={12} strokeWidth={2} />
+                {download?.status === 'error' ? 'Retry download' : 'Download'}
               </>
             )}
           </button>
@@ -310,92 +324,83 @@ export function VoiceTab() {
 
   return (
     <div className="flex flex-col gap-3">
-      {/* What is running — a status readout, so one line. */}
-      <div className={`flex shrink-0 items-center gap-2.5 rounded-(--r-md) border px-3 py-2 ${
-        loadedVariant ? 'border-(--accent-soft) bg-(--accent-soft)' : 'border-(--border-soft) bg-(--panel)'
-      }`}>
-        <span className={`grid size-7 shrink-0 place-items-center rounded-(--r-sm) ${
-          loadedVariant ? 'bg-(--accent-soft)' : 'text-muted-foreground'
-        }`}>
+      {/* What is running right now. */}
+      <div className="panel flex items-center gap-3 px-3.5 py-2.5">
+        <span className="grid size-8 shrink-0 place-items-center rounded-(--r-md) bg-(--surface) shadow-[inset_0_0_0_1px_var(--hairline)]">
           {shownVendor
-            ? <VendorMark vendor={shownVendor} className="size-4" />
-            : <Mic size={13} strokeWidth={2} />}
+            ? <VendorMark vendor={shownVendor} className="size-4.5" />
+            : <Mic size={14} strokeWidth={1.9} className="text-(--muted)" />}
         </span>
 
-        <span className="shrink-0 truncate text-[13px] font-bold tracking-[-0.02em] text-(--fg)">
-          {shownModel ? shownModel.displayName : 'No model loaded'}
-        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-[13px] font-semibold tracking-[-0.015em] text-(--fg)">
+              {shownModel ? shownModel.displayName : 'No model loaded'}
+            </span>
+            {shownModel && isStreaming(shownModel) && (
+              <Tag on>
+                <Radio size={9} strokeWidth={2.5} />
+                streaming
+              </Tag>
+            )}
+          </div>
+          {/* Only the empty state gets a second line. A loaded model's blurb
+              repeated what the name and the streaming tag already said. */}
+          {!shownModel && (
+            <p className="m-0 mt-0.5 truncate text-[11.5px] text-(--muted)">
+              Pick a model below to start transcribing.
+            </p>
+          )}
+        </div>
 
-        {shownModel && isStreaming(shownModel) && (
-          <span className="flex shrink-0 items-center gap-1 rounded-(--r-xs) bg-(--accent-soft) px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.04em] text-(--accent)">
-            <Radio size={9} strokeWidth={2.5} />
-            live
-          </span>
-        )}
-        <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
-          {shownModel ? shownModel.detail : 'Pick a model below to start transcribing.'}
-        </span>
-
-        <span className="flex shrink-0 items-center gap-3 border-l border-(--border-soft) pl-3 text-[10px]">
+        <div className="flex shrink-0 items-center gap-4 text-[11px]">
           <span className="flex items-center gap-1.5 text-(--fg-2)">
-            <Cpu size={11} className="text-(--accent)" />
+            <Cpu size={12} strokeWidth={1.9} className="text-(--on-soft)" />
             {profile
               ? `${profile.executionProvider.toUpperCase()}${profile.vramGb > 0 ? ` · ${profile.vramGb} GB` : ''}`
               : 'Detecting…'}
           </span>
-          <span className="flex items-center gap-1.5 text-muted-foreground">
-            <HardDrive size={11} />
-            {onDisk.length} on disk · {(diskBytes / 1e9).toFixed(2)} GB
+          <span className="rule h-3.5 w-px" />
+          <span className="flex items-center gap-1.5 text-(--muted)">
+            <HardDrive size={12} strokeWidth={1.9} />
+            {onDisk.length} on disk, {(diskBytes / 1e9).toFixed(2)} GB
           </span>
-        </span>
-
-        <button
-          type="button"
-          onClick={() => setManagerOpen(true)}
-          title="Manage downloaded models"
-          className="flex shrink-0 items-center gap-1.5 rounded-(--r-sm) border border-(--border) bg-(--surface) px-2 py-1 text-[11px] font-medium text-(--fg-2) cursor-pointer transition-colors duration-(--t-fast) hover:bg-accent hover:text-(--fg)"
-        >
-          <Database size={11} strokeWidth={1.75} className="shrink-0" />
-          <span className="leading-none">Manage</span>
-        </button>
+          <button type="button" onClick={() => setManagerOpen(true)} className="btn btn-sm btn-quiet">
+            <Database size={11} strokeWidth={1.9} />
+            Manage
+          </button>
+        </div>
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        <div className="flex items-center gap-1">
-          {FILTERS.map((f) => {
-            const on = filter === f.id
-            return (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setFilter(f.id)}
-                className={`nv-edge flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium cursor-pointer ${
-                  on
-                    ? '[--edge:color-mix(in_srgb,var(--accent)_55%,transparent)] bg-(--accent-soft) text-(--accent)'
-                    : 'text-(--fg-2) hover:[--edge:var(--muted)] hover:text-(--fg)'
-                }`}
-              >
-                {f.label}
-                <span className="tabular-nums">{filterCount(f.id)}</span>
-              </button>
-            )
-          })}
+        {/* Chips, not a segmented control: these narrow the grid rather than
+            switching between views, so each stands on its own. */}
+        <div className="flex items-center gap-1.5">
+          {FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setFilter(f.id)}
+              data-state={filter === f.id ? 'active' : 'inactive'}
+              aria-pressed={filter === f.id}
+              className="chip"
+            >
+              {f.label}
+              <span className="chip-count">{filterCount(f.id)}</span>
+            </button>
+          ))}
         </div>
 
-        <div className="relative w-42 shrink-0">
-          <Search size={12} strokeWidth={2} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <div className="relative ml-auto w-48 shrink-0">
+          <Search size={12} strokeWidth={2} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-(--faint)" />
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Find a model…"
             aria-label="Find a model"
-            className="h-7 pl-7 pr-2 text-[11px]"
+            className="h-7 pl-7 text-[11.5px]"
           />
         </div>
-
-        <span className="ml-auto min-w-0 truncate text-right text-[10px] text-muted-foreground">
-          Bars show download weight — light to heavy.
-        </span>
       </div>
 
       <div className="grid grid-cols-3 gap-2.5">
@@ -416,24 +421,23 @@ export function VoiceTab() {
       </div>
 
       {visible.length === 0 && (
-        <p className="py-8 text-center text-[12px] text-muted-foreground">
+        <p className="py-8 text-center text-[12px] text-(--muted)">
           No models match that filter.
         </p>
       )}
 
-      <AnimatePresence>
-        {managerOpen && (
-          <Suspense fallback={null}>
-            <ModelManagerModal
-              onClose={() => {
-                setManagerOpen(false)
-                refreshOnDisk()
-                void refreshModelInfo()
-              }}
-            />
-          </Suspense>
-        )}
-      </AnimatePresence>
+
+      {managerOpen && (
+        <Suspense fallback={null}>
+          <ModelManagerModal
+            onClose={() => {
+              setManagerOpen(false)
+              refreshOnDisk()
+              void refreshModelInfo()
+            }}
+          />
+        </Suspense>
+      )}
     </div>
   )
 }

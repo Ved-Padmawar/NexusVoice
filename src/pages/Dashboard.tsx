@@ -1,11 +1,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router'
-import { AnimatePresence, motion } from 'framer-motion'
 import { Popover } from 'radix-ui'
 import {
-  Hash, Timer, Mic, Activity,
-  AlertCircle, Copy, Check, Trash2,
-  Settings2, Search, Download, SlidersHorizontal, LayoutDashboard,
+  Copy, Check, Trash2, Search, Download, SlidersHorizontal, Mic,
+  Hash, Timer, Gauge, Cpu, PackageOpen, X, FileText, FileJson,
+  Keyboard, Sparkles, Settings2,
 } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from '../lib/commands'
@@ -20,23 +18,30 @@ import {
   NO_FILTERS,
   type TranscriptFilters,
 } from '../lib/queries'
-import { ROUTES } from '../lib/routes'
+import { VendorMark } from '../components/ui/VendorMark'
+import { RangeCalendar } from '../components/RangeCalendar'
+import { isoDay, daysAgo, dayLabel } from '../lib/dates'
+import { vendorForFamily } from '../lib/vendors'
 import { fmtTime, fmtDate, downloadBlob } from '../lib/utils'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PageBar } from '../components/PageBar'
 import { SectionState } from '../components/SectionState'
+import { Spinner } from '../components/Spinner'
 import type { Transcript } from '../types'
 
-function StatsSkeleton() {
+/** Popover chrome, shared by the two menus in the page bar. */
+const POPOVER =
+  'pop z-50 origin-top-right overflow-hidden rounded-(--r-md) ' +
+  'data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 ' +
+  'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95'
+
+function ReadoutSkeleton() {
   return (
-    <div className="grid grid-cols-4 gap-2.5">
+    <div className="flex items-end gap-x-12">
       {[0, 1, 2, 3].map(i => (
-        <div key={i} className="flex items-center gap-3.5 px-4.5 py-4 rounded-(--r-xl) bg-(--panel) border border-(--border)">
-          <div className="w-9 h-9 rounded-(--r-md) bg-(--surface) animate-pulse shrink-0" />
-          <div className="flex flex-col gap-1.5">
-            <div className="h-4 w-14 rounded bg-(--surface) animate-pulse" />
-            <div className="h-2.5 w-16 rounded bg-(--surface) animate-pulse" />
-          </div>
+        <div key={i} className="flex flex-col gap-2.5">
+          <div className="h-7 w-20 animate-pulse rounded bg-(--surface)" />
+          <div className="h-2.5 w-16 animate-pulse rounded bg-(--surface)" />
         </div>
       ))}
     </div>
@@ -45,22 +50,18 @@ function StatsSkeleton() {
 
 function FeedSkeleton() {
   return (
-    <div className="flex flex-col gap-3 pr-1.5">
-      {[0, 1, 2, 3].map(i => (
-        <div key={i} className="grid grid-cols-[20px_1fr] gap-x-3.5">
-          <div className="w-2 h-2 rounded-full bg-(--surface) animate-pulse mt-3 justify-self-center" />
-          <div className="bg-(--panel) border border-(--border-soft) rounded-(--r-lg) px-3.5 py-3 flex flex-col gap-2">
-            <div className="h-3 w-full rounded bg-(--surface) animate-pulse" />
-            <div className="h-3 w-3/4 rounded bg-(--surface) animate-pulse" />
-          </div>
+    <div className="flex flex-col">
+      {[0, 1, 2, 3, 4].map(i => (
+        <div key={i} className="flex flex-col gap-2 border-b border-(--hairline) py-3.5 last:border-0">
+          <div className="h-3 w-full animate-pulse rounded bg-(--surface)" />
+          <div className="h-2.5 w-24 animate-pulse rounded bg-(--surface)" />
         </div>
       ))}
     </div>
   )
 }
 
-
-function ExportButton() {
+function ExportMenu() {
   const [open, setOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
 
@@ -89,51 +90,39 @@ function ExportButton() {
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button
-          type="button"
-          disabled={exporting}
-          title="Export transcripts"
-          className="nv-edge inline-flex items-center gap-1.25 h-7 px-2.5 rounded-(--r-md) bg-(--panel) text-[11px] font-medium text-(--fg-2) hover:text-(--fg) hover:[--edge:color-mix(in_srgb,var(--accent)_60%,transparent)] cursor-pointer disabled:opacity-50 shrink-0"
-        >
+        <button type="button" disabled={exporting} title="Export transcripts" className="btn btn-sm btn-quiet">
           <Download size={11} strokeWidth={2} />
           Export
         </button>
       </Popover.Trigger>
-      <AnimatePresence>
-        {open && (
-          <Popover.Portal forceMount>
-            <Popover.Content align="end" sideOffset={4} asChild>
-              <motion.div
-                initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                transition={{ duration: 0.14, ease: 'easeOut' }}
-                className="z-50 flex flex-col rounded-(--r-lg) border border-(--border) bg-(--panel) shadow-(--shadow-md) overflow-hidden min-w-37 origin-top-right"
-              >
-                {(['txt', 'json'] as const).map(fmt => (
-                  <button
-                    key={fmt}
-                    type="button"
-                    onClick={() => doExport(fmt)}
-                    className="px-3 py-1.75 text-left text-[12px] text-(--fg-2) hover:bg-accent hover:text-(--fg) transition-colors cursor-pointer bg-transparent border-none"
-                  >
-                    {fmt === 'txt' ? 'Plain text (.txt)' : 'JSON (.json)'}
-                  </button>
-                ))}
-              </motion.div>
-            </Popover.Content>
-          </Popover.Portal>
-        )}
-      </AnimatePresence>
+      <Popover.Portal>
+        <Popover.Content align="end" sideOffset={6} className={`${POPOVER} w-44`}>
+          {([
+            ['txt', 'Plain text', '.txt', FileText],
+            ['json', 'JSON', '.json', FileJson],
+          ] as const).map(([fmt, label, ext, Icon]) => (
+            <button
+              key={fmt}
+              type="button"
+              onClick={() => doExport(fmt)}
+              className="flex h-8 w-full cursor-pointer items-center gap-2.5 px-3 text-left text-[12px] text-(--fg-2) transition-colors duration-(--t-fast) hover:bg-(--surface-hover) hover:text-(--fg)"
+            >
+              <Icon size={13} strokeWidth={1.9} className="shrink-0 text-(--muted)" />
+              {label}
+              <span className="ml-auto text-[10.5px] tabular-nums text-(--faint)">{ext}</span>
+            </button>
+          ))}
+        </Popover.Content>
+      </Popover.Portal>
     </Popover.Root>
   )
 }
 
 const STATS = [
-  { key: 'totalWords',          label: 'Total Words',   fmt: (v: number) => v.toLocaleString(),   Icon: Hash },
-  { key: 'speakingTimeSeconds', label: 'Speaking Time', fmt: (v: number) => fmtTime(v),           Icon: Timer },
-  { key: 'totalSessions',       label: 'Sessions',      fmt: (v: number) => v.toLocaleString(),   Icon: Mic },
-  { key: 'avgPaceWpm',          label: 'Avg Pace',      fmt: (v: number) => `${v}`,               Icon: Activity },
+  { key: 'totalWords',          label: 'Words',            Icon: Hash,  fmt: (v: number) => v.toLocaleString() },
+  { key: 'speakingTimeSeconds', label: 'Speaking time',    Icon: Timer, fmt: (v: number) => fmtTime(v) },
+  { key: 'totalSessions',       label: 'Sessions',         Icon: Mic,   fmt: (v: number) => v.toLocaleString() },
+  { key: 'avgPaceWpm',          label: 'Words per minute', Icon: Gauge, fmt: (v: number) => `${v}` },
 ]
 
 function CopyButton({ text }: { text: string }) {
@@ -152,148 +141,214 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       type="button"
-      className={`inline-flex items-center gap-1 bg-transparent border-none cursor-pointer text-[10px] font-medium px-1.5 py-0.5 rounded-(--r-sm) tracking-[0.02em] transition-colors duration-(--t-fast) ${copied ? 'text-(--success)' : 'text-muted-foreground hover:text-(--accent)'}`}
       onClick={handleCopy}
-      title="Copy to clipboard"
+      title={copied ? 'Copied' : 'Copy transcript'}
+      aria-label="Copy transcript"
+      className={`iconbtn ${copied ? 'text-(--success)' : 'iconbtn-accent'}`}
     >
-      {copied ? <Check size={11} strokeWidth={2.5} /> : <Copy size={11} strokeWidth={2} />}
-      {copied ? 'Copied' : 'Copy'}
+      {copied ? <Check size={13} strokeWidth={2.5} /> : <Copy size={13} strokeWidth={1.9} />}
     </button>
   )
 }
 
-type DateMode = 'range' | 'on'
+/**
+ * Almost every filter is a recent window, so those are one click across the
+ * top. The calendar underneath handles everything else, including spans months
+ * apart, which a pair of text fields served worst.
+ */
+const PRESETS = [
+  { id: 'today', label: 'Today',   resolve: () => ({ from: isoDay(new Date()), to: isoDay(new Date()) }) },
+  { id: '7d',    label: '7 days',  resolve: () => ({ from: daysAgo(6),  to: isoDay(new Date()) }) },
+  { id: '30d',   label: '30 days', resolve: () => ({ from: daysAgo(29), to: isoDay(new Date()) }) },
+] as const
 
-type FilterDropdownProps = {
+function FilterMenu({ filters, onChange }: {
   filters: TranscriptFilters
   onChange: (filters: TranscriptFilters) => void
-}
-
-function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
-  const { from: filterFrom, to: filterTo, sortAsc: filterSortAsc } = filters
+}) {
   const [open, setOpen] = useState(false)
-  const [dateMode, setDateMode] = useState<DateMode>('range')
-  const [from, setFrom] = useState(filterFrom ?? '')
-  const [to, setTo] = useState(filterTo ?? '')
-  const [on, setOn] = useState('')
-  const [sortAsc, setSortAsc] = useState(filterSortAsc)
-  const hasActive = !!filterFrom || !!filterTo || filterSortAsc
+  const [from, setFrom] = useState(filters.from)
+  const [to, setTo] = useState(filters.to)
+  const [sortAsc, setSortAsc] = useState(filters.sortAsc)
+
+  const activeCount = (filters.from || filters.to ? 1 : 0) + (filters.sortAsc ? 1 : 0)
 
   const handleOpenChange = (next: boolean) => {
     if (next) {
-      setFrom(filterFrom ?? '')
-      setTo(filterTo ?? '')
-      setSortAsc(filterSortAsc)
-      setOn('')
+      setFrom(filters.from); setTo(filters.to); setSortAsc(filters.sortAsc)
     }
     setOpen(next)
   }
 
-  const apply = () => {
-    if (dateMode === 'on' && on) {
-      onChange({ from: on, to: on, sortAsc })
-    } else {
-      onChange({ from: from || null, to: to || null, sortAsc })
-    }
-    setOpen(false)
+  // Every control commits on the spot. The panel stays open so a date range and
+  // an order can be set in one visit, and the list updates behind it.
+  const commit = (next: Partial<TranscriptFilters>) => {
+    const merged = { from, to, sortAsc, ...next }
+    setFrom(merged.from); setTo(merged.to); setSortAsc(merged.sortAsc)
+    onChange(merged)
   }
-  const reset = () => {
-    setFrom(''); setTo(''); setOn(''); setSortAsc(false)
+
+  const presetActive = (id: typeof PRESETS[number]['id']) => {
+    const p = PRESETS.find(x => x.id === id)
+    return !!p && from === p.resolve().from && to === p.resolve().to
+  }
+
+  const clear = () => {
+    setFrom(null); setTo(null); setSortAsc(false)
     onChange(NO_FILTERS)
-    setOpen(false)
   }
 
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
       <Popover.Trigger asChild>
-        <button
-          type="button"
-          className={`nv-edge inline-flex items-center gap-1.25 h-7 px-2.5 rounded-(--r-md) text-[11px] font-medium cursor-pointer shrink-0 ${hasActive ? '[--edge:color-mix(in_srgb,var(--accent)_60%,transparent)] bg-(--accent-soft) text-(--accent)' : 'bg-(--panel) text-(--fg-2) hover:text-(--fg) hover:[--edge:color-mix(in_srgb,var(--accent)_60%,transparent)]'}`}
-        >
+        <button type="button" className="btn btn-sm btn-quiet">
           <SlidersHorizontal size={11} strokeWidth={2} />
-          Filter{hasActive ? ' ·' : ''}
+          Filter
+          {activeCount > 0 && (
+            <span className="grid size-4 place-items-center rounded-full bg-(--accent) text-[9.5px] font-bold text-(--accent-fg)">
+              {activeCount}
+            </span>
+          )}
         </button>
       </Popover.Trigger>
-      <AnimatePresence>
-        {open && (
-          <Popover.Portal forceMount>
-            <Popover.Content align="end" sideOffset={6} asChild>
-              <motion.div
-                initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                transition={{ duration: 0.14, ease: 'easeOut' }}
-                className="z-50 rounded-(--r-lg) border border-(--border) bg-(--panel) shadow-(--shadow-lg) p-3 w-70 origin-top-right"
+      <Popover.Portal>
+        <Popover.Content align="end" sideOffset={6} className={`${POPOVER} w-72`}>
+          <div className="flex items-center gap-1.5 p-3">
+            {PRESETS.map(p => {
+              const on = presetActive(p.id)
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => commit(p.resolve())}
+                  aria-pressed={on}
+                  className={`h-7 flex-1 rounded-(--r-sm) text-[11.5px] font-medium transition-colors duration-(--t-fast) ${
+                    on
+                      ? 'bg-(--accent-soft) text-(--on-soft) shadow-[inset_0_0_0_1px_var(--accent-line)]'
+                      : 'bg-(--surface) text-(--fg-2) hover:bg-(--surface-hover) hover:text-(--fg)'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="rule h-px" />
+
+          <div className="p-3">
+            <RangeCalendar from={from} to={to} onChange={(f, t) => commit({ from: f, to: t })} />
+          </div>
+
+          {/* Reads back the committed span, so the grid is not the only record. */}
+          <div className="rule h-px" />
+          <div className="flex h-9 items-center gap-2 px-3">
+            <span className="min-w-0 flex-1 truncate text-[11.5px] text-(--fg-2)">
+              {from && to
+                ? (from === to ? dayLabel(from) : `${dayLabel(from)} – ${dayLabel(to)}`)
+                : <span className="text-(--muted)">Any time</span>}
+            </span>
+            {activeCount > 0 && (
+              <button
+                type="button" onClick={clear}
+                className="flex items-center gap-1 text-[11px] text-(--muted) transition-colors duration-(--t-fast) hover:text-(--danger)"
               >
-                <div className="flex flex-col gap-3">
-                  {/* Date mode toggle */}
-                  <div className="flex flex-col gap-1.25">
-                    <span className="text-[11px] font-medium text-muted-foreground">Date</span>
-                    <div className="flex gap-1">
-                      {(['range', 'on'] as const).map(mode => (
-                        <button key={mode} type="button" onClick={() => setDateMode(mode)}
-                          className={`flex-1 h-6.5 rounded-(--r-sm) text-[11px] font-medium border transition-colors cursor-pointer ${dateMode === mode ? 'border-(--accent) bg-(--accent-soft) text-(--accent)' : 'border-(--border) bg-transparent text-(--fg-2) hover:text-(--fg)'}`}>
-                          {mode === 'range' ? 'Range' : 'Specific day'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {/* Date inputs */}
-                  {dateMode === 'on' ? (
-                    <input type="date" value={on} onChange={e => setOn(e.target.value)}
-                      className="nv-input h-7 text-[11px] px-2 w-full" />
-                  ) : (
-                    <div className="flex gap-2">
-                      <div className="flex flex-col gap-1.25 flex-1">
-                        <span className="text-[11px] font-medium text-muted-foreground">From</span>
-                        <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-                          className="nv-input h-7 text-[11px] px-2 w-full" />
-                      </div>
-                      <div className="flex flex-col gap-1.25 flex-1">
-                        <span className="text-[11px] font-medium text-muted-foreground">To</span>
-                        <input type="date" value={to} onChange={e => setTo(e.target.value)}
-                          className="nv-input h-7 text-[11px] px-2 w-full" />
-                      </div>
-                    </div>
-                  )}
-                  {/* Sort */}
-                  <div className="flex flex-col gap-1.25">
-                    <span className="text-[11px] font-medium text-muted-foreground">Sort order</span>
-                    <div className="flex gap-1">
-                      {([false, true] as const).map(asc => (
-                        <button key={String(asc)} type="button" onClick={() => setSortAsc(asc)}
-                          className={`flex-1 h-6.5 rounded-(--r-sm) text-[11px] font-medium border transition-colors cursor-pointer ${sortAsc === asc ? 'border-(--accent) bg-(--accent-soft) text-(--accent)' : 'border-(--border) bg-transparent text-(--fg-2) hover:text-(--fg)'}`}>
-                          {asc ? 'Oldest first' : 'Newest first'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 pt-1 border-t border-(--border-soft)">
-                    {hasActive && (
-                      <button type="button" onClick={reset}
-                        className="text-[11px] text-muted-foreground hover:text-(--fg) transition-colors cursor-pointer bg-transparent border-none">
-                        Reset
-                      </button>
-                    )}
-                    <button type="button" onClick={apply}
-                      className="ml-auto inline-flex items-center h-6.5 px-3 rounded-(--r-sm) bg-(--accent) text-primary-foreground text-[11px] font-semibold cursor-pointer border-none hover:opacity-90 transition-opacity">
-                      Apply
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            </Popover.Content>
-          </Popover.Portal>
-        )}
-      </AnimatePresence>
+                <X size={11} strokeWidth={2.25} />
+                Clear
+              </button>
+            )}
+          </div>
+
+          <div className="rule h-px" />
+          <div className="flex items-center gap-2 p-3">
+            <span className="text-[11px] text-(--muted)">Order</span>
+            <div className="seg ml-auto">
+              {([false, true] as const).map(asc => (
+                <button
+                  key={String(asc)}
+                  type="button"
+                  onClick={() => commit({ sortAsc: asc })}
+                  data-state={sortAsc === asc ? 'active' : 'inactive'}
+                  className="seg-item"
+                >
+                  {asc ? 'Oldest first' : 'Newest first'}
+                </button>
+              ))}
+            </div>
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
     </Popover.Root>
   )
 }
 
-export function Dashboard() {
+/**
+ * Which model is loaded and what to do next.
+ *
+ * When nothing is downloaded the catalogue still hands back a name — the
+ * recommended model, not one in hand — so leading with it read as "you have
+ * Whisper Large v3 Turbo" while the line beside it told you to go get a model.
+ * The name leads only when it is genuinely loaded; otherwise it is demoted to
+ * the recommendation it actually is.
+ */
+function ModelLine() {
   const hasHotkey = useAppStore(s => s.hasHotkey)
-  const navigate = useNavigate()
+  const modelReady = useAppStore(s => s.modelReady)
+  const modelName = useAppStore(s => s.activeModelName)
+  const catalog = useAppStore(s => s.catalog)
+  const selected = useAppStore(s => s.selectedModel)
+  const downloads = useAppStore(s => s.downloads)
+
+  // The mark of whoever trained the loaded model, matching the Voice tab.
+  const model = catalog.find(m => m.id === selected)
+  const vendor = model ? vendorForFamily(model.family) : null
+
+  const download = selected ? downloads[selected] : undefined
+  const fetching = download?.status === 'running' || download?.status === 'queued'
+
+  // The mark says what is loaded; the detail icon says what to do about it, so
+  // the two never carry the same message. A model that is only recommended
+  // keeps the neutral mark — showing its vendor logo is what made the line read
+  // as "you have this one".
+  const { mark, DetailIcon, title, detail } = fetching
+    ? {
+        mark: vendor
+          ? <VendorMark vendor={vendor} className="size-5.5" />
+          : <Download size={17} strokeWidth={1.9} className="text-(--accent)" />,
+        DetailIcon: Download,
+        title: modelName ?? 'Model',
+        detail: `Downloading · ${download?.progress ?? 0}%`,
+      }
+    : !modelReady
+      ? {
+          mark: <PackageOpen size={17} strokeWidth={1.9} className="text-(--muted)" />,
+          DetailIcon: modelName ? Sparkles : Settings2,
+          title: 'No model',
+          detail: modelName ? `${modelName} recommended` : 'Choose one in Settings',
+        }
+      : {
+          mark: vendor
+            ? <VendorMark vendor={vendor} className="size-5.5" />
+            : <Cpu size={17} strokeWidth={1.9} className="text-(--muted)" />,
+          DetailIcon: hasHotkey ? Mic : Keyboard,
+          title: modelName ?? 'Model loaded',
+          detail: hasHotkey ? 'Hold your hotkey to record' : 'Set a hotkey in Settings',
+        }
+
+  return (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <span className="grid size-6 shrink-0 place-items-center">{mark}</span>
+      <span className="truncate text-[12px] font-medium text-(--fg-2)">{title}</span>
+      <span className="rule h-3 w-px shrink-0" />
+      <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] tabular-nums text-(--muted)">
+        <DetailIcon size={12} strokeWidth={1.9} className="shrink-0" />
+        <span className="truncate">{detail}</span>
+      </span>
+    </div>
+  )
+}
+
+export function Dashboard() {
   const [query, setQuery] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [filters, setFilters] = useState<TranscriptFilters>(NO_FILTERS)
@@ -339,157 +394,142 @@ export function Dashboard() {
   }, [query])
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-8 pt-7 pb-4 gap-5">
+    <div className="flex h-full flex-col overflow-hidden">
+      <PageBar
+        title="Dashboard"
+        description="Your recent dictation, at a glance"
+      />
 
-      {/* Hero */}
-      <div className="flex items-center justify-between gap-4 pb-3.5 border-b border-(--border-soft)">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-            <LayoutDashboard size={16} strokeWidth={2} />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-[16px] font-bold tracking-tight text-(--fg) leading-[1.1] m-0">Dashboard</h1>
-            <p className="text-[11px] text-muted-foreground mt-0.5 m-0 truncate">Your voice, transcribed instantly.</p>
-          </div>
-        </div>
-      </div>
+      <div className="mx-auto mb-(--dock-clear) flex min-h-0 w-full max-w-(--measure) flex-1 flex-col overflow-hidden px-(--gutter)">
 
-      {/* Notices */}
-      <AnimatePresence>
-        {!hasHotkey && (
-          <motion.div key="hotkey-notice" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} style={{ overflow: 'hidden' }}>
-            <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-(--r-lg) text-[12px] leading-[1.4] shrink-0 text-(--fg-2)" style={{ background: 'var(--warning-soft)', border: '1px solid oklch(from var(--warning) l c h / 0.25)' }}>
-              <AlertCircle size={14} strokeWidth={2} className="shrink-0 text-(--warning)" />
-              <span className="flex-1">No hotkey set — NexusVoice won't record until you configure one.</span>
-              <Button size="sm" onClick={() => navigate(ROUTES.SETTINGS, { state: { tab: 'general' } })} className="shrink-0">
-                <Settings2 size={12} strokeWidth={2} />
-                Set hotkey
-              </Button>
+        {/* Four numbers on the bare canvas, set large. Boxing figures this size
+            adds a container the eye parses before reaching the value; the rule
+            beneath is all the separation the feed needs. */}
+        <div className="flex shrink-0 flex-wrap items-end gap-x-8 gap-y-4 pb-5">
+          <SectionState
+            status={stats.status}
+            error={stats.error?.message}
+            onRetry={stats.refetch}
+            skeleton={<ReadoutSkeleton />}
+            hasData={stats.data != null}
+          >
+            <div className="flex flex-wrap items-end gap-x-12 gap-y-4">
+              {STATS.map(({ key, label, Icon, fmt }) => {
+                const raw = stats.data?.[key as keyof typeof stats.data] as number | undefined
+                return (
+                  <div key={key} className="flex flex-col gap-2">
+                    <span className="text-[30px] font-semibold leading-none tracking-[-0.045em] tabular-nums text-(--fg)">
+                      {raw != null ? fmt(raw) : '—'}
+                    </span>
+                    <span className="flex items-center gap-1.5 text-[11px] text-(--muted)">
+                      <Icon size={12} strokeWidth={1.9} className="shrink-0" />
+                      {label}
+                    </span>
+                  </div>
+                )
+              })}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </SectionState>
 
-      {/* Stats */}
-      <SectionState status={stats.status} error={stats.error?.message} onRetry={stats.refetch} skeleton={<StatsSkeleton />} hasData={stats.data != null}>
-      <div className="grid grid-cols-4 gap-2.5">
-        {STATS.map(({ key, label, fmt, Icon }) => {
-          const raw = stats.data?.[key as keyof typeof stats.data] as number | undefined
-          return (
-            <div
-              key={key}
-              className="flex items-center gap-3.5 px-4.5 py-4 rounded-(--r-xl) bg-(--panel) border border-(--border) cursor-default"
-            >
-              <div className="w-9 h-9 rounded-(--r-md) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-                <Icon size={15} strokeWidth={1.75} />
-              </div>
-              <div className="flex flex-col gap-0.75">
-                <span className="text-[20px] font-bold tracking-[-0.03em] text-(--fg) leading-none tabular-nums">{raw != null ? fmt(raw) : '—'}</span>
-                <span className="text-[11px] text-muted-foreground font-medium">{label}</span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-      </SectionState>
-
-      {/* Activity feed */}
-      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-        <div className="flex items-center gap-2.5 mb-4 pr-3">
-          <h2 className="text-[13px] font-semibold text-(--fg-2) tracking-[-0.01em] m-0">Recent activity</h2>
-          {!isSearchMode && feedCount > 0 && (
-            <span className="inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-(--accent-soft) text-(--accent) text-[10px] font-bold tracking-[0.02em]">
-              {feedCount}
-            </span>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-          <ExportButton />
-          <FilterDropdown filters={filters} onChange={setFilters} />
-          {/* Search bar */}
-          <div className="relative flex items-center">
-            <Search size={12} strokeWidth={2} className="absolute left-2.25 text-muted-foreground pointer-events-none" />
-            <Input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search transcripts…"
-              className="pl-7 h-7 text-[12px] w-45"
-            />
-          </div>
+          {/* Outside the readouts' loading state: neither the model nor the next
+              action waits on the stats query. */}
+          <div className="ml-auto min-w-0 pb-0.5">
+            <ModelLine />
           </div>
         </div>
 
-        <SectionState
-          status={active.status}
-          error={active.error?.message}
-          onRetry={active.refetch}
-          skeleton={<FeedSkeleton />}
-        >
-        {displayItems.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-14 px-6 text-center">
-            <div className="w-14 h-14 rounded-full border-[1.5px] border-dashed border-(--border) flex items-center justify-center text-muted-foreground">
-              {isSearchMode ? <Search size={20} strokeWidth={1.5} /> : <Mic size={20} strokeWidth={1.5} />}
+        <div className="rule h-px shrink-0" />
+
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-4">
+          <div className="flex shrink-0 items-center gap-2.5 pb-3 pr-3.5">
+            <h2 className="m-0 text-[12px] font-semibold tracking-[-0.005em] text-(--fg-2)">
+              {isSearchMode ? 'Search results' : 'Recent activity'}
+            </h2>
+            {!isSearchMode && feedCount > 0 && (
+              <span className="count">{feedCount}</span>
+            )}
+
+            <div className="ml-auto flex items-center gap-2">
+              <div className="relative flex items-center">
+                <Search size={12} strokeWidth={2} className="pointer-events-none absolute left-2.5 text-(--faint)" />
+                <Input
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder="Search transcripts…"
+                  aria-label="Search transcripts"
+                  className="h-7 w-52 pl-7 text-[12px]"
+                />
+              </div>
+              <FilterMenu filters={filters} onChange={setFilters} />
+              <ExportMenu />
             </div>
-            <p className="text-[13px] font-semibold text-(--fg-2) m-0">{isSearchMode ? 'No results found' : 'Nothing here yet'}</p>
-            <p className="text-[12px] text-muted-foreground max-w-65 leading-[1.6] m-0">
-              {isSearchMode ? 'Try different keywords or check your spelling.' : 'Hold your hotkey and speak — transcripts stream in automatically.'}
-            </p>
           </div>
-        ) : (
-          <div className="flex flex-col gap-0 overflow-y-auto overflow-x-hidden overscroll-none flex-1 min-h-0 pr-1.5">
-            <AnimatePresence initial={false}>
-              {displayItems.map((item) => (
-                <motion.article
-                  key={item.id}
-                  className="grid grid-cols-[20px_1fr] gap-x-3.5 relative pb-4"
-                  initial={{ opacity: 0, y: -6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.18 }}
-                  layout
-                >
-                  {/* Timeline line */}
-                  <div className="absolute left-2.25 top-5.5 -bottom-4 w-px bg-(--border-soft) last:hidden" aria-hidden />
-                  {/* Dot */}
-                  <div className="col-start-1 row-start-1 w-2 h-2 rounded-full bg-(--accent) mt-3 justify-self-center relative z-10 shrink-0" aria-hidden />
-                  {/* Card */}
-                  <div className="nv-edge [--edge:var(--border-soft)] hover:[--edge:var(--border)] col-start-2 row-start-1 bg-(--panel) rounded-(--r-lg) px-3.5 py-3 flex flex-col gap-2 hover:bg-(--surface)">
-                    <p className="text-[13px] text-(--fg) leading-[1.6] m-0">{item.content}</p>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-muted-foreground tabular-nums">
-                        {fmtDate(item.createdAt)}
+
+          <SectionState
+            status={active.status}
+            error={active.error?.message}
+            onRetry={active.refetch}
+            skeleton={<FeedSkeleton />}
+          >
+            {displayItems.length === 0 ? (
+              <div className="flex flex-col items-center gap-2.5 px-6 py-16 text-center">
+                <span className="grid size-10 place-items-center rounded-full bg-(--surface) text-(--faint)">
+                  {isSearchMode ? <Search size={17} strokeWidth={1.6} /> : <Mic size={17} strokeWidth={1.6} />}
+                </span>
+                <p className="m-0 text-[13px] font-semibold text-(--fg-2)">
+                  {isSearchMode ? 'No results found' : 'Nothing here yet'}
+                </p>
+                <p className="m-0 max-w-64 text-[12px] leading-[1.6] text-(--muted)">
+                  {isSearchMode
+                    ? 'Try a different word, or check the spelling.'
+                    : 'Hold your hotkey and speak. Transcripts land here as you go.'}
+                </p>
+              </div>
+            ) : (
+              <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-none pr-1.5">
+                {displayItems.map((item) => (
+                  <article
+                    key={item.id}
+                    className="group flex gap-4 border-b border-(--hairline) py-3.5 last:border-0"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p data-selectable className="m-0 text-[13px] leading-[1.55] text-(--fg)">{item.content}</p>
+                      <div className="mt-1.5 flex items-center gap-2.5 text-[10.5px] text-(--muted)">
+                        <span className="tabular-nums">{fmtDate(item.createdAt)}</span>
                         {item.targetApp && (
-                          <span className="normal-nums"> · Pasted in {item.targetApp}</span>
+                          <>
+                            <span className="rule h-2.5 w-px" />
+                            <span className="truncate">Pasted in {item.targetApp}</span>
+                          </>
                         )}
-                      </span>
-                      <div className="flex items-center gap-0.5">
-                        <CopyButton text={item.content} />
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 bg-transparent border-none cursor-pointer text-[10px] font-medium px-1.5 py-0.5 rounded-(--r-sm) tracking-[0.02em] transition-colors duration-(--t-fast) text-muted-foreground hover:text-destructive"
-                          onClick={() => deleteTranscript.mutate(item.id)}
-                          title="Delete transcript"
-                        >
-                          <Trash2 size={11} strokeWidth={2} />
-                          Delete
-                        </button>
                       </div>
                     </div>
-                  </div>
-                </motion.article>
-              ))}
-            </AnimatePresence>
+                    <div className="row-actions flex shrink-0 items-start gap-0.5">
+                      <CopyButton text={item.content} />
+                      <button
+                        type="button"
+                        onClick={() => deleteTranscript.mutate(item.id)}
+                        title="Delete transcript"
+                        aria-label="Delete transcript"
+                        className="iconbtn iconbtn-danger"
+                      >
+                        <Trash2 size={13} strokeWidth={1.9} />
+                      </button>
+                    </div>
+                  </article>
+                ))}
 
-            {/* Infinite scroll sentinel — pages the feed and search alike. */}
-            {hasNextPage && (
-              <div ref={sentinelRef} className="flex items-center justify-center py-4">
-                <motion.div className="w-4 h-4 rounded-full border-2 border-(--border) border-t-(--accent)" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
+                {/* Infinite scroll sentinel — pages the feed and search alike. */}
+                {hasNextPage && (
+                  <div ref={sentinelRef} className="flex items-center justify-center py-5">
+                    <Spinner size={16} />
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
-        </SectionState>
+          </SectionState>
+        </div>
       </div>
-
     </div>
   )
 }

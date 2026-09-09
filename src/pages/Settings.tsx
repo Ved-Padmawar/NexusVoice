@@ -1,13 +1,11 @@
 import { useShallow } from 'zustand/react/shallow'
 import { useRef, useEffect } from 'react'
 import { useLocation } from 'react-router'
-import { invoke } from '@tauri-apps/api/core'
-import { motion } from 'framer-motion'
-import { COMMANDS } from '../lib/commands'
-import { Palette, Info, FolderOpen, SlidersHorizontal, Mic, Settings as SettingsIcon } from 'lucide-react'
+import { SlidersHorizontal, Mic, Palette, Info } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { SETTINGS_TABS, type SettingsTab } from '../lib/routes'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { PageBar } from '../components/PageBar'
 import { AppearanceTab } from './settings/AppearanceTab'
 import { AboutTab } from './settings/AboutTab'
 import { GeneralTab } from './settings/GeneralTab'
@@ -15,12 +13,20 @@ import { VoiceTab } from './settings/VoiceTab'
 import { PillTab } from './settings/PillTab'
 import { WaveformTab } from './settings/WaveformTab'
 
-const SUBTITLE: Record<SettingsTab, string> = {
-  appearance: 'Themes for the window and the recording pill',
-  general: 'Input device, dictation language, formatting and hotkeys',
-  voice: 'Transcription model',
-  about: 'Version, updates and system information',
-}
+/** Tab order is the registry order (`SETTINGS_TABS`); keep the two in sync. */
+const TABS: { value: SettingsTab; label: string; Icon: typeof Mic }[] = [
+  { value: SETTINGS_TABS.GENERAL,    label: 'General',    Icon: SlidersHorizontal },
+  { value: SETTINGS_TABS.VOICE,      label: 'Voice',      Icon: Mic },
+  { value: SETTINGS_TABS.APPEARANCE, label: 'Appearance', Icon: Palette },
+  { value: SETTINGS_TABS.ABOUT,      label: 'About',      Icon: Info },
+]
+
+/* One scroll container per tab. The clearance is a margin, not padding: padding
+   sits inside the scroll box, so it counted toward scrollHeight and armed the
+   scrollbar while the page still looked empty. */
+const PANEL =
+  'min-h-0 flex-1 overflow-y-auto overscroll-none px-(--gutter) pt-1 mb-(--dock-clear) ' +
+  '[&>*]:mx-auto [&>*]:w-full [&>*]:max-w-(--measure)'
 
 export function Settings() {
   const { activeSettingsTab, setActiveSettingsTab } = useAppStore(useShallow(s => ({
@@ -49,78 +55,39 @@ export function Settings() {
   const setTab = (v: string) => setActiveSettingsTab(v as SettingsTab)
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-8 pt-7 pb-4">
-      {/* Hero. Same structure as the other pages, tightened: this is the only
-          screen carrying a second nav row below it, so the spacing that suits a
-          lone header would push the tab content into scroll. */}
-      <div className="flex shrink-0 items-center justify-between gap-4 pb-3.5 mb-3.5 border-b border-(--border-soft)">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-            <SettingsIcon size={16} strokeWidth={2} />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-[16px] font-bold tracking-tight text-(--fg) leading-[1.1] m-0">Settings</h1>
-            <p className="text-[11px] text-muted-foreground mt-0.5 m-0 truncate">{SUBTITLE[tab]}</p>
-          </div>
-        </div>
-      </div>
-
-      <Tabs value={tab} onValueChange={setTab} className="flex flex-col flex-1 min-h-0 gap-0!">
-        <div className="flex items-center justify-between mb-3 shrink-0">
-          <TabsList className="w-fit!">
-            <TabsTrigger value="general" className="gap-1.25! text-[12px]!">
-              <SlidersHorizontal size={12} strokeWidth={1.75} />
-              General
-            </TabsTrigger>
-            <TabsTrigger value="voice" className="gap-1.25! text-[12px]!">
-              <Mic size={12} strokeWidth={1.75} />
-              Voice
-            </TabsTrigger>
-            <TabsTrigger value="appearance" className="gap-1.25! text-[12px]!">
-              <Palette size={12} strokeWidth={1.75} />
-              Appearance
-            </TabsTrigger>
-            <TabsTrigger value="about" className="gap-1.25! text-[12px]!">
-              <Info size={12} strokeWidth={1.75} />
-              About
-            </TabsTrigger>
+    <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1 overflow-hidden">
+      <PageBar
+        title="Settings"
+        description="Configure how NexusVoice listens, formats and looks"
+        nav={
+          <TabsList>
+            {TABS.map(({ value, label, Icon }) => (
+              <TabsTrigger key={value} value={value}>
+                <Icon size={12.5} strokeWidth={1.9} />
+                {label}
+              </TabsTrigger>
+            ))}
           </TabsList>
-          {tab === 'about' && (
-            <div className="flex items-center gap-1 self-start mt-0.75">
-              <motion.button
-                type="button"
-                className="inline-flex items-center gap-1.25 px-2.5 h-9 rounded-(--r-md) bg-(--surface) border-none text-(--fg-2) text-[12px] font-medium cursor-pointer"
-                onClick={() => invoke<void>(COMMANDS.OPEN_LOGS_FOLDER)}
-                title="Open logs folder"
-                whileHover={{ color: 'var(--fg)' }}
-                whileTap={{ scale: 0.96 }}
-                transition={{ duration: 0.15 }}
-              >
-                <FolderOpen size={12} strokeWidth={1.75} />
-                Logs
-              </motion.button>
-            </div>
-          )}
-        </div>
+        }
+      />
 
-        <TabsContent value="general" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-5 mt-0! pr-1">
-          <GeneralTab />
-        </TabsContent>
+      <TabsContent value={SETTINGS_TABS.GENERAL} className={PANEL}>
+        <GeneralTab />
+      </TabsContent>
 
-        <TabsContent value="voice" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-3 mt-0! pr-1">
-          <VoiceTab />
-        </TabsContent>
+      <TabsContent value={SETTINGS_TABS.VOICE} className={PANEL}>
+        <VoiceTab />
+      </TabsContent>
 
-        <TabsContent value="appearance" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-6 mt-0! pr-1">
-          <AppearanceTab />
-          <PillTab />
-          <WaveformTab />
-        </TabsContent>
+      <TabsContent value={SETTINGS_TABS.APPEARANCE} className={`${PANEL} flex flex-col gap-4`}>
+        <AppearanceTab />
+        <PillTab />
+        <WaveformTab />
+      </TabsContent>
 
-        <TabsContent value="about" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-3 mt-0! pr-1">
-          <AboutTab />
-        </TabsContent>
-      </Tabs>
-    </div>
+      <TabsContent value={SETTINGS_TABS.ABOUT} className={PANEL}>
+        <AboutTab />
+      </TabsContent>
+    </Tabs>
   )
 }

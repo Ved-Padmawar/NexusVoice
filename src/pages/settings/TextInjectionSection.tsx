@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { Check, KeyboardIcon, RefreshCw, TriangleAlert } from 'lucide-react'
+import { Check, RefreshCw, ClipboardType } from 'lucide-react'
 import { COMMANDS } from '../../lib/commands'
+import { Section } from '../../components/Section'
 import type { InjectionStatus } from '../../types'
 
 /**
@@ -38,69 +39,53 @@ export function TextInjectionSection() {
   const ready = status.selected !== null
 
   return (
-    <div className="rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
-      <div className="flex items-center gap-2.5">
-        <span
-          className={`grid size-7 shrink-0 place-items-center rounded-(--r-sm) ${
-            ready ? 'bg-(--accent-soft) text-(--accent)' : 'text-destructive'
-          }`}
-        >
-          {ready ? <KeyboardIcon size={14} strokeWidth={2} /> : <TriangleAlert size={14} strokeWidth={2} />}
-        </span>
-
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-bold tracking-[-0.02em] text-(--fg)">Text injection</p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            {ready
-              ? `Typing transcripts with ${status.selected} on ${status.session}.`
-              : `No supported tool found on ${status.session}. Install one below, or nothing will be typed.`}
-          </p>
-        </div>
-
+    <Section
+      title="Text injection"
+      Icon={ClipboardType}
+      description={
+        ready
+          ? `Typing transcripts with ${status.selected} on ${status.session}.`
+          : `No supported tool found on ${status.session}. Install one below, or nothing will be typed.`
+      }
+      action={
         <button
           type="button"
           onClick={recheck}
           disabled={checking}
-          title="Check again"
-          className="flex shrink-0 items-center gap-1.5 rounded-(--r-sm) border border-(--border) bg-(--surface) px-2 py-1 text-[11px] font-medium text-(--fg-2) cursor-pointer transition-colors duration-(--t-fast) hover:bg-accent hover:text-(--fg) disabled:opacity-50"
+          className="btn btn-sm btn-quiet"
         >
-          <RefreshCw size={11} strokeWidth={1.75} className={checking ? 'animate-spin' : undefined} />
-          <span className="leading-none">Recheck</span>
+          <RefreshCw size={11} strokeWidth={1.9} className={checking ? 'animate-spin' : undefined} />
+          Check again
         </button>
-      </div>
+      }
+      bodyClassName="flex flex-col gap-1.5 p-3"
+    >
+      {status.tools.map((tool) => (
+        <div
+          key={tool.name}
+          className={`flex items-center gap-2.5 rounded-(--r-md) px-2.5 py-1.5 ${
+            tool.preferred ? 'bg-(--accent-soft)' : 'bg-(--surface)'
+          }`}
+        >
+          <span className={`shrink-0 ${tool.available ? 'text-(--on-soft)' : 'text-(--faint)'}`}>
+            {tool.available ? <Check size={12} strokeWidth={2.5} /> : <span className="block size-3" />}
+          </span>
 
-      <ul className="mt-3 flex flex-col gap-1.5">
-        {status.tools.map((tool) => (
-          <li
-            key={tool.name}
-            className={`flex items-center gap-2.5 rounded-(--r-md) border px-2.5 py-1.5 ${
-              tool.preferred
-                ? 'border-(--accent-soft) bg-(--accent-soft)'
-                : 'border-(--border-soft) bg-(--surface)'
-            }`}
-          >
-            <span className={`shrink-0 ${tool.available ? 'text-(--accent)' : 'text-muted-foreground'}`}>
-              {tool.available ? <Check size={12} strokeWidth={2.5} /> : <span className="block size-3" />}
+          <code className={`shrink-0 text-[11.5px] font-semibold ${tool.preferred ? 'text-(--on-soft)' : 'text-(--fg-2)'}`}>
+            {tool.name}
+          </code>
+
+          {tool.preferred && (
+            <span className="shrink-0 text-[10.5px] font-medium text-(--on-soft)">in use</span>
+          )}
+
+          {!tool.available && (
+            <span className="min-w-0 flex-1 truncate text-right text-[10.5px] text-(--muted)" title={tool.installHint}>
+              {tool.installHint}
             </span>
-
-            <code className={`shrink-0 text-[11.5px] font-semibold ${tool.preferred ? 'text-(--accent)' : 'text-(--fg-2)'}`}>
-              {tool.name}
-            </code>
-
-            {tool.preferred && (
-              <span className="shrink-0 rounded-(--r-xs) bg-(--accent-soft) px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.04em] text-(--accent)">
-                in use
-              </span>
-            )}
-
-            {!tool.available && (
-              <span className="min-w-0 flex-1 truncate text-right text-[10.5px] text-muted-foreground" title={tool.installHint}>
-                {tool.installHint}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
-    </div>
+          )}
+        </div>
+      ))}
+    </Section>
   )
 }

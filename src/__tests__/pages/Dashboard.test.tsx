@@ -5,6 +5,7 @@ import { Dashboard } from '../../pages/Dashboard'
 import { useAppStore } from '../../store/useAppStore'
 import { invoke } from '@tauri-apps/api/core'
 import { renderWithQuery } from '../utils'
+import { toUtcBounds } from '../../lib/dates'
 import type { Transcript, UsageStats } from '../../types'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
@@ -35,6 +36,12 @@ class MockIntersectionObserver {
   disconnect() { observed.clear() }
 }
 vi.stubGlobal('IntersectionObserver', MockIntersectionObserver)
+
+const pad = (n: number) => String(n).padStart(2, '0')
+const now = new Date()
+const todayIso = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+/** A fixed day in the currently displayed month, for range clicks. */
+const dayInThisMonth = (d: number) => `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(d)}`
 
 const sampleTranscripts: Transcript[] = [
   { id: 1, content: 'Hello world', wordCount: 2, durationSeconds: 5, targetApp: 'VS Code', createdAt: new Date().toISOString() },
@@ -72,7 +79,7 @@ beforeEach(() => {
   mockInvoke.mockReset()
   observed.clear()
   mockBackend()
-  useAppStore.setState({ hasHotkey: true })
+  useAppStore.setState({ hasHotkey: true, modelReady: true, activeModelName: null, downloads: {} })
 })
 
 describe('Dashboard — empty state', () => {
@@ -81,10 +88,25 @@ describe('Dashboard — empty state', () => {
     expect(await screen.findByText(/nothing here yet/i)).toBeInTheDocument()
   })
 
-  it('shows hotkey warning when no hotkey set', () => {
-    useAppStore.setState({ hasHotkey: false })
+  // The armed/not-armed banner moved to the status lamp; the masthead still
+  // owes the user the next action.
+  it('points at the hotkey setting when no hotkey is set', () => {
+    useAppStore.setState({ hasHotkey: false, modelReady: true })
     renderDashboard()
-    expect(screen.getByText(/no hotkey set/i)).toBeInTheDocument()
+    expect(screen.getByText(/set a hotkey in settings/i)).toBeInTheDocument()
+  })
+
+  // The catalogue names a model even with nothing on disk; leading with that
+  // name read as "you have this one" next to a prompt to go get one.
+  it('demotes the recommended model instead of implying it is loaded', () => {
+    useAppStore.setState({
+      hasHotkey: true,
+      modelReady: false,
+      activeModelName: 'Whisper Large v3 Turbo',
+    })
+    renderDashboard()
+    expect(screen.getByText('No model')).toBeInTheDocument()
+    expect(screen.getByText(/whisper large v3 turbo recommended/i)).toBeInTheDocument()
   })
 })
 
@@ -171,14 +193,14 @@ describe('Dashboard — export', () => {
   it('shows export dropdown on button click', () => {
     renderDashboard()
     fireEvent.click(screen.getByTitle(/export transcripts/i))
-    expect(screen.getByText(/plain text/i)).toBeInTheDocument()
-    expect(screen.getByText(/json/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /plain text/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /json/i })).toBeInTheDocument()
   })
 
   it('calls export_transcripts on format select', async () => {
     renderDashboard()
     fireEvent.click(screen.getByTitle(/export transcripts/i))
-    fireEvent.click(screen.getByText(/plain text/i))
+    fireEvent.click(screen.getByRole('button', { name: /plain text/i }))
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('export_transcripts')
     })
@@ -192,20 +214,70 @@ describe('Dashboard — filter', () => {
     expect(screen.getByText(/newest first/i)).toBeInTheDocument()
   })
 
-  it('shows range and specific day toggle', () => {
+  it('offers the recent-window presets', () => {
     renderDashboard()
     fireEvent.click(screen.getByText(/^filter/i))
-    expect(screen.getByText('Range')).toBeInTheDocument()
-    expect(screen.getByText(/specific day/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Today' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '7 days' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '30 days' })).toBeInTheDocument()
   })
 
-  it('switches to specific day mode', () => {
+  it('shows a month grid with a paging header', () => {
     renderDashboard()
     fireEvent.click(screen.getByText(/^filter/i))
-    fireEvent.click(screen.getByText(/specific day/i))
-    // In specific day mode there is only one date input
-    const dateInputs = screen.getAllByDisplayValue('')
-    expect(dateInputs.length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: /previous month/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /next month/i })).toBeInTheDocument()
+    // Days are labelled with their own ISO date.
+    expect(screen.getByRole('button', { name: todayIso })).toBeInTheDocument()
+  })
+
+  it('applies a preset window immediately, without a confirm step', async () => {
+    mockBackend({ transcripts: sampleTranscripts })
+    renderDashboard()
+    await screen.findByText('Hello world')
+
+    fireEvent.click(screen.getByText(/^filter/i))
+    fireEvent.click(screen.getByRole('button', { name: 'Today' }))
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('get_transcripts', {
+        page: expect.objectContaining(toUtcBounds(todayIso, todayIso)),
+      })
+    })
+  })
+
+  it('builds a range from two day clicks', async () => {
+    mockBackend({ transcripts: sampleTranscripts })
+    renderDashboard()
+    await screen.findByText('Hello world')
+
+    fireEvent.click(screen.getByText(/^filter/i))
+    const first = screen.getByRole('button', { name: dayInThisMonth(3) })
+    const second = screen.getByRole('button', { name: dayInThisMonth(9) })
+    fireEvent.click(first)
+    fireEvent.click(second)
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('get_transcripts', {
+        page: expect.objectContaining(toUtcBounds(dayInThisMonth(3), dayInThisMonth(9))),
+      })
+    })
+  })
+
+  it('normalises a backwards range instead of rejecting it', async () => {
+    mockBackend({ transcripts: sampleTranscripts })
+    renderDashboard()
+    await screen.findByText('Hello world')
+
+    fireEvent.click(screen.getByText(/^filter/i))
+    fireEvent.click(screen.getByRole('button', { name: dayInThisMonth(9) }))
+    fireEvent.click(screen.getByRole('button', { name: dayInThisMonth(3) }))
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('get_transcripts', {
+        page: expect.objectContaining(toUtcBounds(dayInThisMonth(3), dayInThisMonth(9))),
+      })
+    })
   })
 
   it('refetches with the applied sort order', async () => {
@@ -215,11 +287,27 @@ describe('Dashboard — filter', () => {
 
     fireEvent.click(screen.getByText(/^filter/i))
     fireEvent.click(screen.getByText(/oldest first/i))
-    fireEvent.click(screen.getByText(/^apply$/i))
 
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('get_transcripts', {
         page: expect.objectContaining({ sortAsc: true }),
+      })
+    })
+  })
+
+  it('clears back to no filters', async () => {
+    mockBackend({ transcripts: sampleTranscripts })
+    renderDashboard()
+    await screen.findByText('Hello world')
+
+    fireEvent.click(screen.getByText(/^filter/i))
+    fireEvent.click(screen.getByRole('button', { name: 'Today' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /clear/i })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /clear/i }))
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('get_transcripts', {
+        page: expect.objectContaining({ from: null, to: null }),
       })
     })
   })

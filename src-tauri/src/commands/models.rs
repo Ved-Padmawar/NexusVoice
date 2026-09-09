@@ -170,6 +170,12 @@ pub async fn set_model_override(
         .map_err(|e| ApiError::new("io_error", e.to_string()))?;
     *state.engine.lock().await = None;
     warm_engine_in_background(&app);
+    // The pill learns about model changes only from events, and picking one in
+    // Settings is a switch like any other — without this it keeps refusing to
+    // record against a model it never heard about. The listener re-reads the
+    // model rather than trusting the event, so this is right for an
+    // undownloaded pick too.
+    let _ = app.emit("model-switched", ());
     Ok(())
 }
 

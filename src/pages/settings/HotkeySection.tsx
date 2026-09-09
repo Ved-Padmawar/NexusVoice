@@ -7,7 +7,6 @@ import { Keyboard, Mic, Save, X, Pencil } from 'lucide-react'
 import { useAppStore } from '../../store/useAppStore'
 import { parseRegisteredHotkeys } from '../../store/modelSlice'
 import { SUPER_KEY_LABEL } from '../../lib/platform'
-import { Button } from '@/components/ui/button'
 
 type HotkeyKind = 'ptt' | 'dictation' | 'dictationCommit'
 
@@ -63,20 +62,18 @@ function buildShortcut(keys: string[]): string {
 
 const KeyBadges = memo(function KeyBadges({ keys }: { keys: string[] }) {
   return (
-    <div className="flex items-center gap-0.75">
+    <span className="flex items-center gap-1">
       {keys.map((k, idx) => (
-        <span key={`${k}-${idx}`} className="flex items-center gap-0.75">
-          {idx > 0 && <span className="text-[9px] text-muted-foreground font-semibold px-px">+</span>}
-          <span className="inline-flex items-center justify-center px-1.5 py-0.5 min-w-6 rounded-(--r-sm) bg-(--bg-alt) border border-(--border) shadow-[0_1px_0_var(--border)] text-[10px] font-semibold text-(--fg) leading-[1.4] capitalize font-mono">
-            {displayKey(k)}
-          </span>
+        <span key={`${k}-${idx}`} className="flex items-center gap-1">
+          {idx > 0 && <span className="text-[9px] font-semibold text-(--faint)">+</span>}
+          <span className="keycap">{displayKey(k)}</span>
         </span>
       ))}
-    </div>
+    </span>
   )
 })
 
-function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
+function HotkeyRow({ config, currentHotkey, setCurrentHotkey }: {
   config: HotkeyConfig
   currentHotkey: string | null
   setCurrentHotkey: (hotkey: string | null) => void
@@ -180,59 +177,77 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
   return (
     <div
       ref={hotkeyRef}
-      className={`nv-edge flex items-center gap-3 px-3 py-2.5 rounded-(--r-md) bg-(--surface) ${editing ? '[--edge:color-mix(in_srgb,var(--accent)_55%,transparent)]' : '[--edge:var(--border-soft)]'}`}
+      className="group flex items-center gap-3 border-b border-(--hairline) px-4 py-3 last:border-0"
     >
-      {/* Icon */}
-      <div className={`flex items-center justify-center w-7 h-7 rounded-(--r-sm) shrink-0 ${currentHotkey ? 'bg-(--accent-soft) text-(--accent)' : 'bg-(--bg-alt) text-muted-foreground'}`}>
-        <Icon size={14} strokeWidth={1.9} />
+      <span
+        className={`grid size-7 shrink-0 place-items-center rounded-(--r-sm) ${
+          currentHotkey ? 'bg-(--accent-soft) text-(--on-soft)' : 'bg-(--surface) text-(--muted)'
+        }`}
+      >
+        <Icon size={13} strokeWidth={1.9} />
+      </span>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-[12.5px] font-medium text-(--fg)">{config.title}</span>
+        <span className="truncate text-[11px] text-(--muted)">{config.description}</span>
       </div>
 
-      {/* Label + hint */}
-      <div className="flex flex-col min-w-0 flex-1">
-        <span className="text-[12px] font-semibold text-(--fg) leading-tight truncate">{config.title}</span>
-        <span className="text-[10.5px] text-muted-foreground leading-tight truncate">{config.description}</span>
-      </div>
-
-      {/* Recorder / key display */}
+      {/* Recorder */}
       <div
-        className={`nv-edge flex items-center justify-center gap-1.5 px-2.5 h-8 min-w-30 rounded-(--r-sm) cursor-pointer shrink-0 ${editing ? '[--edge:color-mix(in_srgb,var(--accent)_55%,transparent)] bg-(--accent-soft)' : '[--edge:var(--border-soft)] bg-(--bg-alt)'}`}
-        onClick={startListening}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') startListening() }}
         role="button"
         tabIndex={0}
         aria-label={`Click to record ${config.title.toLowerCase()}`}
+        onClick={startListening}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') startListening() }}
+        className={`flex h-8 min-w-34 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-(--r-md) px-2.5 transition-[background,box-shadow] duration-(--t-fast) ${
+          editing
+            ? 'bg-(--accent-soft) shadow-[inset_0_0_0_1px_var(--accent-line)]'
+            : 'bg-(--surface) shadow-[inset_0_0_0_1px_var(--hairline)] hover:shadow-[inset_0_0_0_1px_var(--border)]'
+        }`}
       >
         {isListening && pressedKeys.length === 0 && (
-          <span className="text-[11px] text-(--accent) italic">Press keys…</span>
+          <span className="text-[11.5px] text-(--on-soft)">Press keys…</span>
         )}
         {pressedKeys.length > 0 && <KeyBadges keys={pressedKeys} />}
         {!isListening && pressedKeys.length === 0 && currentHotkey && (
           <KeyBadges keys={currentHotkey.split('+')} />
         )}
         {!isListening && pressedKeys.length === 0 && !currentHotkey && (
-          <span className="text-[11px] text-muted-foreground italic">Click to set…</span>
+          <span className="text-[11.5px] text-(--muted)">Click to set…</span>
         )}
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-1.5 shrink-0">
+      {/* Sized to its content, not to the widest state. A fixed width here
+          had to reserve room for Save + Cancel, which left the pencil and X
+          stranded ~70px from the shortcut they act on. The flexible title
+          column absorbs the difference when editing starts.
+
+          min-w-12.5 is the natural width of the pencil + X pair, so a row
+          whose hotkey is unset ("Not set") still lines its recorder up with
+          the rows that have one. */}
+      <div className="flex min-w-12.5 shrink-0 items-center justify-end gap-1.5">
         {editing ? (
           <>
-            <Button size="sm" onClick={handleSaveHotkey} disabled={saving || pressedKeys.length === 0}>
+            <button
+              type="button"
+              onClick={handleSaveHotkey}
+              disabled={saving || pressedKeys.length === 0}
+              className="btn btn-sm btn-primary"
+            >
               {saving ? 'Saving…' : 'Save'}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={cancelListening}>
+            </button>
+            <button type="button" onClick={cancelListening} className="btn btn-sm btn-ghost">
               Cancel
-            </Button>
+            </button>
           </>
         ) : currentHotkey ? (
-          <>
+          <div className="flex items-center gap-0.5">
             <button
               type="button"
               aria-label={`Change ${config.title.toLowerCase()}`}
               title="Change"
-              className="inline-flex items-center justify-center w-7 h-7 rounded-(--r-sm) bg-transparent border-none cursor-pointer text-(--fg-2) transition-colors duration-(--t-fast) hover:bg-(--accent-soft) hover:text-(--accent)"
               onClick={startListening}
+              className="iconbtn iconbtn-accent"
             >
               <Pencil size={12} strokeWidth={2} />
             </button>
@@ -240,16 +255,14 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
               type="button"
               aria-label={`Remove ${config.title.toLowerCase()}`}
               title="Remove"
-              className="inline-flex items-center justify-center w-7 h-7 rounded-(--r-sm) bg-transparent border-none cursor-pointer text-(--fg-2) transition-colors duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-destructive"
               onClick={handleRemoveHotkey}
+              className="iconbtn iconbtn-danger"
             >
               <X size={12} strokeWidth={2} />
             </button>
-          </>
+          </div>
         ) : (
-          <span className="nv-edge [--edge:var(--border-soft)] text-[10px] font-semibold text-muted-foreground px-2 py-1 rounded-(--r-sm) bg-(--bg-alt)">
-            Not set
-          </span>
+          <span className="text-[10.5px] text-(--muted)">Not set</span>
         )}
       </div>
     </div>
@@ -313,21 +326,15 @@ export function HotkeySection() {
   }, [hasHotkey, hasDictationHotkey, hasDictationCommitHotkey])
 
   return (
-    <div className="flex flex-col gap-4">
-      <div>
-        <p className="text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em] mb-1">Keyboard shortcuts</p>
-        <p className="text-[12px] text-muted-foreground">Set global hotkeys for recording and hands-free dictation.</p>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        {HOTKEY_CONFIGS.map(config => (
-          <HotkeyCard
-            key={config.kind}
-            config={config}
-            currentHotkey={currentHotkeys[config.kind]}
-            setCurrentHotkey={(hotkey) => setCurrentHotkeys(current => ({ ...current, [config.kind]: hotkey }))}
-          />
-        ))}
-      </div>
-    </div>
+    <>
+      {HOTKEY_CONFIGS.map(config => (
+        <HotkeyRow
+          key={config.kind}
+          config={config}
+          currentHotkey={currentHotkeys[config.kind]}
+          setCurrentHotkey={(hotkey) => setCurrentHotkeys(current => ({ ...current, [config.kind]: hotkey }))}
+        />
+      ))}
+    </>
   )
 }

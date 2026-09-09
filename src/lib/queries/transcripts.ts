@@ -11,6 +11,7 @@ import { COMMANDS } from '../commands'
 import { extractErrorMessage } from '../errors'
 import { queryClient } from './client'
 import { queryKeys } from './keys'
+import { toUtcBounds } from '../dates'
 import type { Transcript, UsageStats } from '../../types'
 
 export const PAGE_SIZE = 50
@@ -41,6 +42,10 @@ const pageArg = (filters: TranscriptFilters, cursor: Cursor) => ({
   limit: PAGE_SIZE,
   ...cursor,
   ...filters,
+  // `created_at` is a UTC `YYYY-MM-DD HH:MM:SS` string compared as text, so the
+  // local calendar days the UI works in have to become UTC timestamps that span
+  // the whole day. A bare date would sort before every row recorded on it.
+  ...toUtcBounds(filters.from, filters.to),
 })
 
 const fetchFeed = (filters: TranscriptFilters, cursor: Cursor) =>

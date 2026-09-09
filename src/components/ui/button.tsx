@@ -4,39 +4,33 @@ import { Slot } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
-const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-  {
-    variants: {
-      variant: {
-        default: "bg-[var(--accent)] text-[var(--accent-fg)] hover:bg-[var(--accent-hover)]",
-        destructive:
-          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40",
-        outline:
-          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
-        secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost:
-          "hover:bg-[var(--surface-hover)] hover:text-[var(--fg)] text-[var(--muted)]",
-        link: "text-primary underline-offset-4 hover:underline",
-      },
-      size: {
-        default: "h-9 px-4 py-2 has-[>svg]:px-3",
-        xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-8 gap-1.5 rounded-md px-3 has-[>svg]:px-2.5",
-        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
-        icon: "size-9",
-        "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm": "size-8",
-        "icon-lg": "size-10",
-      },
+/**
+ * Chrome lives in `.btn*` (index.css), not here, so a button presses the same
+ * way whether it is rendered through this component or as a bare element.
+ */
+const buttonVariants = cva("btn", {
+  variants: {
+    variant: {
+      default: "btn-primary",
+      primary: "btn-primary",
+      quiet: "btn-quiet",
+      outline: "btn-quiet",
+      secondary: "btn-quiet",
+      ghost: "btn-ghost",
+      destructive: "btn-danger",
+      link: "btn-ghost underline-offset-4 hover:underline",
     },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
+    size: {
+      default: "",
+      sm: "btn-sm",
+      xs: "btn-sm",
+      lg: "btn-lg",
+      icon: "w-8 px-0",
+      "icon-sm": "btn-sm w-7 px-0",
     },
-  }
-)
+  },
+  defaultVariants: { variant: "default", size: "default" },
+})
 
 function Button({
   className,
@@ -53,9 +47,7 @@ function Button({
   return (
     <Comp
       data-slot="button"
-      data-variant={variant}
-      data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(buttonVariants({ variant, size }), className)}
       {...props}
     />
   )

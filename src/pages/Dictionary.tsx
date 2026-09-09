@@ -1,27 +1,35 @@
-import { useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { Trash2, BookOpen, Plus, Pencil, Check, X, Mic } from 'lucide-react'
+import { Trash2, Pencil, Check, X, Search, Plus, BookOpen } from 'lucide-react'
 import { useDictionary, useUpdateDictionary, useDeleteDictionaryEntry } from '../lib/queries'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PageBar } from '../components/PageBar'
 import { SectionState } from '../components/SectionState'
+
+/** Word · heard as · fixed · actions. One grid for the header and every row. */
+const ROW = 'grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_72px_60px] items-center gap-4'
 
 function DictionarySkeleton() {
   return (
     <div className="flex flex-col">
-      {[0, 1, 2, 3, 4].map(i => (
-        <div key={i} className="flex items-center gap-4 px-4 py-3.5 border-b border-(--border-soft) last:border-none">
-          <div className="h-3.5 w-[28%] rounded bg-(--surface) animate-pulse" />
-          <div className="h-3.5 w-[28%] rounded bg-(--surface) animate-pulse" />
-          <div className="h-3.5 w-8 rounded bg-(--surface) animate-pulse ml-auto" />
-          <div className="h-3.5 w-12 rounded bg-(--surface) animate-pulse" />
+      {[0, 1, 2, 3, 4, 5].map(i => (
+        <div key={i} className={`${ROW} border-b border-(--hairline) px-4 py-2.5 last:border-0`}>
+          <div className="h-3.5 w-32 animate-pulse rounded bg-(--surface)" />
+          <div className="h-3 w-24 animate-pulse rounded bg-(--surface)" />
+          <div className="h-3 w-8 animate-pulse justify-self-center rounded bg-(--surface)" />
+          <div />
         </div>
       ))}
     </div>
   )
 }
 
+/**
+ * The correction engine matches by Levenshtein distance and Double Metaphone,
+ * so an entry catches near-misses and sound-alikes too, not just the exact
+ * string. The row therefore leads with the word being taught and treats the
+ * mis-hearing as the example that seeded it.
+ */
 export function Dictionary() {
   const { data: dictionary = [], status, error, refetch } = useDictionary()
   const updateDictionary = useUpdateDictionary()
@@ -30,11 +38,25 @@ export function Dictionary() {
   const [term, setTerm] = useState('')
   const [replacement, setReplacement] = useState('')
   const [saving, setSaving] = useState(false)
+  const [query, setQuery] = useState('')
 
   const [editId, setEditId] = useState<number | null>(null)
   const [editTerm, setEditTerm] = useState('')
   const [editReplacement, setEditReplacement] = useState('')
   const [editSaving, setEditSaving] = useState(false)
+
+  const canAdd = term.trim() !== '' && replacement.trim() !== ''
+
+  // Most-corrected first: entries earning their place lead, dead ones collect
+  // at the bottom where they are easy to prune.
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const rows = q
+      ? dictionary.filter(e =>
+          e.term.toLowerCase().includes(q) || e.replacement.toLowerCase().includes(q))
+      : dictionary
+    return [...rows].sort((a, b) => b.hits - a.hits || a.replacement.localeCompare(b.replacement))
+  }, [dictionary, query])
 
   const handleAdd = async () => {
     const t = term.trim(), r = replacement.trim()
@@ -43,7 +65,7 @@ export function Dictionary() {
     try {
       await updateDictionary.mutateAsync({ term: t, replacement: r })
       setTerm(''); setReplacement('')
-      toast.success('Entry saved')
+      toast.success('Correction added')
     } catch {
       // The mutation reports the error; keep the inputs available for retry.
     } finally { setSaving(false) }
@@ -52,10 +74,7 @@ export function Dictionary() {
   const startEdit = (id: number, t: string, r: string) => {
     setEditId(id); setEditTerm(t); setEditReplacement(r)
   }
-
-  const cancelEdit = () => {
-    setEditId(null); setEditTerm(''); setEditReplacement('')
-  }
+  const cancelEdit = () => { setEditId(null); setEditTerm(''); setEditReplacement('') }
 
   const commitEdit = async () => {
     const t = editTerm.trim(), r = editReplacement.trim()
@@ -74,157 +93,188 @@ export function Dictionary() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-hidden px-8 pt-7 pb-4 flex flex-col gap-5">
+    <div className="flex h-full flex-col overflow-hidden">
+      <PageBar
+        title="Dictionary"
+        description="Words you're teaching NexusVoice to hear correctly"
+      />
 
-        {/* Hero */}
-        <div className="flex items-center justify-between gap-4 pb-3.5 border-b border-(--border-soft)">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-              <BookOpen size={16} strokeWidth={2} />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-[16px] font-bold tracking-tight text-(--fg) leading-[1.1] m-0">Dictionary</h1>
-              <p className="text-[11px] text-muted-foreground mt-0.5 m-0 truncate">Custom phonetics and word replacements.</p>
-            </div>
-          </div>
-        </div>
+      <div className="mx-auto mb-(--dock-clear) flex min-h-0 w-full max-w-(--measure) flex-1 flex-col gap-5 overflow-hidden px-(--gutter) pt-1">
 
-        {/* Quick Addition */}
-        <div className="bg-(--panel) border border-(--border) rounded-(--r-xl) px-4.5 py-3 shrink-0">
-          <div className="flex items-center gap-1.75 mb-2.5">
-            <Plus size={12} strokeWidth={2} className="text-(--accent)" />
-            <span className="text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em]">Quick addition</span>
-          </div>
-          <div className="grid grid-cols-[1fr_1fr_auto] gap-2.5 items-end">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[11px] font-medium text-muted-foreground">Trigger word</label>
-              <Input
-                value={term}
-                onChange={(e) => setTerm(e.target.value)}
-                placeholder="e.g. teh, gonna"
-                disabled={saving}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="text-[11px] font-medium text-muted-foreground">Corrected text</label>
-              <Input
-                value={replacement}
-                onChange={(e) => setReplacement(e.target.value)}
-                placeholder="e.g. the, going to"
-                disabled={saving}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleAdd() }}
-              />
-            </div>
-            <div className="flex items-end">
-              <Button
-                type="button"
-                onClick={handleAdd}
-                disabled={saving || !term.trim() || !replacement.trim()}
-              >
-                {saving ? 'Saving…' : 'Add to Dictionary'}
-              </Button>
-            </div>
-          </div>
-        </div>
+        {/* One container. The composer is the first band, the column header
+            the second, and the rows fill the rest — so adding a word and the
+            words themselves read as one object rather than two slabs. */}
+        <div className="panel flex min-h-0 flex-1 flex-col overflow-hidden">
 
-        {/* Vocabulary Table */}
-        <div className="flex flex-col flex-1 min-h-0 gap-2.5 overflow-hidden">
-          <div className="flex items-center justify-between shrink-0">
-            <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-(--fg-2) m-0">Vocabulary engine</h2>
-          </div>
+          <div className="flex shrink-0 items-center gap-2.5 px-4 py-3">
+            <span className="shrink-0 text-[12.5px] text-(--muted)">When it hears</span>
+            <Input
+              value={term}
+              onChange={(e) => setTerm(e.target.value)}
+              placeholder="neksus"
+              aria-label="Word as heard"
+              disabled={saving}
+              className="h-8 min-w-0 flex-1 text-[12.5px]"
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAdd() }}
+            />
+            <span className="shrink-0 text-[12.5px] text-(--muted)">write</span>
+            <Input
+              value={replacement}
+              onChange={(e) => setReplacement(e.target.value)}
+              placeholder="NexusVoice"
+              aria-label="Correct it to"
+              disabled={saving}
+              className="h-8 min-w-0 flex-1 text-[12.5px]"
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAdd() }}
+            />
+            <button
+              type="button"
+              onClick={handleAdd}
+              disabled={saving || !canAdd}
+              className="btn btn-sm btn-primary shrink-0"
+            >
+              <Plus size={12} strokeWidth={2.5} />
+              {saving ? 'Adding…' : 'Add word'}
+            </button>
 
-          <div className="flex-1 min-h-0 border border-(--border) rounded-(--r-xl) bg-background overflow-hidden flex flex-col">
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <SectionState status={status} error={error?.message} onRetry={refetch} skeleton={<DictionarySkeleton />}>
-              {dictionary.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 py-8 px-4 text-center">
-                  <div className="w-9 h-9 rounded-(--r-lg) bg-(--surface) border border-(--border-soft) flex items-center justify-center text-muted-foreground opacity-80">
-                    <BookOpen size={16} strokeWidth={1.5} />
-                  </div>
-                  <p className="text-[12px] text-muted-foreground max-w-60 leading-normal m-0">No entries yet. Add your first correction above.</p>
+            {dictionary.length > 0 && (
+              <>
+                <span className="rule mx-1 h-6 w-px shrink-0" aria-hidden />
+                <div className="relative flex shrink-0 items-center">
+                  <Search size={12} strokeWidth={2} className="pointer-events-none absolute left-2.5 text-(--faint)" />
+                  <Input
+                    value={query}
+                    onChange={e => setQuery(e.target.value)}
+                    placeholder="Filter words…"
+                    aria-label="Filter words"
+                    className="h-8 w-44 pl-7 text-[12.5px]"
+                  />
                 </div>
-              ) : (
-                <table className="w-full border-collapse text-left">
-                  <thead>
-                    <tr className="bg-(--panel) border-b border-(--border)">
-                      <th className="px-4 py-2.75 text-[11px] font-medium text-muted-foreground whitespace-nowrap w-[30%]">Input trigger</th>
-                      <th className="px-4 py-2.75 text-[11px] font-medium text-muted-foreground whitespace-nowrap w-[30%]">Output correction</th>
-                      <th className="px-4 py-2.75 text-[11px] font-medium text-muted-foreground whitespace-nowrap w-25 text-center">Hits</th>
-                      <th className="px-4 py-2.75 text-[11px] font-medium text-muted-foreground whitespace-nowrap w-30 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <AnimatePresence initial={false}>
-                      {dictionary.map((entry) => (
-                        <motion.tr
-                          key={entry.id}
-                          className="border-b border-(--border-soft) last:border-none transition-colors duration-(--t-fast) hover:bg-(--surface)"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.15 }}
-                          layout
-                        >
-                          {editId === entry.id ? (
-                            <>
-                              <td className="px-4 py-3.5 text-[13px] text-(--fg)">
-                                <Input value={editTerm} onChange={(e) => setEditTerm(e.target.value)} disabled={editSaving} className="h-7.5! text-[12px]! px-2!" />
-                              </td>
-                              <td className="px-4 py-3.5 text-[13px] text-(--fg)">
-                                <Input value={editReplacement} onChange={(e) => setEditReplacement(e.target.value)} disabled={editSaving} onKeyDown={(e) => { if (e.key === 'Enter') commitEdit() }} className="h-7.5! text-[12px]! px-2!" />
-                              </td>
-                              <td className="px-4 py-3.5 text-center">
-                                <span className="text-[11px] font-bold text-muted-foreground">{entry.hits}</span>
-                              </td>
-                              <td className="px-4 py-3.5 text-right">
-                                <div className="flex items-center justify-end gap-0.5">
-                                  <button type="button" className="w-7 h-7 flex items-center justify-center rounded-(--r-md) border-none bg-transparent cursor-pointer text-muted-foreground transition-[background,color] duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--success)_12%,transparent)] hover:text-(--success)" onClick={commitEdit} disabled={editSaving}>
-                                    <Check size={14} strokeWidth={2.5} />
-                                  </button>
-                                  <button type="button" className="w-7 h-7 flex items-center justify-center rounded-(--r-md) border-none bg-transparent cursor-pointer text-muted-foreground transition-[background,color] duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-destructive" onClick={cancelEdit}>
-                                    <X size={14} strokeWidth={2} />
-                                  </button>
-                                </div>
-                              </td>
-                            </>
-                          ) : (
-                            <>
-                              <td className="px-4 py-3.5 text-[13px] text-(--fg)">
-                                <div className="flex items-center gap-2.5">
-                                  <Mic size={13} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
-                                  <span className="text-[13px] font-medium text-(--fg)">{entry.term}</span>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3.5 text-[13px] text-(--fg)">
-                                <span className="font-mono text-[12px] text-(--accent) bg-(--accent-soft) px-2 py-0.5 rounded-(--r-sm)" style={{ border: '1px solid color-mix(in srgb, var(--accent) 20%, transparent)' }}>{entry.replacement}</span>
-                              </td>
-                              <td className="px-4 py-3.5 text-center">
-                                <span className="text-[11px] font-bold text-muted-foreground">{entry.hits}</span>
-                              </td>
-                              <td className="px-4 py-3.5 text-right">
-                                <div className="flex items-center justify-end gap-0.5">
-                                  <button type="button" className="w-7 h-7 flex items-center justify-center rounded-(--r-md) border-none bg-transparent cursor-pointer text-muted-foreground transition-[background,color] duration-(--t-fast) hover:bg-(--accent-soft) hover:text-(--accent)" onClick={() => startEdit(entry.id, entry.term, entry.replacement)}>
-                                    <Pencil size={14} strokeWidth={1.75} />
-                                  </button>
-                                  <button type="button" className="w-7 h-7 flex items-center justify-center rounded-(--r-md) border-none bg-transparent cursor-pointer text-muted-foreground transition-[background,color] duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-destructive" onClick={() => deleteDictionaryEntry.mutate(entry.id)}>
-                                    <Trash2 size={14} strokeWidth={1.75} />
-                                  </button>
-                                </div>
-                              </td>
-                            </>
-                          )}
-                        </motion.tr>
-                      ))}
-                    </AnimatePresence>
-                  </tbody>
-                </table>
+              </>
+            )}
+          </div>
+
+          <div className="rule h-px" />
+
+          <div className={`${ROW} shrink-0 border-b border-(--hairline) px-4 py-2`}>
+            <span className="flex items-center gap-2 text-[10.5px] font-medium text-(--muted)">
+              Word
+              {dictionary.length > 0 && (
+                <span className="tabular-nums text-(--faint)">{visible.length}</span>
               )}
-              </SectionState>
-            </div>
+            </span>
+            <span className="text-[10.5px] font-medium text-(--muted)">Heard as</span>
+            <span className="justify-self-center text-[10.5px] font-medium text-(--muted)">Fixed</span>
+            <span />
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-none">
+              <SectionState status={status} error={error?.message} onRetry={refetch} skeleton={<DictionarySkeleton />}>
+                {dictionary.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2.5 px-6 py-16 text-center">
+                    <span className="grid size-10 place-items-center rounded-full bg-(--surface) text-(--faint)">
+                      <BookOpen size={17} strokeWidth={1.6} />
+                    </span>
+                    <p className="m-0 text-[13px] font-semibold text-(--fg-2)">No words yet</p>
+                    <p className="m-0 max-w-76 text-[12px] leading-[1.6] text-(--muted)">
+                      Add a name, acronym or piece of jargon above. Close matches
+                      and sound-alikes are corrected too, so one entry usually
+                      covers every way it gets misheard.
+                    </p>
+                  </div>
+                ) : visible.length === 0 ? (
+                  <div className="flex flex-col items-center gap-1.5 px-6 py-16 text-center">
+                    <p className="m-0 text-[13px] font-semibold text-(--fg-2)">No matches</p>
+                    <p className="m-0 text-[12px] text-(--muted)">Nothing matches “{query.trim()}”.</p>
+                  </div>
+                ) : (
+                  visible.map((entry) => {
+                    const editing = editId === entry.id
+                    return (
+                      <div
+                        key={entry.id}
+                        className={`${ROW} group border-b border-(--hairline) px-4 py-2 transition-colors duration-(--t-fast) last:border-0 ${
+                          editing ? 'bg-(--surface)' : 'hover:bg-(--surface)'
+                        }`}
+                      >
+                        {editing ? (
+                          <>
+                            <Input
+                              value={editReplacement}
+                              onChange={(e) => setEditReplacement(e.target.value)}
+                              disabled={editSaving}
+                              aria-label="Replacement"
+                              className="h-7 text-[12.5px]"
+                              onKeyDown={(e) => { if (e.key === 'Enter') commitEdit() }}
+                            />
+                            <Input
+                              value={editTerm}
+                              onChange={(e) => setEditTerm(e.target.value)}
+                              disabled={editSaving}
+                              aria-label="Heard as"
+                              className="h-7 text-[12.5px]"
+                              onKeyDown={(e) => { if (e.key === 'Enter') commitEdit() }}
+                            />
+                            <span />
+                            <div className="flex justify-self-end">
+                              <button
+                                type="button" onClick={commitEdit} disabled={editSaving}
+                                title="Save changes" aria-label="Save changes"
+                                className="iconbtn hover:bg-(--success-soft) hover:text-(--success)"
+                              >
+                                <Check size={13} strokeWidth={2.5} />
+                              </button>
+                              <button
+                                type="button" onClick={cancelEdit}
+                                title="Cancel" aria-label="Cancel edit"
+                                className="iconbtn iconbtn-danger"
+                              >
+                                <X size={13} strokeWidth={2} />
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <span data-selectable className="truncate text-[12.5px] font-medium text-(--fg)">
+                              {entry.replacement}
+                            </span>
+                            <span data-selectable className="truncate text-[12.5px] text-(--muted)">
+                              {entry.term}
+                            </span>
+                            <span
+                              className={`justify-self-center text-[11.5px] tabular-nums ${
+                                entry.hits > 0 ? 'text-(--on-soft)' : 'text-(--faint)'
+                              }`}
+                            >
+                              {entry.hits > 0 ? `${entry.hits}×` : '—'}
+                            </span>
+                            <div className="row-actions flex justify-self-end">
+                              <button
+                                type="button"
+                                onClick={() => startEdit(entry.id, entry.term, entry.replacement)}
+                                title="Edit" aria-label={`Edit ${entry.term}`}
+                                className="iconbtn iconbtn-accent size-6"
+                              >
+                                <Pencil size={12} strokeWidth={1.9} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteDictionaryEntry.mutate(entry.id)}
+                                title="Delete" aria-label={`Delete ${entry.term}`}
+                                className="iconbtn iconbtn-danger size-6"
+                              >
+                                <Trash2 size={12} strokeWidth={1.9} />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )
+                  })
+                )}
+            </SectionState>
           </div>
         </div>
-
       </div>
     </div>
   )
