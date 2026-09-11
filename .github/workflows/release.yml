@@ -23,8 +23,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # One build per OS: GPU backends are loaded at runtime, so a single
-          # binary covers CUDA, Vulkan and CPU alike.
+          # One build per OS: backend modules are loaded at runtime, so a single
+          # binary covers Vulkan and every CPU variant.
           - { os: windows-latest, variant: standard }
           - { os: ubuntu-22.04,   variant: standard }
 
@@ -239,7 +239,7 @@ jobs:
 
       - name: Upload release artifacts (Windows)
         if: runner.os == 'Windows'
-        uses: softprops/action-gh-release@v3.0.2
+        uses: softprops/action-gh-release@v3.0.3
         with:
           tag_name: ${{ github.ref_name }}
           fail_on_unmatched_files: false
@@ -251,7 +251,7 @@ jobs:
 
       - name: Upload release artifacts (Linux)
         if: runner.os == 'Linux'
-        uses: softprops/action-gh-release@v3.0.2
+        uses: softprops/action-gh-release@v3.0.3
         with:
           tag_name: ${{ github.ref_name }}
           fail_on_unmatched_files: false
@@ -316,7 +316,7 @@ jobs:
           print(json.dumps(payload, indent=2))
 
       - name: Upload latest.json to release
-        uses: softprops/action-gh-release@v3.0.2
+        uses: softprops/action-gh-release@v3.0.3
         with:
           tag_name: ${{ github.ref_name }}
           files: latest.json

@@ -1,6 +1,6 @@
 [package]
 name = "nexusvoice"
-version = "1.16.5"
+version = "1.16.6"
 edition = "2021"
 
 [features]
@@ -39,8 +39,8 @@ futures-util = "0.3"
 
 # transcribe.cpp wrapper: GGUF speech-to-text across ~16 model families, with
 # both single-shot (`Session::run`) and native streaming (`Session::stream`).
-# `dynamic-backends` loads Vulkan/CUDA at runtime instead of link time, so one
-# binary covers every accelerator — replacing the standard/CUDA build split.
+# `dynamic-backends` loads the backend modules at runtime instead of link time,
+# so one binary covers every backend it was built with. Only Vulkan is, today.
 transcribe-cpp = { version = "0.2", default-features = false }
 rubato = "5"
 rphonetic = "3.0.6"
