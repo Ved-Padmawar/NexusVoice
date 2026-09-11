@@ -1,12 +1,15 @@
 [package]
 name = "nexusvoice"
-version = "1.16.5"
+version = "1.17.0"
 edition = "2021"
 
 [features]
 # Build the Vulkan compute backend. Requires the Vulkan SDK at build time, so
 # release builds enable it and local dev runs CPU-only without it.
 gpu = ["transcribe-cpp/vulkan"]
+# CUDA backend. Needs the CUDA toolkit at build time and adds a large kernel
+# blob, so it ships as its own Windows artifact rather than in every build.
+cuda = ["transcribe-cpp/cuda"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

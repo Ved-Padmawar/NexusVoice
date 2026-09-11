@@ -106,6 +106,16 @@ fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
     ])
 }
 
+/// Updater plugin. The CUDA build reports its own platform key so it updates
+/// along its own `latest.json` track.
+fn updater_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R, tauri_plugin_updater::Config>
+{
+    let builder = tauri_plugin_updater::Builder::new();
+    #[cfg(feature = "cuda")]
+    let builder = builder.target("windows-x86_64-cuda");
+    builder.build()
+}
+
 #[allow(clippy::too_many_lines)] // Tauri setup is inherently long — splitting adds no clarity
 fn main() {
     // Route transcribe.cpp/GGML's verbose stderr output through `log` so our
@@ -229,7 +239,7 @@ fn main() {
                 })
                 .build(),
         )
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(updater_plugin())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())

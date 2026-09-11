@@ -5,5 +5,5 @@ pub mod language;
 pub mod provider;
 pub mod transcript;
 
-pub use engine::TranscriptionEngine;
+pub use engine::{Pass, TranscriptionEngine};
 pub use transcript::TimedSegment;

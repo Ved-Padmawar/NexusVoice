@@ -8,14 +8,22 @@
 //! consecutive hypotheses agree on them and are never revised; trimming only
 //! drops audio already behind the committed text, so a trim that finds no cut
 //! point costs compute, never text.
+//!
+//! Hypotheses align to the committed text by what they say, not by word count —
+//! this backend gives no word timestamps. See [`trailing_overlap`].
 
 use std::sync::{Arc, Mutex};
 
 use crate::inference::transcript::{join_words, Word};
-use crate::inference::{TimedSegment, TranscriptionEngine};
+use crate::inference::{Pass, TimedSegment, TranscriptionEngine};
 
-/// A slow decode just means the next absorbs more audio — self-adaptive latency.
+/// Floor on how much new audio a decode waits for.
 const MIN_NEW_AUDIO_SECS: f64 = 1.0;
+/// Ceiling on the same, so a slow model still refreshes the live transcript.
+const MAX_NEW_AUDIO_SECS: f64 = 5.0;
+/// Share of real time streaming decodes may occupy. A skipped pass costs
+/// latency, never text — the window is decoded again before anything commits.
+const DUTY_CYCLE: f64 = 0.5;
 /// Well under the 15 s reference default: keeps mid-recording decodes cheap on Vulkan.
 const TRIM_AFTER_SECS: f64 = 8.0;
 /// Window length past which a segment-boundary trim gives way to a word-level cut.
@@ -33,17 +41,21 @@ const VAD_PAD_FRAMES: usize = 2;
 /// starts, polled by the stream worker, consumed by [`finalize`].
 #[derive(Debug, Default)]
 pub struct StreamingSession {
-    /// Text confirmed by LocalAgreement-2. Never revised.
-    committed: String,
+    /// Words confirmed by LocalAgreement-2, in order. Never revised.
+    committed: Vec<Word>,
+    /// `committed`, normalized — the left-hand side of every overlap search.
+    committed_norm: Vec<String>,
     /// Native-rate buffer index where the active window starts.
     window_start: usize,
     /// Native-rate buffer length at the last decode; gates decode cadence.
     decoded_len: usize,
-    /// Normalized words of the previous hypothesis, past `committed_words`.
+    /// Sets how much new audio the next decode waits for. See [`DUTY_CYCLE`].
+    last_decode_secs: f64,
+    /// Normalized words of the previous hypothesis, past its committed prefix.
     prev_norm: Vec<String>,
-    /// Leading words of `segments` already committed. They stay in `segments`
-    /// so a trim can still find their timestamps.
-    committed_words: usize,
+    /// Leading hypothesis words that restate committed text, recomputed every
+    /// decode. Also the count of committed words still inside the window.
+    hyp_committed: usize,
     segments: Vec<TimedSegment>,
     lead_trimmed: bool,
 }
@@ -65,7 +77,12 @@ impl StreamingSession {
             return false;
         }
         let new_samples = total_len.saturating_sub(self.decoded_len.max(self.window_start));
-        to_secs(new_samples, native_rate) >= MIN_NEW_AUDIO_SECS
+        to_secs(new_samples, native_rate) >= self.decode_gate_secs()
+    }
+
+    /// New audio the next decode waits for, held to [`DUTY_CYCLE`] of real time.
+    fn decode_gate_secs(&self) -> f64 {
+        (self.last_decode_secs / DUTY_CYCLE).clamp(MIN_NEW_AUDIO_SECS, MAX_NEW_AUDIO_SECS)
     }
 
     /// One streaming step: decode if enough new audio arrived, commit whatever
@@ -85,7 +102,7 @@ impl StreamingSession {
         }
         let total_len = self.window_start + window.len();
         let new_samples = total_len.saturating_sub(self.decoded_len.max(self.window_start));
-        if to_secs(new_samples, native_rate) < MIN_NEW_AUDIO_SECS {
+        if to_secs(new_samples, native_rate) < self.decode_gate_secs() {
             return;
         }
 
@@ -106,13 +123,13 @@ impl StreamingSession {
             return;
         }
 
-        let prompt = prompt_tail(&self.committed);
+        let prompt = self.prompt();
         let started = std::time::Instant::now();
         let segments = {
             let Ok(mut guard) = engine.lock() else {
                 return;
             };
-            match guard.transcribe_segments(&leveled, &prompt) {
+            match guard.transcribe_segments(&leveled, &prompt, Pass::Streaming) {
                 Ok(s) => s,
                 Err(e) => {
                     log::warn!("streaming decode failed: {e}");
@@ -120,6 +137,7 @@ impl StreamingSession {
                 }
             }
         };
+        self.last_decode_secs = started.elapsed().as_secs_f64();
         log::debug!(
             "streaming decode: {:.1}s window in {}ms, {} segments",
             to_secs(total_len - self.window_start, native_rate),
@@ -128,7 +146,7 @@ impl StreamingSession {
         );
 
         self.segments = segments;
-        self.commit_agreed();
+        self.absorb();
 
         let window_secs = to_secs(total_len - self.window_start, native_rate);
         if window_secs > TRIM_AFTER_SECS
@@ -146,7 +164,7 @@ impl StreamingSession {
             .segments
             .iter()
             .flat_map(|s| &s.words)
-            .skip(self.committed_words)
+            .skip(self.hyp_committed)
             .cloned()
             .collect();
         let tentative = if pending.is_empty() {
@@ -154,27 +172,58 @@ impl StreamingSession {
         } else {
             format!(" {}", join_words(&pending).trim())
         };
-        (self.committed.clone(), tentative)
+        (self.text(), tentative)
     }
 
-    /// Commit the prefix this hypothesis shares with the previous one. Both are
-    /// compared past `committed_words`, so the committed prefix only ever grows.
-    fn commit_agreed(&mut self) {
-        let fresh: Vec<Word> = self
+    /// Align away what the hypothesis restates, then commit the prefix its tail
+    /// shares with the previous tail.
+    fn absorb(&mut self) {
+        let hyp: Vec<Word> = self
             .segments
             .iter()
             .flat_map(|s| &s.words)
-            .skip(self.committed_words)
             .cloned()
             .collect();
-        let norm: Vec<String> = fresh.iter().map(|w| normalize_word(&w.text)).collect();
+        let norm: Vec<String> = hyp.iter().map(|w| normalize_word(&w.text)).collect();
 
-        let agreed = common_prefix_len(&self.prev_norm, &norm);
-        if agreed > 0 {
-            push_text(&mut self.committed, &join_words(&fresh[..agreed]));
-            self.committed_words += agreed;
+        let overlap = trailing_overlap(&self.committed_norm, &norm);
+        let fresh_norm = &norm[overlap..];
+        let agreed = common_prefix_len(&self.prev_norm, fresh_norm);
+
+        for (word, n) in hyp[overlap..overlap + agreed]
+            .iter()
+            .zip(&fresh_norm[..agreed])
+        {
+            self.committed.push(word.clone());
+            self.committed_norm.push(n.clone());
         }
-        self.prev_norm = norm[agreed..].to_vec();
+        self.prev_norm = fresh_norm[agreed..].to_vec();
+        self.hyp_committed = overlap + agreed;
+    }
+
+    fn text(&self) -> String {
+        join_words(&self.committed)
+    }
+
+    /// Seed the committed transcript directly, for tests.
+    #[cfg(test)]
+    fn set_committed(&mut self, words: &[&str]) {
+        self.committed = words
+            .iter()
+            .map(|t| Word {
+                text: (*t).to_string(),
+                end_cs: None,
+            })
+            .collect();
+        self.committed_norm = words.iter().map(|t| normalize_word(t)).collect();
+    }
+
+    /// Committed text whose audio has scrolled out of the window. Prompting with
+    /// text the window still covers makes the model emit only the continuation.
+    fn prompt(&self) -> String {
+        let outside = self.committed.len() - self.hyp_committed.min(self.committed.len());
+        let start = outside.saturating_sub(PROMPT_TAIL_WORDS);
+        join_words(&self.committed[start..outside])
     }
 
     /// Drop the audio behind the last completed segment boundary inside the
@@ -190,7 +239,7 @@ impl StreamingSession {
             .take(self.segments.len().saturating_sub(1))
         {
             cum_words += seg.words.len();
-            if cum_words > self.committed_words {
+            if cum_words > self.hyp_committed {
                 continue;
             }
             let boundary = self.window_start + from_ms(seg.end_ms, native_rate);
@@ -204,17 +253,17 @@ impl StreamingSession {
         };
         self.window_start += from_ms(end_ms, native_rate);
         self.segments.drain(..=idx);
-        self.committed_words -= words;
+        self.hyp_committed -= words;
         true
     }
 
     /// Fallback when [`Self::trim`] finds no segment boundary: cuts inside the
-    /// first segment at a committed word boundary using DTW end timestamps.
+    /// first segment at a committed word boundary.
     fn force_trim(&mut self, total_len: usize, native_rate: u32) {
         let Some(first) = self.segments.first() else {
             return;
         };
-        let take_words = self.committed_words.min(first.words.len());
+        let take_words = self.hyp_committed.min(first.words.len());
         let Some(cut_word_idx) = (0..take_words)
             .rev()
             .find(|&i| first.words[i].end_cs.is_some())
@@ -233,11 +282,11 @@ impl StreamingSession {
         if self.segments[0].words.is_empty() {
             self.segments.remove(0);
         }
-        self.committed_words -= words;
+        self.hyp_committed -= words;
     }
 
     /// Decode the remaining window and append whatever follows the committed
-    /// prefix — this pass re-covers committed audio too, so its head is dropped.
+    /// text. This pass re-covers committed audio, which is aligned away.
     fn finish(
         mut self,
         window: &[f32],
@@ -245,7 +294,7 @@ impl StreamingSession {
         engine: &Arc<Mutex<TranscriptionEngine>>,
     ) -> String {
         if native_rate == 0 || window.is_empty() {
-            return self.committed;
+            return self.text();
         }
 
         let mut prepared = crate::preprocess::to_16k(window, native_rate);
@@ -258,28 +307,25 @@ impl StreamingSession {
         }
         let leveled = crate::preprocess::normalize_level(&prepared);
         if leveled.is_empty() {
-            return self.committed;
+            return self.text();
         }
 
-        let prompt = prompt_tail(&self.committed);
+        let prompt = self.prompt();
         let Ok(mut guard) = engine.lock() else {
             log::error!("TranscriptionEngine mutex poisoned during finalize");
-            return self.committed;
+            return self.text();
         };
-        match guard.transcribe_segments(&leveled, &prompt) {
+        match guard.transcribe_segments(&leveled, &prompt, Pass::Final) {
             Ok(segments) => {
-                let tail: Vec<Word> = segments
-                    .iter()
-                    .flat_map(|s| &s.words)
-                    .skip(self.committed_words)
-                    .cloned()
-                    .collect();
-                push_text(&mut self.committed, &join_words(&tail));
-                self.committed
+                let hyp: Vec<Word> = segments.iter().flat_map(|s| &s.words).cloned().collect();
+                let norm: Vec<String> = hyp.iter().map(|w| normalize_word(&w.text)).collect();
+                let overlap = trailing_overlap(&self.committed_norm, &norm);
+                self.committed.extend_from_slice(&hyp[overlap..]);
+                self.text()
             }
             Err(e) => {
                 log::warn!("final decode failed: {e}");
-                self.committed
+                self.text()
             }
         }
     }
@@ -299,24 +345,15 @@ pub fn finalize(
     session.finish(&buffer[start..], native_rate, engine)
 }
 
-/// Append `text` to `out` with a separating space.
-fn push_text(out: &mut String, text: &str) {
-    let text = text.trim();
-    if text.is_empty() {
-        return;
-    }
-    if !out.is_empty() {
-        out.push(' ');
-    }
-    out.push_str(text);
-}
-
-/// The last [`PROMPT_TAIL_WORDS`] words of the committed text, fed back as the
-/// next decode's prompt.
-fn prompt_tail(committed: &str) -> String {
-    let words: Vec<&str> = committed.split_whitespace().collect();
-    let start = words.len().saturating_sub(PROMPT_TAIL_WORDS);
-    words[start..].join(" ")
+/// How many leading words of `hypothesis` restate the tail of `committed`.
+/// Longest match wins, so a full re-transcription, a bare continuation and a
+/// hypothesis one word short all align.
+fn trailing_overlap(committed: &[String], hypothesis: &[String]) -> usize {
+    let max = committed.len().min(hypothesis.len());
+    (1..=max)
+        .rev()
+        .find(|&k| committed[committed.len() - k..] == hypothesis[..k])
+        .unwrap_or(0)
 }
 
 /// Models flip "Okay," ↔ "okay" between decodes; agreement shouldn't reset over that.

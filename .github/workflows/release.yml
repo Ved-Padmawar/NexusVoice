@@ -23,9 +23,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # One build per OS: GPU backends are loaded at runtime, so a single
-          # binary covers CUDA, Vulkan and CPU alike.
+          # CUDA is its own Windows artifact: it needs the CUDA toolkit at build
+          # time and adds a large kernel blob, the same split transcribe.cpp ships.
           - { os: windows-latest, variant: standard }
+          - { os: windows-latest, variant: cuda }
           - { os: ubuntu-22.04,   variant: standard }
 
     steps:
@@ -109,6 +110,15 @@ jobs:
           echo "VULKAN_SDK=$sdkPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "$sdkPath\Bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
+      # Version and subset match transcribe.cpp's own cuda-windows workflow.
+      - name: Install CUDA toolkit (Windows)
+        if: matrix.variant == 'cuda'
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: '12.9.0'
+          method: network
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust", "visual_studio_integration"]'
+
       # glslc (shaderc) isn't in Ubuntu 22.04's own repos, so use LunarG's.
       - name: Install Vulkan SDK (Linux)
         if: runner.os == 'Linux'
@@ -178,7 +188,22 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build -- --features gpu
+          # CUDA build keeps Vulkan too, so it still works without a CUDA device.
+          FEATURES: ${{ matrix.variant == 'cuda' && 'gpu,cuda' || 'gpu' }}
+        run: npx tauri build -- --features $env:FEATURES
+
+      # Both Windows variants bundle identical file names; a release upload
+      # overwrites by name. .sig files move with their bundle.
+      - name: Tag CUDA bundles
+        if: matrix.variant == 'cuda'
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path C:/b/release/bundle/nsis, C:/b/release/bundle/msi -File |
+            ForEach-Object {
+              $renamed = $_.Name -replace '^NexusVoice', 'NexusVoice-CUDA'
+              Write-Host "renaming $($_.Name) -> $renamed"
+              Rename-Item -Path $_.FullName -NewName $renamed
+            }
 
       # deb and rpm cover package-manager installs; the AppImage is additionally
       # the only Linux bundle Tauri emits an updater artifact for, so it is what
@@ -207,7 +232,7 @@ jobs:
       - name: Collect updater artifact
         shell: python
         env:
-          UPDATER_PLATFORM: ${{ runner.os == 'Windows' && 'windows-x86_64' || 'linux-x86_64' }}
+          UPDATER_PLATFORM: ${{ runner.os != 'Windows' && 'linux-x86_64' || (matrix.variant == 'cuda' && 'windows-x86_64-cuda' || 'windows-x86_64') }}
           BUNDLE_GLOB: ${{ runner.os == 'Windows' && 'C:/b/release/bundle/nsis/*.exe' || '.cargo-target/release/bundle/appimage/*.AppImage' }}
         run: |
           import glob, os, pathlib

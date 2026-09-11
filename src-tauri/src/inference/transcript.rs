@@ -4,7 +4,9 @@
 #[derive(Debug, Clone, PartialEq)]
 pub struct Word {
     pub text: String,
-    /// DTW-aligned end timestamp in centiseconds, if DTW was enabled.
+    /// End timestamp in centiseconds. Whisper advertises only segment-level
+    /// timing, so every word of a segment carries that segment's end; archs that
+    /// emit word rows (parakeet, granite) give a real per-word one.
     pub end_cs: Option<i64>,
 }
 
