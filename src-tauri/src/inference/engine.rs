@@ -21,7 +21,15 @@ const COMPRESSION_RATIO_THOLD: f32 = 2.4;
 /// Fallback ladder: a decode failing the thresholds retries at t = 0.2, 0.4, …
 const TEMPERATURE: f32 = 0.0;
 const TEMPERATURE_INC: f32 = 0.2;
+/// Disables the ladder for provisional passes.
+const TEMPERATURE_INC_OFF: f32 = 0.0;
 const LOGPROB_THOLD: f32 = -1.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pass {
+    Streaming,
+    Final,
+}
 
 pub struct TranscriptionEngine {
     session: Session,
@@ -97,7 +105,7 @@ impl TranscriptionEngine {
 
         // Warmup pass so the first real transcription isn't stalled by load.
         let silence = vec![0.0f32; 16_000];
-        let _ = engine.transcribe_segments(&silence, "");
+        let _ = engine.transcribe_segments(&silence, "", Pass::Final);
         log::info!("engine warmed up");
 
         Ok(engine)
@@ -148,16 +156,19 @@ impl TranscriptionEngine {
     /// Run options for a streaming session — no prompt, since streaming models
     /// carry their own context across feeds.
     pub fn stream_run_options(&self) -> RunOptions {
-        self.run_options("")
+        self.run_options("", Pass::Final)
     }
 
-    fn run_options(&self, prompt: &str) -> RunOptions {
+    fn run_options(&self, prompt: &str, pass: Pass) -> RunOptions {
         // A non-whisper arch rejects this extension with INVALID_ARG.
         let family = self.entry.is_whisper().then(|| {
             RunExtension::Whisper(WhisperRunOptions {
                 initial_prompt: (!prompt.is_empty()).then(|| prompt.to_string()),
                 temperature: Some(TEMPERATURE),
-                temperature_inc: Some(TEMPERATURE_INC),
+                temperature_inc: Some(match pass {
+                    Pass::Streaming => TEMPERATURE_INC_OFF,
+                    Pass::Final => TEMPERATURE_INC,
+                }),
                 compression_ratio_thold: Some(COMPRESSION_RATIO_THOLD),
                 logprob_thold: Some(LOGPROB_THOLD),
                 no_speech_thold: Some(NO_SPEECH_THOLD),
@@ -184,6 +195,7 @@ impl TranscriptionEngine {
         &mut self,
         samples_16k: &[f32],
         prompt: &str,
+        pass: Pass,
     ) -> Result<Vec<TimedSegment>, String> {
         // Decoders require at least a second of audio at 16 kHz.
         const MIN_SAMPLES: usize = 16_000;
@@ -199,7 +211,7 @@ impl TranscriptionEngine {
             samples_16k
         };
 
-        let options = self.run_options(prompt);
+        let options = self.run_options(prompt, pass);
         let transcript = self
             .session
             .run(samples, &options)
