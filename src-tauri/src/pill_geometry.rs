@@ -24,3 +24,7 @@ pub const fn card_window() -> (f64, f64) {
         CARD_MAX_H + CARD_PAD + BOTTOM_SLACK,
     )
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/pill_geometry.rs"]
+mod tests;

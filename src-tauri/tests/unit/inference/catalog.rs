@@ -102,3 +102,65 @@ fn whisper_family_is_flagged_for_run_extension_gating() {
         assert_eq!(m.is_whisper(), m.family == "whisper", "{}", m.id);
     }
 }
+
+#[test]
+fn part_file_paths_cannot_collide() {
+    // The downloader derives its resume file as `filename.with_extension("part")`.
+    // Two models whose names differ only by extension would share one `.part`
+    // and corrupt each other's resumed transfer.
+    let mut parts: Vec<String> = all()
+        .iter()
+        .map(|m| {
+            std::path::Path::new(&m.filename)
+                .with_extension("part")
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    let total = parts.len();
+    parts.sort_unstable();
+    parts.dedup();
+    assert_eq!(parts.len(), total, "two models would share a .part file");
+}
+
+#[test]
+fn no_filename_contains_a_path_separator() {
+    // `models_dir.join(filename)` must stay inside the models directory.
+    for m in all() {
+        assert!(
+            !m.filename.contains('/') && !m.filename.contains('\\'),
+            "{}: filename must be a bare file name ({})",
+            m.id,
+            m.filename
+        );
+        assert!(!m.filename.contains(".."), "{}: path traversal", m.id);
+    }
+}
+
+#[test]
+fn tiers_are_distinct_enough_to_order_recommendations() {
+    // `best_at_or_below` picks the last entry at or under a ceiling, so the
+    // catalog needs more than one tier or every machine gets the same model.
+    let mut tiers: Vec<u32> = all().iter().map(|m| m.tier).collect();
+    tiers.dedup();
+    assert!(tiers.len() > 1, "catalog has only one tier");
+}
+
+#[test]
+fn english_only_models_are_not_flagged_multilingual() {
+    // `run_options` pins a non-multilingual model to English and passes the
+    // user's language through for the rest. Flagging an English-only build as
+    // multilingual sends it a code it rejects — failing every decode, not just
+    // degrading quality. The filename is the ground truth here.
+    for m in all() {
+        let name = m.filename.to_lowercase();
+        let english_only = name.contains(".en-") || name.contains("-en-");
+        if english_only {
+            assert!(
+                !m.multilingual,
+                "{} is an English-only build ({}) but is flagged multilingual",
+                m.id, m.filename
+            );
+        }
+    }
+}

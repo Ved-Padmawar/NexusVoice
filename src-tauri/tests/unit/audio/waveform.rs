@@ -78,3 +78,37 @@ fn separated_tones_drive_separate_bands() {
     let low = levels_for_tone(&meter, 200.0, 0.1);
     assert!(low[1] > low[7], "low tone leaked to high band: {low:?}");
 }
+
+#[test]
+fn reset_clears_the_bars_and_the_ring() {
+    // Called on every capture start: a new recording must not inherit the
+    // previous one's levels or leftover samples.
+    let meter = WaveformMeter::new(SR);
+    let levels = levels_for_tone(&meter, 1000.0, 0.5);
+    assert!(levels[4] > 0.9, "precondition: a loud tone registered");
+
+    meter.reset(SR);
+    assert!(
+        meter.levels().iter().all(|&l| l == 0.0),
+        "reset left a standing level: {:?}",
+        meter.levels()
+    );
+}
+
+#[test]
+fn reset_re_arms_the_meter_at_a_new_device_rate() {
+    // Band edges are computed from the rate, so a stale rate puts every tone in
+    // the wrong bar.
+    let meter = WaveformMeter::new(16_000);
+    meter.reset(SR);
+
+    // 1000 Hz must still land in band 4 after the rate change.
+    let levels = levels_for_tone(&meter, 1000.0, 0.1);
+    let loudest = levels
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.partial_cmp(b.1).expect("comparable"))
+        .map(|(i, _)| i)
+        .expect("eight bands");
+    assert_eq!(loudest, 4, "got {levels:?}");
+}

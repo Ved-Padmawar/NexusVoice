@@ -6,8 +6,7 @@
 
 export type Platform = 'macos' | 'windows' | 'linux'
 
-function detectPlatform(): Platform {
-  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent
+export function detectPlatform(ua = typeof navigator === 'undefined' ? '' : navigator.userAgent): Platform {
   if (/Mac|iPhone|iPad|iPod/i.test(ua)) return 'macos'
   if (/Win/i.test(ua)) return 'windows'
   return 'linux'

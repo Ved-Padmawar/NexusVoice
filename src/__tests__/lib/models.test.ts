@@ -3,6 +3,7 @@ import {
   formatModelSize,
   isStreaming,
   modelNameToId,
+  sortForDisplay,
   type CatalogModel,
 } from '../../lib/models'
 
@@ -51,7 +52,10 @@ describe('modelNameToId', () => {
   })
 
   it('matches case-insensitively', () => {
-    expect(modelNameToId('whisper medium', catalog)).toBe('whisper-medium')
+    // Must resolve a NON-first entry: the fallback returns catalog[0], so
+    // asserting against the first entry passes even with matching removed.
+    expect(modelNameToId('parakeet unified en 0.6b', catalog)).toBe('parakeet-unified-en-0.6b')
+    expect(modelNameToId('PARAKEET UNIFIED EN 0.6B', catalog)).toBe('parakeet-unified-en-0.6b')
   })
 
   it('falls back to the first entry when nothing matches', () => {
@@ -60,5 +64,51 @@ describe('modelNameToId', () => {
 
   it('returns null for an empty catalog', () => {
     expect(modelNameToId('Whisper Medium', [])).toBeNull()
+  })
+})
+
+describe('sortForDisplay', () => {
+  const of = (family: string, sizeBytes: number, id = `${family}-${sizeBytes}`) =>
+    model({ id, family, sizeBytes })
+
+  it('groups families in the curated order, not alphabetically', () => {
+    const sorted = sortForDisplay([of('moonshine', 1), of('whisper', 1), of('nemotron', 1)])
+    expect(sorted.map(m => m.family)).toEqual(['whisper', 'nemotron', 'moonshine'])
+  })
+
+  it('orders smallest model first within a family', () => {
+    const sorted = sortForDisplay([of('whisper', 900), of('whisper', 100), of('whisper', 500)])
+    expect(sorted.map(m => m.sizeBytes)).toEqual([100, 500, 900])
+  })
+
+  it('sorts unlisted families after every known one', () => {
+    const sorted = sortForDisplay([of('mystery', 1), of('moonshine', 1), of('whisper', 1)])
+    expect(sorted.map(m => m.family)).toEqual(['whisper', 'moonshine', 'mystery'])
+  })
+
+  it('orders unlisted families alphabetically rather than by input order', () => {
+    // They share a rank, so without the tiebreak the order is whatever the
+    // backend happened to send — the picker would reshuffle between launches.
+    const sorted = sortForDisplay([of('zeta', 1), of('alpha', 1), of('mid', 1)])
+    expect(sorted.map(m => m.family)).toEqual(['alpha', 'mid', 'zeta'])
+  })
+
+  it('does not mutate the catalog it was given', () => {
+    // The array comes straight from the query cache; sorting it in place would
+    // reorder what every other consumer sees.
+    const input = [of('moonshine', 1), of('whisper', 1)]
+    const before = input.map(m => m.family)
+    sortForDisplay(input)
+    expect(input.map(m => m.family)).toEqual(before)
+  })
+
+  it('keeps family grouping ahead of size', () => {
+    // A large whisper model still precedes a tiny moonshine one.
+    const sorted = sortForDisplay([of('moonshine', 1), of('whisper', 9_000_000_000)])
+    expect(sorted.map(m => m.family)).toEqual(['whisper', 'moonshine'])
+  })
+
+  it('handles an empty catalog', () => {
+    expect(sortForDisplay([])).toEqual([])
   })
 })

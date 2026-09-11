@@ -119,3 +119,7 @@ impl DictionaryRepository {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/database/repositories/dictionary.rs"]
+mod tests;

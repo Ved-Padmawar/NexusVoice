@@ -114,27 +114,25 @@ impl TranscriptionEngine {
         &self.languages
     }
 
-    /// Keep `language` only if the model advertises it — an unadvertised code is
-    /// rejected outright, failing every decode. A bare code matches the model's
-    /// locale for it (`en` → `en-GB`), since models advertise BCP-47.
+    /// [`resolve_language`] over this model's codes, logged when not honoured.
     fn accepted_language(&self, language: Option<&str>) -> Option<String> {
-        use crate::inference::language::{primary_of, DEFAULT};
+        use crate::inference::language::primary_of;
 
-        let code = language?;
-        if self.languages.is_empty() || self.languages.iter().any(|l| l == code) {
-            return Some(code.to_string());
+        let resolved = resolve_language(&self.languages, language);
+        // A locale match still honours the request; a fallback does not.
+        if let Some(code) = language {
+            let honoured = resolved
+                .as_deref()
+                .is_some_and(|picked| primary_of(picked) == primary_of(code));
+            if !honoured {
+                log::warn!(
+                    "{} does not support language {code}; using {}",
+                    self.entry.display_name,
+                    resolved.as_deref().unwrap_or("auto-detect")
+                );
+            }
         }
-        if let Some(locale) = self.languages.iter().find(|l| primary_of(l) == code) {
-            return Some(locale.clone());
-        }
-        log::warn!(
-            "{} does not support language {code}",
-            self.entry.display_name
-        );
-        self.languages
-            .iter()
-            .find(|l| primary_of(l) == DEFAULT)
-            .cloned()
+        resolved
     }
 
     /// Whether the loaded model can drive its own streaming session.
@@ -209,6 +207,26 @@ impl TranscriptionEngine {
 
         Ok(build_segments(&transcript))
     }
+}
+
+/// Keep `language` only if the model advertises it — an unadvertised code is
+/// rejected outright, failing every decode. A bare code matches the model's
+/// locale for it (`en` → `en-GB`), since models advertise BCP-47; an
+/// unsupported one falls back to the model's English, else auto-detect.
+fn resolve_language(advertised: &[String], language: Option<&str>) -> Option<String> {
+    use crate::inference::language::{primary_of, DEFAULT};
+
+    let code = language?;
+    if advertised.is_empty() || advertised.iter().any(|l| l == code) {
+        return Some(code.to_string());
+    }
+    if let Some(locale) = advertised.iter().find(|l| primary_of(l) == code) {
+        return Some(locale.clone());
+    }
+    advertised
+        .iter()
+        .find(|l| primary_of(l) == DEFAULT)
+        .cloned()
 }
 
 /// Fold a transcript's word rows into the per-segment shape the pipeline wants.

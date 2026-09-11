@@ -17,19 +17,18 @@ fn pct_of_scales_and_saturates() {
 
 #[test]
 fn clean_stale_parts_removes_only_part_files() {
-    let dir = std::env::temp_dir().join("nv_clean_parts");
-    std::fs::create_dir_all(&dir).unwrap();
-    let part = dir.join("ggml-tiny.en-q5_1.part");
-    let model = dir.join("ggml-tiny.en-q5_1.bin");
+    // A private tempdir, not a shared fixed path: two concurrent runs of this
+    // suite must not sweep each other's fixture out from under them.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let part = dir.path().join("ggml-tiny.en-q5_1.part");
+    let model = dir.path().join("ggml-tiny.en-q5_1.gguf");
     std::fs::write(&part, b"partial").unwrap();
     std::fs::write(&model, b"complete").unwrap();
 
-    clean_stale_parts(&dir);
+    clean_stale_parts(dir.path());
 
     assert!(!part.exists(), "stale .part should be swept");
     assert!(model.exists(), "finished model must survive");
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

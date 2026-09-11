@@ -321,10 +321,8 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
             }
         };
 
-        // Strip leading dash hallucinations — Whisper emits "- " at the start of short utterances.
-        let raw_text = raw_text
-            .trim_start_matches(|c: char| c == '-' || c == '–' || c == '—' || c.is_whitespace())
-            .to_string();
+        // Whisper emits "- " at the start of short utterances.
+        let raw_text = crate::inference::transcript::strip_leading_dashes(&raw_text).to_string();
 
         log::debug!("final transcript: {} chars", raw_text.len());
 

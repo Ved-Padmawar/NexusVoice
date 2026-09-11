@@ -312,3 +312,98 @@ async fn a_bare_end_date_would_exclude_its_own_day() {
         .expect("widened");
     assert_eq!(widened.len(), 2);
 }
+
+// ── build_fts_query ────────────────────────────────────────────────────
+// User input becomes FTS5 MATCH syntax. Unquoted, a term like "AND" or an
+// embedded quote is read as syntax and errors the whole query.
+
+#[test]
+fn fts_query_quotes_each_term_and_lowercases_it() {
+    assert_eq!(
+        TranscriptRepository::build_fts_query("Meeting"),
+        "\"meeting\" OR \"meeting\"*"
+    );
+}
+
+#[test]
+fn fts_query_puts_the_prefix_star_outside_the_quotes() {
+    // `"term*"` matches a literal asterisk; `"term"*` is the prefix operator.
+    let q = TranscriptRepository::build_fts_query("report");
+    assert!(q.contains("\"report\"*"), "{q}");
+    assert!(
+        !q.contains("report*\""),
+        "star must sit outside the quotes: {q}"
+    );
+}
+
+#[test]
+fn fts_query_omits_the_prefix_variant_for_very_short_terms() {
+    // A 1-2 char prefix matches most of the table; exact match only.
+    assert_eq!(TranscriptRepository::build_fts_query("ok"), "\"ok\"");
+}
+
+#[test]
+fn fts_query_escapes_embedded_quotes_by_doubling_them() {
+    // An unescaped quote would terminate the literal and make the rest syntax.
+    let q = TranscriptRepository::build_fts_query("say \"hi\"");
+    assert!(q.contains("\"\"hi\"\""), "{q}");
+}
+
+#[test]
+fn fts_query_drops_tokens_with_no_alphanumerics() {
+    // A lone "-" would produce an empty quoted literal, which FTS5 rejects.
+    assert_eq!(TranscriptRepository::build_fts_query("- ?? !"), "");
+    assert_eq!(
+        TranscriptRepository::build_fts_query("notes -"),
+        "\"notes\" OR \"notes\"*"
+    );
+}
+
+#[test]
+fn fts_query_joins_multiple_terms_with_or() {
+    let q = TranscriptRepository::build_fts_query("alpha beta");
+    assert_eq!(q, "\"alpha\" OR \"alpha\"* OR \"beta\" OR \"beta\"*");
+}
+
+/// The end-to-end proof: whatever `build_fts_query` emits must be syntax SQLite
+/// accepts. A quoting regression shows up here as a DB error, not a wrong count.
+#[tokio::test]
+async fn raw_user_input_produces_a_query_sqlite_accepts() {
+    let pool = pool().await;
+    insert(&pool, "the meeting notes", "2026-01-01 00:00:00").await;
+    insert(&pool, "say \"hi\" to everyone", "2026-01-02 00:00:00").await;
+    let repo = TranscriptRepository::new(pool);
+
+    for raw in [
+        "meeting",
+        "meet",       // prefix match
+        "say \"hi\"", // embedded quotes
+        "AND",        // an FTS5 operator as a search word
+        "NOT OR AND",
+        "notes*",
+        "a -- b",
+        "C++",
+    ] {
+        let fts = TranscriptRepository::build_fts_query(raw);
+        if fts.trim().is_empty() {
+            continue;
+        }
+        repo.search(&fts, 10, None, None, None, true)
+            .await
+            .unwrap_or_else(|e| panic!("user input {raw:?} produced invalid FTS {fts:?}: {e}"));
+    }
+}
+
+#[tokio::test]
+async fn a_prefix_search_finds_a_partially_typed_word() {
+    let pool = pool().await;
+    insert(&pool, "quarterly projections", "2026-01-01 00:00:00").await;
+    let repo = TranscriptRepository::new(pool);
+
+    let fts = TranscriptRepository::build_fts_query("project");
+    let rows = repo
+        .search(&fts, 10, None, None, None, true)
+        .await
+        .expect("search");
+    assert_eq!(rows.len(), 1, "prefix match should find 'projections'");
+}

@@ -33,12 +33,7 @@ pub async fn format_transcript(
         return Ok(String::new());
     }
 
-    // Cap generation relative to input size: formatting roughly preserves
-    // length, so ~2× the input tokens (≈ len/4 chars each) plus headroom is
-    // plenty. Without a cap, a looping local model generates until the 60 s
-    // timeout and the user waits the full minute before the raw fallback.
-    // Chars, not bytes — non-Latin dictation would inflate the cap.
-    let max_tokens = u32::try_from(raw.chars().count() / 2 + 256).unwrap_or(u32::MAX);
+    let max_tokens = max_tokens_for(raw);
 
     let system = build_system_prompt(destination);
 
@@ -97,6 +92,13 @@ pub async fn test_connection(cfg: &FormatConfig) -> Result<(), String> {
     openai::send_chat(cfg, &body, TEST_TIMEOUT)
         .await
         .map(|_| ())
+}
+
+/// Generation cap for one formatting request: ~2× the input's tokens (≈ 4 chars
+/// each) plus headroom. Uncapped, a looping local model runs to the timeout.
+/// Chars, not bytes — a byte count would inflate the cap for non-Latin text.
+fn max_tokens_for(raw: &str) -> u32 {
+    u32::try_from(raw.chars().count() / 2 + 256).unwrap_or(u32::MAX)
 }
 
 /// Strip reasoning tags some models emit (e.g. Qwen `<think>…</think>`) and any

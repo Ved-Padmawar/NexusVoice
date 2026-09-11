@@ -377,3 +377,7 @@ fn map_register_error(error: tauri_plugin_global_shortcut::Error) -> ApiError {
         ApiError::new("hotkey_register_failed", msg)
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/commands/hotkey.rs"]
+mod tests;

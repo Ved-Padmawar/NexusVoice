@@ -8,12 +8,7 @@ import { extractErrorMessage } from '../lib/errors'
 import { VendorMark } from './ui/VendorMark'
 import type { VendorId } from '../lib/vendors'
 import { toast } from 'sonner'
-
-type Profile = {
-  baseUrl: string
-  model: string
-  apiKey: string
-}
+import { isConfigured, type Profile } from '../lib/formatConfig'
 
 type FormatConfig = {
   enabled: boolean
@@ -25,6 +20,7 @@ const EMPTY_PROFILE: Profile = { baseUrl: '', model: '', apiKey: '' }
 
 const activeProfile = (c: FormatConfig): Profile =>
   c.profiles?.[c.provider] ?? EMPTY_PROFILE
+
 
 type Preset = {
   id: string
@@ -66,9 +62,7 @@ export function FormattingToggle() {
   useEffect(() => { refresh() }, [refresh])
 
   const active = activeProfile(config)
-  const configured =
-    active.model.trim() !== '' &&
-    (config.provider === 'anthropic' || active.baseUrl.trim() !== '')
+  const configured = isConfigured(config.provider, active)
 
   const persist = async (next: FormatConfig) => {
     setConfig(next)
@@ -216,12 +210,7 @@ function ProviderModal({
     },
   })
 
-  // Mirrors `FormatConfig::is_usable` (llm/config.rs), which decides for real —
-  // this only greys out the buttons. The key is optional there (blank means no
-  // auth header, for local servers), so it must not gate submission here.
-  const canSubmit =
-    model.trim() !== '' &&
-    (!showBaseUrl || baseUrl.trim() !== '')
+  const canSubmit = isConfigured(providerId, { baseUrl, model })
 
   // Show the test result icon briefly, then revert the button to its ready
   // state — leaving it stuck on a past result is misleading.

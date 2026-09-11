@@ -36,3 +36,8 @@ pub fn normalize_level(at_16k: &[f32]) -> Vec<f32> {
         at_16k.to_vec()
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::float_cmp)] // asserts compare exact-representable values
+#[path = "../../tests/unit/preprocess/mod.rs"]
+mod tests;

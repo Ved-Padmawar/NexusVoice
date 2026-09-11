@@ -375,3 +375,173 @@ fn force_trim_is_a_noop_when_it_would_leave_too_little_window() {
 
     assert_eq!(session.window_start, 0);
 }
+
+// ── would_decode ───────────────────────────────────────────────────────
+// The stream worker calls this before copying the window. If it never returns
+// true, streaming silently stops producing partials; if it always does, every
+// poll pays for a full re-decode.
+
+#[test]
+fn would_decode_is_false_before_enough_new_audio_arrives() {
+    let session = StreamingSession::new();
+    let rate = 16_000usize;
+    let hz = 16_000u32;
+    // 0.5 s — under MIN_NEW_AUDIO_SECS.
+    assert!(!session.would_decode(rate / 2, hz));
+}
+
+#[test]
+fn would_decode_is_true_once_a_second_of_new_audio_arrives() {
+    let session = StreamingSession::new();
+    let rate = 16_000usize;
+    let hz = 16_000u32;
+    assert!(session.would_decode(rate, hz));
+    assert!(session.would_decode(rate * 5, hz));
+}
+
+#[test]
+fn would_decode_measures_from_the_last_decode_not_the_buffer_start() {
+    let mut session = StreamingSession::new();
+    let rate = 16_000usize;
+    let hz = 16_000u32;
+    // Already decoded 10 s.
+    session.decoded_len = rate * 10;
+
+    // 10.5 s total: only 0.5 s is new.
+    assert!(!session.would_decode(rate * 10 + rate / 2, hz));
+    // 11 s total: a full second is new.
+    assert!(session.would_decode(rate * 11, hz));
+}
+
+#[test]
+fn would_decode_measures_from_the_window_start_after_a_trim() {
+    // A trim advances window_start past decoded_len; the new audio is whatever
+    // follows the later of the two, or a trim would trigger a decode for free.
+    let mut session = StreamingSession::new();
+    let rate = 16_000usize;
+    let hz = 16_000u32;
+    session.decoded_len = rate * 4;
+    session.window_start = rate * 9;
+
+    assert!(!session.would_decode(rate * 9, hz), "no new audio yet");
+    assert!(session.would_decode(rate * 10, hz));
+}
+
+#[test]
+fn would_decode_is_false_before_the_sample_rate_is_known() {
+    // Rate 0 would divide by zero; the worker must just wait.
+    assert!(!StreamingSession::new().would_decode(48_000, 0));
+}
+
+#[test]
+fn would_decode_agrees_with_what_poll_actually_does() {
+    // poll() re-derives the same condition. If the two drift, the worker either
+    // skips a decode the session wanted or copies a window it throws away.
+    let mut session = StreamingSession::new();
+    let rate = 16_000usize;
+    let hz = 16_000u32;
+    session.decoded_len = rate * 3;
+    for total in [0, rate / 2, rate - 1, rate, rate * 3, rate * 4, rate * 7] {
+        let new_samples = total.saturating_sub(session.decoded_len.max(session.window_start));
+        #[allow(clippy::cast_precision_loss)]
+        let poll_would_decode = (new_samples as f64 / f64::from(hz)) >= 1.0;
+        assert_eq!(
+            session.would_decode(total, hz),
+            poll_would_decode,
+            "disagreed at total={total}"
+        );
+    }
+}
+
+// ── partial ────────────────────────────────────────────────────────────
+// What the live pill renders: confirmed text plus the revisable tail.
+
+#[test]
+fn partial_is_empty_before_anything_is_decoded() {
+    let (committed, tentative) = StreamingSession::new().partial();
+    assert_eq!(committed, "");
+    assert_eq!(tentative, "");
+}
+
+#[test]
+fn partial_reports_an_undecided_hypothesis_as_entirely_tentative() {
+    // One decode commits nothing, so the pill shows it all as provisional.
+    let mut session = StreamingSession::new();
+    session.segments = hypothesis(&[" hello", " world"], 800);
+    session.commit_agreed();
+
+    let (committed, tentative) = session.partial();
+    assert_eq!(committed, "");
+    assert_eq!(tentative, " hello world");
+}
+
+#[test]
+fn partial_splits_confirmed_text_from_the_revisable_tail() {
+    let mut session = StreamingSession::new();
+    session.segments = hypothesis(&[" the", " quick", " brown"], 1200);
+    session.commit_agreed();
+    session.segments = hypothesis(&[" the", " quick", " brownish", " fox"], 1600);
+    session.commit_agreed();
+
+    let (committed, tentative) = session.partial();
+    assert_eq!(committed, "the quick");
+    assert_eq!(
+        tentative, " brownish fox",
+        "only the unconfirmed tail is tentative"
+    );
+}
+
+#[test]
+fn partial_has_no_tentative_tail_when_the_whole_hypothesis_is_committed() {
+    let mut session = StreamingSession::new();
+    for _ in 0..2 {
+        session.segments = hypothesis(&[" one", " two"], 800);
+        session.commit_agreed();
+    }
+
+    let (committed, tentative) = session.partial();
+    assert_eq!(committed, "one two");
+    assert_eq!(tentative, "", "nothing is still open to revision");
+}
+
+#[test]
+fn partial_leads_the_tentative_tail_with_one_space() {
+    // The pill concatenates the two halves, so the join must not fuse words.
+    let mut session = StreamingSession::new();
+    for _ in 0..2 {
+        session.segments = hypothesis(&[" one"], 400);
+        session.commit_agreed();
+    }
+    session.segments = hypothesis(&[" one", " two"], 800);
+    session.commit_agreed();
+
+    let (committed, tentative) = session.partial();
+    assert_eq!(format!("{committed}{tentative}"), "one two");
+}
+
+// ── trim safety rail ───────────────────────────────────────────────────
+
+#[test]
+fn trim_refuses_a_cut_that_would_leave_too_little_audio() {
+    // Decoders need at least MIN_WINDOW_SECS behind them; a cut this close to
+    // the end of the buffer must be declined rather than starving the decode.
+    let mut session = StreamingSession::new();
+    let native_rate = 16_000;
+    session.segments = vec![
+        TimedSegment {
+            words: vec![word(" one", 400)],
+            end_ms: 9_500,
+        },
+        TimedSegment {
+            words: vec![word(" two", 10_000)],
+            end_ms: 10_000,
+        },
+    ];
+    session.committed = "one".to_string();
+    session.committed_words = 1;
+
+    // Buffer is 10 s; cutting at 9.5 s would leave 0.5 s.
+    assert!(!session.trim(10 * native_rate as usize, native_rate));
+    assert_eq!(session.window_start, 0, "window must not move");
+    assert_eq!(session.segments.len(), 2);
+}

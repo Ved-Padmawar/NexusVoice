@@ -404,5 +404,6 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)] // asserts compare exact-representable values
 #[path = "../../tests/unit/audio/capture.rs"]
 mod tests;

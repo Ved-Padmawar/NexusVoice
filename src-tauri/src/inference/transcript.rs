@@ -39,6 +39,14 @@ pub fn join_words(words: &[Word]) -> String {
     out
 }
 
+/// Strip the dash whisper prepends to short utterances, rendering them as
+/// dialogue ("- Hello."). Leading run only: an interior dash is real
+/// punctuation, and an all-dash transcript is hallucination, so empty is right.
+#[must_use]
+pub fn strip_leading_dashes(text: &str) -> &str {
+    text.trim_start_matches(|c: char| matches!(c, '-' | '–' | '—') || c.is_whitespace())
+}
+
 #[cfg(test)]
 #[path = "../../tests/unit/inference/transcript.rs"]
 mod tests;

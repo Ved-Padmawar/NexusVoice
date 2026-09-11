@@ -86,3 +86,7 @@ pub async fn send_chat(
         .map(|c| c.message.content)
         .ok_or_else(|| "response contained no choices".to_string())
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/llm/openai.rs"]
+mod tests;

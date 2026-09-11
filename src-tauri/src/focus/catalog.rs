@@ -50,7 +50,7 @@ impl AppCategory {
 /// Executable stem (lowercased, no `.exe`), display name, category. A flat
 /// tuple rather than a struct so rustfmt keeps one app per line.
 #[cfg(any(target_os = "windows", test))]
-const CATALOG: &[(&str, &str, AppCategory)] = &[
+pub(super) const CATALOG: &[(&str, &str, AppCategory)] = &[
     // Chat
     ("slack", "Slack", AppCategory::Chat),
     ("discord", "Discord", AppCategory::Chat),

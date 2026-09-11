@@ -229,3 +229,7 @@ pub async fn delete_dictionary_entry(state: State<'_, AppState>, id: i64) -> Res
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/commands/data.rs"]
+mod tests;
