@@ -1,225 +1,161 @@
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
 import { invoke } from '@tauri-apps/api/core'
 import {
-  AlertCircle, CheckCircle2, HardDrive, MemoryStick, Mic, Monitor,
-  RefreshCw, Download, ArrowUpCircle, Cpu, Shield,
+  AlertCircle, ArrowUpCircle, CheckCircle2, Cpu, Download, FolderOpen, HardDrive,
+  MemoryStick, Monitor, RefreshCw, ShieldCheck,
 } from 'lucide-react'
-import { relaunch } from '@tauri-apps/plugin-process'
-import { Button } from '@/components/ui/button'
 import { COMMANDS } from '../../lib/commands'
-import type { HardwareProfile } from '../../types'
+import { fetchDownloadedModels, formatModelSize } from '../../lib/models'
+import type { DownloadedModel, HardwareProfile } from '../../types'
 import { useAppStore } from '../../store/useAppStore'
+import type { UpdateStatus } from '../../store/updateSlice'
+import { Button } from '@/components/ui/button'
+import logoUrl from '../../assets/logo.png'
 
-type DownloadedModel = {
-  variant: string
-  displayName: string
-  sizeBytes: number
-  isActive: boolean
+const UPDATE_COPY: Record<UpdateStatus, { title: (v: string | null) => string; detail: (v: string | null) => string }> = {
+  idle:         { title: () => 'Check for updates',         detail: () => `You are on v${__APP_VERSION__}` },
+  checking:     { title: () => 'Looking for updates…',      detail: () => 'This takes a moment' },
+  'up-to-date': { title: () => "You're up to date",         detail: () => `v${__APP_VERSION__} is the latest` },
+  available:    { title: (v) => `v${v} is available`,       detail: () => `You are on v${__APP_VERSION__}` },
+  downloading:  { title: () => 'Downloading the update',    detail: (v) => `v${v}` },
+  ready:        { title: () => 'Ready to install',          detail: (v) => `Restart to finish moving to v${v}` },
+  error:        { title: () => 'Update failed',             detail: () => 'Check your network connection and try again' },
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GB`
-  if (bytes >= 1_048_576) return `${Math.round(bytes / 1_048_576)} MB`
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`
-}
+function UpdatePanel() {
+  // Update state lives in the store so this tab and the title-bar chip drive
+  // one install rather than each holding a private updater handle.
+  const status = useAppStore(s => s.updateStatus)
+  const version = useAppStore(s => s.updateVersion)
+  const progress = useAppStore(s => s.updateProgress)
+  const error = useAppStore(s => s.updateError)
+  const checkForUpdate = useAppStore(s => s.checkForUpdate)
+  const installUpdate = useAppStore(s => s.installUpdate)
+  const restartForUpdate = useAppStore(s => s.restartForUpdate)
 
-/** One label/value row in the system-info card. */
-function InfoRow({ Icon, label, value }: { Icon: typeof Cpu; label: string; value: string }) {
+  const copy = UPDATE_COPY[status]
+  const tone = status === 'up-to-date' || status === 'ready' ? 'success' : status === 'error' ? 'danger' : 'accent'
+  const Icon = status === 'error' ? AlertCircle
+    : status === 'up-to-date' || status === 'ready' ? CheckCircle2
+      : status === 'available' || status === 'downloading' ? Download
+        : RefreshCw
+
   return (
-    <div className="flex items-center justify-between gap-4 px-4 py-2.5">
-      <span className="flex items-center gap-2 text-[12px] text-(--fg-2)">
-        <Icon size={13} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
-        {label}
-      </span>
-      <span className="text-[12px] text-muted-foreground truncate text-right">{value}</span>
-    </div>
+    <section className="nv-card flex flex-col">
+      <div className="nv-panel-head"><h3 className="nv-panel-title">Updates</h3></div>
+      <div className="flex flex-1 flex-col justify-center gap-4 px-5 pt-4 pb-5">
+        <div className="flex items-center gap-3.5">
+          <span className={`nv-mark nv-mark--${tone}`}>
+            <Icon size={17} strokeWidth={2} className={status === 'checking' ? 'nv-spin' : undefined} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[14px] font-semibold text-fg">{copy.title(version)}</p>
+            <p className="mt-0.5 truncate text-[12.5px] text-muted">
+              {status === 'error' && error ? error : copy.detail(version)}
+            </p>
+          </div>
+        </div>
+
+        {status === 'downloading' ? (
+          <div className="flex items-center gap-3">
+            <span className="nv-progress">
+              <span className="nv-progress__fill transition-[width] duration-300" style={{ width: `${progress}%` }} />
+            </span>
+            <span className="text-[12px] font-semibold tabular-nums text-accent-text">{progress}%</span>
+          </div>
+        ) : (
+          <div>
+            {(status === 'idle' || status === 'up-to-date' || status === 'error') && (
+              <Button variant="secondary" onClick={checkForUpdate}>
+                <RefreshCw />
+                {status === 'up-to-date' ? 'Check again' : status === 'error' ? 'Retry' : 'Check now'}
+              </Button>
+            )}
+            {status === 'checking' && (
+              <Button variant="secondary" disabled><RefreshCw className="nv-spin" />Checking…</Button>
+            )}
+            {status === 'available' && (
+              <Button onClick={installUpdate}><Download />Download and install</Button>
+            )}
+            {status === 'ready' && (
+              <Button onClick={restartForUpdate}><ArrowUpCircle />Restart now</Button>
+            )}
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 
 export function AboutTab() {
-  // Update state lives in the store so this tab and the sidebar prompt drive
-  // one install rather than each holding a private updater handle.
-  const updateStatus = useAppStore(s => s.updateStatus)
-  const updateVersion = useAppStore(s => s.updateVersion)
-  const downloadProgress = useAppStore(s => s.updateProgress)
-  const updateError = useAppStore(s => s.updateError)
-  const checkForUpdate = useAppStore(s => s.checkForUpdate)
-  const downloadAndInstall = useAppStore(s => s.installUpdate)
   const [profile, setProfile] = useState<HardwareProfile | null>(null)
   const [onDisk, setOnDisk] = useState<DownloadedModel[]>([])
 
   useEffect(() => {
     invoke<HardwareProfile>(COMMANDS.GET_HARDWARE_PROFILE).then(setProfile).catch(() => {})
-    invoke<DownloadedModel[]>(COMMANDS.GET_DOWNLOADED_MODELS).then(setOnDisk).catch(() => {})
+    void fetchDownloadedModels().then(setOnDisk)
   }, [])
 
   const modelBytes = onDisk.reduce((acc, m) => acc + m.sizeBytes, 0)
 
+  const specs = [
+    {
+      Icon: Monitor,
+      label: 'Compute',
+      value: profile ? `${profile.gpuName}, ${profile.executionProvider.toUpperCase()}` : 'Detecting…',
+    },
+    {
+      Icon: MemoryStick,
+      label: 'Memory',
+      value: profile ? `${profile.ramGb} GB RAM${profile.vramGb > 0 ? `, ${profile.vramGb} GB VRAM` : ''}` : 'Detecting…',
+    },
+    {
+      Icon: HardDrive,
+      label: 'Models on disk',
+      value: onDisk.length > 0
+        ? `${onDisk.length} ${onDisk.length === 1 ? 'model' : 'models'}, ${formatModelSize(modelBytes)}`
+        : 'None downloaded',
+    },
+  ]
+
   return (
-    <div className="flex flex-col gap-4">
-
-      {/* Version hero, then what the app is. */}
-      <div className="flex items-center gap-3.5 rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
-        <span className="grid size-11 shrink-0 place-items-center rounded-(--r-lg) bg-(--accent-soft) text-(--accent)">
-          <Mic size={20} strokeWidth={1.9} />
-        </span>
+    <>
+      <section className="nv-card nv-about">
+        <img src={logoUrl} alt="" className="nv-about__logo" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
-            <span className="text-[16px] font-bold tracking-tight text-(--fg)">NexusVoice</span>
-            <span className="text-[12px] font-medium tabular-nums text-muted-foreground">
-              v{__APP_VERSION__}
-            </span>
+          <h2 className="nv-about__name">
+            NexusVoice
+            <span className="nv-badge nv-badge--neutral tabular-nums">v{__APP_VERSION__}</span>
+          </h2>
+          <p className="mt-1 text-[13px] text-muted">Local speech to text. Audio never leaves this machine.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className="nv-badge nv-badge--neutral h-7! px-2.5!"><Cpu />transcribe-cpp</span>
+          <span className="nv-badge nv-badge--success h-7! px-2.5!"><ShieldCheck />100% on-device</span>
+        </div>
+      </section>
+
+      <div className="nv-grid-2">
+        <section className="nv-card flex flex-col">
+          <div className="nv-panel-head">
+            <h3 className="nv-panel-title">This computer</h3>
+            <Button variant="ghost" size="sm" onClick={() => invoke<void>(COMMANDS.OPEN_LOGS_FOLDER)} title="Open logs folder">
+              <FolderOpen />
+              Logs
+            </Button>
           </div>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Local speech to text. Audio never leaves this machine.
-          </p>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          {[
-            { Icon: Cpu, label: 'transcribe-cpp' },
-            { Icon: Shield, label: '100% on-device' },
-          ].map(({ Icon, label }) => (
-            <span key={label} className="flex items-center gap-1.5 rounded-(--r-md) border border-(--border-soft) bg-(--surface) px-2.5 py-1.5 text-[11px] text-(--fg-2)">
-              <Icon size={11} strokeWidth={1.75} className="shrink-0 text-muted-foreground" />
-              {label}
-            </span>
-          ))}
-        </div>
+          <dl className="nv-specs">
+            {specs.map(({ Icon, label, value }) => (
+              <div key={label}>
+                <dt><Icon aria-hidden />{label}</dt>
+                <dd title={value}>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+
+        <UpdatePanel />
       </div>
-
-      {/* System */}
-      <div className="overflow-hidden rounded-(--r-lg) border border-(--border-soft) bg-(--panel)">
-        <div className="px-4 py-2.5 border-b border-(--border-soft) text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          System
-        </div>
-        <div className="divide-y divide-(--border-soft)">
-          <InfoRow
-            Icon={Monitor}
-            label="Compute"
-            value={profile ? `${profile.gpuName} · ${profile.executionProvider.toUpperCase()}` : 'Detecting…'}
-          />
-          <InfoRow
-            Icon={MemoryStick}
-            label="Memory"
-            value={
-              profile
-                ? `${profile.ramGb} GB RAM${profile.vramGb > 0 ? ` · ${profile.vramGb} GB VRAM` : ''}`
-                : 'Detecting…'
-            }
-          />
-          <InfoRow
-            Icon={HardDrive}
-            label="Models on disk"
-            value={
-              onDisk.length > 0
-                ? `${onDisk.length} model${onDisk.length > 1 ? 's' : ''} · ${formatBytes(modelBytes)}`
-                : 'None downloaded'
-            }
-          />
-        </div>
-      </div>
-
-      {/* Updates */}
-      <div className="overflow-hidden rounded-(--r-lg) border border-(--border-soft) bg-(--panel)">
-        <div className="px-4 py-2.5 border-b border-(--border-soft) text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          Updates
-        </div>
-
-        <div className={`m-3 flex items-center justify-between gap-4 px-3 py-2.5 rounded-(--r-md) bg-(--surface) border ${
-          updateStatus === 'available' || updateStatus === 'downloading' || updateStatus === 'checking'
-            ? 'border-(--accent)'
-            : updateStatus === 'ready'
-              ? 'border-(--success)'
-              : updateStatus === 'error'
-                ? 'border-destructive'
-                : 'border-(--border-soft)'
-        }`}>
-          {/* Icon badge */}
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className={`w-8 h-8 rounded-(--r-md) flex items-center justify-center shrink-0 ${
-              updateStatus === 'up-to-date' || updateStatus === 'ready'
-                ? 'bg-(--success-soft) text-(--success)'
-                : updateStatus === 'error'
-                  ? 'bg-(--danger-soft) text-destructive'
-                  : 'bg-(--accent-soft) text-(--accent)'
-            }`}>
-              {(updateStatus === 'up-to-date') && <CheckCircle2 size={14} strokeWidth={2} />}
-              {(updateStatus === 'ready') && <CheckCircle2 size={14} strokeWidth={2} />}
-              {(updateStatus === 'error') && <AlertCircle size={14} strokeWidth={2} />}
-              {(updateStatus === 'idle' || updateStatus === 'checking') && <motion.span animate={updateStatus === 'checking' ? { rotate: 360 } : {}} transition={{ duration: 1, ease: 'linear', repeat: Infinity }}><RefreshCw size={14} strokeWidth={2} /></motion.span>}
-              {(updateStatus === 'available' || updateStatus === 'downloading') && <Download size={14} strokeWidth={2} />}
-            </div>
-
-            {/* Text + progress */}
-            <div className="flex-1 min-w-0">
-              {updateStatus === 'downloading' ? (
-                <>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[12px] font-medium text-(--fg-2)">Downloading…</span>
-                    <span className="text-[11px] font-semibold text-(--accent) tabular-nums">{downloadProgress}%</span>
-                  </div>
-                  <div className="h-0.75 rounded-full bg-(--border-soft) overflow-hidden mt-1.5">
-                    <div
-                      className="h-full rounded-full bg-(--accent) transition-[width] duration-300 ease-linear"
-                      style={{ width: `${downloadProgress}%` }}
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className={`text-[12px] font-medium ${
-                    updateStatus === 'error' ? 'text-destructive'
-                      : updateStatus === 'up-to-date' || updateStatus === 'ready' ? 'text-(--success)'
-                        : updateStatus === 'available' ? 'text-(--fg)'
-                          : 'text-(--fg)'
-                  }`}>
-                    {updateStatus === 'idle' ? 'Check for updates' : updateStatus === 'checking' ? 'Looking for updates…' : updateStatus === 'up-to-date' ? "You're up to date" : updateStatus === 'available' ? `v${updateVersion} available` : updateStatus === 'ready' ? 'Ready to install' : updateError ?? 'Update failed'}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {updateStatus === 'idle' ? `Currently on v${__APP_VERSION__}` : updateStatus === 'checking' ? 'Please wait…' : updateStatus === 'up-to-date' ? `v${__APP_VERSION__} is the latest` : updateStatus === 'available' ? 'Ready to download' : updateStatus === 'ready' ? `Restart to apply v${updateVersion}` : 'Check your network connection'}
-                  </p>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Action button */}
-          <div className="shrink-0">
-            {(updateStatus === 'idle' || updateStatus === 'up-to-date' || updateStatus === 'error') && (
-              <Button size="sm" onClick={checkForUpdate}>
-                <RefreshCw size={11} strokeWidth={2} />
-                {updateStatus === 'up-to-date' ? 'Check again' : updateStatus === 'error' ? 'Retry' : 'Check'}
-              </Button>
-            )}
-            {updateStatus === 'checking' && (
-              <Button size="sm" disabled>
-                <motion.span animate={{ rotate: 360 }} transition={{ duration: 1, ease: 'linear', repeat: Infinity }}><RefreshCw size={11} strokeWidth={2} /></motion.span>
-                Checking…
-              </Button>
-            )}
-            {updateStatus === 'available' && (
-              <Button size="sm" onClick={downloadAndInstall}>
-                <Download size={11} strokeWidth={2} />
-                Download
-              </Button>
-            )}
-            {updateStatus === 'downloading' && (
-              <Button size="sm" disabled>
-                <Download size={11} strokeWidth={2} />
-                Downloading…
-              </Button>
-            )}
-            {updateStatus === 'ready' && (
-              <Button size="sm" onClick={() => relaunch()}>
-                <ArrowUpCircle size={11} strokeWidth={2} />
-                Restart
-              </Button>
-            )}
-          </div>
-        </div>
-      </div>
-
-    </div>
+    </>
   )
 }

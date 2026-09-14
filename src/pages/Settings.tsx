@@ -1,25 +1,22 @@
 import { useShallow } from 'zustand/react/shallow'
 import { useRef, useEffect } from 'react'
 import { useLocation } from 'react-router'
-import { invoke } from '@tauri-apps/api/core'
-import { motion } from 'framer-motion'
-import { COMMANDS } from '../lib/commands'
-import { Palette, Info, FolderOpen, SlidersHorizontal, Mic, Settings as SettingsIcon } from 'lucide-react'
+import { Palette, Info, SlidersHorizontal, AudioWaveform } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { SETTINGS_TABS, type SettingsTab } from '../lib/routes'
+import { SCROLLER_SELECTOR } from '../lib/hooks'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { PageHeader, StickyBar } from '../components/page'
 import { AppearanceTab } from './settings/AppearanceTab'
 import { AboutTab } from './settings/AboutTab'
 import { GeneralTab } from './settings/GeneralTab'
 import { VoiceTab } from './settings/VoiceTab'
-import { PillTab } from './settings/PillTab'
-import { WaveformTab } from './settings/WaveformTab'
 
 const SUBTITLE: Record<SettingsTab, string> = {
-  appearance: 'Themes for the window and the recording pill',
-  general: 'Input device, dictation language, formatting and hotkeys',
-  voice: 'Transcription model',
-  about: 'Version, updates and system information',
+  general: 'Your microphone, dictation language, formatting and hotkeys.',
+  voice: 'The speech model that turns your voice into text, on this computer.',
+  appearance: 'How the window and the recording pill look.',
+  about: 'Version, updates and this computer.',
 }
 
 export function Settings() {
@@ -28,6 +25,7 @@ export function Settings() {
     setActiveSettingsTab: s.setActiveSettingsTab,
   })))
   const location = useLocation()
+  const rootRef = useRef<HTMLDivElement>(null)
 
   const initialLocationState = useRef(location.state)
   useEffect(() => {
@@ -46,80 +44,31 @@ export function Settings() {
       : activeSettingsTab === ('shortcuts' as SettingsTab)
         ? 'general'
         : activeSettingsTab
-  const setTab = (v: string) => setActiveSettingsTab(v as SettingsTab)
+
+  const setTab = (v: string) => {
+    const scroller = rootRef.current?.closest<HTMLElement>(SCROLLER_SELECTOR)
+    if (scroller) scroller.scrollTop = 0
+    setActiveSettingsTab(v as SettingsTab)
+  }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-8 pt-7 pb-4">
-      {/* Hero. Same structure as the other pages, tightened: this is the only
-          screen carrying a second nav row below it, so the spacing that suits a
-          lone header would push the tab content into scroll. */}
-      <div className="flex shrink-0 items-center justify-between gap-4 pb-3.5 mb-3.5 border-b border-(--border-soft)">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-            <SettingsIcon size={16} strokeWidth={2} />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-[16px] font-bold tracking-tight text-(--fg) leading-[1.1] m-0">Settings</h1>
-            <p className="text-[11px] text-muted-foreground mt-0.5 m-0 truncate">{SUBTITLE[tab]}</p>
-          </div>
-        </div>
-      </div>
+    <div ref={rootRef} className="nv-page">
+      <PageHeader title="Settings" description={SUBTITLE[tab]} />
 
-      <Tabs value={tab} onValueChange={setTab} className="flex flex-col flex-1 min-h-0 gap-0!">
-        <div className="flex items-center justify-between mb-3 shrink-0">
-          <TabsList className="w-fit!">
-            <TabsTrigger value="general" className="gap-1.25! text-[12px]!">
-              <SlidersHorizontal size={12} strokeWidth={1.75} />
-              General
-            </TabsTrigger>
-            <TabsTrigger value="voice" className="gap-1.25! text-[12px]!">
-              <Mic size={12} strokeWidth={1.75} />
-              Voice
-            </TabsTrigger>
-            <TabsTrigger value="appearance" className="gap-1.25! text-[12px]!">
-              <Palette size={12} strokeWidth={1.75} />
-              Appearance
-            </TabsTrigger>
-            <TabsTrigger value="about" className="gap-1.25! text-[12px]!">
-              <Info size={12} strokeWidth={1.75} />
-              About
-            </TabsTrigger>
+      <Tabs value={tab} onValueChange={setTab}>
+        <StickyBar>
+          <TabsList aria-label="Settings sections">
+            <TabsTrigger value="general"><SlidersHorizontal strokeWidth={1.9} />General</TabsTrigger>
+            <TabsTrigger value="voice"><AudioWaveform strokeWidth={1.9} />Voice</TabsTrigger>
+            <TabsTrigger value="appearance"><Palette strokeWidth={1.9} />Appearance</TabsTrigger>
+            <TabsTrigger value="about"><Info strokeWidth={1.9} />About</TabsTrigger>
           </TabsList>
-          {tab === 'about' && (
-            <div className="flex items-center gap-1 self-start mt-0.75">
-              <motion.button
-                type="button"
-                className="inline-flex items-center gap-1.25 px-2.5 h-9 rounded-(--r-md) bg-(--surface) border-none text-(--fg-2) text-[12px] font-medium cursor-pointer"
-                onClick={() => invoke<void>(COMMANDS.OPEN_LOGS_FOLDER)}
-                title="Open logs folder"
-                whileHover={{ color: 'var(--fg)' }}
-                whileTap={{ scale: 0.96 }}
-                transition={{ duration: 0.15 }}
-              >
-                <FolderOpen size={12} strokeWidth={1.75} />
-                Logs
-              </motion.button>
-            </div>
-          )}
-        </div>
+        </StickyBar>
 
-        <TabsContent value="general" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-5 mt-0! pr-1">
-          <GeneralTab />
-        </TabsContent>
-
-        <TabsContent value="voice" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-3 mt-0! pr-1">
-          <VoiceTab />
-        </TabsContent>
-
-        <TabsContent value="appearance" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-6 mt-0! pr-1">
-          <AppearanceTab />
-          <PillTab />
-          <WaveformTab />
-        </TabsContent>
-
-        <TabsContent value="about" className="flex-1 overflow-y-auto overscroll-none min-h-0 flex flex-col gap-3 mt-0! pr-1">
-          <AboutTab />
-        </TabsContent>
+        <TabsContent value="general"><GeneralTab /></TabsContent>
+        <TabsContent value="voice"><VoiceTab /></TabsContent>
+        <TabsContent value="appearance"><AppearanceTab /></TabsContent>
+        <TabsContent value="about"><AboutTab /></TabsContent>
       </Tabs>
     </div>
   )

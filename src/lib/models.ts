@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { COMMANDS } from './commands'
+import type { DownloadedModel } from '../types'
 
 /** Catalog id, e.g. `whisper-medium` or `parakeet-unified-en-0.6b`. */
 export type ModelId = string
@@ -26,6 +27,11 @@ export type CatalogModel = {
 /** The full model catalog, ascending by capability. */
 export async function fetchModelCatalog(): Promise<CatalogModel[]> {
   return invoke<CatalogModel[]>(COMMANDS.GET_MODEL_CATALOG)
+}
+
+/** Every model file on disk; empty when the listing fails. */
+export async function fetchDownloadedModels(): Promise<DownloadedModel[]> {
+  return invoke<DownloadedModel[]>(COMMANDS.GET_DOWNLOADED_MODELS).catch(() => [])
 }
 
 /** Human-readable download size, e.g. "886 MB". */

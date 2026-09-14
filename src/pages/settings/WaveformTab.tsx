@@ -1,14 +1,14 @@
 import { useShallow } from 'zustand/react/shallow'
 import { memo, useEffect, useRef } from 'react'
-import { motion } from 'framer-motion'
 import { emit } from '@tauri-apps/api/event'
-import { AudioLines, Check } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { useAppStore } from '../../store/useAppStore'
 import { EVENTS } from '../../lib/events'
 import { WaveformCanvas } from '../../components/WaveformCanvas'
 import { BARS } from '../../lib/waveform'
-import { pillThemeDef, type PillThemeDef } from '../../lib/pillThemes'
+import { pillBackdrop, pillThemeDef, type PillThemeDef } from '../../lib/pillThemes'
 import type { WaveformStyle } from '../../store/uiSlice'
+import { Section } from '../../components/page'
 
 type StyleDef = {
   id: WaveformStyle
@@ -17,10 +17,10 @@ type StyleDef = {
 }
 
 const WAVEFORM_STYLES: StyleDef[] = [
-  { id: 'bars',  label: 'Bars',  hint: 'live level meter' },
-  { id: 'memo',  label: 'Memo',  hint: 'scrolling voice note' },
-  { id: 'eq',    label: 'EQ',    hint: 'retro equalizer' },
-  { id: 'spectrum', label: 'Spectrum', hint: 'analyser columns' },
+  { id: 'bars',  label: 'Bars',  hint: 'Live level meter' },
+  { id: 'memo',  label: 'Memo',  hint: 'Scrolling voice note' },
+  { id: 'eq',    label: 'EQ',    hint: 'Retro equalizer' },
+  { id: 'spectrum', label: 'Spectrum', hint: 'Analyser columns' },
 ]
 
 const MIN_H = 3
@@ -159,61 +159,6 @@ function PreviewPill({ style, levelsRef, theme }: {
   )
 }
 
-function StyleSwatch({ s, active, onPick, levelsRef, theme }: {
-  s: StyleDef
-  active: boolean
-  onPick: () => void
-  levelsRef: React.RefObject<number[]>
-  theme: PillThemeDef
-}) {
-  return (
-    <motion.button
-      type="button"
-      onClick={onPick}
-      aria-pressed={active}
-      className="flex items-center gap-2.5 rounded-(--r-md) border px-2.5 py-2 text-left cursor-pointer"
-      initial={false}
-      animate={{
-        borderColor: active ? 'var(--accent)' : 'var(--border-soft)',
-        backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface)',
-      }}
-      whileHover={active ? undefined : { borderColor: 'var(--border)', backgroundColor: 'var(--surface-hover)' }}
-      whileTap={{ scale: 0.99 }}
-      transition={{ duration: 0.15 }}
-    >
-      {/* The swatch runs the style itself, on the pill's own ground — the
-          motion is what's being chosen, and it must read on that colour. */}
-      <span
-        className="grid h-6 w-13 shrink-0 place-items-center overflow-hidden rounded-(--r-xs) border border-(--border-soft)"
-        style={{ background: theme.bg }}
-      >
-        {s.id === 'bars'
-          ? <BarsPreview levelsRef={levelsRef} accent={theme.accent} />
-          : <WaveformCanvas style={s.id} width={44} height={16} levelsRef={levelsRef} accent={theme.accentRgb} idleMotion />}
-      </span>
-
-      <span className="min-w-0 flex-1">
-        <motion.span
-          className="block truncate text-[12px] font-semibold tracking-[-0.01em]"
-          initial={false}
-          animate={{ color: active ? 'var(--accent)' : 'var(--fg)' }}
-          transition={{ duration: 0.2 }}
-        >
-          {s.label}
-        </motion.span>
-        <span className="block truncate text-[10px] text-muted-foreground">{s.hint}</span>
-      </span>
-
-      {active && (
-        <span className="grid size-4 shrink-0 place-items-center rounded-full bg-(--accent)">
-          <Check size={9} strokeWidth={3.5} className="text-primary-foreground" />
-        </span>
-      )}
-    </motion.button>
-  )
-}
-
-/** How the pill draws your voice while it records. */
 export const WaveformTab = memo(function WaveformTab() {
   const { waveformStyle, setWaveformStyle, pillTheme } = useAppStore(useShallow(s => ({
     waveformStyle: s.waveformStyle,
@@ -221,7 +166,6 @@ export const WaveformTab = memo(function WaveformTab() {
     pillTheme: s.pillTheme,
   })))
   const levelsRef = usePreviewLevels()
-  const current = WAVEFORM_STYLES.find((s) => s.id === waveformStyle) ?? WAVEFORM_STYLES[0]
   const theme = pillThemeDef(pillTheme)
 
   const handleSelect = (id: WaveformStyle) => {
@@ -230,44 +174,28 @@ export const WaveformTab = memo(function WaveformTab() {
   }
 
   return (
-    <div className="flex gap-4 rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
-      <div className="flex shrink-0 flex-col gap-2.5">
-        {/* Backdrop mixed from the pill's own ground, matching the theme
-            preview above it, so the pill has something to sit off. */}
-        <div
-          className="grid h-21.5 w-55 place-items-center rounded-(--r-md) border border-(--border-soft) shadow-(--shadow-sm)"
-          style={{
-            background: theme.bg === '#ffffff'
-              ? '#e8eaf0'
-              : `color-mix(in srgb, ${theme.bg} 60%, #111)`,
-          }}
-        >
-          <PreviewPill style={waveformStyle} levelsRef={levelsRef} theme={theme} />
-        </div>
-        <div className="flex items-baseline gap-2">
-          <span className="text-[13px] font-bold tracking-[-0.02em] text-(--fg)">{current.label}</span>
-          <span className="min-w-0 truncate text-[11px] text-muted-foreground">{current.hint}</span>
-        </div>
+    <Section title="Waveform" description="How the pill draws your voice while it listens.">
+      <div className="nv-choice-grid">
+        {WAVEFORM_STYLES.map((s) => {
+          const active = waveformStyle === s.id
+          return (
+            <button key={s.id} type="button" aria-pressed={active} onClick={() => handleSelect(s.id)} className="nv-choice">
+              <span className="nv-choice__stage" style={{ background: pillBackdrop(theme) }}>
+                {/* Unscaled: scaling blurs the canvas. */}
+                <PreviewPill style={s.id} levelsRef={levelsRef} theme={theme} />
+              </span>
+              <span className="nv-choice__foot">
+                <span className="min-w-0">
+                  <span className="nv-choice__label block">{s.label}</span>
+                  <span className="nv-choice__hint block">{s.hint}</span>
+                </span>
+                {active && <span className="nv-choice__check"><Check strokeWidth={3} /></span>}
+              </span>
+            </button>
+          )
+        })}
       </div>
-
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          <AudioLines size={11} />
-          Waveform
-        </span>
-        <div className="grid grid-cols-2 gap-1.5">
-          {WAVEFORM_STYLES.map((s) => (
-            <StyleSwatch
-              key={s.id}
-              s={s}
-              active={waveformStyle === s.id}
-              onPick={() => handleSelect(s.id)}
-              levelsRef={levelsRef}
-              theme={theme}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
+    </Section>
   )
 })
+

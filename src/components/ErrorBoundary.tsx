@@ -36,25 +36,14 @@ export class ErrorBoundary extends Component<Props, State> {
       if (typeof fallback === 'function') return fallback(this.reset)
       if (fallback !== undefined) return fallback
       return (
-        <div
-          role="alert"
-          className="flex h-full w-full flex-col items-center justify-center gap-4 p-6 text-center"
-        >
-          <div className="flex size-12 items-center justify-center rounded-(--r-xl) bg-(--danger-soft) text-destructive">
-            <AlertTriangle size={22} strokeWidth={1.75} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <p className="m-0 text-[14px] font-semibold text-(--fg)">Something went wrong</p>
-            <p className="m-0 max-w-70 text-[12px] leading-relaxed text-muted-foreground">
-              This section ran into an unexpected error. You can try loading it again.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={this.reset}
-            className="nv-edge [--edge:var(--border-soft)] hover:[--edge:var(--border)] inline-flex items-center gap-1.5 h-9 px-3.5 rounded-(--r-md) bg-(--surface) text-(--fg) text-[12px] font-medium cursor-pointer hover:bg-accent"
-          >
-            <RotateCcw size={13} strokeWidth={1.75} />
+        <div role="alert" className="nv-empty h-full justify-center">
+          <span className="nv-mark nv-mark--lg nv-mark--danger nv-empty__mark">
+            <AlertTriangle size={20} strokeWidth={1.9} />
+          </span>
+          <p className="nv-empty__title">Something went wrong</p>
+          <p className="nv-empty__desc">This section ran into an unexpected error. You can try loading it again.</p>
+          <button type="button" onClick={this.reset} className="nv-btn nv-btn--secondary nv-btn--sm mt-3">
+            <RotateCcw />
             Try again
           </button>
         </div>

@@ -3,13 +3,12 @@ import { useNavigate } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Popover } from 'radix-ui'
 import {
-  Hash, Timer, Mic, Activity,
-  AlertCircle, Copy, Check, Trash2,
-  Settings2, Search, Download, SlidersHorizontal, LayoutDashboard,
+  AppWindow, Check, Copy, Download, FileJson, FileText, Gauge, Hash, Keyboard,
+  Mic, Search, SlidersHorizontal, Timer, Trash2, Type,
 } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
-import { COMMANDS } from '../lib/commands'
 import { toast } from 'sonner'
+import { COMMANDS } from '../lib/commands'
 import { extractErrorMessage } from '../lib/errors'
 import { useAppStore } from '../store/useAppStore'
 import {
@@ -20,45 +19,172 @@ import {
   NO_FILTERS,
   type TranscriptFilters,
 } from '../lib/queries'
-import { ROUTES } from '../lib/routes'
-import { fmtTime, fmtDate, downloadBlob } from '../lib/utils'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { ROUTES, SETTINGS_TABS, type SettingsTab } from '../lib/routes'
+import { useRegisteredHotkeys } from '../lib/hotkeys'
+import { isStreaming } from '../lib/models'
+import { vendorForFamily } from '../lib/vendors'
+import { fmtTime, fmtDate, fmtClock, dayOf, downloadBlob, type DayGroup } from '../lib/utils'
+import { Button, IconButton } from '@/components/ui/button'
+import { SearchInput } from '@/components/ui/input'
+import { KeyCombo } from '@/components/ui/keycap'
+import { PopoverPanel } from '@/components/ui/popover'
+import { Segmented } from '@/components/ui/segmented'
+import { VendorMark } from '@/components/ui/VendorMark'
+import { StickyBar } from '../components/page'
 import { SectionState } from '../components/SectionState'
 import type { Transcript } from '../types'
 
-function StatsSkeleton() {
+/** Speech-shaped bars behind the hero. */
+const WAVE = Array.from({ length: 52 }, (_, i) => {
+  const envelope = Math.sin((Math.PI * i) / 51) ** 0.7
+  const syllable = 0.28 + 0.72 * Math.abs(Math.sin(i * 1.71) * Math.cos(i * 0.47))
+  return Math.max(0.05, envelope * syllable)
+})
+
+function HeroWave() {
   return (
-    <div className="grid grid-cols-4 gap-2.5">
-      {[0, 1, 2, 3].map(i => (
-        <div key={i} className="flex items-center gap-3.5 px-4.5 py-4 rounded-(--r-xl) bg-(--panel) border border-(--border)">
-          <div className="w-9 h-9 rounded-(--r-md) bg-(--surface) animate-pulse shrink-0" />
-          <div className="flex flex-col gap-1.5">
-            <div className="h-4 w-14 rounded bg-(--surface) animate-pulse" />
-            <div className="h-2.5 w-16 rounded bg-(--surface) animate-pulse" />
-          </div>
-        </div>
-      ))}
+    <svg className="nv-hero__wave" viewBox="0 0 520 200" preserveAspectRatio="none" aria-hidden>
+      {WAVE.map((v, i) => {
+        const h = v * 180
+        return <rect key={i} x={i * 10} y={100 - h / 2} width={5} height={h} rx={2.5} fill="currentColor" />
+      })}
+    </svg>
+  )
+}
+
+function useOpenSettings() {
+  const navigate = useNavigate()
+  return (tab: SettingsTab) => navigate(ROUTES.SETTINGS, { state: { tab } })
+}
+
+function ModelStatus() {
+  const name = useAppStore(s => s.activeModelName)
+  const downloaded = useAppStore(s => s.activeModelDownloaded)
+  const selected = useAppStore(s => s.selectedModel)
+  const catalog = useAppStore(s => s.catalog)
+  const openSettings = useOpenSettings()
+
+  const model = catalog.find(m => m.id === selected)
+  const vendor = model ? vendorForFamily(model.family) : null
+  const ready = name !== null && downloaded
+
+  return (
+    <aside className="nv-hero__model">
+      <div className="flex min-w-0 flex-col gap-2.5">
+        <span className="nv-hero__model-label">
+          {name === null ? 'Checking the model…' : ready ? 'Transcribing with' : 'No model on this computer'}
+        </span>
+        {ready && (
+          <span className="nv-hero__model-name">
+            <span className="nv-mark nv-mark--sm">
+              {vendor ? <VendorMark vendor={vendor} className="size-4" /> : <Mic size={15} />}
+            </span>
+            <span className="min-w-0">
+              {model?.displayName ?? name}
+              <span className="block text-[12px] font-normal tracking-normal text-muted">
+                {model && isStreaming(model) ? 'Streams text as you speak' : 'Runs on this computer'}
+              </span>
+            </span>
+          </span>
+        )}
+      </div>
+      <Button
+        size="sm"
+        variant={ready ? 'secondary' : 'primary'}
+        className="self-start"
+        onClick={() => openSettings(SETTINGS_TABS.VOICE)}
+      >
+        {ready ? 'Change model' : 'Choose a model'}
+      </Button>
+    </aside>
+  )
+}
+
+const STATS = [
+  { key: 'totalWords',          label: 'Words dictated', fmt: (v: number) => v.toLocaleString(), unit: null,  Icon: Hash },
+  { key: 'speakingTimeSeconds', label: 'Time speaking',  fmt: (v: number) => fmtTime(v),         unit: null,  Icon: Timer },
+  { key: 'totalSessions',       label: 'Sessions',       fmt: (v: number) => v.toLocaleString(), unit: null,  Icon: Mic },
+  { key: 'avgPaceWpm',          label: 'Average pace',   fmt: (v: number) => `${v}`,             unit: 'wpm', Icon: Gauge },
+] as const
+
+function Readout() {
+  const stats = useStats()
+  const skeleton = STATS.map(({ key }) => (
+    <div key={key} className="nv-readout__cell">
+      <div className="nv-skel h-6 w-16" />
+      <div className="nv-skel mt-2 h-3 w-20" />
+    </div>
+  ))
+
+  return (
+    <div className="nv-readout">
+      <SectionState
+        status={stats.status}
+        error={stats.error?.message}
+        onRetry={stats.refetch}
+        skeleton={skeleton}
+        hasData={stats.data != null}
+      >
+        {STATS.map(({ key, label, fmt, unit, Icon }) => {
+          const raw = stats.data?.[key]
+          return (
+            <div key={key} className="nv-readout__cell">
+              <div className="nv-readout__value">
+                <span>{raw != null ? fmt(raw) : '—'}</span>
+                {unit && raw != null && <span className="nv-readout__unit">{unit}</span>}
+              </div>
+              <div className="nv-readout__label"><Icon strokeWidth={2} aria-hidden />{label}</div>
+            </div>
+          )
+        })}
+      </SectionState>
     </div>
   )
 }
 
-function FeedSkeleton() {
+function Hero() {
+  const hasHotkey = useAppStore(s => s.hasHotkey)
+  const [hotkeys] = useRegisteredHotkeys()
+  const openSettings = useOpenSettings()
+  const ptt = hotkeys.ptt?.split('+')
+
   return (
-    <div className="flex flex-col gap-3 pr-1.5">
-      {[0, 1, 2, 3].map(i => (
-        <div key={i} className="grid grid-cols-[20px_1fr] gap-x-3.5">
-          <div className="w-2 h-2 rounded-full bg-(--surface) animate-pulse mt-3 justify-self-center" />
-          <div className="bg-(--panel) border border-(--border-soft) rounded-(--r-lg) px-3.5 py-3 flex flex-col gap-2">
-            <div className="h-3 w-full rounded bg-(--surface) animate-pulse" />
-            <div className="h-3 w-3/4 rounded bg-(--surface) animate-pulse" />
-          </div>
-        </div>
-      ))}
-    </div>
+    <section className="nv-card nv-hero">
+      <div className="nv-hero__main">
+        <HeroWave />
+        {!hasHotkey ? (
+          <>
+            <h1 className="nv-hero__title">Choose a key to hold while you speak</h1>
+            <p className="nv-hero__lede">No hotkey set. NexusVoice can't record until you pick one.</p>
+            <Button className="nv-hero__cta" onClick={() => openSettings(SETTINGS_TABS.GENERAL)}>
+              <Keyboard />
+              Set hotkey
+            </Button>
+          </>
+        ) : (
+          <>
+            <h1 className="nv-hero__title">
+              {ptt ? <>Hold <KeyCombo keys={ptt} pressable /> and speak</> : 'Hold your hotkey and speak'}
+            </h1>
+            <p className="nv-hero__lede">Let go, and the transcript is pasted wherever your cursor is.</p>
+            {(hotkeys.dictation || hotkeys.dictationCommit) && (
+              <div className="nv-hero__alts">
+                {hotkeys.dictation && (
+                  <span className="nv-hero__alt">Hands-free dictation <KeyCombo keys={hotkeys.dictation.split('+')} /></span>
+                )}
+                {hotkeys.dictationCommit && (
+                  <span className="nv-hero__alt">Finish dictation <KeyCombo keys={hotkeys.dictationCommit.split('+')} /></span>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+      <ModelStatus />
+      <Readout />
+    </section>
   )
 }
-
 
 function ExportButton() {
   const [open, setOpen] = useState(false)
@@ -89,87 +215,26 @@ function ExportButton() {
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button
-          type="button"
-          disabled={exporting}
-          title="Export transcripts"
-          className="nv-edge inline-flex items-center gap-1.25 h-7 px-2.5 rounded-(--r-md) bg-(--panel) text-[11px] font-medium text-(--fg-2) hover:text-(--fg) hover:[--edge:color-mix(in_srgb,var(--accent)_60%,transparent)] cursor-pointer disabled:opacity-50 shrink-0"
-        >
-          <Download size={11} strokeWidth={2} />
+        <Button variant="secondary" disabled={exporting} title="Export transcripts">
+          <Download />
           Export
-        </button>
+        </Button>
       </Popover.Trigger>
-      <AnimatePresence>
-        {open && (
-          <Popover.Portal forceMount>
-            <Popover.Content align="end" sideOffset={4} asChild>
-              <motion.div
-                initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                transition={{ duration: 0.14, ease: 'easeOut' }}
-                className="z-50 flex flex-col rounded-(--r-lg) border border-(--border) bg-(--panel) shadow-(--shadow-md) overflow-hidden min-w-37 origin-top-right"
-              >
-                {(['txt', 'json'] as const).map(fmt => (
-                  <button
-                    key={fmt}
-                    type="button"
-                    onClick={() => doExport(fmt)}
-                    className="px-3 py-1.75 text-left text-[12px] text-(--fg-2) hover:bg-accent hover:text-(--fg) transition-colors cursor-pointer bg-transparent border-none"
-                  >
-                    {fmt === 'txt' ? 'Plain text (.txt)' : 'JSON (.json)'}
-                  </button>
-                ))}
-              </motion.div>
-            </Popover.Content>
-          </Popover.Portal>
-        )}
-      </AnimatePresence>
+      <PopoverPanel open={open} className="nv-menu min-w-44">
+        <button type="button" onClick={() => doExport('txt')} className="nv-menu-item">
+          <FileText aria-hidden />Plain text (.txt)
+        </button>
+        <button type="button" onClick={() => doExport('json')} className="nv-menu-item">
+          <FileJson aria-hidden />JSON (.json)
+        </button>
+      </PopoverPanel>
     </Popover.Root>
-  )
-}
-
-const STATS = [
-  { key: 'totalWords',          label: 'Total Words',   fmt: (v: number) => v.toLocaleString(),   Icon: Hash },
-  { key: 'speakingTimeSeconds', label: 'Speaking Time', fmt: (v: number) => fmtTime(v),           Icon: Timer },
-  { key: 'totalSessions',       label: 'Sessions',      fmt: (v: number) => v.toLocaleString(),   Icon: Mic },
-  { key: 'avgPaceWpm',          label: 'Avg Pace',      fmt: (v: number) => `${v}`,               Icon: Activity },
-]
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true)
-      if (timerRef.current) clearTimeout(timerRef.current)
-      timerRef.current = setTimeout(() => setCopied(false), 2000)
-    }).catch(() => toast.error('Could not copy to the clipboard'))
-  }
-  return (
-    <button
-      type="button"
-      className={`inline-flex items-center gap-1 bg-transparent border-none cursor-pointer text-[10px] font-medium px-1.5 py-0.5 rounded-(--r-sm) tracking-[0.02em] transition-colors duration-(--t-fast) ${copied ? 'text-(--success)' : 'text-muted-foreground hover:text-(--accent)'}`}
-      onClick={handleCopy}
-      title="Copy to clipboard"
-    >
-      {copied ? <Check size={11} strokeWidth={2.5} /> : <Copy size={11} strokeWidth={2} />}
-      {copied ? 'Copied' : 'Copy'}
-    </button>
   )
 }
 
 type DateMode = 'range' | 'on'
 
-type FilterDropdownProps = {
-  filters: TranscriptFilters
-  onChange: (filters: TranscriptFilters) => void
-}
-
-function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
+function FilterButton({ filters, onChange }: { filters: TranscriptFilters; onChange: (filters: TranscriptFilters) => void }) {
   const { from: filterFrom, to: filterTo, sortAsc: filterSortAsc } = filters
   const [open, setOpen] = useState(false)
   const [dateMode, setDateMode] = useState<DateMode>('range')
@@ -206,94 +271,142 @@ function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
   return (
     <Popover.Root open={open} onOpenChange={handleOpenChange}>
       <Popover.Trigger asChild>
-        <button
-          type="button"
-          className={`nv-edge inline-flex items-center gap-1.25 h-7 px-2.5 rounded-(--r-md) text-[11px] font-medium cursor-pointer shrink-0 ${hasActive ? '[--edge:color-mix(in_srgb,var(--accent)_60%,transparent)] bg-(--accent-soft) text-(--accent)' : 'bg-(--panel) text-(--fg-2) hover:text-(--fg) hover:[--edge:color-mix(in_srgb,var(--accent)_60%,transparent)]'}`}
-        >
-          <SlidersHorizontal size={11} strokeWidth={2} />
-          Filter{hasActive ? ' ·' : ''}
-        </button>
+        <Button variant="secondary" className={hasActive ? 'text-accent-text!' : undefined}>
+          <SlidersHorizontal />
+          Filter
+          {hasActive && <><span className="nv-dot" aria-hidden /><span className="sr-only">, filters applied</span></>}
+        </Button>
       </Popover.Trigger>
-      <AnimatePresence>
-        {open && (
-          <Popover.Portal forceMount>
-            <Popover.Content align="end" sideOffset={6} asChild>
-              <motion.div
-                initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                transition={{ duration: 0.14, ease: 'easeOut' }}
-                className="z-50 rounded-(--r-lg) border border-(--border) bg-(--panel) shadow-(--shadow-lg) p-3 w-70 origin-top-right"
-              >
-                <div className="flex flex-col gap-3">
-                  {/* Date mode toggle */}
-                  <div className="flex flex-col gap-1.25">
-                    <span className="text-[11px] font-medium text-muted-foreground">Date</span>
-                    <div className="flex gap-1">
-                      {(['range', 'on'] as const).map(mode => (
-                        <button key={mode} type="button" onClick={() => setDateMode(mode)}
-                          className={`flex-1 h-6.5 rounded-(--r-sm) text-[11px] font-medium border transition-colors cursor-pointer ${dateMode === mode ? 'border-(--accent) bg-(--accent-soft) text-(--accent)' : 'border-(--border) bg-transparent text-(--fg-2) hover:text-(--fg)'}`}>
-                          {mode === 'range' ? 'Range' : 'Specific day'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {/* Date inputs */}
-                  {dateMode === 'on' ? (
-                    <input type="date" value={on} onChange={e => setOn(e.target.value)}
-                      className="nv-input h-7 text-[11px] px-2 w-full" />
-                  ) : (
-                    <div className="flex gap-2">
-                      <div className="flex flex-col gap-1.25 flex-1">
-                        <span className="text-[11px] font-medium text-muted-foreground">From</span>
-                        <input type="date" value={from} onChange={e => setFrom(e.target.value)}
-                          className="nv-input h-7 text-[11px] px-2 w-full" />
-                      </div>
-                      <div className="flex flex-col gap-1.25 flex-1">
-                        <span className="text-[11px] font-medium text-muted-foreground">To</span>
-                        <input type="date" value={to} onChange={e => setTo(e.target.value)}
-                          className="nv-input h-7 text-[11px] px-2 w-full" />
-                      </div>
-                    </div>
-                  )}
-                  {/* Sort */}
-                  <div className="flex flex-col gap-1.25">
-                    <span className="text-[11px] font-medium text-muted-foreground">Sort order</span>
-                    <div className="flex gap-1">
-                      {([false, true] as const).map(asc => (
-                        <button key={String(asc)} type="button" onClick={() => setSortAsc(asc)}
-                          className={`flex-1 h-6.5 rounded-(--r-sm) text-[11px] font-medium border transition-colors cursor-pointer ${sortAsc === asc ? 'border-(--accent) bg-(--accent-soft) text-(--accent)' : 'border-(--border) bg-transparent text-(--fg-2) hover:text-(--fg)'}`}>
-                          {asc ? 'Oldest first' : 'Newest first'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 pt-1 border-t border-(--border-soft)">
-                    {hasActive && (
-                      <button type="button" onClick={reset}
-                        className="text-[11px] text-muted-foreground hover:text-(--fg) transition-colors cursor-pointer bg-transparent border-none">
-                        Reset
-                      </button>
-                    )}
-                    <button type="button" onClick={apply}
-                      className="ml-auto inline-flex items-center h-6.5 px-3 rounded-(--r-sm) bg-(--accent) text-primary-foreground text-[11px] font-semibold cursor-pointer border-none hover:opacity-90 transition-opacity">
-                      Apply
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            </Popover.Content>
-          </Popover.Portal>
-        )}
-      </AnimatePresence>
+      <PopoverPanel open={open} className="w-74">
+        <div className="nv-pop-body">
+          <div>
+            <span className="nv-field-label">Date</span>
+            <Segmented
+              block
+              label="Date filter"
+              value={dateMode}
+              onChange={setDateMode}
+              options={[{ value: 'range', label: 'Range' }, { value: 'on', label: 'Specific day' }]}
+            />
+          </div>
+          {dateMode === 'on' ? (
+            <input type="date" aria-label="Day" value={on} onChange={e => setOn(e.target.value)} className="nv-input nv-input--sm" />
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <label>
+                <span className="nv-field-label">From</span>
+                <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="nv-input nv-input--sm" />
+              </label>
+              <label>
+                <span className="nv-field-label">To</span>
+                <input type="date" value={to} onChange={e => setTo(e.target.value)} className="nv-input nv-input--sm" />
+              </label>
+            </div>
+          )}
+          <div>
+            <span className="nv-field-label">Order</span>
+            <Segmented
+              block
+              label="Sort order"
+              value={sortAsc ? 'asc' : 'desc'}
+              onChange={v => setSortAsc(v === 'asc')}
+              options={[{ value: 'desc', label: 'Newest first' }, { value: 'asc', label: 'Oldest first' }]}
+            />
+          </div>
+          <div className="nv-pop-foot">
+            {hasActive && <Button size="sm" variant="ghost" onClick={reset}>Reset</Button>}
+            <Button size="sm" className="ml-auto" onClick={apply}>Apply</Button>
+          </div>
+        </div>
+      </PopoverPanel>
     </Popover.Root>
   )
 }
 
+function CopyButton({ text, onCopiedChange }: { text: string; onCopiedChange: (copied: boolean) => void }) {
+  const [copied, setCopied] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      onCopiedChange(true)
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => { setCopied(false); onCopiedChange(false) }, 1800)
+    }).catch(() => toast.error('Could not copy to the clipboard'))
+  }
+
+  return (
+    <IconButton label={copied ? 'Copied' : 'Copy transcript'} tone={copied ? 'success' : 'accent'} onClick={handleCopy} className={copied ? 'text-success!' : undefined}>
+      <AnimatePresence mode="popLayout" initial={false}>
+        <motion.span
+          key={copied ? 'done' : 'copy'}
+          className="flex"
+          initial={{ scale: 0.4, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.4, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 600, damping: 30 }}
+        >
+          {copied ? <Check strokeWidth={2.5} /> : <Copy strokeWidth={1.9} />}
+        </motion.span>
+      </AnimatePresence>
+    </IconButton>
+  )
+}
+
+function Entry({ item, onDelete }: { item: Transcript; onDelete: () => void }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <motion.article
+      className="nv-entry overflow-hidden"
+      initial={{ opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0 }}
+      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+    >
+      <time className="nv-entry__time" dateTime={item.createdAt} title={fmtDate(item.createdAt)}>
+        {fmtClock(item.createdAt)}
+      </time>
+      <p className="nv-entry__text">{item.content}</p>
+      <div className="nv-entry__meta">
+        {item.targetApp && <span><AppWindow aria-hidden />Pasted in {item.targetApp}</span>}
+        <span><Type aria-hidden />{item.wordCount} {item.wordCount === 1 ? 'word' : 'words'}</span>
+        {item.durationSeconds != null && <span><Timer aria-hidden />{fmtTime(Math.round(item.durationSeconds))}</span>}
+      </div>
+      <div className="nv-entry__actions" data-active={copied || undefined}>
+        <CopyButton text={item.content} onCopiedChange={setCopied} />
+        <IconButton label="Delete transcript" tone="danger" onClick={onDelete}>
+          <Trash2 strokeWidth={1.9} />
+        </IconButton>
+      </div>
+    </motion.article>
+  )
+}
+
+function FeedSkeleton() {
+  return (
+    <div className="nv-day">
+      <div className="nv-skel mb-3 ml-1 h-3.5 w-24" />
+      <div className="nv-card nv-log">
+        {[0, 1, 2].map(i => (
+          <div key={i} className="nv-entry">
+            <div className="nv-skel h-3 w-10" />
+            <div className="flex flex-col gap-2">
+              <div className="nv-skel h-3 w-full" />
+              <div className="nv-skel h-3 w-2/3" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+type Day = { day: DayGroup; items: Transcript[] }
+
 export function Dashboard() {
-  const hasHotkey = useAppStore(s => s.hasHotkey)
-  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [filters, setFilters] = useState<TranscriptFilters>(NO_FILTERS)
@@ -303,7 +416,6 @@ export function Dashboard() {
   const feed = useTranscripts(filters, !isSearchMode)
   const search = useTranscriptSearch(searchTerm, filters)
   const active = isSearchMode ? search : feed
-  const stats = useStats()
   const deleteTranscript = useDeleteTranscript()
 
   const displayItems = useMemo(() => {
@@ -315,6 +427,19 @@ export function Dashboard() {
     () => new Set(feed.data?.pages.flat().map(row => row.id) ?? []).size,
     [feed.data],
   )
+
+  // Groups consecutive rows, so it holds for either sort order.
+  const days = useMemo(() => {
+    const now = new Date()
+    const out: Day[] = []
+    for (const item of displayItems) {
+      const day = dayOf(item.createdAt, now)
+      const last = out.at(-1)
+      if (last && last.day.key === day.key) last.items.push(item)
+      else out.push({ day, items: [item] })
+    }
+    return out
+  }, [displayItems])
 
   // A ref callback, not an effect: the sentinel mounts only after the feed's
   // skeleton is replaced, which changes no effect dependency — an effect would
@@ -339,157 +464,68 @@ export function Dashboard() {
   }, [query])
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-8 pt-7 pb-4 gap-5">
+    <div className="nv-page">
+      <Hero />
 
-      {/* Hero */}
-      <div className="flex items-center justify-between gap-4 pb-3.5 border-b border-(--border-soft)">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-            <LayoutDashboard size={16} strokeWidth={2} />
+      <section className="nv-feed" aria-label="Transcripts">
+        <StickyBar className="nv-feed__bar">
+          <div className="nv-feed__heading">
+            <h2>{isSearchMode ? 'Search results' : 'Transcripts'}</h2>
+            {!isSearchMode && feedCount > 0 && <span className="nv-count">{feedCount}</span>}
           </div>
-          <div className="min-w-0">
-            <h1 className="text-[16px] font-bold tracking-tight text-(--fg) leading-[1.1] m-0">Dashboard</h1>
-            <p className="text-[11px] text-muted-foreground mt-0.5 m-0 truncate">Your voice, transcribed instantly.</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Notices */}
-      <AnimatePresence>
-        {!hasHotkey && (
-          <motion.div key="hotkey-notice" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} style={{ overflow: 'hidden' }}>
-            <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-(--r-lg) text-[12px] leading-[1.4] shrink-0 text-(--fg-2)" style={{ background: 'var(--warning-soft)', border: '1px solid oklch(from var(--warning) l c h / 0.25)' }}>
-              <AlertCircle size={14} strokeWidth={2} className="shrink-0 text-(--warning)" />
-              <span className="flex-1">No hotkey set — NexusVoice won't record until you configure one.</span>
-              <Button size="sm" onClick={() => navigate(ROUTES.SETTINGS, { state: { tab: 'general' } })} className="shrink-0">
-                <Settings2 size={12} strokeWidth={2} />
-                Set hotkey
-              </Button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Stats */}
-      <SectionState status={stats.status} error={stats.error?.message} onRetry={stats.refetch} skeleton={<StatsSkeleton />} hasData={stats.data != null}>
-      <div className="grid grid-cols-4 gap-2.5">
-        {STATS.map(({ key, label, fmt, Icon }) => {
-          const raw = stats.data?.[key as keyof typeof stats.data] as number | undefined
-          return (
-            <div
-              key={key}
-              className="flex items-center gap-3.5 px-4.5 py-4 rounded-(--r-xl) bg-(--panel) border border-(--border) cursor-default"
-            >
-              <div className="w-9 h-9 rounded-(--r-md) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-                <Icon size={15} strokeWidth={1.75} />
-              </div>
-              <div className="flex flex-col gap-0.75">
-                <span className="text-[20px] font-bold tracking-[-0.03em] text-(--fg) leading-none tabular-nums">{raw != null ? fmt(raw) : '—'}</span>
-                <span className="text-[11px] text-muted-foreground font-medium">{label}</span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-      </SectionState>
-
-      {/* Activity feed */}
-      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-        <div className="flex items-center gap-2.5 mb-4 pr-3">
-          <h2 className="text-[13px] font-semibold text-(--fg-2) tracking-[-0.01em] m-0">Recent activity</h2>
-          {!isSearchMode && feedCount > 0 && (
-            <span className="inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-(--accent-soft) text-(--accent) text-[10px] font-bold tracking-[0.02em]">
-              {feedCount}
-            </span>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-          <ExportButton />
-          <FilterDropdown filters={filters} onChange={setFilters} />
-          {/* Search bar */}
-          <div className="relative flex items-center">
-            <Search size={12} strokeWidth={2} className="absolute left-2.25 text-muted-foreground pointer-events-none" />
-            <Input
+          <div className="nv-feed__tools">
+            <SearchInput
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Search transcripts…"
-              className="pl-7 h-7 text-[12px] w-45"
+              aria-label="Search transcripts"
             />
+            <FilterButton filters={filters} onChange={setFilters} />
+            <ExportButton />
           </div>
-          </div>
-        </div>
+        </StickyBar>
 
-        <SectionState
-          status={active.status}
-          error={active.error?.message}
-          onRetry={active.refetch}
-          skeleton={<FeedSkeleton />}
-        >
-        {displayItems.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-14 px-6 text-center">
-            <div className="w-14 h-14 rounded-full border-[1.5px] border-dashed border-(--border) flex items-center justify-center text-muted-foreground">
-              {isSearchMode ? <Search size={20} strokeWidth={1.5} /> : <Mic size={20} strokeWidth={1.5} />}
+        <SectionState status={active.status} error={active.error?.message} onRetry={active.refetch} skeleton={<FeedSkeleton />}>
+          {displayItems.length === 0 ? (
+            <div className="nv-card nv-empty mt-4">
+              <span className="nv-mark nv-mark--lg nv-mark--accent nv-empty__mark">
+                {isSearchMode ? <Search size={20} strokeWidth={1.8} /> : <Mic size={20} strokeWidth={1.8} />}
+              </span>
+              <p className="nv-empty__title">{isSearchMode ? 'No results found' : 'Nothing here yet'}</p>
+              <p className="nv-empty__desc">
+                {isSearchMode
+                  ? 'Try different words, or check the spelling.'
+                  : 'Hold your hotkey and speak. Every transcript lands here, newest first.'}
+              </p>
             </div>
-            <p className="text-[13px] font-semibold text-(--fg-2) m-0">{isSearchMode ? 'No results found' : 'Nothing here yet'}</p>
-            <p className="text-[12px] text-muted-foreground max-w-65 leading-[1.6] m-0">
-              {isSearchMode ? 'Try different keywords or check your spelling.' : 'Hold your hotkey and speak — transcripts stream in automatically.'}
-            </p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-0 overflow-y-auto overflow-x-hidden overscroll-none flex-1 min-h-0 pr-1.5">
-            <AnimatePresence initial={false}>
-              {displayItems.map((item) => (
-                <motion.article
-                  key={item.id}
-                  className="grid grid-cols-[20px_1fr] gap-x-3.5 relative pb-4"
-                  initial={{ opacity: 0, y: -6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.18 }}
-                  layout
-                >
-                  {/* Timeline line */}
-                  <div className="absolute left-2.25 top-5.5 -bottom-4 w-px bg-(--border-soft) last:hidden" aria-hidden />
-                  {/* Dot */}
-                  <div className="col-start-1 row-start-1 w-2 h-2 rounded-full bg-(--accent) mt-3 justify-self-center relative z-10 shrink-0" aria-hidden />
-                  {/* Card */}
-                  <div className="nv-edge [--edge:var(--border-soft)] hover:[--edge:var(--border)] col-start-2 row-start-1 bg-(--panel) rounded-(--r-lg) px-3.5 py-3 flex flex-col gap-2 hover:bg-(--surface)">
-                    <p className="text-[13px] text-(--fg) leading-[1.6] m-0">{item.content}</p>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-muted-foreground tabular-nums">
-                        {fmtDate(item.createdAt)}
-                        {item.targetApp && (
-                          <span className="normal-nums"> · Pasted in {item.targetApp}</span>
-                        )}
-                      </span>
-                      <div className="flex items-center gap-0.5">
-                        <CopyButton text={item.content} />
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 bg-transparent border-none cursor-pointer text-[10px] font-medium px-1.5 py-0.5 rounded-(--r-sm) tracking-[0.02em] transition-colors duration-(--t-fast) text-muted-foreground hover:text-destructive"
-                          onClick={() => deleteTranscript.mutate(item.id)}
-                          title="Delete transcript"
-                        >
-                          <Trash2 size={11} strokeWidth={2} />
-                          Delete
-                        </button>
-                      </div>
-                    </div>
+          ) : (
+            <>
+              {days.map(({ day, items }) => (
+                <section key={day.key} className="nv-day" aria-label={day.label}>
+                  <h3 className="nv-day__label">
+                    {day.label}
+                    {day.detail && <span className="nv-day__date">{day.detail}</span>}
+                  </h3>
+                  <div className="nv-card nv-log">
+                    <AnimatePresence initial={false}>
+                      {items.map(item => (
+                        <Entry key={item.id} item={item} onDelete={() => deleteTranscript.mutate(item.id)} />
+                      ))}
+                    </AnimatePresence>
                   </div>
-                </motion.article>
+                </section>
               ))}
-            </AnimatePresence>
 
-            {/* Infinite scroll sentinel — pages the feed and search alike. */}
-            {hasNextPage && (
-              <div ref={sentinelRef} className="flex items-center justify-center py-4">
-                <motion.div className="w-4 h-4 rounded-full border-2 border-(--border) border-t-(--accent)" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
-              </div>
-            )}
-          </div>
-        )}
+              {/* Infinite scroll sentinel — pages the feed and search alike. */}
+              {hasNextPage && (
+                <div ref={sentinelRef} className="grid place-items-center py-6">
+                  <span className="nv-ring size-5!" />
+                </div>
+              )}
+            </>
+          )}
         </SectionState>
-      </div>
-
+      </section>
     </div>
   )
 }

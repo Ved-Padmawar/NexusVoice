@@ -1,82 +1,52 @@
-import { useShallow } from 'zustand/react/shallow'
-import { useState, useCallback, useRef, useEffect, memo } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { COMMANDS } from '../../lib/commands'
 import { toast } from 'sonner'
-import { Keyboard, Mic, Save, X, Pencil } from 'lucide-react'
+import { Pencil, X } from 'lucide-react'
+import { COMMANDS } from '../../lib/commands'
+import { extractErrorMessage } from '../../lib/errors'
+import { buildShortcut, getKeyName, useRegisteredHotkeys, type HotkeyKind } from '../../lib/hotkeys'
 import { useAppStore } from '../../store/useAppStore'
-import { parseRegisteredHotkeys } from '../../store/modelSlice'
-import { SUPER_KEY_LABEL } from '../../lib/platform'
-import { Button } from '@/components/ui/button'
-
-type HotkeyKind = 'ptt' | 'dictation' | 'dictationCommit'
+import { Button, IconButton } from '@/components/ui/button'
+import { KeyCombo } from '@/components/ui/keycap'
+import { SettingGroup, SettingRow } from '../../components/page'
 
 type HotkeyConfig = {
   kind: HotkeyKind
   title: string
   description: string
-  icon: typeof Keyboard
   registerCommand: string
   unregisterCommand: string
   storeFlag: 'hasHotkey' | 'hasDictationHotkey' | 'hasDictationCommitHotkey'
 }
 
-function getKeyName(key: string, code: string): string {
-  const map: Record<string, string> = {
-    Control: 'Ctrl', Meta: 'Super', ' ': 'Space',
-    ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown',
-    ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight',
-    Escape: 'Escape', Delete: 'Delete',
-    Backspace: 'Backspace', Enter: 'Return', Tab: 'Tab',
-  }
-  if (map[key]) return map[key]
-  if (key.length === 1) return key.toUpperCase()
-  if (/^F\d+$/.test(key)) return key
-  if (code.startsWith('Key')) return code.slice(3)
-  if (code.startsWith('Digit')) return code.slice(5)
-  return key
-}
+const HOTKEY_CONFIGS: HotkeyConfig[] = [
+  {
+    kind: 'ptt',
+    title: 'Recording hotkey',
+    description: 'Hold to record. Release to transcribe and paste.',
+    registerCommand: COMMANDS.REGISTER_HOTKEY,
+    unregisterCommand: COMMANDS.UNREGISTER_HOTKEY,
+    storeFlag: 'hasHotkey',
+  },
+  {
+    kind: 'dictation',
+    title: 'Dictation hotkey',
+    description: 'Press to start, pause or resume hands-free dictation.',
+    registerCommand: COMMANDS.REGISTER_DICTATION_HOTKEY,
+    unregisterCommand: COMMANDS.UNREGISTER_DICTATION_HOTKEY,
+    storeFlag: 'hasDictationHotkey',
+  },
+  {
+    kind: 'dictationCommit',
+    title: 'Commit dictation hotkey',
+    description: 'Press to finish the current dictation without reaching for the pill.',
+    registerCommand: COMMANDS.REGISTER_DICTATION_COMMIT_HOTKEY,
+    unregisterCommand: COMMANDS.UNREGISTER_DICTATION_COMMIT_HOTKEY,
+    storeFlag: 'hasDictationCommitHotkey',
+  },
+]
 
-const KEY_DISPLAY: Record<string, string> = {
-  // Super is the Windows logo key on Win/Linux and Command on macOS — the
-  // internal accelerator token stays "Super" everywhere; only the label differs.
-  Ctrl: 'Ctrl', Super: SUPER_KEY_LABEL, Return: 'Enter',
-  Backspace: 'Backspace', Delete: 'Del', Escape: 'Esc',
-  ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
-}
-const displayKey = (k: string) => KEY_DISPLAY[k] ?? k
-
-function buildShortcut(keys: string[]): string {
-  const ORDER = ['Ctrl', 'Alt', 'Shift', 'Super']
-  const mods: string[] = []
-  let main = ''
-  for (const k of keys) {
-    if (['Ctrl', 'Alt', 'Shift', 'Win', 'Cmd'].includes(k)) {
-      mods.push(k === 'Win' || k === 'Cmd' ? 'Super' : k)
-    } else {
-      main = k
-    }
-  }
-  mods.sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b))
-  return main ? [...mods, main].join('+') : mods.join('+')
-}
-
-const KeyBadges = memo(function KeyBadges({ keys }: { keys: string[] }) {
-  return (
-    <div className="flex items-center gap-0.75">
-      {keys.map((k, idx) => (
-        <span key={`${k}-${idx}`} className="flex items-center gap-0.75">
-          {idx > 0 && <span className="text-[9px] text-muted-foreground font-semibold px-px">+</span>}
-          <span className="inline-flex items-center justify-center px-1.5 py-0.5 min-w-6 rounded-(--r-sm) bg-(--bg-alt) border border-(--border) shadow-[0_1px_0_var(--border)] text-[10px] font-semibold text-(--fg) leading-[1.4] capitalize font-mono">
-            {displayKey(k)}
-          </span>
-        </span>
-      ))}
-    </div>
-  )
-})
-
-function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
+function HotkeyRow({ config, currentHotkey, setCurrentHotkey }: {
   config: HotkeyConfig
   currentHotkey: string | null
   setCurrentHotkey: (hotkey: string | null) => void
@@ -84,9 +54,9 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
   const [pressedKeys, setPressedKeys] = useState<string[]>([])
   const [isListening, setIsListening] = useState(false)
   const [saving, setSaving] = useState(false)
-  const hotkeyRef = useRef<HTMLDivElement>(null)
+  const rowRef = useRef<HTMLDivElement>(null)
   const keysRef = useRef<Set<string>>(new Set())
-  const Icon = config.icon
+  const name = config.title.toLowerCase()
 
   const restoreCurrentHotkey = useCallback(() => {
     if (currentHotkey) invoke(config.registerCommand, { hotkey: currentHotkey }).catch(() => {})
@@ -116,7 +86,7 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
       setTimeout(() => setIsListening(false), 200)
     }
     const onOutside = (e: MouseEvent) => {
-      if (hotkeyRef.current && !hotkeyRef.current.contains(e.target as Node)) {
+      if (rowRef.current && !rowRef.current.contains(e.target as Node)) {
         setIsListening(false)
         setPressedKeys([])
         keysRef.current.clear()
@@ -158,8 +128,8 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
       setPressedKeys([])
       keysRef.current.clear()
       toast.success(`${config.title} registered`)
-    } catch (e: unknown) {
-      toast.error((e as { message?: string })?.message ?? `Failed to register ${config.title.toLowerCase()}.`)
+    } catch (e) {
+      toast.error(extractErrorMessage(e, `Failed to register ${name}.`))
     } finally {
       setSaving(false)
     }
@@ -170,164 +140,68 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
       await invoke(config.unregisterCommand)
       setCurrentHotkey(null)
       useAppStore.setState({ [config.storeFlag]: false })
-    } catch (e: unknown) {
-      toast.error((e as { message?: string })?.message ?? `Failed to remove ${config.title.toLowerCase()}.`)
+    } catch (e) {
+      toast.error(extractErrorMessage(e, `Failed to remove ${name}.`))
     }
   }
 
   const editing = isListening || pressedKeys.length > 0
+  const shown = pressedKeys.length > 0 ? pressedKeys : !isListening && currentHotkey ? currentHotkey.split('+') : null
 
   return (
-    <div
-      ref={hotkeyRef}
-      className={`nv-edge flex items-center gap-3 px-3 py-2.5 rounded-(--r-md) bg-(--surface) ${editing ? '[--edge:color-mix(in_srgb,var(--accent)_55%,transparent)]' : '[--edge:var(--border-soft)]'}`}
-    >
-      {/* Icon */}
-      <div className={`flex items-center justify-center w-7 h-7 rounded-(--r-sm) shrink-0 ${currentHotkey ? 'bg-(--accent-soft) text-(--accent)' : 'bg-(--bg-alt) text-muted-foreground'}`}>
-        <Icon size={14} strokeWidth={1.9} />
-      </div>
+    <SettingRow ref={rowRef} title={config.title} description={config.description}>
+        <div
+          className="nv-recorder"
+          data-listening={editing || undefined}
+          onClick={startListening}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') startListening() }}
+          role="button"
+          tabIndex={0}
+          aria-label={`Click to record ${name}`}
+        >
+          {shown
+            ? <KeyCombo keys={shown} live={pressedKeys.length > 0} />
+            : <span className="nv-recorder__hint">{isListening ? 'Press keys…' : 'Click to set…'}</span>}
+        </div>
 
-      {/* Label + hint */}
-      <div className="flex flex-col min-w-0 flex-1">
-        <span className="text-[12px] font-semibold text-(--fg) leading-tight truncate">{config.title}</span>
-        <span className="text-[10.5px] text-muted-foreground leading-tight truncate">{config.description}</span>
-      </div>
-
-      {/* Recorder / key display */}
-      <div
-        className={`nv-edge flex items-center justify-center gap-1.5 px-2.5 h-8 min-w-30 rounded-(--r-sm) cursor-pointer shrink-0 ${editing ? '[--edge:color-mix(in_srgb,var(--accent)_55%,transparent)] bg-(--accent-soft)' : '[--edge:var(--border-soft)] bg-(--bg-alt)'}`}
-        onClick={startListening}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') startListening() }}
-        role="button"
-        tabIndex={0}
-        aria-label={`Click to record ${config.title.toLowerCase()}`}
-      >
-        {isListening && pressedKeys.length === 0 && (
-          <span className="text-[11px] text-(--accent) italic">Press keys…</span>
-        )}
-        {pressedKeys.length > 0 && <KeyBadges keys={pressedKeys} />}
-        {!isListening && pressedKeys.length === 0 && currentHotkey && (
-          <KeyBadges keys={currentHotkey.split('+')} />
-        )}
-        {!isListening && pressedKeys.length === 0 && !currentHotkey && (
-          <span className="text-[11px] text-muted-foreground italic">Click to set…</span>
-        )}
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-1.5 shrink-0">
-        {editing ? (
-          <>
-            <Button size="sm" onClick={handleSaveHotkey} disabled={saving || pressedKeys.length === 0}>
-              {saving ? 'Saving…' : 'Save'}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={cancelListening}>
-              Cancel
-            </Button>
-          </>
-        ) : currentHotkey ? (
-          <>
-            <button
-              type="button"
-              aria-label={`Change ${config.title.toLowerCase()}`}
-              title="Change"
-              className="inline-flex items-center justify-center w-7 h-7 rounded-(--r-sm) bg-transparent border-none cursor-pointer text-(--fg-2) transition-colors duration-(--t-fast) hover:bg-(--accent-soft) hover:text-(--accent)"
-              onClick={startListening}
-            >
-              <Pencil size={12} strokeWidth={2} />
-            </button>
-            <button
-              type="button"
-              aria-label={`Remove ${config.title.toLowerCase()}`}
-              title="Remove"
-              className="inline-flex items-center justify-center w-7 h-7 rounded-(--r-sm) bg-transparent border-none cursor-pointer text-(--fg-2) transition-colors duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-destructive"
-              onClick={handleRemoveHotkey}
-            >
-              <X size={12} strokeWidth={2} />
-            </button>
-          </>
-        ) : (
-          <span className="nv-edge [--edge:var(--border-soft)] text-[10px] font-semibold text-muted-foreground px-2 py-1 rounded-(--r-sm) bg-(--bg-alt)">
-            Not set
-          </span>
-        )}
-      </div>
-    </div>
+        <div className="flex min-w-33 items-center justify-end gap-1">
+          {editing ? (
+            <>
+              <Button size="sm" onClick={handleSaveHotkey} disabled={saving || pressedKeys.length === 0}>
+                {saving ? 'Saving…' : 'Save'}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={cancelListening}>
+                Cancel
+              </Button>
+            </>
+          ) : currentHotkey && (
+            <>
+              <IconButton label={`Change ${name}`} tone="accent" onClick={startListening}>
+                <Pencil strokeWidth={1.9} />
+              </IconButton>
+              <IconButton label={`Remove ${name}`} tone="danger" onClick={handleRemoveHotkey}>
+                <X strokeWidth={2} />
+              </IconButton>
+            </>
+          )}
+        </div>
+    </SettingRow>
   )
 }
 
-const HOTKEY_CONFIGS: HotkeyConfig[] = [
-  {
-    kind: 'ptt',
-    title: 'Recording Hotkey',
-    description: 'Hold to record. Release to transcribe and paste.',
-    icon: Keyboard,
-    registerCommand: COMMANDS.REGISTER_HOTKEY,
-    unregisterCommand: COMMANDS.UNREGISTER_HOTKEY,
-    storeFlag: 'hasHotkey',
-  },
-  {
-    kind: 'dictation',
-    title: 'Dictation Hotkey',
-    description: 'Press to start, pause, or resume dictation.',
-    icon: Mic,
-    registerCommand: COMMANDS.REGISTER_DICTATION_HOTKEY,
-    unregisterCommand: COMMANDS.UNREGISTER_DICTATION_HOTKEY,
-    storeFlag: 'hasDictationHotkey',
-  },
-  {
-    kind: 'dictationCommit',
-    title: 'Commit Dictation Hotkey',
-    description: 'Press to save the current dictation without using the pill button.',
-    icon: Save,
-    registerCommand: COMMANDS.REGISTER_DICTATION_COMMIT_HOTKEY,
-    unregisterCommand: COMMANDS.UNREGISTER_DICTATION_COMMIT_HOTKEY,
-    storeFlag: 'hasDictationCommitHotkey',
-  },
-]
-
 export function HotkeySection() {
-  const { hasHotkey, hasDictationHotkey, hasDictationCommitHotkey } = useAppStore(useShallow(s => ({
-    hasHotkey: s.hasHotkey,
-    hasDictationHotkey: s.hasDictationHotkey,
-    hasDictationCommitHotkey: s.hasDictationCommitHotkey,
-  })))
-  const [currentHotkeys, setCurrentHotkeys] = useState<Record<HotkeyKind, string | null>>({
-    ptt: null,
-    dictation: null,
-    dictationCommit: null,
-  })
-
-  useEffect(() => {
-    if (!hasHotkey && !hasDictationHotkey && !hasDictationCommitHotkey) return
-    invoke<unknown>(COMMANDS.GET_REGISTERED_HOTKEYS)
-      .then(raw => {
-        const parsed = parseRegisteredHotkeys(raw)
-        setCurrentHotkeys({
-          ptt: parsed.ptt[0] ?? null,
-          dictation: parsed.dictation[0] ?? null,
-          dictationCommit: parsed.dictationCommit[0] ?? null,
-        })
-      })
-      .catch(() => {})
-  }, [hasHotkey, hasDictationHotkey, hasDictationCommitHotkey])
+  const [currentHotkeys, setCurrentHotkeys] = useRegisteredHotkeys()
 
   return (
-    <div className="flex flex-col gap-4">
-      <div>
-        <p className="text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em] mb-1">Keyboard shortcuts</p>
-        <p className="text-[12px] text-muted-foreground">Set global hotkeys for recording and hands-free dictation.</p>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        {HOTKEY_CONFIGS.map(config => (
-          <HotkeyCard
-            key={config.kind}
-            config={config}
-            currentHotkey={currentHotkeys[config.kind]}
-            setCurrentHotkey={(hotkey) => setCurrentHotkeys(current => ({ ...current, [config.kind]: hotkey }))}
-          />
-        ))}
-      </div>
-    </div>
+    <SettingGroup>
+      {HOTKEY_CONFIGS.map(config => (
+        <HotkeyRow
+          key={config.kind}
+          config={config}
+          currentHotkey={currentHotkeys[config.kind]}
+          setCurrentHotkey={(hotkey) => setCurrentHotkeys(current => ({ ...current, [config.kind]: hotkey }))}
+        />
+      ))}
+    </SettingGroup>
   )
 }

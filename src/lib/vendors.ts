@@ -18,14 +18,15 @@ import moonshinePng from '../assets/providers/moonshine.png'
 
 type Vendor = {
   Mark: ComponentType<SVGProps<SVGSVGElement>>
-  /** Brand colour, or `null` when the file carries its own (Claude, Qwen). */
+  /** Brand colour, or `null` when the file carries its own (Claude, Qwen) or
+   *  is a monochrome mark that follows the text colour (Ollama, OpenRouter). */
   color: string | null
 }
 
 export const VENDORS = {
   openai: { Mark: openai, color: '#10A37F' },
   anthropic: { Mark: anthropic, color: null },
-  ollama: { Mark: ollama, color: '#FFFFFF' },
+  ollama: { Mark: ollama, color: null },
   lmstudio: { Mark: lmstudio, color: '#4B27E5' },
   openrouter: { Mark: openrouter, color: null },
   nvidia: { Mark: nvidia, color: '#76B900' },

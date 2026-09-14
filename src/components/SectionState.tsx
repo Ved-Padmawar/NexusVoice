@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { AlertCircle, RefreshCw } from 'lucide-react'
 import { useDelayedFlag } from '../lib/hooks'
+import { Button } from './ui/button'
 
 type SectionStatus = 'pending' | 'error' | 'success'
 
@@ -25,23 +26,16 @@ export function SectionState({ status, error, onRetry, skeleton, children, loade
 
   if (status === 'error' && !hasData) {
     return (
-      <div
-        role="alert"
-        className="flex flex-col items-center gap-3 py-12 px-6 text-center"
-      >
-        <div className="w-11 h-11 rounded-full bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] text-destructive flex items-center justify-center">
+      <div role="alert" className="nv-empty col-span-full">
+        <span className="nv-mark nv-mark--lg nv-mark--danger nv-empty__mark">
           <AlertCircle size={20} strokeWidth={2} />
-        </div>
-        <p className="text-[13px] font-semibold text-(--fg-2) m-0">Couldn’t load this section</p>
-        {error && <p className="text-[12px] text-muted-foreground max-w-72 leading-normal m-0">{error}</p>}
-        <button
-          type="button"
-          onClick={onRetry}
-          className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-(--r-md) border border-(--border) bg-(--surface) text-(--fg) text-[12px] font-medium cursor-pointer hover:border-(--accent) transition-colors duration-(--t-fast)"
-        >
-          <RefreshCw size={12} strokeWidth={2} />
+        </span>
+        <p className="nv-empty__title">Couldn’t load this section</p>
+        {error && <p className="nv-empty__desc">{error}</p>}
+        <Button variant="secondary" size="sm" className="mt-3" onClick={onRetry}>
+          <RefreshCw />
           Try again
-        </button>
+        </Button>
       </div>
     )
   }

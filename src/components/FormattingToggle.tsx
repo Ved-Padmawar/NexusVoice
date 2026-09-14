@@ -1,14 +1,18 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, type ChangeEvent, type ReactNode } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Dialog } from 'radix-ui'
-import { Sparkles, Settings2, X, CheckCircle2, Loader2, AlertCircle, Plug, Save } from 'lucide-react'
+import { AnimatePresence } from 'framer-motion'
+import { Sparkles, Settings2, CheckCircle2, AlertCircle, Plug, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { COMMANDS } from '../lib/commands'
 import { extractErrorMessage } from '../lib/errors'
-import { VendorMark } from './ui/VendorMark'
-import type { VendorId } from '../lib/vendors'
-import { toast } from 'sonner'
 import { isConfigured, type Profile } from '../lib/formatConfig'
+import type { VendorId } from '../lib/vendors'
+import { VendorMark } from './ui/VendorMark'
+import { Button } from './ui/button'
+import { Input } from './ui/input'
+import { Switch } from './ui/switch'
+import { Modal, ModalBody, ModalFoot } from './ui/modal'
+import { SettingRow } from './page'
 
 type FormatConfig = {
   enabled: boolean
@@ -21,7 +25,6 @@ const EMPTY_PROFILE: Profile = { baseUrl: '', model: '', apiKey: '' }
 const activeProfile = (c: FormatConfig): Profile =>
   c.profiles?.[c.provider] ?? EMPTY_PROFILE
 
-
 type Preset = {
   id: string
   label: string
@@ -33,18 +36,15 @@ type Preset = {
 // Every preset but "anthropic" speaks the OpenAI-compatible API; presets only
 // prefill the base URL, and "anthropic"/"custom" prefill nothing.
 const PRESETS: Preset[] = [
-  { id: 'ollama',     label: 'Ollama (local/cloud)', baseUrl: 'http://localhost:11434/v1', needsKey: false, modelHint: 'qwen2.5:3b-instruct' },
-  { id: 'lmstudio',   label: 'LM Studio (local)', baseUrl: 'http://localhost:1234/v1',  needsKey: false, modelHint: 'qwen2.5-3b-instruct' },
-  { id: 'openai',     label: 'OpenAI',            baseUrl: 'https://api.openai.com/v1',  needsKey: true,  modelHint: 'gpt-5.5' },
-  { id: 'openrouter', label: 'OpenRouter',        baseUrl: 'https://openrouter.ai/api/v1', needsKey: true, modelHint: 'meta-llama/llama-3.1-8b-instruct' },
-  { id: 'anthropic',  label: 'Anthropic',         baseUrl: '',                            needsKey: true,  modelHint: 'claude-sonnet-5' },
-  { id: 'custom',     label: 'Custom',            baseUrl: '',                            needsKey: false, modelHint: 'model name' },
+  { id: 'ollama',     label: 'Ollama',     baseUrl: 'http://localhost:11434/v1',    needsKey: false, modelHint: 'qwen2.5:3b-instruct' },
+  { id: 'lmstudio',   label: 'LM Studio',  baseUrl: 'http://localhost:1234/v1',     needsKey: false, modelHint: 'qwen2.5-3b-instruct' },
+  { id: 'openai',     label: 'OpenAI',     baseUrl: 'https://api.openai.com/v1',    needsKey: true,  modelHint: 'gpt-5.5' },
+  { id: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', needsKey: true,  modelHint: 'meta-llama/llama-3.1-8b-instruct' },
+  { id: 'anthropic',  label: 'Anthropic',  baseUrl: '',                             needsKey: true,  modelHint: 'claude-sonnet-5' },
+  { id: 'custom',     label: 'Custom',     baseUrl: '',                             needsKey: false, modelHint: 'model name' },
 ]
 
 const DEFAULT_CONFIG: FormatConfig = { enabled: false, provider: 'ollama', profiles: {} }
-
-const INPUT_CLASS =
-  'nv-edge [--edge:var(--border)] focus:[--edge:var(--accent)] w-full px-3 py-2 text-[12px] text-(--fg) bg-(--surface) rounded-(--r-md) outline-none placeholder:text-muted-foreground'
 
 /** Smart-formatting toggle + provider config. The formatter is an HTTP call,
  *  off by default; enabling without an endpoint opens the modal. */
@@ -85,66 +85,31 @@ export function FormattingToggle() {
   const presetLabel = PRESETS.find((p) => p.id === config.provider)?.label ?? config.provider
 
   return (
-    <div className="nv-edge [--edge:var(--border-soft)] overflow-hidden rounded-(--r-lg) bg-(--panel)">
-      <div className="px-4 py-2.5 border-b border-(--border-soft) text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-        Smart formatting
-      </div>
-
-      <div className="flex items-center justify-between gap-4 p-4">
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 mt-px rounded-(--r-md) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-            <Sparkles size={14} strokeWidth={2} />
-          </div>
-          <div>
-            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em]">
+    <>
+      <SettingRow
+        title={<>Smart formatting <span className="nv-badge nv-badge--neutral">Optional</span></>}
+        description={
+          <>
+            <span className="mb-1.5 flex items-center gap-1.5 font-medium text-fg-2">
               {configured ? (
                 <>
                   <VendorMark vendor={config.provider as VendorId} className="size-3.5 shrink-0" />
-                  <span className="min-w-0 truncate">{presetLabel} · {active.model}</span>
+                  <span className="min-w-0 truncate">{presetLabel}, {active.model}</span>
                 </>
-              ) : (
-                'No endpoint configured'
-              )}
-            </p>
-            <p className="text-[11px] text-muted-foreground mt-0.75 max-w-95">
-              Sends each transcript to your chosen LLM (local Ollama, OpenAI, Anthropic, OpenRouter…)
-              to clean up punctuation and turn spoken lists into real lists before pasting.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <motion.button
-            type="button"
-            onClick={() => setModalOpen(true)}
-            className="nv-edge [--edge:var(--border)] flex items-center gap-1.5 px-2.5 py-1.5 rounded-(--r-md) bg-(--surface) text-[12px] font-medium text-(--fg-2) cursor-pointer"
-            whileHover={{ backgroundColor: 'var(--surface-hover)', color: 'var(--fg)' }}
-            whileTap={{ scale: 0.96 }}
-            transition={{ duration: 0.15 }}
-          >
-            <Settings2 size={12} strokeWidth={1.75} />
-            Configure
-          </motion.button>
-          <motion.button
-            type="button"
-            role="switch"
-            aria-checked={config.enabled}
-            aria-label="Toggle smart formatting"
-            onClick={toggle}
-            className="relative w-10.5 h-6 rounded-full shrink-0 cursor-pointer border-none p-0"
-            initial={false}
-            animate={{ backgroundColor: config.enabled ? 'var(--accent)' : 'var(--border)' }}
-            whileTap={{ scale: 0.95 }}
-            transition={{ duration: 0.2 }}
-          >
-            <motion.span
-              className="absolute top-0.75 left-0.75 w-4.5 h-4.5 rounded-full bg-white shadow-sm"
-              animate={{ x: config.enabled ? 18 : 0 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 28 }}
-            />
-          </motion.button>
-        </div>
-      </div>
+              ) : 'No endpoint configured'}
+            </span>
+            Sends each transcript to a language model you choose to fix punctuation and turn
+            spoken lists into real ones before it is pasted.
+          </>
+        }
+        inline
+      >
+        <Button variant="secondary" size="sm" onClick={() => setModalOpen(true)}>
+          <Settings2 />
+          Configure
+        </Button>
+        <Switch checked={config.enabled} onChange={() => void toggle()} label="Toggle smart formatting" />
+      </SettingRow>
 
       <AnimatePresence>
         {modalOpen && (
@@ -158,7 +123,7 @@ export function FormattingToggle() {
           />
         )}
       </AnimatePresence>
-    </div>
+    </>
   )
 }
 
@@ -230,8 +195,7 @@ function ProviderModal({
       toast.success('Connection successful')
     } catch (e) {
       flashResult('fail')
-      const msg = extractErrorMessage(e, 'could not reach endpoint')
-      toast.error(`Connection failed: ${msg}`)
+      toast.error(`Connection failed: ${extractErrorMessage(e, 'could not reach endpoint')}`)
     } finally {
       setTesting(false)
     }
@@ -245,7 +209,7 @@ function ProviderModal({
     const next = { ...draft(), enabled: true }
     try {
       await invoke(COMMANDS.SET_FORMAT_CONFIG, { config: next })
-      toast.success('Smart formatting enabled')
+      toast.success('Smart formatting turned on')
       onSaved(next)
     } catch {
       toast.error('Failed to save settings')
@@ -254,176 +218,102 @@ function ProviderModal({
     }
   }
 
+  const edit = (set: (v: string) => void) => (e: ChangeEvent<HTMLInputElement>) => {
+    set(e.target.value)
+    setTestResult('idle')
+  }
+
   return (
-    <Dialog.Root open onOpenChange={(next) => { if (!next) onClose() }}>
-      <Dialog.Portal forceMount>
-        <Dialog.Overlay asChild>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
-          />
-        </Dialog.Overlay>
-        <Dialog.Content
-          aria-describedby={undefined}
-          asChild
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
-        >
-          <div>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.96, y: 8 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: 8 }}
-        transition={{ duration: 0.2, ease: 'easeOut' }}
-        className="nv-edge [--edge:var(--border)] w-115 flex flex-col bg-(--panel) rounded-(--r-xl) shadow-(--shadow-lg) overflow-hidden pointer-events-auto"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-(--border-soft)">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-              <Sparkles size={15} strokeWidth={2} />
-            </div>
-            <div>
-              <Dialog.Title className="text-[15px] font-bold tracking-tight text-(--fg) m-0">Formatting provider</Dialog.Title>
-              <p className="text-[11px] text-muted-foreground mt-0.5">Connect Anthropic or any OpenAI-compatible endpoint</p>
-            </div>
-          </div>
-          <Dialog.Close asChild>
+    <Modal
+      onClose={onClose}
+      title="Formatting provider"
+      description="Anthropic, or any server that speaks the OpenAI API."
+      icon={<span className="nv-mark nv-mark--accent"><Sparkles size={16} strokeWidth={2} /></span>}
+      width={500}
+    >
+      <ModalBody className="flex flex-col gap-4">
+        <div role="radiogroup" aria-label="Provider" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {PRESETS.map((p) => (
             <button
+              key={p.id}
               type="button"
-              aria-label="Close"
-              className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer transition-colors duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-destructive"
+              role="radio"
+              aria-checked={p.id === providerId}
+              onClick={() => selectProvider(p.id)}
+              className="nv-option items-center! py-2.5!"
             >
-              <X size={14} strokeWidth={2} />
+              <VendorMark vendor={p.id as VendorId} className="size-4 shrink-0" />
+              <span className="min-w-0 truncate text-[12.5px] font-semibold">{p.label}</span>
             </button>
-          </Dialog.Close>
+          ))}
         </div>
 
-        <div className="flex flex-col gap-4 px-6 py-5">
-          {/* Provider presets */}
-          <div className="grid grid-cols-2 gap-2">
-            {PRESETS.map((p) => {
-              const active = p.id === providerId
-              return (
-                <motion.button
-                  key={p.id}
-                  type="button"
-                  onClick={() => selectProvider(p.id)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-(--r-md) border-[1.5px] text-[12px] font-medium cursor-pointer text-left"
-                  initial={false}
-                  animate={{
-                    backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface)',
-                    borderColor: active ? 'var(--accent)' : 'var(--border)',
-                    color: active ? 'var(--accent)' : 'var(--fg)',
-                  }}
-                  whileHover={active ? undefined : { backgroundColor: 'var(--surface-hover)' }}
-                  whileTap={{ scale: 0.97 }}
-                  transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
-                >
-                  <VendorMark vendor={p.id as VendorId} className="size-4 shrink-0" />
-                  <span className="min-w-0 truncate">{p.label}</span>
-                </motion.button>
-              )
-            })}
-          </div>
-
-          {/* Base URL */}
-          {showBaseUrl ? (
-            <Field label="Base URL">
-              <input
-                id="format-base-url"
-                name="format-base-url"
-                type="text"
-                autoComplete="off"
-                value={baseUrl}
-                onChange={(e) => { setBaseUrl(e.target.value); setTestResult('idle') }}
-                placeholder={preset.baseUrl || 'http://localhost:11434/v1'}
-                className={INPUT_CLASS}
-                spellCheck={false}
-              />
-            </Field>
-          ) : null}
-
-          {/* Model */}
-          <Field label="Model">
-            <input
-              id="format-model"
-              name="format-model"
-              type="text"
+        {showBaseUrl && (
+          <Field label="Base URL">
+            <Input
+              id="format-base-url"
+              name="format-base-url"
               autoComplete="off"
-              value={model}
-              onChange={(e) => { setModel(e.target.value); setTestResult('idle') }}
-              placeholder={preset.modelHint}
-              className={INPUT_CLASS}
               spellCheck={false}
-            />
-            <span className="text-[10px] text-muted-foreground">
-              Tip: use a small instruct model (e.g. qwen2.5-3b-instruct), not a reasoning model — much faster and more accurate for formatting.
-            </span>
-          </Field>
-
-          {/* API key */}
-          <Field label={preset.needsKey ? 'API key' : 'API key (optional)'}>
-            <input
-              id="format-api-key"
-              name="format-api-key"
-              type="password"
-              autoComplete="off"
-              value={apiKey}
-              onChange={(e) => { setApiKey(e.target.value); setTestResult('idle') }}
-              placeholder={preset.needsKey ? 'sk-…' : 'leave blank for local servers'}
-              className={INPUT_CLASS}
-              spellCheck={false}
+              value={baseUrl}
+              onChange={edit(setBaseUrl)}
+              placeholder={preset.baseUrl || 'http://localhost:11434/v1'}
             />
           </Field>
-        </div>
+        )}
 
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-6 pb-5 pt-1">
-          <motion.button
-            type="button"
-            onClick={handleTest}
-            disabled={!canSubmit || testing}
-            className="nv-edge [--edge:var(--border)] flex items-center gap-2 text-[12px] font-medium text-(--fg-2) bg-(--surface) rounded-(--r-md) px-3 py-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            whileHover={!canSubmit || testing ? undefined : { backgroundColor: 'var(--surface-hover)' }}
-            whileTap={!canSubmit || testing ? undefined : { scale: 0.97 }}
-            transition={{ duration: 0.15 }}
-          >
-            {testing ? <Loader2 size={13} className="animate-spin" />
-              : testResult === 'ok' ? <CheckCircle2 size={13} className="text-(--success)" />
-              : testResult === 'fail' ? <AlertCircle size={13} className="text-(--destructive)" />
-              : <Plug size={13} strokeWidth={1.75} />}
-            Test connection
-          </motion.button>
-          <motion.button
-            type="button"
-            onClick={handleSave}
-            disabled={!canSubmit || saving}
-            className="flex items-center gap-2 text-[12px] font-semibold text-primary-foreground bg-(--accent) border-none rounded-(--r-md) px-4 py-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            whileHover={!canSubmit || saving ? undefined : { opacity: 0.9 }}
-            whileTap={!canSubmit || saving ? undefined : { scale: 0.97 }}
-            transition={{ duration: 0.15 }}
-          >
-            {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} strokeWidth={1.75} />}
-            {saving ? 'Saving…' : 'Save & enable'}
-          </motion.button>
-        </div>
-      </motion.div>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+        <Field
+          label="Model"
+          hint="Use a small instruct model such as qwen2.5-3b-instruct, not a reasoning model. It is faster and sticks to your words."
+        >
+          <Input
+            id="format-model"
+            name="format-model"
+            autoComplete="off"
+            spellCheck={false}
+            value={model}
+            onChange={edit(setModel)}
+            placeholder={preset.modelHint}
+          />
+        </Field>
+
+        <Field label={preset.needsKey ? 'API key' : 'API key (optional)'}>
+          <Input
+            id="format-api-key"
+            name="format-api-key"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={apiKey}
+            onChange={edit(setApiKey)}
+            placeholder={preset.needsKey ? 'sk-…' : 'Leave blank for local servers'}
+          />
+        </Field>
+      </ModalBody>
+
+      <ModalFoot>
+        <Button variant="secondary" onClick={handleTest} disabled={!canSubmit || testing}>
+          {testing ? <Loader2 className="nv-spin" />
+            : testResult === 'ok' ? <CheckCircle2 className="text-success" />
+            : testResult === 'fail' ? <AlertCircle className="text-danger" />
+            : <Plug />}
+          Test connection
+        </Button>
+        <Button onClick={handleSave} disabled={!canSubmit || saving}>
+          {saving && <Loader2 className="nv-spin" />}
+          {saving ? 'Saving…' : 'Save and turn on'}
+        </Button>
+      </ModalFoot>
+    </Modal>
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-medium text-(--fg-2)">{label}</span>
+    <label className="flex flex-col">
+      <span className="nv-field-label">{label}</span>
       {children}
+      {hint && <span className="nv-hint mt-1.5">{hint}</span>}
     </label>
   )
 }

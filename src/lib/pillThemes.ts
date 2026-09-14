@@ -35,3 +35,9 @@ export const PILL_THEMES: PillThemeDef[] = ([
 export function pillThemeDef(id: PillTheme): PillThemeDef {
   return PILL_THEMES.find((t) => t.id === id) ?? PILL_THEMES[0]
 }
+
+/** What the settings previews set the pill against: mixed from the pill's own
+ *  ground, so it has something to sit off without a pattern competing with it. */
+export function pillBackdrop(theme: PillThemeDef): string {
+  return theme.bg === '#ffffff' ? '#e8eaf0' : `color-mix(in srgb, ${theme.bg} 60%, #111)`
+}
