@@ -41,7 +41,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **Dictation Mode** — a hands-free alternative: press a hotkey to start, then pause/resume and save from the pill or by hotkey — ideal for longer, uninterrupted dictation
 - **Microphone selection** — pick which input device records your voice (Settings → General); defaults to the system default and falls back to it automatically if your chosen mic is unplugged
 - **100% local** — transcription runs entirely on your machine, nothing is sent to the cloud
-- **GPU-accelerated** — auto-detects NVIDIA (CUDA), AMD/Intel (Vulkan), falls back to CPU
+- **GPU-accelerated** — Vulkan on NVIDIA, AMD and Intel GPUs, falls back to CPU
 - **Live transcript in the pill (optional)** — the pill expands into a card and fills in as you speak, on any model. Off by default (Settings → General)
 - **Smart model selection** — picks the best model for your hardware automatically
 - **First-run model picker** — choose your model on first launch with a hardware-aware recommendation, then download on demand
@@ -126,7 +126,7 @@ Use a small **instruct** model (e.g. `qwen2.5-3b-instruct`) — not a reasoning/
 | Audio capture | cpal |
 | Transcription | transcribe-cpp (ggml) |
 | Voice activity detection | earshot (pure Rust) |
-| GPU inference | CUDA (NVIDIA) / Vulkan (AMD, Intel), resolved at runtime |
+| GPU inference | Vulkan (NVIDIA, AMD, Intel), resolved at runtime |
 | Smart formatting | Ollama, LM Studio, OpenAI, OpenRouter, Anthropic, or any OpenAI-compatible endpoint over HTTP |
 | Database | SQLite via sqlx |
 | Frontend | React 19 + TypeScript |
@@ -158,7 +158,7 @@ Only the AppImage can update itself: Tauri'''s updater has no `.deb`/`.rpm`
 installer, so package installs are updated through the package manager.
 
 One build covers every machine: GPU backends are loaded at runtime and the CPU
-path is selected per instruction set, so there is no separate CUDA download.
+path is selected per instruction set, so there is no separate GPU download.
 
 **Requirements:**
 - **Windows:** Windows 10 1803+ or Windows 11 (WebView2 is pre-installed).
@@ -246,6 +246,6 @@ All **audio processing and transcription happen locally** on your device — aud
 
 ---
 
-<div align="center">
-  <sub>Built with ⚡ by Ved Padmawar</sub>
-</div>
+## Acknowledgements
+
+Live transcription for single-shot models uses the LocalAgreement-2 policy from [whisper_streaming](https://github.com/ufal/whisper_streaming) by ÚFAL, Charles University. See Macháček, Dabre & Bojar, [*Turning Whisper into Real-Time Transcription System*](https://aclanthology.org/2023.ijcnlp-demo.3/) (IJCNLP-AACL 2023).
