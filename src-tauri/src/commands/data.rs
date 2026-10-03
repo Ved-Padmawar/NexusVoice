@@ -178,11 +178,10 @@ pub async fn get_dictionary(
     state: State<'_, AppState>,
 ) -> Result<Vec<DictionaryResponse>, ApiError> {
     let cache = state.dict_cache.read().await;
-    Ok(cache
-        .values()
-        .cloned()
-        .map(DictionaryResponse::from)
-        .collect())
+    let mut entries: Vec<_> = cache.values().cloned().collect();
+    // The cache is a HashMap, so sort or rows reshuffle after every edit.
+    entries.sort_unstable_by(|a, b| a.term.cmp(&b.term));
+    Ok(entries.into_iter().map(DictionaryResponse::from).collect())
 }
 
 /// The upsert keys on `term`, so a rename inserts a new row; `previous_term`

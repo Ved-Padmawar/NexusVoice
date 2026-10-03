@@ -10,9 +10,7 @@ fn strips_embedded_blank_audio_token() {
 
 #[test]
 fn strips_token_only_segment_to_empty() {
-    assert!(strip_hallucination_tokens(" [BLANK_AUDIO] ")
-        .trim()
-        .is_empty());
+    assert_eq!(strip_hallucination_tokens(" [BLANK_AUDIO] ").trim(), "");
 }
 
 #[test]
@@ -58,7 +56,7 @@ fn segment_text_with_no_timestamp_leaves_end_unset() {
 
 #[test]
 fn empty_segment_text_yields_no_words() {
-    assert!(split_segment_text("   ", 500).is_empty());
+    assert_eq!(split_segment_text("   ", 500), Vec::new());
 }
 
 #[test]

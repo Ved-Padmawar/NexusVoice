@@ -1,7 +1,7 @@
-use super::{Cursor, TranscriptRepository};
+use super::{keyset_sql, Cursor, TranscriptRepository};
 use crate::database::connection::init_database;
 use sqlx::sqlite::SqlitePoolOptions;
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 
 async fn pool() -> SqlitePool {
     let pool = SqlitePoolOptions::new()
@@ -58,6 +58,30 @@ async fn keyset_walks_every_row_without_repeats() {
     sorted.sort_unstable();
     sorted.dedup();
     assert_eq!(sorted.len(), 10, "no duplicates across pages: {seen:?}");
+}
+
+#[tokio::test]
+async fn keyset_cursor_seeks_the_index_instead_of_scanning() {
+    let pool = pool().await;
+    for sort_desc in [true, false] {
+        let sql = format!("EXPLAIN QUERY PLAN {}", keyset_sql(sort_desc, true));
+        let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(None::<&str>)
+            .bind(None::<&str>)
+            .bind(None::<&str>)
+            .bind(None::<&str>)
+            .bind("2026-01-01 00:00:00")
+            .bind(1_i64)
+            .bind(50_i64)
+            .fetch_all(&pool)
+            .await
+            .expect("plan");
+        let plan: Vec<String> = rows.iter().map(|r| r.get("detail")).collect();
+        assert!(
+            plan.iter().any(|d| d.starts_with("SEARCH")),
+            "cursor page must seek the keyset index, got {plan:?}"
+        );
+    }
 }
 
 #[tokio::test]

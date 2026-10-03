@@ -203,29 +203,30 @@ input[type="password"]::-ms-reveal { display: none; }
 }
 
 /* ================================================================
-   THEME: Steel — dark blue-grey, cool slate accent
+   THEME: Steel — dark slate blue-grey, pale icy accent
    ================================================================ */
 :root[data-theme='steel'] {
   color-scheme: dark;
-  --bg:            oklch(0.18 0.02 230);
-  --bg-alt:        oklch(0.15 0.02 230);
-  --panel:         oklch(0.21 0.02 230);
-  --panel-border:  oklch(0.26 0.02 230);
-  --surface:       oklch(0.24 0.02 230);
-  --surface-hover: oklch(0.29 0.02 230);
-  --border:        oklch(0.32 0.02 230);
-  --border-soft:   oklch(0.25 0.02 230);
-  --fg:            oklch(0.90 0.01 230);
-  --fg-2:          oklch(0.80 0.02 230);
-  --muted:         oklch(0.55 0.03 230);
-  --accent:        oklch(0.75 0.06 230);
-  --accent-hover:  oklch(0.82 0.06 230);
-  --accent-soft:   oklch(0.75 0.06 230 / 0.15);
-  --accent-fg:     oklch(0.15 0.02 230);
+  /* Matches the Steel swatch and pill (#141820 ground, #b8cce0 accent). */
+  --bg:            oklch(0.21 0.017 264);
+  --bg-alt:        oklch(0.18 0.017 264);
+  --panel:         oklch(0.23 0.021 264);
+  --panel-border:  oklch(0.28 0.024 262);
+  --surface:       oklch(0.26 0.023 259);
+  --surface-hover: oklch(0.31 0.026 260);
+  --border:        oklch(0.30 0.026 260);
+  --border-soft:   oklch(0.26 0.022 262);
+  --fg:            oklch(0.92 0.014 258);
+  --fg-2:          oklch(0.82 0.020 258);
+  --muted:         oklch(0.55 0.040 261);
+  --accent:        oklch(0.84 0.035 248);
+  --accent-hover:  oklch(0.90 0.030 248);
+  --accent-soft:   oklch(0.84 0.035 248 / 0.15);
+  --accent-fg:     oklch(0.18 0.020 260);
   --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.35), 0 1px 2px oklch(0 0 0 / 0.22);
   --shadow-md:     0 4px 12px oklch(0 0 0 / 0.50), 0 2px 4px oklch(0 0 0 / 0.30);
   --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.70), 0 4px 8px oklch(0 0 0 / 0.40);
-  --glow:          0 0 20px oklch(0.75 0.06 230 / 0.25);
+  --glow:          0 0 20px oklch(0.84 0.035 248 / 0.25);
 }
 
 /* ================================================================

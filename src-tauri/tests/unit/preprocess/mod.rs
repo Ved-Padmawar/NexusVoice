@@ -42,8 +42,8 @@ fn a_native_rate_is_resampled_to_16k() {
 
 #[test]
 fn an_empty_buffer_stays_empty() {
-    assert!(to_16k(&[], 48_000).is_empty());
-    assert!(normalize_level(&[]).is_empty());
+    assert_eq!(to_16k(&[], 48_000), Vec::<f32>::new());
+    assert_eq!(normalize_level(&[]), Vec::<f32>::new());
 }
 
 #[test]

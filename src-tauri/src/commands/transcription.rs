@@ -126,8 +126,14 @@ pub async fn commit_dictation(app: AppHandle, state: State<'_, AppState>) -> Res
     }
 }
 
+/// Finalize takes the buffer, leaving it with no capacity. Reserve ~30 s here
+/// so the audio callback isn't reallocating under the buffer lock.
 fn clear_audio_buffer(state: &AppState) {
-    lock_recovering(&state.audio_buffer).clear();
+    const RESERVE_SECS: usize = 30;
+    let rate = *lock_recovering(&state.native_sample_rate) as usize;
+    let mut buf = lock_recovering(&state.audio_buffer);
+    buf.clear();
+    buf.reserve(rate * RESERVE_SECS);
 }
 
 fn ensure_dictation_active(state: &AppState) -> Result<(), ApiError> {

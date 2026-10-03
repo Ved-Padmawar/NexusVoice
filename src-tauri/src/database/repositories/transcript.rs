@@ -14,6 +14,47 @@ pub struct Cursor<'a> {
     pub id: i64,
 }
 
+/// A row value, not the spelled-out `a < ? OR (a = ? AND b < ?)`: SQLite seeks
+/// the keyset index on a row value but scans it on the OR form.
+fn keyset_sql(sort_desc: bool, has_cursor: bool) -> &'static str {
+    match (sort_desc, has_cursor) {
+        (true, true) => {
+            "SELECT id, content, word_count, duration_seconds, target_app, created_at
+             FROM transcripts
+             WHERE (? IS NULL OR created_at >= ?)
+               AND (? IS NULL OR created_at <= ?)
+               AND (created_at, id) < (?, ?)
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?"
+        }
+        (false, true) => {
+            "SELECT id, content, word_count, duration_seconds, target_app, created_at
+             FROM transcripts
+             WHERE (? IS NULL OR created_at >= ?)
+               AND (? IS NULL OR created_at <= ?)
+               AND (created_at, id) > (?, ?)
+             ORDER BY created_at ASC, id ASC
+             LIMIT ?"
+        }
+        (true, false) => {
+            "SELECT id, content, word_count, duration_seconds, target_app, created_at
+             FROM transcripts
+             WHERE (? IS NULL OR created_at >= ?)
+               AND (? IS NULL OR created_at <= ?)
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?"
+        }
+        (false, false) => {
+            "SELECT id, content, word_count, duration_seconds, target_app, created_at
+             FROM transcripts
+             WHERE (? IS NULL OR created_at >= ?)
+               AND (? IS NULL OR created_at <= ?)
+             ORDER BY created_at ASC, id ASC
+             LIMIT ?"
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct TranscriptRepository {
     pool: SqlitePool,
@@ -69,52 +110,13 @@ impl TranscriptRepository {
         to: Option<&str>,
         sort_desc: bool,
     ) -> Result<Vec<Transcript>, sqlx::Error> {
-        // Tuple comparison spelled out rather than a row value: past created_at, or
-        // the same second with an id past the cursor's.
-        let sql = match (sort_desc, cursor.is_some()) {
-            (true, true) => {
-                "SELECT id, content, word_count, duration_seconds, target_app, created_at
-                 FROM transcripts
-                 WHERE (? IS NULL OR created_at >= ?)
-                   AND (? IS NULL OR created_at <= ?)
-                   AND (created_at < ? OR (created_at = ? AND id < ?))
-                 ORDER BY created_at DESC, id DESC
-                 LIMIT ?"
-            }
-            (false, true) => {
-                "SELECT id, content, word_count, duration_seconds, target_app, created_at
-                 FROM transcripts
-                 WHERE (? IS NULL OR created_at >= ?)
-                   AND (? IS NULL OR created_at <= ?)
-                   AND (created_at > ? OR (created_at = ? AND id > ?))
-                 ORDER BY created_at ASC, id ASC
-                 LIMIT ?"
-            }
-            (true, false) => {
-                "SELECT id, content, word_count, duration_seconds, target_app, created_at
-                 FROM transcripts
-                 WHERE (? IS NULL OR created_at >= ?)
-                   AND (? IS NULL OR created_at <= ?)
-                 ORDER BY created_at DESC, id DESC
-                 LIMIT ?"
-            }
-            (false, false) => {
-                "SELECT id, content, word_count, duration_seconds, target_app, created_at
-                 FROM transcripts
-                 WHERE (? IS NULL OR created_at >= ?)
-                   AND (? IS NULL OR created_at <= ?)
-                 ORDER BY created_at ASC, id ASC
-                 LIMIT ?"
-            }
-        };
-
-        let mut q = sqlx::query_as::<_, Transcript>(sql)
+        let mut q = sqlx::query_as::<_, Transcript>(keyset_sql(sort_desc, cursor.is_some()))
             .bind(from)
             .bind(from)
             .bind(to)
             .bind(to);
         if let Some(c) = cursor {
-            q = q.bind(c.created_at).bind(c.created_at).bind(c.id);
+            q = q.bind(c.created_at).bind(c.id);
         }
         q.bind(limit).fetch_all(&self.pool).await
     }

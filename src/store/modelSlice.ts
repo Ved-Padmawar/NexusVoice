@@ -122,35 +122,37 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
         return { downloads: { ...s.downloads, [id]: { ...base, ...patch } } }
       })
 
-    const u1 = await listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_START, (e) => {
-      setStatus(e.payload.id, { status: 'queued', progress: 0, error: null })
-    })
-    const u2 = await listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_RUNNING, (e) => {
-      setStatus(e.payload.id, { status: 'running' })
-    })
-    const u3 = await listen<{ id: string; pct: number }>(EVENTS.MODEL_DOWNLOAD_PROGRESS, (e) => {
-      setStatus(e.payload.id, { status: 'running', progress: e.payload.pct })
-    })
-    const u4 = await listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_COMPLETE, (e) => {
-      set(dropDownload(get(), e.payload.id))
-      void get().refreshModelInfo()
-    })
-    const u5 = await listen<{ id: string; error: string }>(EVENTS.MODEL_DOWNLOAD_ERROR, (e) => {
-      setStatus(e.payload.id, { status: 'error', error: e.payload.error || 'Download failed' })
-    })
-    const u6 = await listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_CANCELLED, (e) => {
-      set(dropDownload(get(), e.payload.id))
-    })
-    // Deleted active model: clear selection; keep modelChosen so the picker stays closed.
-    const u7 = await listen(EVENTS.MODEL_EVICTED, () => {
-      set({ modelReady: false, selectedModel: null, activeModelDownloaded: false })
-    })
-    // Deleted the active model but another is on disk: backend switched to it.
-    const u8 = await listen(EVENTS.MODEL_SWITCHED, () => { void get().refreshModelInfo() })
-    const u9 = await listen(EVENTS.LANGUAGE_RESET, () => {
-      toast.info('This model does not support your dictation language — switched to English.')
-    })
-    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); u8(); u9() }
+    const unlisteners = await Promise.all([
+      listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_START, (e) => {
+        setStatus(e.payload.id, { status: 'queued', progress: 0, error: null })
+      }),
+      listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_RUNNING, (e) => {
+        setStatus(e.payload.id, { status: 'running' })
+      }),
+      listen<{ id: string; pct: number }>(EVENTS.MODEL_DOWNLOAD_PROGRESS, (e) => {
+        setStatus(e.payload.id, { status: 'running', progress: e.payload.pct })
+      }),
+      listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_COMPLETE, (e) => {
+        set(dropDownload(get(), e.payload.id))
+        void get().refreshModelInfo()
+      }),
+      listen<{ id: string; error: string }>(EVENTS.MODEL_DOWNLOAD_ERROR, (e) => {
+        setStatus(e.payload.id, { status: 'error', error: e.payload.error || 'Download failed' })
+      }),
+      listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_CANCELLED, (e) => {
+        set(dropDownload(get(), e.payload.id))
+      }),
+      // Deleted active model: clear selection; keep modelChosen so the picker stays closed.
+      listen(EVENTS.MODEL_EVICTED, () => {
+        set({ modelReady: false, selectedModel: null, activeModelDownloaded: false })
+      }),
+      // Deleted the active model but another is on disk: backend switched to it.
+      listen(EVENTS.MODEL_SWITCHED, () => { void get().refreshModelInfo() }),
+      listen(EVENTS.LANGUAGE_RESET, () => {
+        toast.info('This model does not support your dictation language — switched to English.')
+      }),
+    ])
+    return () => unlisteners.forEach(fn => fn())
   },
 })
 

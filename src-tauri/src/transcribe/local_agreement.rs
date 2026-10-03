@@ -9,7 +9,7 @@
 //! drops audio already behind the committed text, so a trim that finds no cut
 //! point costs compute, never text.
 //!
-//! Based on ÚFAL's whisper_streaming (<https://github.com/ufal/whisper_streaming>;
+//! Based on ÚFAL's `whisper_streaming` (<https://github.com/ufal/whisper_streaming>;
 //! Macháček et al., 2023).
 
 use std::sync::{Arc, Mutex};

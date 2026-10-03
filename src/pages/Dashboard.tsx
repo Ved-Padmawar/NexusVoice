@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { memo, useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Popover } from 'radix-ui'
@@ -291,10 +291,73 @@ function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
   )
 }
 
+/** Owns the typed text, so a keystroke re-renders only this box, not the feed. */
+function SearchBox({ onSearch }: { onSearch: (term: string) => void }) {
+  const [query, setQuery] = useState('')
+
+  useEffect(() => {
+    const id = setTimeout(() => onSearch(query.trim()), 300)
+    return () => clearTimeout(id)
+  }, [query, onSearch])
+
+  return (
+    <div className="relative flex items-center">
+      <Search size={12} strokeWidth={2} className="absolute left-2.25 text-muted-foreground pointer-events-none" />
+      <Input
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        placeholder="Search transcripts…"
+        className="pl-7 h-7 text-[12px] w-45"
+      />
+    </div>
+  )
+}
+
+// No `layout` prop: it measures every row on each render.
+const TranscriptRow = memo(function TranscriptRow({ item, onDelete }: { item: Transcript; onDelete: (id: number) => void }) {
+  return (
+    <motion.article
+      className="grid grid-cols-[20px_1fr] gap-x-3.5 relative pb-4"
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, height: 0 }}
+      transition={{ duration: 0.18 }}
+    >
+      {/* Timeline line */}
+      <div className="absolute left-2.25 top-5.5 -bottom-4 w-px bg-(--border-soft) last:hidden" aria-hidden />
+      {/* Dot */}
+      <div className="col-start-1 row-start-1 w-2 h-2 rounded-full bg-(--accent) mt-3 justify-self-center relative z-10 shrink-0" aria-hidden />
+      {/* Card */}
+      <div className="nv-edge [--edge:var(--border-soft)] hover:[--edge:var(--border)] col-start-2 row-start-1 bg-(--panel) rounded-(--r-lg) px-3.5 py-3 flex flex-col gap-2 hover:bg-(--surface)">
+        <p className="text-[13px] text-(--fg) leading-[1.6] m-0">{item.content}</p>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-muted-foreground tabular-nums">
+            {fmtDate(item.createdAt)}
+            {item.targetApp && (
+              <span className="normal-nums"> · Pasted in {item.targetApp}</span>
+            )}
+          </span>
+          <div className="flex items-center gap-0.5">
+            <CopyButton text={item.content} />
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 bg-transparent border-none cursor-pointer text-[10px] font-medium px-1.5 py-0.5 rounded-(--r-sm) tracking-[0.02em] transition-colors duration-(--t-fast) text-muted-foreground hover:text-destructive"
+              onClick={() => onDelete(item.id)}
+              title="Delete transcript"
+            >
+              <Trash2 size={11} strokeWidth={2} />
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </motion.article>
+  )
+})
+
 export function Dashboard() {
   const hasHotkey = useAppStore(s => s.hasHotkey)
   const navigate = useNavigate()
-  const [query, setQuery] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
   const [filters, setFilters] = useState<TranscriptFilters>(NO_FILTERS)
   const observerRef = useRef<IntersectionObserver | null>(null)
@@ -307,12 +370,12 @@ export function Dashboard() {
   const deleteTranscript = useDeleteTranscript()
 
   const displayItems = useMemo(() => {
-    const rows = active.data?.pages.flat() ?? []
+    const rows = active.data?.pages.flatMap(page => page.rows) ?? []
     const seen = new Set<number>()
     return rows.filter(row => !seen.has(row.id) && seen.add(row.id))
   }, [active.data])
   const feedCount = useMemo(
-    () => new Set(feed.data?.pages.flat().map(row => row.id) ?? []).size,
+    () => new Set(feed.data?.pages.flatMap(page => page.rows).map(row => row.id) ?? []).size,
     [feed.data],
   )
 
@@ -332,11 +395,6 @@ export function Dashboard() {
   }, [canFetchNext, fetchNextPage])
 
   useEffect(() => () => observerRef.current?.disconnect(), [])
-
-  useEffect(() => {
-    const id = setTimeout(() => setSearchTerm(query.trim()), 300)
-    return () => clearTimeout(id)
-  }, [query])
 
   return (
     <div className="flex flex-col h-full overflow-hidden px-8 pt-7 pb-4 gap-5">
@@ -405,16 +463,7 @@ export function Dashboard() {
           <div className="ml-auto flex items-center gap-2">
           <ExportButton />
           <FilterDropdown filters={filters} onChange={setFilters} />
-          {/* Search bar */}
-          <div className="relative flex items-center">
-            <Search size={12} strokeWidth={2} className="absolute left-2.25 text-muted-foreground pointer-events-none" />
-            <Input
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search transcripts…"
-              className="pl-7 h-7 text-[12px] w-45"
-            />
-          </div>
+          <SearchBox onSearch={setSearchTerm} />
           </div>
         </div>
 
@@ -438,51 +487,14 @@ export function Dashboard() {
           <div className="flex flex-col gap-0 overflow-y-auto overflow-x-hidden overscroll-none flex-1 min-h-0 pr-1.5">
             <AnimatePresence initial={false}>
               {displayItems.map((item) => (
-                <motion.article
-                  key={item.id}
-                  className="grid grid-cols-[20px_1fr] gap-x-3.5 relative pb-4"
-                  initial={{ opacity: 0, y: -6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.18 }}
-                  layout
-                >
-                  {/* Timeline line */}
-                  <div className="absolute left-2.25 top-5.5 -bottom-4 w-px bg-(--border-soft) last:hidden" aria-hidden />
-                  {/* Dot */}
-                  <div className="col-start-1 row-start-1 w-2 h-2 rounded-full bg-(--accent) mt-3 justify-self-center relative z-10 shrink-0" aria-hidden />
-                  {/* Card */}
-                  <div className="nv-edge [--edge:var(--border-soft)] hover:[--edge:var(--border)] col-start-2 row-start-1 bg-(--panel) rounded-(--r-lg) px-3.5 py-3 flex flex-col gap-2 hover:bg-(--surface)">
-                    <p className="text-[13px] text-(--fg) leading-[1.6] m-0">{item.content}</p>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-muted-foreground tabular-nums">
-                        {fmtDate(item.createdAt)}
-                        {item.targetApp && (
-                          <span className="normal-nums"> · Pasted in {item.targetApp}</span>
-                        )}
-                      </span>
-                      <div className="flex items-center gap-0.5">
-                        <CopyButton text={item.content} />
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 bg-transparent border-none cursor-pointer text-[10px] font-medium px-1.5 py-0.5 rounded-(--r-sm) tracking-[0.02em] transition-colors duration-(--t-fast) text-muted-foreground hover:text-destructive"
-                          onClick={() => deleteTranscript.mutate(item.id)}
-                          title="Delete transcript"
-                        >
-                          <Trash2 size={11} strokeWidth={2} />
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </motion.article>
+                <TranscriptRow key={item.id} item={item} onDelete={deleteTranscript.mutate} />
               ))}
             </AnimatePresence>
 
             {/* Infinite scroll sentinel — pages the feed and search alike. */}
             {hasNextPage && (
               <div ref={sentinelRef} className="flex items-center justify-center py-4">
-                <motion.div className="w-4 h-4 rounded-full border-2 border-(--border) border-t-(--accent)" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
+                <div className="w-4 h-4 rounded-full border-2 border-(--border) border-t-(--accent) animate-spin [animation-duration:0.65s]" />
               </div>
             )}
           </div>

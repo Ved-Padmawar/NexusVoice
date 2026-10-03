@@ -84,7 +84,7 @@ fn switching_provider_keeps_every_profile() {
 fn active_is_empty_for_a_provider_never_configured() {
     let mut c = cfg("http://localhost:11434/v1", "qwen", true);
     c.provider = "openai".to_string();
-    assert!(c.active().model.is_empty());
+    assert_eq!(c.active().model, "");
     assert!(!c.is_usable());
 }
 

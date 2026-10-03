@@ -82,7 +82,7 @@ fn remove_clears_the_entry() {
     d.remove("nemotron");
 
     assert!(!d.is_pending("nemotron"));
-    assert!(d.snapshot().is_empty());
+    assert_eq!(d.snapshot(), Vec::new());
 }
 
 #[test]

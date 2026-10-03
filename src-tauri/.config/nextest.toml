@@ -1,0 +1,6 @@
+[profile.default]
+# A test that only passes on a retry is reported as FLAKY rather than silently
+# green, so an intermittent failure is visible instead of being re-run away.
+retries = 1
+failure-output = "immediate-final"
+fail-fast = false

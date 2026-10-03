@@ -31,11 +31,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -121,16 +118,20 @@ jobs:
           sudo apt-get install -y vulkan-sdk
           glslc --version
 
-      - name: Install npm deps
-        run: npm ci
+      - name: Install frontend deps
+        run: bun install --frozen-lockfile
 
       # Gate the release on the same checks run locally. A tag whose code fails
       # type-check, lint, tests, formatting or Clippy must not publish.
       - name: Frontend checks (type, lint, unit tests)
         run: |
-          npm run build
-          npm run lint
-          npm test
+          bun run build
+          bun run lint
+          bun run test
+
+      # Prebuilt binary, so this costs seconds rather than a source build.
+      - name: Setup nextest
+        uses: taiki-e/install-action@nextest
 
       # Release profile so the artifacts match what tauri-action builds with —
       # the build then reuses them instead of recompiling the dependency tree.
@@ -139,7 +140,7 @@ jobs:
         run: |
           cargo fmt --check
           cargo clippy --release -- -W clippy::pedantic -D warnings
-          cargo test --release
+          cargo nextest run --release
 
       - name: Set version from tag
         shell: bash
@@ -178,7 +179,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build -- --features gpu
+        run: bun run tauri build -- --features gpu
 
       # deb and rpm cover package-manager installs; the AppImage is additionally
       # the only Linux bundle Tauri emits an updater artifact for, so it is what
@@ -199,7 +200,7 @@ jobs:
         run: |
           set -euo pipefail
           export LINUXDEPLOY_OUTPUT_VERSION="${GITHUB_REF_NAME#v}"
-          npx tauri build --bundles deb,rpm,appimage -- --features gpu
+          bun run tauri build --bundles deb,rpm,appimage -- --features gpu
 
       # Collect the updater artifact each OS produces: NSIS on Windows, the
       # AppImage on Linux. deb and rpm are not updater targets — those users

@@ -212,12 +212,17 @@ impl TranscriptionEngine {
         };
 
         let options = self.run_options(prompt, pass);
-        let transcript = self
-            .session
-            .run(samples, &options)
-            .map_err(|e| format!("transcribe failed: {e}"))?;
-
-        Ok(build_segments(&transcript))
+        match self.session.run(samples, &options) {
+            Ok(transcript) => Ok(build_segments(&transcript)),
+            // Stopped early (repetition loop or length budget): keep the text before it.
+            Err(e) => match e.partial() {
+                Some(partial) => {
+                    log::warn!("decode stopped early, keeping the partial: {e}");
+                    Ok(build_segments(partial))
+                }
+                None => Err(format!("transcribe failed: {e}")),
+            },
+        }
     }
 }
 

@@ -25,6 +25,10 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
+  // Cargo locks its build output mid-compile, which the watcher reports as EBUSY.
+  server: {
+    watch: { ignored: ["**/src-tauri/**", "**/.cargo-target/**"] },
+  },
   build: {
     rollupOptions: {
       input: {
@@ -38,6 +42,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
+    // One jsdom per worker, not per file; each file still gets its own VM context.
+    pool: "vmThreads",
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/__tests__/**/*.{test,spec}.{ts,tsx}"],
   },

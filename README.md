@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.16.6-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.16.7-violet?style=flat-square)
 
 </div>
 
@@ -206,22 +206,22 @@ nexusvoice --toggle-dictation
 
 **Prerequisites:**
 - [Rust](https://rustup.rs/) (stable)
-- [Node.js](https://nodejs.org/) 18+
+- [Bun](https://bun.sh/) 1.3+
 - [CMake](https://cmake.org/) 3.28+
 - [LLVM/Clang](https://releases.llvm.org/) 17+
 
 ```bash
 git clone https://github.com/Ved-Padmawar/NexusVoice.git
 cd NexusVoice
-npm install
-npm run tauri build
+bun install
+bun run tauri build
 ```
 
 Installer output: `src-tauri/target/release/bundle/`
 
 **Dev server:**
 ```bash
-npm run tauri dev
+bun run tauri dev
 ```
 
 ---

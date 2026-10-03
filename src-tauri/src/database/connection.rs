@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use sqlx::{
     migrate::MigrateError,
-    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteSynchronous},
     SqlitePool,
 };
 
@@ -11,7 +11,10 @@ pub async fn create_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> 
     let options = SqliteConnectOptions::new()
         .filename(database_url.trim_start_matches("sqlite://"))
         .create_if_missing(true)
-        .busy_timeout(Duration::from_secs(5));
+        .busy_timeout(Duration::from_secs(5))
+        // Per-connection pragma: run once through the pool it reaches one
+        // connection. sqlx already enables foreign_keys on each.
+        .synchronous(SqliteSynchronous::Normal);
 
     SqlitePoolOptions::new()
         .max_connections(5)
@@ -23,13 +26,8 @@ pub async fn create_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> 
 
 /// Configure PRAGMAs and run migrations. Pure — no file system access.
 pub async fn init_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    // Persisted in the database file, so one connection setting it is enough.
     sqlx::query("PRAGMA journal_mode = WAL;")
-        .execute(pool)
-        .await?;
-    sqlx::query("PRAGMA foreign_keys = ON;")
-        .execute(pool)
-        .await?;
-    sqlx::query("PRAGMA synchronous = NORMAL;")
         .execute(pool)
         .await?;
 
@@ -88,10 +86,23 @@ async fn adopt_legacy_history(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         return Ok(()); // Fresh database; the migrator will stamp it.
     }
 
-    let (legacy_rows,): (i64,) =
-        sqlx::query_as("SELECT count(*) FROM _sqlx_migrations WHERE version > 1")
-            .fetch_one(pool)
+    // From the migrator, so editing the schema can't leave a stale constant.
+    let migrator = sqlx::migrate!("src/database/migrations");
+
+    // Legacy = a row the migrator doesn't know by checksum, so a future 0002
+    // isn't mistaken for pre-squash history.
+    let applied: Vec<(i64, Vec<u8>)> =
+        sqlx::query_as("SELECT version, checksum FROM _sqlx_migrations")
+            .fetch_all(pool)
             .await?;
+    let legacy_rows = applied
+        .iter()
+        .filter(|(version, checksum)| {
+            !migrator
+                .iter()
+                .any(|m| m.version == *version && m.checksum.as_ref() == checksum.as_slice())
+        })
+        .count();
     if legacy_rows == 0 {
         return Ok(());
     }
@@ -107,8 +118,6 @@ async fn adopt_legacy_history(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     }
     add_missing_columns(pool).await?;
 
-    // From the migrator, so editing the schema can't leave a stale constant.
-    let migrator = sqlx::migrate!("src/database/migrations");
     let Some(current) = migrator.iter().find(|m| m.version == 1) else {
         return Ok(());
     };

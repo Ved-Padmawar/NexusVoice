@@ -60,15 +60,26 @@ impl DictionaryCorrectionEngine {
     }
 
     /// Apply dictionary corrections to a full text string word-by-word.
-    /// Punctuation attached to words is preserved.
+    /// Punctuation attached to words and the whitespace between them (newlines
+    /// in formatted output) are preserved.
     /// Returns the corrected text and the list of matched terms (for hit tracking).
     pub fn apply_to_text(&self, text: &str) -> (String, Vec<String>) {
         if self.entries.is_empty() {
             return (text.to_string(), vec![]);
         }
-        let mut result = Vec::new();
+        let mut result = String::with_capacity(text.len());
         let mut matched_terms: Vec<String> = Vec::new();
-        for token in text.split_whitespace() {
+        let mut rest = text;
+        while !rest.is_empty() {
+            let gap = rest
+                .find(|c: char| !c.is_whitespace())
+                .unwrap_or(rest.len());
+            result.push_str(&rest[..gap]);
+            rest = &rest[gap..];
+            let len = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            let token = &rest[..len];
+            rest = &rest[len..];
+
             let start = token
                 .find(|c: char| c.is_alphabetic())
                 .unwrap_or(token.len());
@@ -77,7 +88,7 @@ impl DictionaryCorrectionEngine {
             });
 
             if start >= end {
-                result.push(token.to_string());
+                result.push_str(token);
                 continue;
             }
 
@@ -92,9 +103,11 @@ impl DictionaryCorrectionEngine {
                 }
                 None => word.to_string(),
             };
-            result.push(format!("{prefix}{corrected}{suffix}"));
+            result.push_str(prefix);
+            result.push_str(&corrected);
+            result.push_str(suffix);
         }
-        (result.join(" "), matched_terms)
+        (result, matched_terms)
     }
 
     pub fn correct(&self, input: &str) -> Option<CorrectionResult> {

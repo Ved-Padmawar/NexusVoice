@@ -29,7 +29,7 @@ fn downsample_output_length() {
 #[test]
 fn empty_input_returns_empty() {
     let output = resample(&[], 44_100, 16_000);
-    assert!(output.is_empty());
+    assert_eq!(output, Vec::<f32>::new());
 }
 
 /// Peak amplitude of a buffer.

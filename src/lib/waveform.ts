@@ -18,6 +18,10 @@ export const ACCENT_RGB = '120,162,244'
 /** Resting thickness, matching `bars`' MIN_H so silence looks the same in every style. */
 export const REST_H = 3
 
+/** A per-frame smoothing factor tuned at 60 Hz, scaled to the real frame time
+ *  so the waveform reacts at the same speed on a 144 Hz display. */
+export const ease = (factor: number, dt: number) => 1 - Math.pow(1 - factor, dt * 60)
+
 /** Headroom so a loud syllable doesn't pin a style to its ceiling. */
 const PEAK_SCALE = 0.8
 
@@ -147,7 +151,7 @@ function eq({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idleMo
 
   for (let i = 0; i < BARS; i++) {
     const rising = levels[i] > s.smooth[i]
-    s.smooth[i] += (levels[i] - s.smooth[i]) * (rising ? 0.55 : 0.10 + i * 0.006)
+    s.smooth[i] += (levels[i] - s.smooth[i]) * ease(rising ? 0.55 : 0.10 + i * 0.006, dt)
 
     if (s.smooth[i] > s.peak[i]) {
       s.peak[i] = s.smooth[i]
@@ -256,7 +260,7 @@ function spectrum({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, 
     const idle = idleMotion ? 0.05 + (Math.sin(s.t * 1.8 + i * 0.4) * 0.5 + 0.5) * 0.06 : 0
     const target = Math.min(1, Math.max(bandAt(t) * jitter, idle))
     const rising = target > s.val[i]
-    s.val[i] += (target - s.val[i]) * (rising ? 0.55 : 0.16)
+    s.val[i] += (target - s.val[i]) * ease(rising ? 0.55 : 0.16, dt)
 
     const x = i * slot + (slot - colW) / 2
     const h = Math.max(REST_H, s.val[i] * maxH)

@@ -138,6 +138,13 @@ fn apply_to_text_preserves_punctuation() {
 }
 
 #[test]
+fn apply_to_text_preserves_line_breaks() {
+    let e = engine(vec![entry(1, "teh", "the")]);
+    let (text, _) = e.apply_to_text("Notes:\n- teh dog\n\n- a  cat");
+    assert_eq!(text, "Notes:\n- the dog\n\n- a  cat");
+}
+
+#[test]
 fn apply_to_text_stopwords_unchanged() {
     let e = engine(vec![entry(1, "api", "API"), entry(2, "ui", "UI")]);
     let (text, _) = e.apply_to_text("i am on my way");

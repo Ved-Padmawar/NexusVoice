@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::state::AppState;
 
@@ -128,7 +128,7 @@ pub async fn delete_model(
         return Ok(());
     }
 
-    *state.engine.lock().await = None;
+    state.evict_engine().await;
 
     // Prefer another downloaded model over "no model": switch to the most
     // capable file left on disk (the catalog is tier-ascending, so the last
@@ -168,7 +168,7 @@ pub async fn set_model_override(
     state
         .save_model_override(id)
         .map_err(|e| ApiError::new("io_error", e.to_string()))?;
-    *state.engine.lock().await = None;
+    state.evict_engine().await;
     warm_engine_in_background(&app);
     Ok(())
 }
@@ -235,19 +235,12 @@ pub async fn get_language_options(
 
     // Before the engine loads, or for a model advertising none, the table
     // stands in — the engine drops anything the model won't take.
-    let advertised: Vec<String> = state
-        .engine
-        .lock()
-        .await
-        .as_ref()
-        .and_then(|e| e.lock().ok().map(|g| g.languages().to_vec()))
-        .filter(|l| !l.is_empty())
-        .unwrap_or_else(|| {
-            language::LANGUAGES
-                .iter()
-                .map(|l| l.code.to_string())
-                .collect()
-        });
+    let advertised: Vec<String> = state.engine_languages().unwrap_or_else(|| {
+        language::LANGUAGES
+            .iter()
+            .map(|l| l.code.to_string())
+            .collect()
+    });
 
     let saved = state.load_language();
     let active = language::resolve(saved.as_deref());
@@ -294,19 +287,15 @@ pub async fn get_language_options(
 #[tauri::command]
 #[specta::specta]
 pub async fn set_language(
+    app: AppHandle,
     state: State<'_, AppState>,
     code: Option<String>,
 ) -> Result<(), ApiError> {
     use crate::inference::language;
 
-    let engine = state.engine.lock().await;
-
     // The loaded model is the authority; with none loaded the table stands in
     // and the engine re-checks at load.
-    let advertised: Option<Vec<String>> = engine
-        .as_ref()
-        .and_then(|e| e.lock().ok().map(|g| g.languages().to_vec()))
-        .filter(|l| !l.is_empty());
+    let advertised = state.engine_languages();
 
     let saved = match code.as_deref() {
         None => None,
@@ -327,10 +316,15 @@ pub async fn set_language(
         .save_language(saved)
         .map_err(|e| ApiError::new("io_error", e.to_string()))?;
 
-    if let Some(engine) = engine.as_ref() {
-        if let Ok(mut guard) = engine.lock() {
-            guard.set_language(language::resolve(saved));
-        }
+    // A streaming recording holds the engine until it ends: apply off the async
+    // runtime, reading the saved choice once locked so the latest change wins.
+    if let Some(engine) = state.engine.lock().await.clone() {
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Ok(mut guard) = engine.lock() {
+                let saved = app.state::<AppState>().load_language();
+                guard.set_language(language::resolve(saved.as_deref()));
+            }
+        });
     }
 
     Ok(())

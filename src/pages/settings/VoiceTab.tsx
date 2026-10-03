@@ -257,10 +257,9 @@ export function VoiceTab() {
     void refreshModelInfo()
     void refreshCatalog()
     void refreshDownloads()
-    refreshOnDisk()
-  }, [refreshModelInfo, refreshCatalog, refreshDownloads, refreshOnDisk])
+  }, [refreshModelInfo, refreshCatalog, refreshDownloads])
 
-  // A finished download adds a file, so re-read the disk when the set changes.
+  // Reads the disk on mount, and again when a finished download adds a file.
   const pendingCount = Object.keys(downloads).length
   useEffect(() => { refreshOnDisk() }, [pendingCount, refreshOnDisk])
 

@@ -300,12 +300,11 @@ fn main() {
             // Spawn: hardware detection (blocking syscalls — must not run on main thread)
             {
                 tauri::async_runtime::spawn(async move {
-                    use hardware::detector::detect_profile;
-                    use hardware::sysinfo_provider::SysinfoProvider;
                     use inference::provider::recommend_model;
 
+                    // The cached profile, so recommend_model() reuses this probe.
                     let (hw, recommended) = tokio::task::spawn_blocking(|| {
-                        let hw = detect_profile(&SysinfoProvider);
+                        let hw = hardware::cached_profile().clone();
                         let recommended = recommend_model();
                         (hw, recommended)
                     })

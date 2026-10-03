@@ -95,7 +95,6 @@ fn stage_transcribe_runtime_libs() {
         "no transcribe-cpp runtime libraries found under {dirs:?}; without them \
          the app registers zero compute devices"
     );
-    println!("cargo:warning=Staged {copied} transcribe-cpp runtime library file(s)");
 }
 
 /// Split a versioned Linux library name into its stem and version depth:

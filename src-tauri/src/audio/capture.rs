@@ -369,9 +369,8 @@ where
                         rcvar.notify_all();
                     }
                 }
-                // Downmix straight into the shared buffer (a persistent Vec, so
-                // this only amortizes growth — no per-callback allocation), then
-                // hand the newly appended slice to the waveform meter.
+                // Downmix straight into the shared buffer, then hand the newly
+                // appended slice to the waveform meter.
                 if let Ok(mut buf) = cb.buffer.lock() {
                     let start = buf.len();
                     if channels == 1 {

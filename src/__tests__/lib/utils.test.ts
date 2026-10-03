@@ -65,4 +65,8 @@ describe('fmtDate', () => {
     // `created_at` comes back as "YYYY-MM-DD HH:MM:SS", not strict ISO.
     expect(fmtDate('2026-03-15 14:30:00')).not.toBe('Invalid Date')
   })
+
+  it('reads the SQLite shape as UTC, not local time', () => {
+    expect(fmtDate('2026-03-15 14:30:00')).toBe(fmtDate('2026-03-15T14:30:00Z'))
+  })
 })

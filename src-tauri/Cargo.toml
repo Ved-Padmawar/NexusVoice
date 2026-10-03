@@ -1,6 +1,6 @@
 [package]
 name = "nexusvoice"
-version = "1.16.6"
+version = "1.16.7"
 edition = "2021"
 
 [features]
@@ -24,7 +24,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-log = { version = "2", features = ["colored"] }
 log = "0.4"
-opener = "0.8"
+opener = "0.9"
 strsim = "0.11"
 sqlx = { version = "0.9", features = ["sqlite", "runtime-tokio", "chrono", "migrate"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -41,9 +41,9 @@ futures-util = "0.3"
 # both single-shot (`Session::run`) and native streaming (`Session::stream`).
 # `dynamic-backends` loads the backend modules at runtime instead of link time,
 # so one binary covers every backend it was built with. Only Vulkan is, today.
-transcribe-cpp = { version = "0.2", default-features = false }
+transcribe-cpp = { version = "0.3", default-features = false }
 rubato = "5"
-rphonetic = "3.0.6"
+rphonetic = "4"
 rustfft = "6.4.1"
 tokio-util = "0.7.19"
 earshot = "1.2.1"
@@ -53,22 +53,22 @@ windows = { version = "0.62", features = ["Win32_Graphics_Dxgi", "Win32_System_T
 # GPU backends are dlopen'd at runtime, so one binary serves every accelerator.
 # The Vulkan module is built only under the `gpu` feature (release builds), which
 # needs the Vulkan SDK present; without it the CPU variants still ship.
-transcribe-cpp = { version = "0.2", features = ["dynamic-backends"] }
+transcribe-cpp = { version = "0.3", features = ["dynamic-backends"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-metal = "0.30"
+metal = "0.33"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ash = "0.38"
-transcribe-cpp = { version = "0.2", features = ["dynamic-backends"] }
+transcribe-cpp = { version = "0.3", features = ["dynamic-backends"] }
 # Wayland refuses global key grabs, so dictation is also triggerable by signal.
-signal-hook = "0.3"
+signal-hook = "0.4"
 # xdg-desktop-portal: the sanctioned way to type on Wayland, no helper tool.
 ashpd = { version = "0.13", default-features = false, features = ["tokio", "remote_desktop", "screencast"] }
 
 [dev-dependencies]
 tempfile = "3"
-serial_test = "3"
+serial_test = "4"
 
 [profile.release]
 # Must stay "unwind" — the recording path's catch_unwind guards are no-ops under "abort".

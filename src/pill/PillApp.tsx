@@ -77,6 +77,7 @@ export function PillApp() {
   const modelReadyRef = useRef(false)
   const [tooltip, setTooltip] = useState('')
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const barsRef = useRef<(HTMLSpanElement | null)[]>([])
   const [pillTheme, setPillTheme] = useState<PillTheme>(() => readPersisted<PillTheme>('pillTheme', 'steel'))
   const [waveformStyle, setWaveformStyle] = useState<WaveformStyle>(() => readPersisted<WaveformStyle>('waveformStyle', 'bars'))
@@ -178,8 +179,19 @@ export function PillApp() {
     tooltipTimerRef.current = setTimeout(() => setTooltip(''), 3000)
   }, [])
 
+  // Resets only if still showing the error — a recording may have started since.
+  const showError = useCallback((msg: string) => {
+    setErrorMsg(msg)
+    setState('error')
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
+    errorTimerRef.current = setTimeout(() => {
+      if (stateRef.current === 'error') setState('idle')
+    }, 3000)
+  }, [])
+
   useEffect(() => () => {
     if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current)
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
   }, [])
 
   // Check model status and listen for download events
@@ -315,10 +327,8 @@ export function PillApp() {
             : raw.toLowerCase().includes('permission') || raw.toLowerCase().includes('access denied')
               ? 'Mic access denied'
               : raw
-          setErrorMsg(msg)
-          setState('error')
+          showError(msg)
           isRecordingRef.current = false
-          setTimeout(() => setState('idle'), 3000)
         }
       })
       if (cancelled) { u1(); return }
@@ -331,10 +341,7 @@ export function PillApp() {
         try {
           await serialize(() => invoke(COMMANDS.STOP_TRANSCRIPTION))
         } catch (err: unknown) {
-          const msg = extractErrorMessage(err, String(err))
-          setErrorMsg(msg)
-          setState('error')
-          setTimeout(() => setState('idle'), 3000)
+          showError(extractErrorMessage(err, String(err)))
         } finally {
           isRecordingRef.current = false
         }
@@ -358,12 +365,10 @@ export function PillApp() {
       unlisteners.push(u3)
 
       const u4 = await listen<string>(EVENTS.TRANSCRIPTION_ERROR, (event) => {
-        setErrorMsg(event.payload ?? 'Transcription failed')
         setPartial(null)
-        setState('error')
+        showError(event.payload ?? 'Transcription failed')
         isRecordingRef.current = false
         isDictationRef.current = false
-        setTimeout(() => setState('idle'), 3000)
       })
       if (cancelled) { u4(); return }
       unlisteners.push(u4)
@@ -394,11 +399,8 @@ export function PillApp() {
             setState('dictation')
           }
         } catch (err: unknown) {
-          const msg = extractErrorMessage(err, String(err))
-          setErrorMsg(msg)
-          setState('error')
+          showError(extractErrorMessage(err, String(err)))
           isDictationRef.current = false
-          setTimeout(() => setState('idle'), 3000)
         }
       })
       if (cancelled) { u5(); return }
@@ -411,11 +413,8 @@ export function PillApp() {
         try {
           await invoke(COMMANDS.COMMIT_DICTATION)
         } catch (err: unknown) {
-          const msg = extractErrorMessage(err, String(err))
-          setErrorMsg(msg)
-          setState('error')
+          showError(extractErrorMessage(err, String(err)))
           isDictationRef.current = false
-          setTimeout(() => setState('idle'), 3000)
         }
       })
       if (cancelled) { u6(); return }
@@ -427,7 +426,7 @@ export function PillApp() {
       cancelled = true
       unlisteners.forEach(fn => fn())
     }
-  }, [showTooltip, serialize])
+  }, [showTooltip, showError, serialize])
 
   const handleToggleDictationPause = useCallback(async () => {
     try {
@@ -439,12 +438,10 @@ export function PillApp() {
         setState('dictation')
       }
     } catch (err: unknown) {
-      setErrorMsg(extractErrorMessage(err, String(err)))
-      setState('error')
+      showError(extractErrorMessage(err, String(err)))
       isDictationRef.current = false
-      setTimeout(() => setState('idle'), 3000)
     }
-  }, [state])
+  }, [state, showError])
 
   const handleCommitDictation = useCallback(async () => {
     if (!isDictationRef.current) return
@@ -453,12 +450,10 @@ export function PillApp() {
     try {
       await invoke(COMMANDS.COMMIT_DICTATION)
     } catch (err: unknown) {
-      setErrorMsg(extractErrorMessage(err, String(err)))
-      setState('error')
+      showError(extractErrorMessage(err, String(err)))
       isDictationRef.current = false
-      setTimeout(() => setState('idle'), 3000)
     }
-  }, [])
+  }, [showError])
 
   const theme = useMemo(() => pillThemeDef(pillTheme), [pillTheme])
 

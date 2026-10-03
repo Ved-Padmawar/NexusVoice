@@ -56,7 +56,10 @@ export const createUpdateSlice: StateCreator<AppState, [], [], UpdateSlice> = (s
           total = progress.data.contentLength ?? 0
         } else if (progress.event === 'Progress') {
           downloaded += progress.data.chunkLength
-          if (total > 0) set({ updateProgress: Math.round((downloaded / total) * 100) })
+          if (total === 0) return
+          // Chunks far outnumber percent steps, and each `set` rewrites persisted state.
+          const pct = Math.round((downloaded / total) * 100)
+          if (pct !== get().updateProgress) set({ updateProgress: pct })
         } else if (progress.event === 'Finished') {
           set({ updateStatus: 'ready', updateProgress: 100 })
         }

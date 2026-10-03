@@ -237,6 +237,9 @@ pub struct AppState {
     /// Serializes engine construction so two callers racing an empty cache
     /// build only one engine.
     engine_load: Arc<Mutex<()>>,
+    /// Languages the loaded model advertises, copied out at load — the engine
+    /// mutex is held for a whole streaming recording.
+    engine_languages: std::sync::RwLock<Vec<String>>,
     /// Streaming transcription state for the recording in progress. Created on
     /// start, advanced by the stream worker, consumed (taken) by finalize.
     pub stream_session: Arc<std::sync::Mutex<Option<crate::transcribe::StreamingSession>>>,
@@ -301,6 +304,7 @@ impl AppState {
             models_dir,
             engine: Arc::new(Mutex::new(None)),
             engine_load: Arc::new(Mutex::new(())),
+            engine_languages: std::sync::RwLock::new(Vec::new()),
             stream_session: Arc::new(std::sync::Mutex::new(None)),
             streamed_text: Arc::new(std::sync::Mutex::new(None)),
             focus_target: Arc::new(std::sync::Mutex::new(None)),
@@ -366,38 +370,51 @@ impl AppState {
         .await
         .map_err(|e| format!("engine load task failed: {e}"))??;
 
+        let languages = engine.languages().to_vec();
+        self.reset_language_if_unsupported(&languages, saved.as_deref());
         let arc = Arc::new(std::sync::Mutex::new(engine));
-        self.reset_language_if_unsupported(&arc, saved.as_deref());
-        *self.engine.lock().await = Some(Arc::clone(&arc));
+        let mut cache = self.engine.lock().await;
+        *self
+            .engine_languages
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = languages;
+        *cache = Some(Arc::clone(&arc));
         Ok(arc)
+    }
+
+    /// Drop the cached engine, e.g. when the model changes.
+    pub async fn evict_engine(&self) {
+        let mut cache = self.engine.lock().await;
+        self.engine_languages
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
+        *cache = None;
+    }
+
+    /// `None` when no model is loaded or it advertises none.
+    pub fn engine_languages(&self) -> Option<Vec<String>> {
+        let languages = self
+            .engine_languages
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (!languages.is_empty()).then(|| languages.clone())
     }
 
     /// Otherwise every decode silently falls back to English and the picker
     /// still shows a language the model cannot speak.
-    pub(crate) fn reset_language_if_unsupported(
-        &self,
-        engine: &std::sync::Mutex<TranscriptionEngine>,
-        saved: Option<&str>,
-    ) -> bool {
+    fn reset_language_if_unsupported(&self, languages: &[String], saved: Option<&str>) {
         use crate::inference::language::{primary_of, AUTO, DEFAULT};
 
         let Some(code) = saved.filter(|c| *c != AUTO && *c != DEFAULT) else {
-            return false;
+            return;
         };
-        let Ok(guard) = engine.lock() else {
-            return false;
-        };
-        let languages = guard.languages();
         if languages.is_empty() || languages.iter().any(|l| l == code || primary_of(l) == code) {
-            return false;
+            return;
         }
-        drop(guard);
-
         if let Err(e) = self.save_language(Some(DEFAULT)) {
             log::warn!("could not reset unsupported language {code}: {e}");
-            return false;
         }
-        true
     }
 
     fn read_hotkeys(&self) -> HashMap<String, String> {

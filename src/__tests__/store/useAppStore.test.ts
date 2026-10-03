@@ -20,7 +20,7 @@ const page = (start: number, count: number) =>
   }))
 
 const feedRows = () =>
-  queryClient.getQueryData<TranscriptPages>(queryKeys.transcripts(NO_FILTERS))?.pages.flat() ?? []
+  queryClient.getQueryData<TranscriptPages>(queryKeys.transcripts(NO_FILTERS))?.pages.flatMap(page => page.rows) ?? []
 
 beforeEach(() => {
   mockInvoke.mockReset()

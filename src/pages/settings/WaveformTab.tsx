@@ -6,7 +6,7 @@ import { AudioLines, Check } from 'lucide-react'
 import { useAppStore } from '../../store/useAppStore'
 import { EVENTS } from '../../lib/events'
 import { WaveformCanvas } from '../../components/WaveformCanvas'
-import { BARS } from '../../lib/waveform'
+import { BARS, ease } from '../../lib/waveform'
 import { pillThemeDef, type PillThemeDef } from '../../lib/pillThemes'
 import type { WaveformStyle } from '../../store/uiSlice'
 
@@ -80,7 +80,7 @@ function usePreviewLevels() {
 
       for (let i = 0; i < BARS; i++) {
         const rising = target[i] > smooth[i]
-        smooth[i] += (target[i] - smooth[i]) * (rising ? 0.55 : 0.12 + i * 0.008)
+        smooth[i] += (target[i] - smooth[i]) * ease(rising ? 0.55 : 0.12 + i * 0.008, dt)
       }
       levelsRef.current = smooth.slice()
       raf = requestAnimationFrame(tick)
