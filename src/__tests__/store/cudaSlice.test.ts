@@ -1,8 +1,9 @@
 /**
  * The CUDA pack download. A start that fails must not leave the bar stuck at
- * 0%, and a download error must reach the user rather than vanish.
+ * 0%, a download error must reach the user rather than vanish, and the CUDA
+ * dialog must open once, only where it applies.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { useAppStore } from '../../store/useAppStore'
@@ -22,7 +23,11 @@ const state = () => useAppStore.getState()
 
 beforeEach(() => {
   vi.clearAllMocks()
-  useAppStore.setState({ cuda: absent, cudaError: null })
+  useAppStore.setState({ cuda: absent, cudaError: null, cudaOfferOpen: false, cudaOfferSeen: false, modelChosen: true })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('cuda slice', () => {
@@ -52,5 +57,53 @@ describe('cuda slice', () => {
 
     handlers.get(EVENTS.CUDA_DOWNLOAD_ERROR)?.({ payload: 'checksum mismatch' })
     expect(state().cudaError).toBe('checksum mismatch')
+  })
+
+  it('offers CUDA once, after a delay, and never again once shown', () => {
+    vi.useFakeTimers()
+    state().offerCuda()
+    expect(state().cudaOfferOpen).toBe(false)
+
+    vi.runAllTimers()
+    expect(state().cudaOfferOpen).toBe(true)
+
+    state().closeCudaOffer()
+    state().offerCuda()
+    vi.runAllTimers()
+    expect(state().cudaOfferOpen).toBe(false)
+  })
+
+  it('never offers CUDA again once it was installed, even after removal', async () => {
+    vi.useFakeTimers()
+    mockInvoke.mockResolvedValueOnce({ ...absent, pack: 'installed' })
+    await state().refreshCuda()
+
+    // Removed from About: the pack is absent again, but the offer stays retired.
+    useAppStore.setState({ cuda: absent })
+    state().offerCuda()
+    vi.runAllTimers()
+    expect(state().cudaOfferOpen).toBe(false)
+  })
+
+  it('does not offer CUDA before a model is chosen or where it cannot run', () => {
+    vi.useFakeTimers()
+    useAppStore.setState({ modelChosen: false })
+    state().offerCuda()
+    vi.runAllTimers()
+    expect(state().cudaOfferOpen).toBe(false)
+
+    useAppStore.setState({ modelChosen: true, cuda: { ...absent, supported: false } })
+    state().offerCuda()
+    vi.runAllTimers()
+    expect(state().cudaOfferOpen).toBe(false)
+  })
+
+  it('does not offer CUDA while it is already downloading', () => {
+    // Started from About before the timer fired: the offer would be redundant.
+    vi.useFakeTimers()
+    state().offerCuda()
+    useAppStore.setState({ cuda: { ...absent, downloadProgress: 10 } })
+    vi.runAllTimers()
+    expect(state().cudaOfferOpen).toBe(false)
   })
 })

@@ -1,5 +1,6 @@
 {
-  "$comment": "Model catalog. Adding a model = adding an entry here; no Rust changes needed. `pipelines` lists every path a model supports (a model may support both); `default_pipeline` is the one used unless the user overrides it. Sizes are exact download sizes in bytes.",
+  "$comment": "Model catalog. Adding a model = adding an entry here; no Rust changes needed. `pipelines` lists every path a model supports (a model may support both); `default_pipeline` is the one used unless the user overrides it. Sizes are exact download sizes in bytes. `languages` are the codes the model accepts, copied from its GGUF `general.languages`; `language_names` names every one of them (by primary subtag).",
+  "language_names": {"af": "Afrikaans", "am": "Amharic", "ar": "Arabic", "as": "Assamese", "az": "Azerbaijani", "ba": "Bashkir", "be": "Belarusian", "bg": "Bulgarian", "bn": "Bengali", "bo": "Tibetan", "br": "Breton", "bs": "Bosnian", "ca": "Catalan", "cs": "Czech", "cy": "Welsh", "da": "Danish", "de": "German", "el": "Greek", "en": "English", "es": "Spanish", "et": "Estonian", "eu": "Basque", "fa": "Persian", "fi": "Finnish", "fil": "Filipino", "fo": "Faroese", "fr": "French", "gl": "Galician", "gu": "Gujarati", "ha": "Hausa", "haw": "Hawaiian", "he": "Hebrew", "hi": "Hindi", "hr": "Croatian", "ht": "Haitian Creole", "hu": "Hungarian", "hy": "Armenian", "id": "Indonesian", "is": "Icelandic", "it": "Italian", "ja": "Japanese", "jw": "Javanese", "ka": "Georgian", "kk": "Kazakh", "km": "Khmer", "kn": "Kannada", "ko": "Korean", "la": "Latin", "lb": "Luxembourgish", "ln": "Lingala", "lo": "Lao", "lt": "Lithuanian", "lv": "Latvian", "mg": "Malagasy", "mi": "Maori", "mk": "Macedonian", "ml": "Malayalam", "mn": "Mongolian", "mr": "Marathi", "ms": "Malay", "mt": "Maltese", "my": "Burmese", "nb": "Norwegian Bokmål", "ne": "Nepali", "nl": "Dutch", "nn": "Norwegian Nynorsk", "no": "Norwegian", "oc": "Occitan", "pa": "Punjabi", "pl": "Polish", "ps": "Pashto", "pt": "Portuguese", "ro": "Romanian", "ru": "Russian", "sa": "Sanskrit", "sd": "Sindhi", "si": "Sinhala", "sk": "Slovak", "sl": "Slovenian", "sn": "Shona", "so": "Somali", "sq": "Albanian", "sr": "Serbian", "su": "Sundanese", "sv": "Swedish", "sw": "Swahili", "ta": "Tamil", "te": "Telugu", "tg": "Tajik", "th": "Thai", "tk": "Turkmen", "tl": "Tagalog", "tr": "Turkish", "tt": "Tatar", "uk": "Ukrainian", "ur": "Urdu", "uz": "Uzbek", "vi": "Vietnamese", "yi": "Yiddish", "yo": "Yoruba", "yue": "Cantonese", "zh": "Chinese"},
   "models": [
     {
       "id": "whisper-tiny",
@@ -13,6 +14,7 @@
       "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/whisper-tiny.en-Q5_K_M.gguf",
       "size_bytes": 44135072,
       "multilingual": false,
+      "languages": ["en"],
       "tier": 10,
       "description": "Fastest, lowest accuracy",
       "detail": "Ultra-lightweight model for very low-end hardware. Best when speed matters more than accuracy."
@@ -29,6 +31,7 @@
       "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/whisper-base.en-Q5_K_M.gguf",
       "size_bytes": 63709472,
       "multilingual": false,
+      "languages": ["en"],
       "tier": 20,
       "description": "Fast, basic accuracy",
       "detail": "Lightweight model for low-end hardware. Good for simple dictation where speed is preferred."
@@ -45,6 +48,7 @@
       "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/moonshine-streaming-small-Q8_0.gguf",
       "size_bytes": 198506848,
       "multilingual": false,
+      "languages": ["en"],
       "tier": 25,
       "description": "Streaming, lightweight",
       "detail": "Compact streaming model. Low memory use with responsive partial results."
@@ -61,6 +65,7 @@
       "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/canary-180m-flash-Q8_0.gguf",
       "size_bytes": 218447552,
       "multilingual": true,
+      "languages": ["en", "de", "es", "fr"],
       "tier": 26,
       "description": "Fast, multilingual",
       "detail": "NVIDIA NeMo Canary Flash. Fast multilingual transcription with punctuation."
@@ -77,6 +82,7 @@
       "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/whisper-small.en-Q5_K_M.gguf",
       "size_bytes": 193672256,
       "multilingual": false,
+      "languages": ["en"],
       "tier": 30,
       "description": "Standard, lower accuracy",
       "detail": "Best for low-end CPUs or machines with less than 2 GB VRAM. Good balance of speed and quality."
@@ -93,6 +99,7 @@
       "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/whisper-medium.en-Q5_K_M.gguf",
       "size_bytes": 582669056,
       "multilingual": false,
+      "languages": ["en"],
       "tier": 40,
       "description": "Balanced performance",
       "detail": "Great for most machines. Works well on integrated GPUs and CPUs with 6+ GB RAM."
@@ -109,6 +116,7 @@
       "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/Qwen3-ASR-0.6B-Q5_K_M.gguf",
       "size_bytes": 645356192,
       "multilingual": true,
+      "languages": ["zh", "en", "yue", "ar", "de", "fr", "es", "pt", "id", "it", "ko", "ru", "th", "vi", "ja", "tr", "hi", "ms", "nl", "sv", "da", "fi", "pl", "cs", "fil", "fa", "el", "ro", "hu", "mk"],
       "tier": 44,
       "description": "Multilingual, accurate",
       "detail": "Qwen3 speech recognition. Strong multilingual accuracy at a modest size."
@@ -125,6 +133,7 @@
       "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/parakeet-tdt-0.6b-v3-Q8_0.gguf",
       "size_bytes": 739508576,
       "multilingual": true,
+      "languages": ["bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "ru", "sk", "sl", "es", "sv", "uk"],
       "tier": 45,
       "description": "Multilingual, very fast",
       "detail": "NVIDIA NeMo Parakeet TDT v3. Offline multilingual transcription with excellent speed."
@@ -141,6 +150,7 @@
       "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf",
       "size_bytes": 751094240,
       "multilingual": true,
+      "languages": ["en-US", "en-GB", "es-US", "es-ES", "fr-FR", "fr-CA", "it-IT", "pt-BR", "pt-PT", "nl-NL", "de-DE", "tr-TR", "ru-RU", "ar-AR", "hi-IN", "ja-JP", "ko-KR", "vi-VN", "uk-UA", "pl-PL", "sv-SE", "cs-CZ", "nb-NO", "da-DK", "bg-BG", "fi-FI", "hr-HR", "sk-SK", "zh-CN", "hu-HU", "ro-RO", "et-EE"],
       "tier": 46,
       "description": "Streaming, high accuracy",
       "detail": "NVIDIA Nemotron 3.5 streaming ASR. Purpose-built for realtime dictation."
@@ -158,6 +168,7 @@
       "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/parakeet-unified-en-0.6b-Q8_0.gguf",
       "size_bytes": 731357568,
       "multilingual": false,
+      "languages": ["en"],
       "tier": 47,
       "description": "Streaming or offline, English",
       "detail": "NVIDIA NeMo Parakeet with buffered streaming. Runs live or offline; English only."
@@ -174,6 +185,7 @@
       "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/whisper-large-v3-turbo-Q8_0.gguf",
       "size_bytes": 886381760,
       "multilingual": true,
+      "languages": ["af", "am", "ar", "as", "az", "ba", "be", "bg", "bn", "bo", "br", "bs", "ca", "cs", "cy", "da", "de", "el", "en", "es", "et", "eu", "fa", "fi", "fo", "fr", "gl", "gu", "haw", "ha", "he", "hi", "hr", "ht", "hu", "hy", "id", "is", "it", "ja", "jw", "ka", "kk", "km", "kn", "ko", "la", "lb", "ln", "lo", "lt", "lv", "mg", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my", "ne", "nl", "nn", "no", "oc", "pa", "pl", "ps", "pt", "ro", "ru", "sa", "sd", "si", "sk", "sl", "sn", "so", "sq", "sr", "su", "sv", "sw", "ta", "te", "tg", "th", "tk", "tl", "tr", "tt", "uk", "ur", "uz", "vi", "yi", "yo", "yue", "zh"],
       "tier": 50,
       "description": "Highest accuracy, fast",
       "detail": "Recommended for GPUs with 4+ GB VRAM or systems with 12+ GB RAM. Highest transcription quality."
@@ -190,6 +202,7 @@
       "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/whisper-large-v3-Q8_0.gguf",
       "size_bytes": 1668741440,
       "multilingual": true,
+      "languages": ["af", "am", "ar", "as", "az", "ba", "be", "bg", "bn", "bo", "br", "bs", "ca", "cs", "cy", "da", "de", "el", "en", "es", "et", "eu", "fa", "fi", "fo", "fr", "gl", "gu", "haw", "ha", "he", "hi", "hr", "ht", "hu", "hy", "id", "is", "it", "ja", "jw", "ka", "kk", "km", "kn", "ko", "la", "lb", "ln", "lo", "lt", "lv", "mg", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my", "ne", "nl", "nn", "no", "oc", "pa", "pl", "ps", "pt", "ro", "ru", "sa", "sd", "si", "sk", "sl", "sn", "so", "sq", "sr", "su", "sv", "sw", "ta", "te", "tg", "th", "tk", "tl", "tr", "tt", "uk", "ur", "uz", "vi", "yi", "yo", "yue", "zh"],
       "tier": 60,
       "description": "Maximum accuracy",
       "detail": "Full multilingual Large v3. Requires 6+ GB VRAM. Slower than Turbo but marginally more accurate."

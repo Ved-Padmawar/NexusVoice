@@ -56,6 +56,7 @@ describe('persist — partialize', () => {
     expect(Object.keys(persisted()).sort()).toEqual([
       'activeRoute',
       'activeSettingsTab',
+      'cudaOfferSeen',
       'liveTranscript',
       'modelChosen',
       'pillTheme',

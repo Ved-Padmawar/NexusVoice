@@ -237,10 +237,8 @@ pub struct AppState {
     /// Serializes engine construction so two callers racing an empty cache
     /// build only one engine.
     engine_load: Arc<Mutex<()>>,
-    /// Languages the loaded model advertises, copied out at load — the engine
+    /// Backend the loaded model bound to, copied out at load — the engine
     /// mutex is held for a whole streaming recording.
-    engine_languages: std::sync::RwLock<Vec<String>>,
-    /// Backend the loaded model bound to, copied out for the same reason.
     engine_backend: std::sync::RwLock<Option<String>>,
     /// Streaming transcription state for the recording in progress. Created on
     /// start, advanced by the stream worker, consumed (taken) by finalize.
@@ -307,7 +305,6 @@ impl AppState {
             models_dir,
             engine: Arc::new(Mutex::new(None)),
             engine_load: Arc::new(Mutex::new(())),
-            engine_languages: std::sync::RwLock::new(Vec::new()),
             engine_backend: std::sync::RwLock::new(None),
             stream_session: Arc::new(std::sync::Mutex::new(None)),
             streamed_text: Arc::new(std::sync::Mutex::new(None)),
@@ -375,39 +372,19 @@ impl AppState {
         .await
         .map_err(|e| format!("engine load task failed: {e}"))??;
 
-        let languages = engine.languages().to_vec();
-        self.reset_language_if_unsupported(&languages, saved.as_deref());
+        self.reset_language_if_unsupported(engine.languages(), saved.as_deref());
         *self
             .engine_backend
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(engine.backend());
         let arc = Arc::new(std::sync::Mutex::new(engine));
-        let mut cache = self.engine.lock().await;
-        *self
-            .engine_languages
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = languages;
-        *cache = Some(Arc::clone(&arc));
+        *self.engine.lock().await = Some(Arc::clone(&arc));
         Ok(arc)
     }
 
     /// Drop the cached engine, e.g. when the model changes.
     pub async fn evict_engine(&self) {
-        let mut cache = self.engine.lock().await;
-        self.engine_languages
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clear();
-        *cache = None;
-    }
-
-    /// `None` when no model is loaded or it advertises none.
-    pub fn engine_languages(&self) -> Option<Vec<String>> {
-        let languages = self
-            .engine_languages
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        (!languages.is_empty()).then(|| languages.clone())
+        *self.engine.lock().await = None;
     }
 
     /// Backend the last loaded model bound to; `None` before the first load.

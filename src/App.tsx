@@ -97,6 +97,12 @@ function App() {
     return () => { cleanup.then(fn => fn()).catch(() => {}) }
   }, [])
 
+  // Not tied to setup: new installs see it once the picker closes, upgrades on launch.
+  const cudaKnown = useAppStore(s => s.cuda !== null)
+  useEffect(() => {
+    if (!starting && modelChosen && cudaKnown) useAppStore.getState().offerCuda()
+  }, [starting, modelChosen, cudaKnown])
+
   useEffect(() => {
     const t = setTimeout(() => {
       useAppStore.getState().checkForUpdate().catch(() => {})

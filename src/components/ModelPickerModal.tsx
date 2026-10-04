@@ -17,7 +17,6 @@ export function ModelPickerModal() {
   const refreshModelInfo = useAppStore(s => s.refreshModelInfo)
   const catalog = useAppStore(s => s.catalog)
   const refreshCatalog = useAppStore(s => s.refreshCatalog)
-  const offerCuda = useAppStore(s => s.offerCuda)
 
   const [profile, setProfile] = useState<HardwareProfile | null>(null)
   const [selected, setSelected] = useState<ModelId | null>(null)
@@ -63,7 +62,6 @@ export function ModelPickerModal() {
       // Already on disk (picked a previously-downloaded model): skip the download step.
       if (useAppStore.getState().activeModelDownloaded) {
         setModelChosen(true)
-        offerCuda()
         return
       }
       void startDownload(selected)
@@ -76,11 +74,8 @@ export function ModelPickerModal() {
   // The entry is removed when the download finishes, which is the close signal.
   const download = selected ? downloads[selected] : undefined
   useEffect(() => {
-    if (confirmed && !download) {
-      setModelChosen(true)
-      offerCuda()
-    }
-  }, [confirmed, download, setModelChosen, offerCuda])
+    if (confirmed && !download) setModelChosen(true)
+  }, [confirmed, download, setModelChosen])
 
   const recommended = profile ? modelNameToId(profile.recommendedModel, catalog) : null
   const selectedModel = catalog.find(m => m.id === selected) ?? null

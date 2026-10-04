@@ -233,14 +233,8 @@ pub async fn get_language_options(
         });
     }
 
-    // Before the engine loads, or for a model advertising none, the table
-    // stands in — the engine drops anything the model won't take.
-    let advertised: Vec<String> = state.engine_languages().unwrap_or_else(|| {
-        language::LANGUAGES
-            .iter()
-            .map(|l| l.code.to_string())
-            .collect()
-    });
+    // From the catalog, so the list is complete whether or not a model has loaded.
+    let advertised = &model.languages;
 
     let saved = state.load_language();
     let active = language::resolve(saved.as_deref());
@@ -292,24 +286,14 @@ pub async fn set_language(
     code: Option<String>,
 ) -> Result<(), ApiError> {
     use crate::inference::language;
+    use crate::inference::provider::{detect_backend, select_model};
 
-    // The loaded model is the authority; with none loaded the table stands in
-    // and the engine re-checks at load.
-    let advertised = state.engine_languages();
-
+    let model = select_model(detect_backend(), state.load_model_override().as_deref());
     let saved = match code.as_deref() {
         None => None,
         Some(c) if c == language::AUTO => Some(c),
-        Some(c) => {
-            let known = advertised.map_or_else(
-                || language::is_supported(c),
-                |list| list.iter().any(|l| l == c),
-            );
-            if !known {
-                return Err(ApiError::new("invalid_language", "unsupported language"));
-            }
-            Some(c)
-        }
+        Some(c) if model.languages.iter().any(|l| l == c) => Some(c),
+        Some(_) => return Err(ApiError::new("invalid_language", "unsupported language")),
     };
 
     state

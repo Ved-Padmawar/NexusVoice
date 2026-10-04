@@ -3,6 +3,7 @@
 //! Entries live in `models.json`, baked in at compile time. Adding a model is a
 //! JSON edit; only the metadata ships, models download on demand.
 
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
@@ -41,6 +42,8 @@ pub struct ModelEntry {
     pub url: String,
     pub size_bytes: u64,
     pub multilingual: bool,
+    /// Codes the model accepts, copied from its GGUF `general.languages`.
+    pub languages: Vec<String>,
     /// Capability ordering, ascending. Drives fallback and recommendation.
     pub tier: u32,
     pub description: String,
@@ -56,17 +59,17 @@ impl ModelEntry {
 
 #[derive(Debug, Deserialize)]
 struct Catalog {
+    /// Display name per primary language subtag, shared by every model.
+    language_names: HashMap<String, String>,
     models: Vec<ModelEntry>,
 }
 
-static CATALOG: OnceLock<Vec<ModelEntry>> = OnceLock::new();
+static CATALOG: OnceLock<Catalog> = OnceLock::new();
 
-/// Every model in the catalog, ascending by [`ModelEntry::tier`].
-///
 /// # Panics
 /// Panics if `models.json` is malformed — it is compiled in, so that is an
 /// authoring error, not a runtime condition a caller could handle.
-pub fn all() -> &'static [ModelEntry] {
+fn catalog() -> &'static Catalog {
     CATALOG.get_or_init(|| {
         let raw = include_str!("models.json");
         let mut catalog: Catalog =
@@ -80,8 +83,18 @@ pub fn all() -> &'static [ModelEntry] {
             );
         }
         catalog.models.sort_by_key(|m| m.tier);
-        catalog.models
+        catalog
     })
+}
+
+/// Every model in the catalog, ascending by [`ModelEntry::tier`].
+pub fn all() -> &'static [ModelEntry] {
+    &catalog().models
+}
+
+/// Display name for a primary language subtag, e.g. `te` → `Telugu`.
+pub fn language_name(primary: &str) -> Option<&'static str> {
+    catalog().language_names.get(primary).map(String::as_str)
 }
 
 /// Look up an entry by its stable id.
