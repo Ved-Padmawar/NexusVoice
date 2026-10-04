@@ -43,6 +43,12 @@ export const COMMANDS = {
   GET_DOWNLOADED_MODELS:   'get_downloaded_models',
   DELETE_MODEL:            'delete_model',
 
+  // CUDA pack (on-demand NVIDIA backend)
+  GET_CUDA_STATUS:         'get_cuda_status',
+  START_CUDA_DOWNLOAD:     'start_cuda_download',
+  CANCEL_CUDA_DOWNLOAD:    'cancel_cuda_download',
+  REMOVE_CUDA_PACK:        'remove_cuda_pack',
+
   // Formatting LLM (OpenAI-compatible HTTP endpoint)
   GET_FORMAT_CONFIG:       'get_format_config',
   SET_FORMAT_CONFIG:       'set_format_config',

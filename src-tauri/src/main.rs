@@ -96,6 +96,10 @@ fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
         commands::get_model_catalog,
         commands::get_downloaded_models,
         commands::delete_model,
+        commands::get_cuda_status,
+        commands::start_cuda_download,
+        commands::cancel_cuda_download,
+        commands::remove_cuda_pack,
         commands::get_format_config,
         commands::set_format_config,
         commands::test_format_connection,
@@ -106,14 +110,21 @@ fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
     ])
 }
 
-#[allow(clippy::too_many_lines)] // Tauri setup is inherently long — splitting adds no clarity
-fn main() {
-    // Route transcribe.cpp/GGML's verbose stderr output through `log` so our
-    // level filter controls it instead of it flooding stdout. Safe to call once.
-    transcribe_cpp::init_logging();
+/// Write `src/bindings.ts`; debug launches and the test suite both regenerate it.
+#[cfg(any(debug_assertions, test))]
+fn export_bindings(builder: &tauri_specta::Builder<tauri::Wry>) {
+    builder
+        .export(
+            specta_typescript::Typescript::default()
+                .bigint(specta_typescript::BigIntExportBehavior::Number),
+            "../src/bindings.ts",
+        )
+        .expect("failed to export typescript bindings");
+}
 
-    // Register the compute backend modules shipped beside the executable.
-    // Without this no devices register and every decode falls back to CPU.
+/// Register compute backends before any model loads, the CUDA pack first so ggml prefers it.
+fn init_compute_backends(app_data_dir: &std::path::Path) {
+    inference::cuda::activate(app_data_dir);
     match transcribe_cpp::init_backends_default() {
         Ok(()) => {
             let devices = transcribe_cpp::devices();
@@ -129,6 +140,13 @@ fn main() {
         }
         Err(e) => log::warn!("transcribe.cpp backend init failed: {e}"),
     }
+}
+
+#[allow(clippy::too_many_lines)] // Tauri setup is inherently long — splitting adds no clarity
+fn main() {
+    // Route transcribe.cpp/GGML's verbose stderr output through `log` so our
+    // level filter controls it instead of it flooding stdout. Safe to call once.
+    transcribe_cpp::init_logging();
 
     // Panic hook — writes panic info to log before crashing. Debug only; release
     // unwinds so `catch_unwind` on the recording path can recover instead.
@@ -166,13 +184,7 @@ fn main() {
 
     // Debug only: regenerate the TS bindings. Release builds ship the committed file.
     #[cfg(debug_assertions)]
-    specta_builder
-        .export(
-            specta_typescript::Typescript::default()
-                .bigint(specta_typescript::BigIntExportBehavior::Number),
-            "../src/bindings.ts",
-        )
-        .expect("failed to export typescript bindings");
+    export_bindings(&specta_builder);
 
     tauri::Builder::default()
         .on_window_event(|window, event| {
@@ -236,6 +248,7 @@ fn main() {
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
             std::fs::create_dir_all(&app_data_dir)?;
+            init_compute_backends(&app_data_dir);
 
             let hotkeys_path = app_data_dir.join("hotkeys.json");
             let model_override_path = app_data_dir.join("model_override");
@@ -492,3 +505,7 @@ fn main() {
             }
         });
 }
+
+#[cfg(test)]
+#[path = "../tests/unit/bindings.rs"]
+mod bindings_tests;

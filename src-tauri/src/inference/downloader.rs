@@ -1,4 +1,4 @@
-//! Model file download: resumable, retried, cancellable.
+//! File download for models and the CUDA pack: resumable, retried, cancellable.
 //!
 //! Runs on the async runtime and races each chunk against a `CancellationToken`,
 //! so a cancel interrupts immediately. Bytes land in a `.part` file next to the
@@ -51,6 +51,22 @@ pub async fn download_model(
         return Ok(());
     }
 
+    let id = entry.id.as_str();
+    download_file(&entry.url, &dest, &cancel, |pct| {
+        downloads.set_progress(id, pct);
+        let _ = app.emit("model-download-progress", DownloadProgress { id, pct });
+    })
+    .await
+}
+
+/// Download `url` to `dest`, calling `on_progress` with each new percentage.
+/// Returns `Err(CANCELLED)` on cancel.
+pub async fn download_file(
+    url: &str,
+    dest: &Path,
+    cancel: &CancellationToken,
+    mut on_progress: impl FnMut(u8),
+) -> Result<(), String> {
     let part = dest.with_extension("part");
 
     for attempt in 1..=MAX_ATTEMPTS {
@@ -58,7 +74,7 @@ pub async fn download_model(
             return Err(CANCELLED.to_string());
         }
 
-        match transfer(&entry.id, &entry.url, &part, app, downloads, &cancel).await {
+        match transfer(url, &part, cancel, &mut on_progress).await {
             Ok(()) => break,
             // Keep the .part file: the bytes let a later attempt resume, and
             // startup sweeps whatever is left behind.
@@ -82,19 +98,17 @@ pub async fn download_model(
         return Err(CANCELLED.to_string());
     }
 
-    tokio::fs::rename(&part, &dest)
+    tokio::fs::rename(&part, dest)
         .await
         .map_err(|e| format!("rename file failed: {e}"))
 }
 
 /// Stream `url` into `part`, resuming from whatever is already there.
 async fn transfer(
-    id: &str,
     url: &str,
     part: &Path,
-    app: &AppHandle,
-    downloads: &Downloads,
     cancel: &CancellationToken,
+    on_progress: &mut impl FnMut(u8),
 ) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
@@ -161,8 +175,7 @@ async fn transfer(
         let pct = pct_of(written, total);
         if pct != last_pct {
             last_pct = pct;
-            downloads.set_progress(id, pct);
-            let _ = app.emit("model-download-progress", DownloadProgress { id, pct });
+            on_progress(pct);
         }
     }
 

@@ -323,6 +323,34 @@ async deleteModel(variant: string) : Promise<Result<null, ApiError>> {
     else return { status: "error", error: e  as any };
 }
 },
+async getCudaStatus() : Promise<CudaStatus> {
+    return await TAURI_INVOKE("get_cuda_status");
+},
+/**
+ * Fetch the CUDA pack in the background, reported through `cuda-download-*` events.
+ */
+async startCudaDownload() : Promise<Result<null, ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("start_cuda_download") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cancelCudaDownload() : Promise<void> {
+    await TAURI_INVOKE("cancel_cuda_download");
+},
+/**
+ * Remove the pack; one in use is deleted at the next start.
+ */
+async removeCudaPack() : Promise<Result<null, ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("remove_cuda_pack") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getFormatConfig() : Promise<Result<FormatConfig, ApiError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_format_config") };
@@ -413,6 +441,15 @@ export type CatalogModel = { id: string; displayName: string; family: string;
  * Every decode path this model supports (`streaming`, `single-shot`).
  */
 pipelines: string[]; defaultPipeline: string; sizeBytes: number; multilingual: boolean; description: string; detail: string; downloaded: boolean; isActive: boolean }
+export type CudaStatus = { 
+/**
+ * An NVIDIA GPU on a platform the pack is built for; CUDA is hidden otherwise.
+ */
+supported: boolean; pack: PackState; 
+/**
+ * Percent of the running download; `None` when idle.
+ */
+downloadProgress: number | null }
 export type DictionaryResponse = { id: number; term: string; replacement: string; hits: number; createdAt: string }
 export type DownloadedModel = { variant: string; displayName: string; sizeBytes: number; isActive: boolean }
 /**
@@ -431,7 +468,11 @@ provider?: string;
  * Endpoint details per provider id.
  */
 profiles?: Partial<{ [key in string]: Profile }> }
-export type HardwareProfileResponse = { gpuName: string; executionProvider: string; vramGb: number; ramGb: number; recommendedModel: string }
+export type HardwareProfileResponse = { gpuName: string; 
+/**
+ * Backend in use: the loaded model's, else the one it is expected to get.
+ */
+executionProvider: string; vramGb: number; ramGb: number; recommendedModel: string }
 export type InjectionStatus = { 
 /**
  * `true` where injection needs external tools the user must install.
@@ -466,6 +507,19 @@ supported: boolean;
  */
 options: LanguageOption[] }
 export type ModelInfoResponse = { downloaded: boolean; downloading: boolean; modelName: string }
+export type PackState = "absent" | 
+/**
+ * Usable by this build; loaded unless the driver is missing or too old.
+ */
+"installed" | 
+/**
+ * Downloaded; applied at the next start.
+ */
+"pendingInstall" | 
+/**
+ * Removed while loaded; deleted at the next start.
+ */
+"pendingRemoval"
 /**
  * Pagination, cursor and filter args shared by the transcript list and search.
  */

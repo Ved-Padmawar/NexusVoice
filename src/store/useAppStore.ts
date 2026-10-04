@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { createAppSlice, type AppSlice } from './appSlice'
+import { createCudaSlice, type CudaSlice } from './cudaSlice'
 import { createModelSlice, type ModelSlice } from './modelSlice'
 import { createUiSlice, type UiSlice } from './uiSlice'
 import { createUpdateSlice, type UpdateSlice } from './updateSlice'
@@ -16,7 +17,7 @@ export type ThemeName =
   | 'breeze'
   | 'blossom'
 
-export type AppState = AppSlice & ModelSlice & UiSlice & UpdateSlice
+export type AppState = AppSlice & ModelSlice & UiSlice & UpdateSlice & CudaSlice
 
 export type { PillTheme } from './uiSlice'
 
@@ -27,6 +28,7 @@ export const useAppStore = create<AppState>()(
       ...createModelSlice(...args),
       ...createUiSlice(...args),
       ...createUpdateSlice(...args),
+      ...createCudaSlice(...args),
     }),
     {
       name: STORE_PERSIST_KEY,

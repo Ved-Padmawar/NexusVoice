@@ -50,13 +50,16 @@ function RouteFallback() {
 }
 
 // Shown once, on first run. Eager, it put its whole tree on every startup.
+// Opens only after first-run setup, so it loads on demand like the picker.
+const CudaOfferModal = lazy(() => import('./components/CudaOfferModal').then(m => ({ default: m.CudaOfferModal })))
 const ModelPickerModal = lazy(() => import('./components/ModelPickerModal').then(m => ({ default: m.ModelPickerModal })))
 
 function App() {
-  const { theme, starting, modelChosen, startup, listenForModelEvents } = useAppStore(useShallow(s => ({
+  const { theme, starting, modelChosen, cudaOfferOpen, startup, listenForModelEvents } = useAppStore(useShallow(s => ({
     theme: s.theme,
     starting: s.starting,
     modelChosen: s.modelChosen,
+    cudaOfferOpen: s.cudaOfferOpen,
     startup: s.startup,
     listenForModelEvents: s.listenForModelEvents,
   })))
@@ -90,6 +93,11 @@ function App() {
   }, [listenForModelEvents])
 
   useEffect(() => {
+    const cleanup = useAppStore.getState().listenForCudaEvents()
+    return () => { cleanup.then(fn => fn()).catch(() => {}) }
+  }, [])
+
+  useEffect(() => {
     const t = setTimeout(() => {
       useAppStore.getState().checkForUpdate().catch(() => {})
     }, 3000)
@@ -119,6 +127,11 @@ function App() {
       <BrowserRouter>
         <AppRoutes initialRoute={initialRoute} />
         {/* No fallback: nothing should flash on screen while the chunk loads. */}
+        {cudaOfferOpen && (
+          <Suspense fallback={null}>
+            <CudaOfferModal />
+          </Suspense>
+        )}
         {!modelChosen && (
           <Suspense fallback={null}>
             <ModelPickerModal />

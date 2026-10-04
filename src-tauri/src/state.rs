@@ -240,6 +240,8 @@ pub struct AppState {
     /// Languages the loaded model advertises, copied out at load — the engine
     /// mutex is held for a whole streaming recording.
     engine_languages: std::sync::RwLock<Vec<String>>,
+    /// Backend the loaded model bound to, copied out for the same reason.
+    engine_backend: std::sync::RwLock<Option<String>>,
     /// Streaming transcription state for the recording in progress. Created on
     /// start, advanced by the stream worker, consumed (taken) by finalize.
     pub stream_session: Arc<std::sync::Mutex<Option<crate::transcribe::StreamingSession>>>,
@@ -249,6 +251,7 @@ pub struct AppState {
     /// App that had focus when this recording started. Consumed by finalize.
     pub focus_target: Arc<std::sync::Mutex<Option<crate::focus::FocusTarget>>>,
     pub downloads: Arc<Downloads>,
+    pub cuda_download: Arc<crate::inference::cuda::CudaDownload>,
     /// In-memory dictionary cache — loaded at startup, mutated on add/delete.
     pub dict_cache: DictCache,
     /// Signalled when the streaming-native worker finalizes. It owns its
@@ -305,10 +308,12 @@ impl AppState {
             engine: Arc::new(Mutex::new(None)),
             engine_load: Arc::new(Mutex::new(())),
             engine_languages: std::sync::RwLock::new(Vec::new()),
+            engine_backend: std::sync::RwLock::new(None),
             stream_session: Arc::new(std::sync::Mutex::new(None)),
             streamed_text: Arc::new(std::sync::Mutex::new(None)),
             focus_target: Arc::new(std::sync::Mutex::new(None)),
             downloads: Arc::new(Downloads::new()),
+            cuda_download: Arc::default(),
             dict_cache: Arc::new(RwLock::new(HashMap::new())),
             stream_done: Arc::new((std::sync::Mutex::new(false), Condvar::new())),
             mic,
@@ -372,6 +377,10 @@ impl AppState {
 
         let languages = engine.languages().to_vec();
         self.reset_language_if_unsupported(&languages, saved.as_deref());
+        *self
+            .engine_backend
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(engine.backend());
         let arc = Arc::new(std::sync::Mutex::new(engine));
         let mut cache = self.engine.lock().await;
         *self
@@ -399,6 +408,14 @@ impl AppState {
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         (!languages.is_empty()).then(|| languages.clone())
+    }
+
+    /// Backend the last loaded model bound to; `None` before the first load.
+    pub fn engine_backend(&self) -> Option<String> {
+        self.engine_backend
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Otherwise every decode silently falls back to English and the picker

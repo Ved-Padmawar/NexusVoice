@@ -4,6 +4,7 @@
 //! Thin `#[tauri::command]` endpoints, grouped by domain. Business logic lives
 //! in service modules; shared response/error types in `dto` and `error`.
 
+mod cuda;
 mod data;
 pub(crate) mod dto;
 mod error;
@@ -19,6 +20,7 @@ mod window;
 #[allow(unused_imports)] // public surface — commands return this type
 pub use error::ApiError;
 
+pub use cuda::*;
 pub use data::*;
 pub use hotkey::*;
 pub use injection::*;

@@ -1,4 +1,5 @@
 pub mod catalog;
+pub mod cuda;
 pub mod downloader;
 pub mod engine;
 pub mod language;
