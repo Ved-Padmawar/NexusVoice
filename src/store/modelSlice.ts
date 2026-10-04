@@ -149,7 +149,7 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
       // Deleted the active model but another is on disk: backend switched to it.
       listen(EVENTS.MODEL_SWITCHED, () => { void get().refreshModelInfo() }),
       listen(EVENTS.LANGUAGE_RESET, () => {
-        toast.info('This model does not support your dictation language — switched to English.')
+        toast.info('This model does not support your dictation language. Switched to English.')
       }),
     ])
     return () => unlisteners.forEach(fn => fn())

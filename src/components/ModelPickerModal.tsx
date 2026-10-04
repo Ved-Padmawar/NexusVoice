@@ -17,6 +17,7 @@ export function ModelPickerModal() {
   const refreshModelInfo = useAppStore(s => s.refreshModelInfo)
   const catalog = useAppStore(s => s.catalog)
   const refreshCatalog = useAppStore(s => s.refreshCatalog)
+  const offerCuda = useAppStore(s => s.offerCuda)
 
   const [profile, setProfile] = useState<HardwareProfile | null>(null)
   const [selected, setSelected] = useState<ModelId | null>(null)
@@ -62,6 +63,7 @@ export function ModelPickerModal() {
       // Already on disk (picked a previously-downloaded model): skip the download step.
       if (useAppStore.getState().activeModelDownloaded) {
         setModelChosen(true)
+        offerCuda()
         return
       }
       void startDownload(selected)
@@ -74,8 +76,11 @@ export function ModelPickerModal() {
   // The entry is removed when the download finishes, which is the close signal.
   const download = selected ? downloads[selected] : undefined
   useEffect(() => {
-    if (confirmed && !download) setModelChosen(true)
-  }, [confirmed, download, setModelChosen])
+    if (confirmed && !download) {
+      setModelChosen(true)
+      offerCuda()
+    }
+  }, [confirmed, download, setModelChosen, offerCuda])
 
   const recommended = profile ? modelNameToId(profile.recommendedModel, catalog) : null
   const selectedModel = catalog.find(m => m.id === selected) ?? null
@@ -247,7 +252,7 @@ export function ModelPickerModal() {
                 animate={{ opacity: 1 }}
                 className="flex items-center justify-between gap-4"
               >
-                <p className={`text-[11px] m-0 min-w-0 truncate ${loadError ? 'text-(--danger)' : 'text-muted-foreground'}`}>
+                <p className={`text-[11px] m-0 min-w-0 truncate ${loadError ? 'text-destructive' : 'text-muted-foreground'}`}>
                   {loadError ??
                     (selectedModel
                       ? `${selectedModel.displayName} · ${formatModelSize(selectedModel.sizeBytes)} download`

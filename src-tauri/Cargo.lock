@@ -2979,7 +2979,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "nexusvoice"
-version = "1.16.7"
+version = "1.17.0"
 dependencies = [
  "ash",
  "ashpd",
@@ -2987,7 +2987,9 @@ dependencies = [
  "cpal",
  "earshot",
  "enigo",
+ "flate2",
  "futures-util",
+ "libloading 0.8.9",
  "log",
  "metal",
  "opener",
@@ -2998,6 +3000,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serial_test",
+ "sha2 0.10.9",
  "signal-hook",
  "specta",
  "specta-typescript",
@@ -4559,9 +4562,9 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "signal-hook"
-version = "0.4.4"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2a0c28ca5908dbdbcd52e6fdaa00358ab88637f8ab33e1f188dd510eb44b53d"
+checksum = "b29ffa27d3d59a049bb328258de100f8012848d1b08d444e08bbc02ac468435e"
 dependencies = [
  "libc",
  "signal-hook-registry",
@@ -5875,9 +5878,9 @@ dependencies = [
 
 [[package]]
 name = "transcribe-cpp"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5134e51fd0cd73fc024b8004c495d96ec1fa5d89c5e341482fd60d82483002a"
+checksum = "2f06368bb32251b5e93ceb8cae2d6ba9adff6a51693c7ce108449e65522b05c6"
 dependencies = [
  "log",
  "thiserror 2.0.21",
@@ -5886,9 +5889,9 @@ dependencies = [
 
 [[package]]
 name = "transcribe-cpp-sys"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98c3d32764dc7ae892274022d52d369e92e1e765e403e56daaa3fe8fdbe18443"
+checksum = "fedfadb42719d92e58a2c340ccfb6ef327ac1b846fc1d4716b65384a330513a6"
 dependencies = [
  "cmake",
  "serde_json",

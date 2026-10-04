@@ -264,6 +264,137 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # The CUDA pack the app downloads on NVIDIA GPUs, built from the locked transcribe-cpp.
+  cuda-pack:
+    name: CUDA pack (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, platform: windows-x86_64 }
+          - { os: ubuntu-22.04,   platform: linux-x86_64 }
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # CUDA 13 runs on NVIDIA driver 580+; older drivers fall back to Vulkan.
+      - name: Install CUDA toolkit (Windows)
+        if: runner.os == 'Windows'
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: "13.3.1"
+          method: network
+          sub-packages: '["nvcc", "crt", "nvvm", "cudart", "cublas", "cublas_dev", "thrust"]'
+
+      - name: Install CUDA toolkit (Linux)
+        if: runner.os == 'Linux'
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: "13.3.1"
+          method: network
+          sub-packages: '["nvcc", "crt", "cudart-dev", "cccl", "driver-dev"]'
+          non-cuda-sub-packages: '["libcublas", "libcublas-dev"]'
+
+      # nvcc needs cl.exe; Ninja avoids CUDA's Visual Studio integration.
+      - name: Set up MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build with Ninja (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "CMAKE_GENERATOR=Ninja" >> "$GITHUB_ENV"
+
+      - name: Write the CUDA build crate
+        shell: python
+        run: |
+          import os, pathlib, re
+
+          lock = pathlib.Path("src-tauri/Cargo.lock").read_text()
+          locked = lambda name: re.search(rf'name = "{name}"\nversion = "([^"]+)"', lock).group(1)
+          crate = pathlib.Path("cuda-build")
+          crate.mkdir()
+          (crate / "lib.rs").write_text("")
+          (crate / "Cargo.toml").write_text(f'''[package]
+          name = "cuda-build"
+          version = "0.0.0"
+          edition = "2021"
+          [lib]
+          path = "lib.rs"
+          [dependencies]
+          transcribe-cpp-sys = {{ version = "={locked("transcribe-cpp-sys")}", default-features = false, features = ["cuda", "dynamic-backends"] }}
+          ''')
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"ENGINE_VERSION={locked('transcribe-cpp')}\n")
+
+      # The runner's default shell: Git Bash would put its own link.exe ahead of MSVC's.
+      - name: Build the CUDA module
+        env:
+          # Consumer GPUs: RTX 20 / GTX 16, RTX 30, RTX 40, RTX 50.
+          TRANSCRIBE_CMAKE_ARGS: "-DCMAKE_CUDA_ARCHITECTURES=75;86;89;120"
+        run: cargo build --release --manifest-path cuda-build/Cargo.toml --target-dir cuda-build/target
+
+      - name: Package the CUDA pack
+        shell: python
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          import glob, gzip, hashlib, json, os, pathlib, re, shutil
+
+          platform = os.environ["PLATFORM"]
+          windows = platform.startswith("windows")
+          cuda = pathlib.Path(os.environ.get("CUDA_PATH", "/usr/local/cuda"))
+          lib_dirs = [cuda / "bin" / "x64", cuda / "bin"] if windows else [cuda / "lib64", cuda / "targets/x86_64-linux/lib"]
+
+          def runtime(stem):
+              # Windows: cudart64_13.dll. Linux: the SONAME, libcudart.so.13.
+              pattern = rf"^{stem}64_\d+\.dll$" if windows else rf"^lib{stem}\.so\.\d+$"
+              for d in lib_dirs:
+                  for name in sorted(os.listdir(d)) if d.is_dir() else []:
+                      if re.match(pattern, name):
+                          return d / name
+              raise SystemExit(f"{stem} not found under {lib_dirs}")
+
+          module_name = "ggml-cuda.dll" if windows else "libggml-cuda.so"
+          modules = sorted(
+              glob.glob(f"cuda-build/target/release/build/transcribe-cpp-sys-*/out/**/{module_name}", recursive=True),
+              key=len,
+          )
+          if not modules:
+              raise SystemExit(f"{module_name} was not built")
+
+          # Load order: the runtime first, the ggml module last.
+          sources = [runtime("cudart"), runtime("cublasLt"), runtime("cublas"), pathlib.Path(modules[0])]
+          out = pathlib.Path("cuda-pack")
+          out.mkdir()
+          files = []
+          for src in sources:
+              asset = f"cuda-{platform}-{src.name}.gz"
+              with open(src, "rb") as raw, gzip.open(out / asset, "wb", compresslevel=9) as packed:
+                  shutil.copyfileobj(raw, packed)
+              files.append({
+                  "name": src.name,
+                  "asset": asset,
+                  "sha256": hashlib.sha256(src.read_bytes()).hexdigest(),
+                  "size": (out / asset).stat().st_size,
+              })
+              print(f"{src.name}: {files[-1]['size'] // 1048576} MB packed")
+
+          manifest = {"engine": os.environ["ENGINE_VERSION"], "files": files}
+          (out / f"cuda-pack-{platform}.json").write_text(json.dumps(manifest, indent=2))
+
+      - name: Upload the CUDA pack
+        uses: softprops/action-gh-release@v3.0.3
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: cuda-pack/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   publish-update:
     name: Publish latest.json
     needs: build

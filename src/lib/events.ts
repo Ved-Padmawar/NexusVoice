@@ -10,6 +10,12 @@ export const EVENTS = {
   MODEL_SWITCHED:           'model-switched',
   LANGUAGE_RESET:           'language-reset',
 
+  // CUDA pack download
+  CUDA_DOWNLOAD_PROGRESS:   'cuda-download-progress',
+  CUDA_DOWNLOAD_COMPLETE:   'cuda-download-complete',
+  CUDA_DOWNLOAD_CANCELLED:  'cuda-download-cancelled',
+  CUDA_DOWNLOAD_ERROR:      'cuda-download-error',
+
   // Hotkey
   HOTKEY_PRESSED:  'hotkey-pressed',
   HOTKEY_RELEASED: 'hotkey-released',

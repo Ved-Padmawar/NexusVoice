@@ -338,6 +338,7 @@ pub async fn set_language(
 #[serde(rename_all = "camelCase")]
 pub struct HardwareProfileResponse {
     pub gpu_name: String,
+    /// Backend in use: the loaded model's, else the one it is expected to get.
     pub execution_provider: String,
     pub vram_gb: f32,
     pub ram_gb: f32,
@@ -346,15 +347,25 @@ pub struct HardwareProfileResponse {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn get_hardware_profile() -> Result<HardwareProfileResponse, ApiError> {
-    use crate::inference::provider::recommend_model;
+pub async fn get_hardware_profile(
+    state: State<'_, AppState>,
+) -> Result<HardwareProfileResponse, ApiError> {
+    use crate::inference::{cuda, provider::recommend_model};
 
     let hw = crate::hardware::cached_profile();
     let recommended = recommend_model();
+    // Before a model loads, NVIDIA runs on Vulkan unless a CUDA device registered.
+    let execution_provider =
+        state
+            .engine_backend()
+            .unwrap_or_else(|| match hw.execution_provider.as_str() {
+                "cuda" if !cuda::registered() => "vulkan".to_string(),
+                other => other.to_string(),
+            });
 
     Ok(HardwareProfileResponse {
         gpu_name: hw.gpu_type.clone(),
-        execution_provider: hw.execution_provider.clone(),
+        execution_provider,
         vram_gb: hw.vram_gb,
         ram_gb: hw.ram_gb,
         recommended_model: recommended.display_name.clone(),

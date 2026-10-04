@@ -143,6 +143,14 @@ impl TranscriptionEngine {
         resolved
     }
 
+    /// Backend the model bound to: "cuda", "vulkan" or "cpu".
+    pub fn backend(&self) -> String {
+        // `Model::backend` names the device ("CUDA0"); the kind is what we show.
+        self.model
+            .device()
+            .map_or_else(|_| "cpu".to_string(), |device| device.kind)
+    }
+
     /// Whether the loaded model can drive its own streaming session.
     pub fn supports_streaming(&self) -> bool {
         self.model.capabilities().supports_streaming

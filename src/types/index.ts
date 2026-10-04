@@ -5,6 +5,8 @@ export type {
   UsageStatsResponse as UsageStats,
   ModelInfoResponse as ModelInfo,
   HardwareProfileResponse as HardwareProfile,
+  CudaStatus,
+  PackState as CudaPackState,
   InjectionTool,
   InjectionStatus,
 } from '../bindings'
