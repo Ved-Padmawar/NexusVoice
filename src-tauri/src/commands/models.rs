@@ -7,6 +7,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::inference::idle::ModelUnload;
 use crate::state::AppState;
 
 use super::error::ApiError;
@@ -312,6 +313,21 @@ pub async fn set_language(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_model_unload(state: State<'_, AppState>) -> ModelUnload {
+    state.load_model_unload()
+}
+
+/// Takes effect at the idle watcher's next check.
+#[tauri::command]
+#[specta::specta]
+pub fn set_model_unload(state: State<'_, AppState>, policy: ModelUnload) -> Result<(), ApiError> {
+    state
+        .save_model_unload(policy)
+        .map_err(|e| ApiError::new("io_error", e.to_string()))
 }
 
 // ---------------------------------------------------------------------------

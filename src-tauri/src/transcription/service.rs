@@ -3,7 +3,7 @@
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Condvar};
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::commands::dto::TranscriptResponse;
 use crate::database::dto::transcript::CreateTranscript;
@@ -12,7 +12,7 @@ use crate::database::repositories::{
 };
 use crate::inference::TranscriptionEngine;
 use crate::llm::FormatConfig;
-use crate::postprocess::DictionaryCorrectionEngine;
+use crate::postprocess::{remove_fillers, DictionaryCorrectionEngine};
 use crate::state::{lock_recovering, AppState, DictCache};
 use crate::transcribe::{Route, StreamSession};
 
@@ -61,8 +61,6 @@ pub fn start_capture(app: &AppHandle, state: &AppState) {
 /// fire-and-forget, so the cache can still be empty when the hotkey lands.
 /// Spawned, not awaited, so the load races the recording instead of delaying capture.
 fn spawn_engine_load(app: &AppHandle) {
-    use tauri::Manager;
-
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Err(e) = app.state::<AppState>().get_or_load_engine().await {
@@ -262,8 +260,9 @@ pub struct FinalizeContext {
     pub focus: Option<crate::focus::FocusTarget>,
 }
 
-/// Spawn the finalize task: resolve the transcript, optionally LLM-format it,
-/// apply dictionary corrections, emit results to the frontend, and persist.
+/// Spawn the finalize task: resolve the transcript, drop filler words,
+/// optionally LLM-format it, apply dictionary corrections, emit results to the
+/// frontend, and persist.
 #[allow(clippy::too_many_lines)] // cohesive single task — splitting adds no clarity
 pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
     let FinalizeContext {
@@ -284,32 +283,41 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
         let raw_text = tauri::async_runtime::spawn_blocking({
             let engine = Arc::clone(&engine);
             let engine_cache = Arc::clone(&engine_cache);
-            move || -> Result<String, String> {
+            move || -> Result<(String, Option<String>), String> {
                 // A streaming-native model already decoded everything as it was
                 // fed; only the growing-window path has a tail left to decode.
-                if let Some(text) = streamed {
-                    return Ok(text);
-                }
-                let Ok(text) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    crate::transcribe::finalize(session, &samples, captured_rate, &engine)
-                })) else {
-                    log::error!("TranscriptionEngine panicked during finalize — evicting");
-                    *engine_cache.blocking_lock() = None;
-                    return Err("engine_poisoned".to_string());
+                let text = if let Some(text) = streamed {
+                    text
+                } else {
+                    let Ok(text) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        crate::transcribe::finalize(session, &samples, captured_rate, &engine)
+                    })) else {
+                        log::error!("TranscriptionEngine panicked during finalize — evicting");
+                        *engine_cache.blocking_lock() = None;
+                        return Err("engine_poisoned".to_string());
+                    };
+                    // Also evict if Mutex was poisoned during finalize
+                    if engine.is_poisoned() {
+                        log::error!("TranscriptionEngine mutex poisoned after finalize — evicting");
+                        *engine_cache.blocking_lock() = None;
+                    }
+                    text
                 };
-                // Also evict if Mutex was poisoned during finalize
-                if engine.is_poisoned() {
-                    log::error!("TranscriptionEngine mutex poisoned after finalize — evicting");
-                    *engine_cache.blocking_lock() = None;
-                }
-                Ok(text)
+                let language = engine
+                    .lock()
+                    .ok()
+                    .and_then(|guard| guard.output_language().map(str::to_string));
+                Ok((text, language))
             }
         })
         .await
         .map_err(|e| format!("finalize join error: {e}"))
         .and_then(|r| r);
 
-        let raw_text = match raw_text {
+        // A long dictation is use too: the idle clock starts when it ends.
+        app.state::<AppState>().touch_engine();
+
+        let (raw_text, language) = match raw_text {
             Ok(t) => t,
             Err(e) => {
                 let _ = app.emit(
@@ -322,7 +330,8 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
         };
 
         // Whisper emits "- " at the start of short utterances.
-        let raw_text = crate::inference::transcript::strip_leading_dashes(&raw_text).to_string();
+        let raw_text = crate::inference::transcript::strip_leading_dashes(&raw_text);
+        let raw_text = remove_fillers(raw_text, language.as_deref());
 
         log::debug!("final transcript: {} chars", raw_text.len());
 

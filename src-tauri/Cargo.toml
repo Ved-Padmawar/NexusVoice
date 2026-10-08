@@ -1,6 +1,6 @@
 [package]
 name = "nexusvoice"
-version = "1.17.0"
+version = "1.18.0"
 edition = "2021"
 
 [features]
@@ -27,7 +27,7 @@ log = "0.4"
 opener = "0.9"
 strsim = "0.11"
 sqlx = { version = "0.9", features = ["sqlite", "runtime-tokio", "chrono", "migrate"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -53,7 +53,7 @@ tokio-util = "0.7.19"
 earshot = "1.2.1"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Graphics_Dxgi", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_Graphics_Dxgi", "Win32_Graphics_Gdi", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 # GPU backends are dlopen'd at runtime, so one binary serves every accelerator.
 # The Vulkan module is built only under the `gpu` feature (release builds), which
 # needs the Vulkan SDK present; without it the CPU variants still ship.

@@ -47,19 +47,101 @@ pub struct CorrectionResult {
     pub exact: bool,
 }
 
+/// A dictionary entry with the key it matches on: its term lowercased with
+/// spaces removed, so a term typed as "Next JS" matches "next js" as spoken.
+#[derive(Clone)]
+struct Keyed {
+    key: String,
+    entry: DictionaryEntry,
+}
+
+impl Keyed {
+    fn result(&self, distance: usize, exact: bool) -> CorrectionResult {
+        CorrectionResult {
+            term: self.entry.term.clone(),
+            replacement: self.entry.replacement.clone(),
+            distance,
+            exact,
+        }
+    }
+}
+
+/// Longest run of words tried as one dictionary term.
+const MAX_SPAN: usize = 3;
+
+/// One whitespace-separated token: the whitespace before it, then any
+/// punctuation around its word. `word` is empty for a token without letters,
+/// whose text is then all `prefix`.
+struct Token<'a> {
+    gap: &'a str,
+    prefix: &'a str,
+    word: &'a str,
+    suffix: &'a str,
+}
+
+fn tokenize(text: &str) -> Vec<Token<'_>> {
+    let mut tokens = Vec::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let gap_len = rest
+            .find(|c: char| !c.is_whitespace())
+            .unwrap_or(rest.len());
+        let (gap, after) = rest.split_at(gap_len);
+        let token_len = after.find(char::is_whitespace).unwrap_or(after.len());
+        let (token, remainder) = after.split_at(token_len);
+        rest = remainder;
+
+        let start = token
+            .find(|c: char| c.is_alphabetic())
+            .unwrap_or(token.len());
+        let end = token.rfind(|c: char| c.is_alphabetic()).map_or(0, |i| {
+            i + token[i..].chars().next().map_or(0, char::len_utf8)
+        });
+        tokens.push(if start < end {
+            Token {
+                gap,
+                prefix: &token[..start],
+                word: &token[start..end],
+                suffix: &token[end..],
+            }
+        } else {
+            Token {
+                gap,
+                prefix: token,
+                word: "",
+                suffix: "",
+            }
+        });
+    }
+    tokens
+}
+
 /// In-memory dictionary correction engine.
 /// Constructed from a snapshot of dictionary entries — no DB access at correction time.
 #[derive(Clone)]
 pub struct DictionaryCorrectionEngine {
-    entries: Vec<DictionaryEntry>,
+    entries: Vec<Keyed>,
 }
 
 impl DictionaryCorrectionEngine {
-    pub const fn new(entries: Vec<DictionaryEntry>) -> Self {
+    pub fn new(entries: Vec<DictionaryEntry>) -> Self {
+        let entries = entries
+            .into_iter()
+            .map(|entry| Keyed {
+                key: entry
+                    .term
+                    .split_whitespace()
+                    .collect::<String>()
+                    .to_lowercase(),
+                entry,
+            })
+            .collect();
         Self { entries }
     }
 
-    /// Apply dictionary corrections to a full text string word-by-word.
+    /// Apply dictionary corrections to a full text string. Each position first
+    /// tries a run of neighbouring words as one term ("next js" → "Next.js",
+    /// where speech-to-text split a name), then the single word.
     /// Punctuation attached to words and the whitespace between them (newlines
     /// in formatted output) are preserved.
     /// Returns the corrected text and the list of matched terms (for hit tracking).
@@ -67,47 +149,81 @@ impl DictionaryCorrectionEngine {
         if self.entries.is_empty() {
             return (text.to_string(), vec![]);
         }
+        let tokens = tokenize(text);
         let mut result = String::with_capacity(text.len());
         let mut matched_terms: Vec<String> = Vec::new();
-        let mut rest = text;
-        while !rest.is_empty() {
-            let gap = rest
-                .find(|c: char| !c.is_whitespace())
-                .unwrap_or(rest.len());
-            result.push_str(&rest[..gap]);
-            rest = &rest[gap..];
-            let len = rest.find(char::is_whitespace).unwrap_or(rest.len());
-            let token = &rest[..len];
-            rest = &rest[len..];
-
-            let start = token
-                .find(|c: char| c.is_alphabetic())
-                .unwrap_or(token.len());
-            let end = token.rfind(|c: char| c.is_alphabetic()).map_or(0, |i| {
-                i + token[i..].chars().next().map_or(0, char::len_utf8)
-            });
-
-            if start >= end {
-                result.push_str(token);
-                continue;
-            }
-
-            let prefix = &token[..start];
-            let word = &token[start..end];
-            let suffix = &token[end..];
-
-            let corrected = match self.correct(word) {
-                Some(c) => {
-                    matched_terms.push(c.term.clone());
-                    c.replacement
-                }
-                None => word.to_string(),
+        let mut i = 0;
+        while i < tokens.len() {
+            let token = &tokens[i];
+            result.push_str(token.gap);
+            result.push_str(token.prefix);
+            let consumed = if let Some((consumed, correction)) = self
+                .correct_span(&tokens[i..])
+                .or_else(|| self.correct_word(token.word).map(|c| (1, c)))
+            {
+                result.push_str(&correction.replacement);
+                matched_terms.push(correction.term);
+                consumed
+            } else {
+                result.push_str(token.word);
+                1
             };
-            result.push_str(prefix);
-            result.push_str(&corrected);
-            result.push_str(suffix);
+            result.push_str(tokens[i + consumed - 1].suffix);
+            i += consumed;
         }
         (result, matched_terms)
+    }
+
+    /// The longest run of up to [`MAX_SPAN`] words that exactly matches one
+    /// term — a near miss would swallow a word ("docker hi"). Never joined
+    /// across punctuation or a line break.
+    fn correct_span(&self, tokens: &[Token]) -> Option<(usize, CorrectionResult)> {
+        (2..=MAX_SPAN.min(tokens.len())).rev().find_map(|len| {
+            let span = &tokens[..len];
+            let joinable = span.iter().all(|t| !t.word.is_empty())
+                && span[..len - 1].iter().all(|t| t.suffix.is_empty())
+                && span[1..]
+                    .iter()
+                    .all(|t| t.prefix.is_empty() && !t.gap.contains('\n'));
+            if !joinable {
+                return None;
+            }
+            let joined: String = span.iter().map(|t| t.word).collect();
+            self.exact(&joined.to_lowercase()).map(|c| (len, c))
+        })
+    }
+
+    /// [`Self::correct`] that keeps a word's ending: "Docker's", "Dockers".
+    fn correct_word(&self, word: &str) -> Option<CorrectionResult> {
+        let reattach = |ending: &str, c: CorrectionResult| CorrectionResult {
+            replacement: format!("{}{ending}", c.replacement),
+            ..c
+        };
+        for ending in ["'s", "’s"] {
+            if let Some(stem) = word.strip_suffix(ending) {
+                return self.correct(stem).map(|c| reattach(ending, c));
+            }
+        }
+        let whole = self.correct(word);
+        if whole.as_ref().is_some_and(|c| c.exact) {
+            return whole;
+        }
+        // Plural only of an exact term spelled as its replacement; "postgress"
+        // is a misspelling.
+        word.strip_suffix('s')
+            .filter(|stem| !stem.ends_with('s'))
+            .and_then(|stem| self.exact(&stem.to_lowercase()))
+            .filter(|c| c.replacement.eq_ignore_ascii_case(&c.term))
+            .map(|c| reattach("s", c))
+            .or(whole)
+    }
+
+    /// Case-insensitive exact match; `lower` must already be lowercase.
+    fn exact(&self, lower: &str) -> Option<CorrectionResult> {
+        self.entries
+            .iter()
+            .find(|k| k.key == lower)
+            .map(|k| k.result(0, true))
     }
 
     pub fn correct(&self, input: &str) -> Option<CorrectionResult> {
@@ -124,13 +240,8 @@ impl DictionaryCorrectionEngine {
         }
 
         // 3. Exact match (case-insensitive, any length)
-        if let Some(entry) = self.entries.iter().find(|e| e.term == lower) {
-            return Some(CorrectionResult {
-                term: entry.term.clone(),
-                replacement: entry.replacement.clone(),
-                distance: 0,
-                exact: true,
-            });
+        if let Some(exact) = self.exact(&lower) {
+            return Some(exact);
         }
 
         // 4. Skip stopwords — never fuzzy-correct common English words
@@ -152,16 +263,16 @@ impl DictionaryCorrectionEngine {
         )]
         let max_dist = 2.min((lower.len() as f32 * 0.35) as usize);
 
-        let mut best: Option<(usize, &DictionaryEntry)> = None;
+        let mut best: Option<(usize, &Keyed)> = None;
         let mut second_best_dist = usize::MAX;
 
-        for entry in &self.entries {
+        for keyed in &self.entries {
             // 7. First-letter constraint
-            if entry.term.chars().next() != lower.chars().next() {
+            if keyed.key.chars().next() != lower.chars().next() {
                 continue;
             }
 
-            let dist = strsim::levenshtein(&lower, &entry.term);
+            let dist = strsim::levenshtein(&lower, &keyed.key);
             if dist > max_dist {
                 continue;
             }
@@ -169,44 +280,40 @@ impl DictionaryCorrectionEngine {
             match best {
                 Some((best_dist, _)) if dist < best_dist => {
                     second_best_dist = best_dist;
-                    best = Some((dist, entry));
+                    best = Some((dist, keyed));
                 }
                 Some(_) if dist < second_best_dist => {
                     second_best_dist = dist;
                 }
-                None => best = Some((dist, entry)),
+                None => best = Some((dist, keyed)),
                 _ => {}
             }
         }
 
         // 8. Ambiguity check — only apply if clear winner
-        if let Some((best_dist, entry)) = best {
+        if let Some((best_dist, keyed)) = best {
             if best_dist + 1 < second_best_dist {
-                return Some(CorrectionResult {
-                    term: entry.term.clone(),
-                    replacement: entry.replacement.clone(),
-                    distance: best_dist,
-                    exact: false,
-                });
+                return Some(keyed.result(best_dist, false));
             }
         }
 
-        // 9. Phonetic fallback via Double Metaphone — catches sound-alike ASR errors
-        //    that Levenshtein misses (e.g. "neksus" → "nexus", "fastrack" → "fasttrack").
-        //    Only fires when no Levenshtein match was found above.
-        //    Requires unambiguous phonetic match: exactly one dictionary entry shares codes.
+        // 9. Sound-alike fallback ("neksus" → "nexus"), unambiguous matches only.
+        //    ASCII (the encoder panics on other scripts), 5+ letters ("tory" ≠ "tauri").
+        if !lower.is_ascii() || lower.len() < 5 {
+            return None;
+        }
         let dm = DoubleMetaphone::default();
         let input_codes = dm.double_metaphone(&lower);
         let ip = input_codes.primary();
         let ia = input_codes.alternate();
         if !ip.is_empty() {
-            let mut phonetic_match: Option<&DictionaryEntry> = None;
+            let mut phonetic_match: Option<&Keyed> = None;
             let mut phonetic_ambiguous = false;
-            for entry in &self.entries {
-                if entry.term.chars().next() != lower.chars().next() {
+            for keyed in &self.entries {
+                if !keyed.key.is_ascii() || keyed.key.chars().next() != lower.chars().next() {
                     continue;
                 }
-                let entry_codes = dm.double_metaphone(&entry.term);
+                let entry_codes = dm.double_metaphone(&keyed.key);
                 let ep = entry_codes.primary();
                 let ea = entry_codes.alternate();
                 let matches = ep == ip || ea == ip || ep == ia || ea == ia;
@@ -215,17 +322,13 @@ impl DictionaryCorrectionEngine {
                         phonetic_ambiguous = true;
                         break;
                     }
-                    phonetic_match = Some(entry);
+                    phonetic_match = Some(keyed);
                 }
             }
             if !phonetic_ambiguous {
-                if let Some(entry) = phonetic_match {
-                    return Some(CorrectionResult {
-                        term: entry.term.clone(),
-                        replacement: entry.replacement.clone(),
-                        distance: usize::MAX, // phonetic match — no edit distance
-                        exact: false,
-                    });
+                if let Some(keyed) = phonetic_match {
+                    // Phonetic match — no edit distance.
+                    return Some(keyed.result(usize::MAX, false));
                 }
             }
         }

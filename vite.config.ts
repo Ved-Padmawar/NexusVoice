@@ -44,6 +44,8 @@ export default defineConfig({
     environment: "jsdom",
     // One jsdom per worker, not per file; each file still gets its own VM context.
     pool: "vmThreads",
+    // Reuse compiled modules across runs instead of re-transforming each time.
+    fsModuleCache: true,
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/__tests__/**/*.{test,spec}.{ts,tsx}"],
   },

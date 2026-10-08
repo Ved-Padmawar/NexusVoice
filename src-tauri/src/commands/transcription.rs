@@ -202,6 +202,9 @@ async fn wait_for_stream_done(state: &AppState) {
 async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<(), ApiError> {
     const MIN_DURATION_SECS: f64 = 0.5;
 
+    // Before the recording flag drops: a long recording would otherwise look
+    // idle and the watcher could unload the engine this stop is about to use.
+    state.touch_engine();
     if !state.try_stop_transcription() {
         return Err(ApiError::new(
             "transcription_not_running",

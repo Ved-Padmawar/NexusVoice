@@ -133,13 +133,14 @@ jobs:
       - name: Setup nextest
         uses: taiki-e/install-action@nextest
 
-      # Release profile so the artifacts match what tauri-action builds with —
-      # the build then reuses them instead of recompiling the dependency tree.
+      # Tests build in the release profile so tauri-action reuses their
+      # artifacts instead of recompiling the dependency tree. Clippy only
+      # emits metadata, so a release profile would buy it nothing.
       - name: Backend checks (format, Clippy, tests)
         working-directory: src-tauri
         run: |
           cargo fmt --check
-          cargo clippy --release -- -W clippy::pedantic -D warnings
+          cargo clippy -- -W clippy::pedantic -D warnings
           cargo nextest run --release
 
       - name: Set version from tag

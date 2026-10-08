@@ -92,6 +92,8 @@ fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
         commands::set_model_override,
         commands::get_language_options,
         commands::set_language,
+        commands::get_model_unload,
+        commands::set_model_unload,
         commands::get_hardware_profile,
         commands::get_model_catalog,
         commands::get_downloaded_models,
@@ -370,6 +372,7 @@ fn main() {
                     }
                 });
             }
+            inference::idle::spawn_watcher(app.handle().clone());
 
             // System tray
             let show_item = MenuItem::with_id(app, "show", "Show Dashboard", true, None::<&str>)?;

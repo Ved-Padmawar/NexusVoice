@@ -5,6 +5,7 @@ export type {
   UsageStatsResponse as UsageStats,
   ModelInfoResponse as ModelInfo,
   HardwareProfileResponse as HardwareProfile,
+  ModelUnload,
   CudaStatus,
   PackState as CudaPackState,
   InjectionTool,

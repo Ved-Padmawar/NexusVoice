@@ -3,6 +3,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU8, Ordering},
     Arc, Condvar,
 };
+use std::time::{Duration, Instant};
 
 use sqlx::SqlitePool;
 use tokio::sync::{Mutex, RwLock, SetOnce};
@@ -10,6 +11,7 @@ use tokio::sync::{Mutex, RwLock, SetOnce};
 use std::collections::HashMap;
 
 use crate::database::models::dictionary::DictionaryEntry;
+use crate::inference::idle::ModelUnload;
 use crate::inference::TranscriptionEngine;
 use crate::llm::FormatConfig;
 
@@ -237,6 +239,8 @@ pub struct AppState {
     /// Serializes engine construction so two callers racing an empty cache
     /// build only one engine.
     engine_load: Arc<Mutex<()>>,
+    /// Last time a recording used the engine; drives the idle unload.
+    engine_used_at: std::sync::Mutex<Instant>,
     /// Backend the loaded model bound to, copied out at load — the engine
     /// mutex is held for a whole streaming recording.
     engine_backend: std::sync::RwLock<Option<String>>,
@@ -305,6 +309,7 @@ impl AppState {
             models_dir,
             engine: Arc::new(Mutex::new(None)),
             engine_load: Arc::new(Mutex::new(())),
+            engine_used_at: std::sync::Mutex::new(Instant::now()),
             engine_backend: std::sync::RwLock::new(None),
             stream_session: Arc::new(std::sync::Mutex::new(None)),
             streamed_text: Arc::new(std::sync::Mutex::new(None)),
@@ -338,6 +343,7 @@ impl AppState {
     pub async fn get_or_load_engine(
         &self,
     ) -> Result<Arc<std::sync::Mutex<TranscriptionEngine>>, String> {
+        self.touch_engine();
         if let Some(engine) = self.engine.lock().await.as_ref() {
             return Ok(Arc::clone(engine));
         }
@@ -382,9 +388,36 @@ impl AppState {
         Ok(arc)
     }
 
-    /// Drop the cached engine, e.g. when the model changes.
-    pub async fn evict_engine(&self) {
-        *self.engine.lock().await = None;
+    /// Drop the cached engine, e.g. when the model changes or it idled. Returns
+    /// whether one was loaded.
+    pub async fn evict_engine(&self) -> bool {
+        self.engine.lock().await.take().is_some()
+    }
+
+    /// Mark the engine as in use now, deferring an idle unload.
+    pub fn touch_engine(&self) {
+        *lock_recovering(&self.engine_used_at) = Instant::now();
+    }
+
+    pub fn engine_idle_for(&self) -> Duration {
+        lock_recovering(&self.engine_used_at).elapsed()
+    }
+
+    pub fn load_model_unload(&self) -> ModelUnload {
+        std::fs::read_to_string(self.model_unload_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save_model_unload(&self, policy: ModelUnload) -> std::io::Result<()> {
+        let json = serde_json::to_string(&policy)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(self.model_unload_path(), json)
+    }
+
+    fn model_unload_path(&self) -> PathBuf {
+        self.app_data_dir.join("model_unload")
     }
 
     /// Backend the last loaded model bound to; `None` before the first load.

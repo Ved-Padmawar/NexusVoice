@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.17.0-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.18.0-violet?style=flat-square)
 
 </div>
 
@@ -45,7 +45,10 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **Live transcript in the pill (optional)** — the pill expands into a card and fills in as you speak, on any model. Off by default (Settings → General)
 - **Smart model selection** — picks the best model for your hardware automatically
 - **First-run model picker** — choose your model on first launch with a hardware-aware recommendation, then download on demand
-- **Personal dictionary** — map spoken words to their correct form (e.g. "gonna" → "going to")
+- **Personal dictionary** — map spoken words to their correct form (e.g. "gonna" → "going to"), including names speech-to-text splits into several words ("next js" → "Next.js")
+- **Filler words removed** — "uh", "umm" and "hmm" are dropped from every transcript, plus "um", "er" and "ah" in English, with or without smart formatting
+- **Your clipboard kept (Windows)** — whatever you had copied is put back after the paste, and the transcript stays out of clipboard history
+- **Unload when idle (optional)** — free the model's memory after 2, 5, 10, 15 or 60 minutes without dictation (Settings → Voice); the next dictation reloads it
 - **Smart formatting (optional)** — clean up punctuation and turn spoken lists into real lists using any OpenAI-compatible LLM. Off by default; works fully local with Ollama or LM Studio, or with a cloud provider (OpenAI, OpenRouter) if you prefer
 - **8 themes** — Abyss, Midnight, Steel, Pine (dark) + Canvas, Dawn, Breeze, Blossom (light)
 - **Compact pill overlay** — draggable recording indicator that stays on top while you work
@@ -67,8 +70,11 @@ While speaking   →  audio is transcribed continuously in the background; text
                     level-normalised before it reaches the model
 Hotkey released  →  a brief post-roll captures trailing speech, then only the
                     undecoded tail is transcribed
+                 →  filler words removed
                  →  (optional) transcript reformatted by your chosen LLM
-                 →  text written to clipboard + Ctrl+V pasted
+                 →  dictionary corrections applied
+                 →  text written to clipboard + Ctrl+V pasted; on Windows the
+                    previous clipboard returns once the app has read it
 ```
 
 Transcription runs while you speak rather than waiting until you finish, so releasing the hotkey only leaves the last few seconds to process — the longer you talk, the bigger the saving. Each pass re-reads the recent audio in full sentence context, and a word is only committed once two consecutive passes agree on it, so accuracy matches decoding everything at the end. Committed text is never revised, so what you see never rewrites itself.

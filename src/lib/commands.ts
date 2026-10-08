@@ -40,6 +40,8 @@ export const COMMANDS = {
   GET_MODEL_CATALOG:       'get_model_catalog',
   GET_LANGUAGE_OPTIONS:    'get_language_options',
   SET_LANGUAGE:            'set_language',
+  GET_MODEL_UNLOAD:        'get_model_unload',
+  SET_MODEL_UNLOAD:        'set_model_unload',
   GET_DOWNLOADED_MODELS:   'get_downloaded_models',
   DELETE_MODEL:            'delete_model',
 

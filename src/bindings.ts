@@ -289,6 +289,20 @@ async setLanguage(code: string | null) : Promise<Result<null, ApiError>> {
     else return { status: "error", error: e  as any };
 }
 },
+async getModelUnload() : Promise<ModelUnload> {
+    return await TAURI_INVOKE("get_model_unload");
+},
+/**
+ * Takes effect at the idle watcher's next check.
+ */
+async setModelUnload(policy: ModelUnload) : Promise<Result<null, ApiError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_model_unload", { policy }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getHardwareProfile() : Promise<Result<HardwareProfileResponse, ApiError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_hardware_profile") };
@@ -507,6 +521,10 @@ supported: boolean;
  */
 options: LanguageOption[] }
 export type ModelInfoResponse = { downloaded: boolean; downloading: boolean; modelName: string }
+/**
+ * When an idle model is unloaded. Persisted as the `model_unload` file.
+ */
+export type ModelUnload = "never" | "after2Minutes" | "after5Minutes" | "after10Minutes" | "after15Minutes" | "after1Hour"
 export type PackState = "absent" | 
 /**
  * Usable by this build; loaded unless the driver is missing or too old.

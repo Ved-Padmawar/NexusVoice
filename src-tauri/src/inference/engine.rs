@@ -122,6 +122,17 @@ impl TranscriptionEngine {
         &self.languages
     }
 
+    /// The language the transcript is known to be in: the pinned hint, else the
+    /// model's only language. `None` when the model auto-detects among several.
+    pub fn output_language(&self) -> Option<&str> {
+        self.language
+            .as_deref()
+            .or(match self.languages.as_slice() {
+                [only] => Some(only.as_str()),
+                _ => None,
+            })
+    }
+
     /// [`resolve_language`] over this model's codes, logged when not honoured.
     fn accepted_language(&self, language: Option<&str>) -> Option<String> {
         use crate::inference::language::primary_of;

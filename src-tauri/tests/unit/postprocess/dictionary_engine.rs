@@ -259,3 +259,89 @@ fn apply_to_text_reports_a_repeated_match_once_per_occurrence() {
     assert_eq!(text, "the API and the API and the API");
     assert_eq!(terms, vec!["api", "api", "api"]);
 }
+
+// ── Multi-word terms ──────────────────────────────────────────────────
+#[test]
+fn a_name_split_into_two_words_is_rejoined() {
+    let e = engine(vec![entry(1, "nextjs", "Next.js")]);
+    let (text, terms) = e.apply_to_text("we built it on next js today");
+    assert_eq!(text, "we built it on Next.js today");
+    assert_eq!(terms, vec!["nextjs"]);
+}
+
+#[test]
+fn a_name_split_into_three_words_is_rejoined() {
+    let e = engine(vec![entry(1, "pineconedb", "PineconeDB")]);
+    let (text, _) = e.apply_to_text("store it in pine cone db");
+    assert_eq!(text, "store it in PineconeDB");
+}
+
+#[test]
+fn a_term_typed_with_capitals_or_spaces_still_matches() {
+    let e = engine(vec![entry(1, "Next JS", "Next.js")]);
+    let (text, terms) = e.apply_to_text("next js");
+    assert_eq!(text, "Next.js");
+    assert_eq!(terms, vec!["Next JS"]);
+}
+
+#[test]
+fn surrounding_punctuation_is_kept_around_a_joined_term() {
+    let e = engine(vec![entry(1, "nextjs", "Next.js")]);
+    let (text, _) = e.apply_to_text("(next js).");
+    assert_eq!(text, "(Next.js).");
+}
+
+#[test]
+fn words_are_not_joined_across_punctuation_or_lines() {
+    let e = engine(vec![entry(1, "nextjs", "Next.js")]);
+    assert_eq!(e.apply_to_text("next, js").0, "next, js");
+    assert_eq!(e.apply_to_text("next\njs").0, "next\njs");
+}
+
+#[test]
+fn a_run_that_only_sounds_like_a_term_is_left_alone() {
+    // "to ray" sounds like "tauri", but it is someone talking to Ray.
+    let e = engine(vec![entry(1, "tauri", "Tauri")]);
+    assert_eq!(e.apply_to_text("talk to ray").0, "talk to ray");
+}
+
+#[test]
+fn a_near_miss_run_never_swallows_a_word() {
+    // "dockerhi" is close to "docker"; joining would delete "hi".
+    let e = engine(vec![entry(1, "docker", "Docker")]);
+    let (text, terms) = e.apply_to_text("docker hi");
+    assert_eq!(text, "Docker hi");
+    assert_eq!(terms, vec!["docker"]);
+}
+
+// ── Running text ──────────────────────────────────────────────────────
+#[test]
+fn non_english_text_never_panics() {
+    // The sound-alike encoder slices bytes; it must never see other scripts.
+    let e = engine(vec![entry(1, "nexus", "Nexus"), entry(2, "café", "Café")]);
+    let (text, _) = e.apply_to_text("naïve café über 日本語 Привет 🚀 cafés");
+    assert_eq!(text, "naïve Café über 日本語 Привет 🚀 Cafés");
+}
+
+#[test]
+fn a_possessive_keeps_its_ending() {
+    let e = engine(vec![entry(1, "docker", "Docker")]);
+    assert_eq!(e.apply_to_text("docker's daemon").0, "Docker's daemon");
+    assert_eq!(e.apply_to_text("dokker’s daemon").0, "Docker’s daemon");
+}
+
+#[test]
+fn a_plural_keeps_its_s_but_a_misspelling_is_not_a_plural() {
+    let e = engine(vec![
+        entry(1, "docker", "Docker"),
+        entry(2, "postgres", "PostgreSQL"),
+    ]);
+    assert_eq!(e.apply_to_text("two dockers").0, "two Dockers");
+    assert_eq!(e.apply_to_text("postgress is down").0, "PostgreSQL is down");
+}
+
+#[test]
+fn a_short_word_is_not_matched_by_sound_alone() {
+    let e = engine(vec![entry(1, "tauri", "Tauri")]);
+    assert_eq!(e.apply_to_text("the tory party").0, "the tory party");
+}

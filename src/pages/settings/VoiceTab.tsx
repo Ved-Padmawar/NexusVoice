@@ -16,6 +16,7 @@ import { vendorForFamily } from '../../lib/vendors'
 import type { HardwareProfile } from '../../types'
 import { useAppStore } from '../../store/useAppStore'
 import type { Download as ModelDownload } from '../../store/modelSlice'
+import { ModelUnloadSection } from './ModelUnloadSection'
 
 // Opens on demand, so its tree stays out of the Settings chunk.
 const ModelManagerModal = lazy(() =>
@@ -358,6 +359,8 @@ export function VoiceTab() {
           <span className="leading-none">Manage</span>
         </button>
       </div>
+
+      <ModelUnloadSection />
 
       <div className="flex shrink-0 items-center gap-2">
         <div className="flex items-center gap-1">
