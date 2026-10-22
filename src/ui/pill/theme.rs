@@ -46,8 +46,6 @@ pub struct ButtonColors {
 
 #[derive(Debug, Clone, Copy)]
 pub struct PillThemeDef {
-    pub id: PillTheme,
-    pub label: &'static str,
     /// Idle surface.
     pub bg: Rgba,
     pub border: Rgba,
@@ -126,8 +124,6 @@ pub const DOWNLOAD: Rgba = AMBER;
 pub const DOWNLOAD_PCT: Rgba = rgba(251, 191, 36, 0.95);
 
 const STEEL: PillThemeDef = PillThemeDef {
-    id: PillTheme::Steel,
-    label: "Steel",
     bg: rgb(0x14, 0x18, 0x20),
     border: rgba(148, 168, 200, 0.15),
     accent: rgb(0xb8, 0xcc, 0xe0),
@@ -157,8 +153,6 @@ const STEEL: PillThemeDef = PillThemeDef {
 };
 
 const MIDNIGHT: PillThemeDef = PillThemeDef {
-    id: PillTheme::Midnight,
-    label: "Midnight",
     bg: rgb(0x0a, 0x0d, 0x14),
     border: rgba(26, 209, 209, 0.16),
     accent: rgb(0x1a, 0xd1, 0xd1),
@@ -188,8 +182,6 @@ const MIDNIGHT: PillThemeDef = PillThemeDef {
 };
 
 const CANVAS: PillThemeDef = PillThemeDef {
-    id: PillTheme::Canvas,
-    label: "Canvas",
     bg: rgb(0xff, 0xff, 0xff),
     border: rgba(0, 0, 0, 0.10),
     accent: rgb(0x3a, 0x5b, 0xd9),
@@ -232,8 +224,6 @@ const CANVAS: PillThemeDef = PillThemeDef {
 };
 
 const DAWN: PillThemeDef = PillThemeDef {
-    id: PillTheme::Dawn,
-    label: "Dawn",
     bg: rgb(0xff, 0xf6, 0xf4),
     border: rgba(120, 60, 40, 0.14),
     accent: rgb(0xe4, 0x38, 0x00),

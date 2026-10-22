@@ -3,9 +3,7 @@
 //! on disk skips the download.
 
 use gpui_kit::component::{notification::Notification, WindowExt as _};
-use gpui_kit::{
-    div, prelude::*, px, Context, Entity, FontWeight, Subscription, Window,
-};
+use gpui_kit::{div, prelude::*, px, Context, Entity, FontWeight, Subscription, Window};
 
 use crate::api::{self, CatalogModel, HardwareProfileResponse};
 use crate::ui::components::{icon, modal};
@@ -32,7 +30,7 @@ pub struct ModelPicker {
 impl ModelPicker {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let store = Store::entity(cx);
-        let subscription = cx.observe(&store, Self::on_store_changed);
+        let subscription = cx.observe(&store, |this, store, cx| this.on_store_changed(&store, cx));
         let mut picker = Self {
             profile: None,
             profile_requested: false,
@@ -41,28 +39,36 @@ impl ModelPicker {
             confirmed: false,
             _store: subscription,
         };
-        picker.on_store_changed(store, cx);
+        picker.on_store_changed(&store, cx);
         picker
     }
 
-    fn on_store_changed(&mut self, store: Entity<Store>, cx: &mut Context<Self>) {
+    fn on_store_changed(&mut self, store: &Entity<Store>, cx: &mut Context<Self>) {
         let store = store.read(cx);
+        let downloaded = store
+            .model_info
+            .as_ref()
+            .is_some_and(|info| info.downloaded);
+        let catalog_ready = !store.catalog.is_empty();
+        let downloading = self
+            .selected
+            .as_deref()
+            .is_some_and(|id| store.downloads.contains_key(id));
         // A returning user whose choice was reset but whose model is on disk.
-        let idle = !self.confirming && !self.confirmed;
-        if idle && store.model_info.as_ref().is_some_and(|info| info.downloaded) {
+        if !self.confirming && !self.confirmed && downloaded {
             return Self::finish(cx);
         }
-        if !self.profile_requested && !store.catalog.is_empty() {
+        if !self.profile_requested && catalog_ready {
             self.profile_requested = true;
-            self.request_profile(cx);
+            Self::request_profile(cx);
         }
-        if self.confirmed {
-            self.follow_download(store.downloads.get(self.selected.as_deref().unwrap_or_default()), cx);
+        if self.confirmed && !downloading {
+            self.download_ended(cx);
         }
         cx.notify();
     }
 
-    fn request_profile(&self, cx: &mut Context<Self>) {
+    fn request_profile(cx: &mut Context<Self>) {
         cx.spawn_api(
             async { api::get_hardware_profile() },
             |this: &mut Self, profile, cx| {
@@ -81,10 +87,7 @@ impl ModelPicker {
     /// The download entry is removed when it finishes, which is the close
     /// signal. An entry gone without the file is a failed start: back to the
     /// choice, so the user can try again.
-    fn follow_download(&mut self, download: Option<&crate::ui::store::Download>, cx: &mut Context<Self>) {
-        if download.is_some() {
-            return;
-        }
+    fn download_ended(&mut self, cx: &mut Context<Self>) {
         if api::get_model_info().downloaded {
             Self::finish(cx);
         } else {
@@ -95,11 +98,13 @@ impl ModelPicker {
 
     fn finish(cx: &mut Context<Self>) {
         UiSettings::update(cx, |s| s.model_chosen = true);
-        Store::entity(cx).update(cx, |store, cx| store.offer_cuda(cx));
+        Store::entity(cx).update(cx, Store::offer_cuda);
     }
 
     fn confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(id) = self.selected.clone() else { return };
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
         self.confirming = true;
         cx.notify();
         let variant = id.clone();
@@ -111,7 +116,7 @@ impl ModelPicker {
             },
             move |this: &mut Self, result, window, cx| match result {
                 Ok(info) => {
-                    Store::entity(cx).update(cx, |store, cx| store.refresh_models(cx));
+                    Store::entity(cx).update(cx, Store::refresh_models);
                     // Already on disk: skip the download step.
                     if info.downloaded {
                         return Self::finish(cx);
@@ -197,16 +202,11 @@ impl ModelPicker {
                     .border_1()
                     .border_color(p.border_soft)
                     .child(icon(AppIcon::Cpu, 10., p.muted))
-                    .child(
-                        div()
-                            .text_size(px(10.))
-                            .text_color(p.fg_2)
-                            .child(format!(
-                                "{} · {}{vram}",
-                                profile.gpu_name,
-                                profile.execution_provider.to_uppercase()
-                            )),
-                    )
+                    .child(div().text_size(px(10.)).text_color(p.fg_2).child(format!(
+                        "{} · {}{vram}",
+                        profile.gpu_name,
+                        profile.execution_provider.to_uppercase()
+                    )))
             }))
     }
 
@@ -215,7 +215,7 @@ impl ModelPicker {
         index: usize,
         model: &CatalogModel,
         recommended: bool,
-        cx: &mut Context<Self>,
+        cx: &Context<Self>,
     ) -> impl IntoElement {
         let p = *Palette::global(cx);
         let active = self.selected.as_deref() == Some(model.id.as_str());
@@ -243,34 +243,17 @@ impl ModelPicker {
                 if self.confirmed {
                     el.cursor_not_allowed()
                 } else {
-                    el.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
-                        this.selected = Some(id.clone());
-                        cx.notify();
-                    }))
+                    el.cursor_pointer()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.selected = Some(id.clone());
+                            cx.notify();
+                        }))
                 }
             })
             .tooltip(move |window, cx| {
                 gpui_kit::component::tooltip::Tooltip::new(detail.clone()).build(window, cx)
             })
-            .child(
-                div()
-                    .flex()
-                    .flex_shrink_0()
-                    .items_center()
-                    .justify_center()
-                    .size(px(16.))
-                    .mt(px(2.))
-                    .rounded_full()
-                    .border(px(1.5))
-                    .map(|el| {
-                        if active {
-                            el.border_color(p.accent).bg(p.accent)
-                        } else {
-                            el.border_color(p.border)
-                        }
-                    })
-                    .when(active, |el| el.child(icon(AppIcon::Check, 9., p.accent_fg))),
-            )
+            .child(radio(active, &p))
             .child(
                 div()
                     .flex_1()
@@ -312,37 +295,11 @@ impl ModelPicker {
                             .text_color(p.muted)
                             .child(model.description.clone()),
                     )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.))
-                            .mt(px(4.))
-                            .text_size(px(10.))
-                            .text_color(p.muted)
-                            .child(fact(AppIcon::HardDrive, format_model_size(model.size_bytes), p.muted))
-                            .child(fact(
-                                AppIcon::Globe,
-                                if model.multilingual { "Multilingual" } else { "English" }.to_string(),
-                                p.muted,
-                            ))
-                            .when(is_streaming(model), |el| {
-                                el.child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .gap(px(4.))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(p.accent)
-                                        .child(icon(AppIcon::Radio, 10., p.accent))
-                                        .child("Live"),
-                                )
-                            }),
-                    ),
+                    .child(option_facts(model, &p)),
             )
     }
 
-    fn render_footer(&self, store: &Store, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_footer(&self, store: &Store, cx: &Context<Self>) -> impl IntoElement {
         let p = *Palette::global(cx);
         let this = cx.entity();
         let footer = div()
@@ -355,7 +312,10 @@ impl ModelPicker {
         if !self.confirmed {
             return footer.child(self.render_confirm_row(store, cx));
         }
-        let download = self.selected.as_ref().and_then(|id| store.downloads.get(id));
+        let download = self
+            .selected
+            .as_ref()
+            .and_then(|id| store.downloads.get(id));
         if let Some(failed) = download.filter(|d| d.status == DownloadStatus::Failed) {
             return footer.child(
                 div()
@@ -375,7 +335,9 @@ impl ModelPicker {
                         button("picker-retry", "Retry download")
                             .icon(AppIcon::RefreshCw)
                             .min_w(px(176.))
-                            .on_click(move |_, cx| this.update(cx, |this, cx| this.retry_download(cx))),
+                            .on_click(move |_, cx| {
+                                this.update(cx, |this, cx| this.retry_download(cx));
+                            }),
                     ),
             );
         }
@@ -404,11 +366,15 @@ impl ModelPicker {
                                 .child(format!("{percent}%")),
                         ),
                 )
-                .child(div().flex().child(progress_bar(percent, 3., p.border, p.accent))),
+                .child(
+                    div()
+                        .flex()
+                        .child(progress_bar(percent, 3., p.border, p.accent)),
+                ),
         )
     }
 
-    fn render_confirm_row(&self, store: &Store, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_confirm_row(&self, store: &Store, cx: &Context<Self>) -> impl IntoElement {
         let p = *Palette::global(cx);
         let this = cx.entity();
         // An empty catalog after the load finished: nothing to pick from.
@@ -420,7 +386,11 @@ impl ModelPicker {
         let message = if load_failed {
             "Could not load the model catalog.".to_string()
         } else if let Some(model) = selected {
-            format!("{} · {} download", model.display_name, format_model_size(model.size_bytes))
+            format!(
+                "{} · {} download",
+                model.display_name,
+                format_model_size(model.size_bytes)
+            )
         } else {
             "Select a model to continue".to_string()
         };
@@ -428,14 +398,21 @@ impl ModelPicker {
             button("picker-reload", "Try again")
                 .icon(AppIcon::RefreshCw)
                 .min_w(px(176.))
-                .on_click(|_, cx| Store::entity(cx).update(cx, |store, cx| store.refresh_models(cx)))
+                .on_click(|_, cx| Store::entity(cx).update(cx, Store::refresh_models))
         } else {
-            button("picker-confirm", if self.confirming { "Starting download…" } else { "Download & continue" })
-                .icon(AppIcon::Download)
-                .min_w(px(176.))
-                .busy(self.confirming)
-                .disabled(self.selected.is_none())
-                .on_click(move |window, cx| this.update(cx, |this, cx| this.confirm(window, cx)))
+            button(
+                "picker-confirm",
+                if self.confirming {
+                    "Starting download…"
+                } else {
+                    "Download & continue"
+                },
+            )
+            .icon(AppIcon::Download)
+            .min_w(px(176.))
+            .busy(self.confirming)
+            .disabled(self.selected.is_none())
+            .on_click(move |window, cx| this.update(cx, |this, cx| this.confirm(window, cx)))
         };
         div()
             .flex()
@@ -452,6 +429,65 @@ impl ModelPicker {
             )
             .child(action)
     }
+}
+
+/// The round check on the left of an option.
+fn radio(active: bool, p: &Palette) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .size(px(16.))
+        .mt(px(2.))
+        .rounded_full()
+        .border(px(1.5))
+        .map(|el| {
+            if active {
+                el.border_color(p.accent).bg(p.accent)
+            } else {
+                el.border_color(p.border)
+            }
+        })
+        .when(active, |el| el.child(icon(AppIcon::Check, 9., p.accent_fg)))
+}
+
+/// Size, language and, for streaming models, the live mark.
+fn option_facts(model: &CatalogModel, p: &Palette) -> impl IntoElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .mt(px(4.))
+        .text_size(px(10.))
+        .text_color(p.muted)
+        .child(fact(
+            AppIcon::HardDrive,
+            format_model_size(model.size_bytes),
+            p.muted,
+        ))
+        .child(fact(
+            AppIcon::Globe,
+            if model.multilingual {
+                "Multilingual"
+            } else {
+                "English"
+            }
+            .to_string(),
+            p.muted,
+        ))
+        .when(is_streaming(model), |el| {
+            el.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(p.accent)
+                    .child(icon(AppIcon::Radio, 10., p.accent))
+                    .child("Live"),
+            )
+        })
 }
 
 fn fact(name: AppIcon, text: String, color: gpui_kit::Hsla) -> impl IntoElement {
@@ -473,7 +509,9 @@ impl Render for ModelPicker {
         let options: Vec<_> = sort_for_display(&store.catalog)
             .into_iter()
             .enumerate()
-            .map(|(i, model)| self.render_option(i, model, recommended == Some(model.id.as_str()), cx))
+            .map(|(i, model)| {
+                self.render_option(i, model, recommended == Some(model.id.as_str()), cx)
+            })
             .collect();
         let width = px(660.).min(window.viewport_size().width * 0.92);
 

@@ -182,7 +182,9 @@ impl Bars {
             moving |= (target - *height).abs() > 0.02;
         }
         if !moving {
-            self.height = frame.levels.map(|l| BARS_MIN_H + (BARS_MAX_H - BARS_MIN_H) * l);
+            self.height = frame
+                .levels
+                .map(|l| BARS_MIN_H + (BARS_MAX_H - BARS_MIN_H) * l);
         }
 
         let count = f(BANDS);
@@ -370,6 +372,7 @@ impl Eq {
 impl Spectrum {
     /// The bands interpolated at `t` across the spectrum, tilted up toward the
     /// highs, which carry less energy.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // 0 <= x < BANDS
     fn band_at(levels: &[f32; BANDS], t: f32) -> f32 {
         let x = t * f(BANDS - 1);
         let i = (x.floor() as usize).min(BANDS - 2);
@@ -379,6 +382,7 @@ impl Spectrum {
     }
 
     /// Re-grid `values` over `bins` columns, keeping its shape.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // 0 <= x < `from`
     fn resample(values: &mut [f32; SPECTRUM_MAX_BINS], from: usize, to: usize) {
         let old = *values;
         for (i, value) in values.iter_mut().enumerate().take(to) {
@@ -389,6 +393,7 @@ impl Spectrum {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a width of tens of pixels
     fn draw(&mut self, frame: &mut Frame) {
         let bins = ((frame.width() / 3.0).round() as usize).clamp(12, SPECTRUM_MAX_BINS);
         if self.bins == 0 {
@@ -417,7 +422,8 @@ impl Spectrum {
             };
             let target = (Self::band_at(frame.levels, t) * jitter).max(idle).min(1.0);
             let rising = target > self.value[i];
-            self.value[i] += (target - self.value[i]) * ease(if rising { 0.55 } else { 0.16 }, frame.dt);
+            self.value[i] +=
+                (target - self.value[i]) * ease(if rising { 0.55 } else { 0.16 }, frame.dt);
             if all_silent && !frame.idle_motion && self.value[i] < EPSILON {
                 self.value[i] = 0.0;
             }
@@ -475,8 +481,18 @@ impl Waveform {
 
     /// The newest capture frame, 0 to 1 per band. Anything else is clamped.
     pub fn set_levels(&mut self, levels: [f32; BANDS], cx: &mut Context<Self>) {
-        let levels = levels.map(|l| if l.is_finite() { l.clamp(0.0, 1.0) } else { 0.0 });
-        if levels != self.levels {
+        let levels = levels.map(|l| {
+            if l.is_finite() {
+                l.clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        });
+        if levels
+            .iter()
+            .zip(&self.levels)
+            .any(|(a, b)| (a - b).abs() > f32::EPSILON)
+        {
             self.levels = levels;
             cx.notify();
         }
@@ -523,9 +539,9 @@ impl Waveform {
     /// Step the drawing to now and paint it. Returns whether it has settled.
     fn paint(&mut self, bounds: Bounds<Pixels>, window: &mut Window) -> bool {
         let now = Instant::now();
-        let dt = self
-            .last_frame
-            .map_or(0.0, |last| now.duration_since(last).as_secs_f32().min(MAX_DT));
+        let dt = self.last_frame.map_or(0.0, |last| {
+            now.duration_since(last).as_secs_f32().min(MAX_DT)
+        });
         self.last_frame = Some(now);
 
         let levels = self.levels;

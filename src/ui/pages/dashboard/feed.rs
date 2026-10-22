@@ -8,10 +8,10 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::{
     div, list, prelude::*, px, AnyElement, App, ClipboardItem, Context, Entity, EventEmitter,
-    FontWeight, ListAlignment, ListOffset, ListState, SharedString, Subscription, Task, Window,
+    FontWeight, ListAlignment, ListOffset, ListState, Subscription, Task, Window,
 };
 
-use super::query::{Cursor, Loaded, TranscriptFilters};
+use super::query::{Loaded, TranscriptFilters};
 use super::row::{transcript_row, RowPlace, RowState};
 use crate::api::{self, dto::TranscriptResponse, ApiError, PageQuery};
 use crate::ui::components::{icon, skeleton, spinner, LoadState, SectionState};
@@ -132,11 +132,11 @@ impl Feed {
             Ok(rows) => {
                 let loaded = Loaded::from_first_page(rows);
                 self.status = LoadState::Loaded;
-                self.list.reset(loaded.items.len() + usize::from(loaded.has_more()));
+                self.loaded = Some(loaded);
+                self.list.reset(self.row_count());
                 if to_top {
                     self.list.scroll_to(ListOffset::default());
                 }
-                self.loaded = Some(loaded);
             }
             Err(e) => self.status = LoadState::Failed(e.to_string().into()),
         }
@@ -180,6 +180,30 @@ impl Feed {
             (Ok(_), None) => {}
         }
         cx.notify();
+    }
+
+    fn timeline(&self, cx: &mut Context<Self>) -> AnyElement {
+        let this = cx.entity();
+        let rows = list(self.list.clone(), move |ix, window, cx| {
+            // Having the spinner row near the viewport is what asks for the
+            // next page, as the old scroll sentinel did.
+            if this.read(cx).is_loading_slot(ix) && !this.read(cx).more_failed {
+                let feed = this.clone();
+                window.defer(cx, move |window, cx| {
+                    feed.update(cx, |feed, cx| feed.load_more(window, cx));
+                });
+            }
+            this.read(cx).render_item(ix, &this, cx)
+        })
+        .size_full();
+        div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .pr(px(6.))
+            .child(rows)
+            .vertical_scrollbar(&self.list)
+            .into_any_element()
     }
 
     fn retry_more(&mut self, window: &Window, cx: &mut Context<Self>) {
@@ -238,12 +262,12 @@ impl Feed {
         cx.notify();
     }
 
-    fn render_item(&self, ix: usize, this: &Entity<Self>, window: &mut Window, cx: &App) -> AnyElement {
+    fn render_item(&self, ix: usize, this: &Entity<Self>, cx: &App) -> AnyElement {
         let Some(loaded) = &self.loaded else {
             return div().into_any_element();
         };
         let Some(item) = loaded.items.get(ix) else {
-            return self.end_of_list(this, window, cx);
+            return self.end_of_list(this, cx);
         };
         let place = RowPlace { first: ix == 0, last: ix + 1 == loaded.items.len() && !loaded.has_more() };
         let state = RowState {
@@ -253,9 +277,14 @@ impl Feed {
         transcript_row(item, place, &state, this, cx)
     }
 
-    /// The row after the last: a spinner while the next page loads, which also
-    /// starts the load as soon as it scrolls near, like the old scroll sentinel.
-    fn end_of_list(&self, this: &Entity<Self>, window: &mut Window, cx: &App) -> AnyElement {
+    /// Whether row `ix` is the loading spinner after the last transcript.
+    fn is_loading_slot(&self, ix: usize) -> bool {
+        self.loaded
+            .as_ref()
+            .is_some_and(|l| l.has_more() && ix == l.items.len())
+    }
+
+    fn end_of_list(&self, this: &Entity<Self>, cx: &App) -> AnyElement {
         let p = *Palette::global(cx);
         let body = if self.more_failed {
             let this = this.clone();
@@ -271,10 +300,6 @@ impl Feed {
                 .child("Couldn’t load more. Try again")
                 .into_any_element()
         } else {
-            let this = this.clone();
-            window.defer(cx, move |window, cx| {
-                this.update(cx, |feed, cx| feed.load_more(window, cx));
-            });
             spinner(
                 "feed-more-spinner",
                 16.,
@@ -309,7 +334,8 @@ async fn page_call(term: String, page: PageQuery) -> Result<Vec<TranscriptRespon
 }
 
 impl Render for Feed {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let retry = cx.entity();
         let has_data = self.loaded.is_some() && !matches!(self.status, LoadState::Failed(_));
         let content = match &self.loaded {
             Some(loaded) if loaded.items.is_empty() => empty_state(!self.term.is_empty(), cx),
@@ -326,7 +352,94 @@ impl Render for Feed {
                 has_data,
                 feed_skeleton(cx),
                 content,
-                cx.listener_for_retry(window),
+                move |_, cx| retry.update(cx, |feed, cx| feed.fetch_first_page(false, cx)),
             ))
     }
+}
+
+fn empty_state(searching: bool, cx: &App) -> AnyElement {
+    let p = *Palette::global(cx);
+    let (glyph, title, hint) = if searching {
+        (AppIcon::Search, "No results found", "Try different keywords or check your spelling.")
+    } else {
+        (
+            AppIcon::Mic,
+            "Nothing here yet",
+            "Hold your hotkey and speak — transcripts stream in automatically.",
+        )
+    };
+    div()
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap_3()
+        .py(px(56.))
+        .px_6()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(px(56.))
+                .rounded_full()
+                .border(px(1.5))
+                .border_dashed()
+                .border_color(p.border)
+                .child(icon(glyph, 20., p.muted)),
+        )
+        .child(
+            div()
+                .text_size(px(13.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(p.fg_2)
+                .child(title),
+        )
+        .child(
+            div()
+                .max_w(px(260.))
+                .text_size(px(12.))
+                .line_height(px(19.2))
+                .text_color(p.muted)
+                .text_center()
+                .child(hint),
+        )
+        .into_any_element()
+}
+
+/// Four placeholder cards on the timeline rail.
+fn feed_skeleton(cx: &App) -> impl IntoElement {
+    let p = *Palette::global(cx);
+    div().flex().flex_col().gap_3().pr(px(6.)).children((0..4).map(|i| {
+        div()
+            .flex()
+            .gap(px(14.))
+            .child(
+                div().flex_shrink_0().w(px(20.)).flex().justify_center().child(
+                    div().mt(px(12.)).child(skeleton(
+                        format!("feed-skeleton-dot-{i}"),
+                        |d| d.size(px(8.)).rounded_full(),
+                        cx,
+                    )),
+                ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .px(px(14.))
+                    .py_3()
+                    .rounded(R_LG)
+                    .bg(p.panel)
+                    .border_1()
+                    .border_color(p.border_soft)
+                    .child(skeleton(format!("feed-skeleton-a-{i}"), |d| d.w_full().h(px(12.)), cx))
+                    .child(skeleton(
+                        format!("feed-skeleton-b-{i}"),
+                        |d| d.w(gpui_kit::relative(0.75)).h(px(12.)),
+                        cx,
+                    )),
+            )
+    }))
 }

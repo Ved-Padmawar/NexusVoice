@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 use gpui_kit::{
-    canvas, div, font, fill, point, px, size, Bounds, ContentMask, Context, Corners, Entity,
+    canvas, div, fill, font, point, px, size, Bounds, ContentMask, Context, Corners, Entity,
     InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, Rgba, SharedString,
     Styled as _, Task, TextAlign, TextRun, Window, WrappedLine,
 };
@@ -132,12 +132,12 @@ impl Transcript {
             tentative,
         } = &self.partial;
         let mut text = committed.clone();
-        let mut runs = vec![self.run(committed.len(), self.committed)];
+        let mut runs = vec![Self::run(committed.len(), self.committed)];
         if !tentative.is_empty() {
             text.push(' ');
             text.push_str(tentative);
-            runs.push(self.run(1, self.committed));
-            runs.push(self.run(tentative.len(), self.tentative));
+            runs.push(Self::run(1, self.committed));
+            runs.push(Self::run(tentative.len(), self.tentative));
         }
         runs.retain(|run| run.len > 0);
 
@@ -168,7 +168,7 @@ impl Transcript {
         });
     }
 
-    fn run(&self, len: usize, color: Rgba) -> TextRun {
+    fn run(len: usize, color: Rgba) -> TextRun {
         TextRun {
             len,
             font: font("Inter"),
@@ -189,7 +189,14 @@ impl Transcript {
             for line in &self.lines {
                 // A failed paint is a glyph that would not rasterize; there is
                 // nothing to do about it mid-frame.
-                let _ = line.paint(point(left, y), line_height, TextAlign::Left, None, window, cx);
+                let _ = line.paint(
+                    point(left, y),
+                    line_height,
+                    TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                );
                 y += line.size(line_height).height;
             }
 
@@ -207,11 +214,8 @@ impl Transcript {
                     ..self.accent
                 };
                 window.paint_quad(
-                    fill(
-                        Bounds::new(origin, size(px(CARET_W), px(FONT_SIZE))),
-                        color,
-                    )
-                    .corner_radii(Corners::all(px(CARET_W / 2.0))),
+                    fill(Bounds::new(origin, size(px(CARET_W), px(FONT_SIZE))), color)
+                        .corner_radii(Corners::all(px(CARET_W / 2.0))),
                 );
             }
         });

@@ -2,7 +2,7 @@
 //! fits its state — download, cancel, retry, switch to it, or "in use".
 
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::{div, prelude::*, px, AnyElement, Context, Div, FontWeight, Stateful};
+use gpui_kit::{div, prelude::*, px, AnyElement, App, Context, Div, FontWeight, Stateful};
 
 use super::VoiceTab;
 use crate::api::CatalogModel;
@@ -32,11 +32,10 @@ impl VoiceTab {
         model: &CatalogModel,
         state: CardState,
         download: Option<&Download>,
-        cx: &mut Context<Self>,
+        cx: &Context<Self>,
     ) -> impl IntoElement {
         let p = *Palette::global(cx);
-        let CardState { loaded, installed, recommended } = state;
-        let vendor = Vendor::for_family(&model.family);
+        let loaded = state.loaded;
 
         div()
             .id(("model-card", index))
@@ -55,80 +54,8 @@ impl VoiceTab {
                         .hover(|s| s.border_color(p.border).bg(p.surface_hover))
                 }
             })
-            .child(
-                div()
-                    .flex()
-                    .gap(px(10.))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_shrink_0()
-                            .items_center()
-                            .justify_center()
-                            .size(px(32.))
-                            .rounded(R_MD)
-                            .border_1()
-                            .map(|el| {
-                                if loaded {
-                                    el.border_color(p.accent).bg(p.accent_soft)
-                                } else if installed {
-                                    el.border_color(p.accent_soft).bg(p.accent_soft)
-                                } else {
-                                    el.border_color(p.border).bg(p.surface)
-                                }
-                            })
-                            .child(match vendor {
-                                Some(vendor) => vendor_mark(vendor, 18., p.fg, cx).into_any_element(),
-                                None => icon(AppIcon::Cpu, 15., p.muted).into_any_element(),
-                            }),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_start()
-                                    .gap(px(6.))
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .truncate()
-                                            .text_size(px(12.5))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .text_color(if loaded { p.accent } else { p.fg })
-                                            .child(model.display_name.clone()),
-                                    )
-                                    .when(recommended && !loaded, |el| {
-                                        el.child(
-                                            div()
-                                                .flex_shrink_0()
-                                                .px(px(6.))
-                                                .py(px(1.))
-                                                .rounded(R_XS)
-                                                .border_1()
-                                                .border_color(p.accent_soft)
-                                                .bg(p.accent_soft)
-                                                .text_size(px(9.))
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .text_color(p.accent)
-                                                .child("BEST FIT"),
-                                        )
-                                    }),
-                            )
-                            .child(
-                                div()
-                                    .mt(px(2.))
-                                    .truncate()
-                                    .text_size(px(11.))
-                                    .text_color(p.muted)
-                                    .child(model.description.clone()),
-                            ),
-                    ),
-            )
-            .child(self.render_card_facts(index, model, loaded, cx))
+            .child(card_header(model, state, &p, cx))
+            .child(card_facts(index, model, loaded, &p))
             .child(
                 div()
                     .flex()
@@ -139,83 +66,6 @@ impl VoiceTab {
             )
     }
 
-    fn render_card_facts(
-        &self,
-        index: usize,
-        model: &CatalogModel,
-        loaded: bool,
-        cx: &Context<Self>,
-    ) -> impl IntoElement {
-        let p = *Palette::global(cx);
-        let tier = weight_tier(model.size_bytes);
-        let tone = if loaded { p.accent } else { p.fg_2 };
-        div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .child(
-                div()
-                    .id(("weight", index))
-                    .flex()
-                    .items_end()
-                    .gap(px(2.))
-                    .tooltip(move |window, cx| {
-                        Tooltip::new(format!("{} download", TIER_LABELS[tier])).build(window, cx)
-                    })
-                    .children(TIER_HEIGHTS.iter().enumerate().map(|(i, height)| {
-                        div()
-                            .w(px(3.))
-                            .h(px(*height))
-                            .rounded(px(1.))
-                            .bg(if i <= tier { tone } else { p.border })
-                    })),
-            )
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(tone)
-                    .child(format_model_size(model.size_bytes))
-            )
-            .child(
-                div()
-                    .ml_auto()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .when(is_streaming(model), |el| {
-                        el.child(
-                            div()
-                                .flex()
-                                .flex_shrink_0()
-                                .items_center()
-                                .gap(px(4.))
-                                .px(px(6.))
-                                .py(px(2.))
-                                .rounded(R_XS)
-                                .bg(p.accent_soft)
-                                .text_size(px(9.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(p.accent)
-                                .child(icon(AppIcon::Radio, 9., p.accent))
-                                .child("STREAMING"),
-                        )
-                    })
-                    .child(
-                        div()
-                            .flex()
-                            .flex_shrink_0()
-                            .items_center()
-                            .gap(px(4.))
-                            .text_size(px(9.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(p.muted)
-                            .child(icon(AppIcon::Globe, 9., p.muted))
-                            .child(if model.multilingual { "MULTI" } else { "EN" }),
-                    ),
-            )
-    }
-
     /// Fixed height, so a card does not resize as its state changes.
     fn render_card_action(
         &self,
@@ -223,7 +73,7 @@ impl VoiceTab {
         model: &CatalogModel,
         state: CardState,
         download: Option<&Download>,
-        cx: &mut Context<Self>,
+        cx: &Context<Self>,
     ) -> AnyElement {
         let p = *Palette::global(cx);
         let id = model.id.clone();
@@ -276,7 +126,11 @@ impl VoiceTab {
         }
 
         let failed = download.is_some_and(|d| d.status == DownloadStatus::Failed);
-        let (tone, edge) = if failed { (p.danger, p.danger) } else { (p.fg_2, p.border) };
+        let (tone, edge) = if failed {
+            (p.danger, p.danger)
+        } else {
+            (p.fg_2, p.border)
+        };
         let installed = state.installed;
         let label = if installed {
             "Use this model"
@@ -304,7 +158,9 @@ impl VoiceTab {
                     }))
             })
             .when(self.saving, |el| el.opacity(0.5).cursor_not_allowed())
-            .when(!installed, |el| el.child(icon(AppIcon::Download, 12., tone)))
+            .when(!installed, |el| {
+                el.child(icon(AppIcon::Download, 12., tone))
+            })
             .child(label);
         if let Some(error) = download.and_then(|d| d.error.clone()) {
             el = el.tooltip(move |window, cx| Tooltip::new(error.clone()).build(window, cx));
@@ -333,4 +189,156 @@ fn edge_button(
         .bg(bg)
         .text_size(px(12.))
         .font_weight(FontWeight::SEMIBOLD)
+}
+
+/// The model's vendor mark, name, recommendation and description.
+fn card_header(model: &CatalogModel, state: CardState, p: &Palette, cx: &App) -> impl IntoElement {
+    let CardState {
+        loaded,
+        installed,
+        recommended,
+    } = state;
+    let vendor = Vendor::for_family(&model.family);
+    div()
+        .flex()
+        .gap(px(10.))
+        .child(
+            div()
+                .flex()
+                .flex_shrink_0()
+                .items_center()
+                .justify_center()
+                .size(px(32.))
+                .rounded(R_MD)
+                .border_1()
+                .map(|el| {
+                    if loaded {
+                        el.border_color(p.accent).bg(p.accent_soft)
+                    } else if installed {
+                        el.border_color(p.accent_soft).bg(p.accent_soft)
+                    } else {
+                        el.border_color(p.border).bg(p.surface)
+                    }
+                })
+                .child(match vendor {
+                    Some(vendor) => vendor_mark(vendor, 18., p.fg, cx).into_any_element(),
+                    None => icon(AppIcon::Cpu, 15., p.muted).into_any_element(),
+                }),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .flex()
+                        .items_start()
+                        .gap(px(6.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_size(px(12.5))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(if loaded { p.accent } else { p.fg })
+                                .child(model.display_name.clone()),
+                        )
+                        .when(recommended && !loaded, |el| {
+                            el.child(
+                                div()
+                                    .flex_shrink_0()
+                                    .px(px(6.))
+                                    .py(px(1.))
+                                    .rounded(R_XS)
+                                    .border_1()
+                                    .border_color(p.accent_soft)
+                                    .bg(p.accent_soft)
+                                    .text_size(px(9.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(p.accent)
+                                    .child("BEST FIT"),
+                            )
+                        }),
+                )
+                .child(
+                    div()
+                        .mt(px(2.))
+                        .truncate()
+                        .text_size(px(11.))
+                        .text_color(p.muted)
+                        .child(model.description.clone()),
+                ),
+        )
+}
+
+/// Weight meter and size on the left; streaming and language on the right.
+fn card_facts(index: usize, model: &CatalogModel, loaded: bool, p: &Palette) -> impl IntoElement {
+    let tier = weight_tier(model.size_bytes);
+    let tone = if loaded { p.accent } else { p.fg_2 };
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .child(
+            div()
+                .id(("weight", index))
+                .flex()
+                .items_end()
+                .gap(px(2.))
+                .tooltip(move |window, cx| {
+                    Tooltip::new(format!("{} download", TIER_LABELS[tier])).build(window, cx)
+                })
+                .children(TIER_HEIGHTS.iter().enumerate().map(|(i, height)| {
+                    div()
+                        .w(px(3.))
+                        .h(px(*height))
+                        .rounded(px(1.))
+                        .bg(if i <= tier { tone } else { p.border })
+                })),
+        )
+        .child(
+            div()
+                .text_size(px(11.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(tone)
+                .child(format_model_size(model.size_bytes)),
+        )
+        .child(
+            div()
+                .ml_auto()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .when(is_streaming(model), |el| {
+                    el.child(
+                        div()
+                            .flex()
+                            .flex_shrink_0()
+                            .items_center()
+                            .gap(px(4.))
+                            .px(px(6.))
+                            .py(px(2.))
+                            .rounded(R_XS)
+                            .bg(p.accent_soft)
+                            .text_size(px(9.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(p.accent)
+                            .child(icon(AppIcon::Radio, 9., p.accent))
+                            .child("STREAMING"),
+                    )
+                })
+                .child(
+                    div()
+                        .flex()
+                        .flex_shrink_0()
+                        .items_center()
+                        .gap(px(4.))
+                        .text_size(px(9.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(p.muted)
+                        .child(icon(AppIcon::Globe, 9., p.muted))
+                        .child(if model.multilingual { "MULTI" } else { "EN" }),
+                ),
+        )
 }

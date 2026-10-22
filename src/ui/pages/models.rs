@@ -6,7 +6,7 @@ mod widgets;
 
 use crate::api::CatalogModel;
 
-pub use widgets::{button, icon_button, pill, progress_bar, ButtonKind, ButtonSize, Tone};
+pub use widgets::{button, icon_button, pill, progress_bar, Button, ButtonKind, ButtonSize, Tone};
 
 /// Family display order. Unlisted families sort after these, alphabetically.
 const FAMILY_ORDER: [&str; 6] = [

@@ -134,11 +134,13 @@ impl RenderOnce for Button {
                     .border_1()
                     .border_color(p.border)
                     .hover(|s| s.bg(p.surface_hover)),
-                ButtonKind::OutlineDanger => el
-                    .bg(p.bg)
-                    .border_1()
-                    .border_color(p.border)
-                    .hover(|s| s.bg(p.danger_soft).border_color(p.danger).text_color(p.danger)),
+                ButtonKind::OutlineDanger => {
+                    el.bg(p.bg).border_1().border_color(p.border).hover(|s| {
+                        s.bg(p.danger_soft)
+                            .border_color(p.danger)
+                            .text_color(p.danger)
+                    })
+                }
             })
             .map(|el| match (self.busy, self.icon) {
                 (true, _) => el.child(spinner(

@@ -41,7 +41,7 @@ fn device_frame(frame: Bounds<Pixels>, scale: f32) -> (i32, i32, i32, i32) {
 
 enum Backend {
     #[cfg(target_os = "linux")]
-    X11(x11::Connection),
+    X11(Box<x11::Connection>),
     #[cfg(windows)]
     Win32(win32::Handle),
     /// Resize only; the compositor moves the window.
@@ -50,8 +50,9 @@ enum Backend {
 
 pub struct NativeWindow {
     backend: Backend,
-    /// The frame last asked for. The window system reports it back late, so a
-    /// resize made right after another must start from this.
+    /// The frame last asked for. The window system reports it back late, and
+    /// GPUI does not track a window moved behind its back, so this is the
+    /// only source of the window's position.
     frame: Bounds<Pixels>,
     scale: f32,
 }
@@ -62,7 +63,7 @@ impl NativeWindow {
         let backend = match HasWindowHandle::window_handle(window).map(|handle| handle.as_raw()) {
             #[cfg(target_os = "linux")]
             Ok(RawWindowHandle::Xcb(handle)) => x11::Connection::open(handle.window.get())
-                .map_or(Backend::Fixed, Backend::X11),
+                .map_or(Backend::Fixed, |conn| Backend::X11(Box::new(conn))),
             #[cfg(windows)]
             Ok(RawWindowHandle::Win32(handle)) => Backend::Win32(win32::Handle::new(handle)),
             _ => Backend::Fixed,
@@ -78,17 +79,6 @@ impl NativeWindow {
 
     pub fn is_movable(&self) -> bool {
         !matches!(self.backend, Backend::Fixed)
-    }
-
-    /// The window's frame now: what the window system reports once it has
-    /// caught up with the last request, and what was requested until then.
-    fn current(&self, window: &Window) -> Bounds<Pixels> {
-        let reported = window.bounds();
-        if reported.size == self.frame.size {
-            reported
-        } else {
-            self.frame
-        }
     }
 
     fn place(&mut self, window: &mut Window, frame: Bounds<Pixels>) {
@@ -111,7 +101,7 @@ impl NativeWindow {
     /// Resize to `new_size`, holding the bottom-centre still so a card grows
     /// upward from the capsule it came from.
     pub fn resize(&mut self, window: &mut Window, new_size: Size<Pixels>) {
-        let current = self.current(window);
+        let current = self.frame;
         let anchor = point(
             current.origin.x + current.size.width / 2.0,
             current.origin.y + current.size.height,
@@ -120,10 +110,10 @@ impl NativeWindow {
         self.place(window, Bounds::new(origin, new_size));
     }
 
-    pub fn begin_drag(&self, window: &Window) -> Option<Drag> {
+    pub fn begin_drag(&self) -> Option<Drag> {
         Some(Drag {
             from: self.pointer()?,
-            origin: self.current(window).origin,
+            origin: self.frame.origin,
         })
     }
 
@@ -177,20 +167,16 @@ mod x11 {
     /// A connection of the pill's own: the window id is global, and requests
     /// on it do not disturb GPUI's.
     pub struct Connection {
-        connection: RustConnection,
+        conn: RustConnection,
         window: u32,
         root: u32,
     }
 
     impl Connection {
         pub fn open(window: u32) -> Option<Self> {
-            let (connection, screen) = RustConnection::connect(None).ok()?;
-            let root = connection.setup().roots.get(screen)?.root;
-            Some(Self {
-                connection,
-                window,
-                root,
-            })
+            let (conn, screen) = RustConnection::connect(None).ok()?;
+            let root = conn.setup().roots.get(screen)?.root;
+            Some(Self { conn, window, root })
         }
 
         pub fn place(&self, frame: Bounds<Pixels>, scale: f32) {
@@ -208,14 +194,14 @@ mod x11 {
         }
 
         fn send(&self, aux: &ConfigureWindowAux) {
-            if let Err(e) = self.connection.configure_window(self.window, aux) {
+            if let Err(e) = self.conn.configure_window(self.window, aux) {
                 log::debug!("pill: configure_window failed: {e}");
             }
-            let _ = self.connection.flush();
+            let _ = self.conn.flush();
         }
 
         pub fn pointer(&self) -> Option<Pointer> {
-            let reply = self.connection.query_pointer(self.root).ok()?.reply().ok()?;
+            let reply = self.conn.query_pointer(self.root).ok()?.reply().ok()?;
             Some(Pointer {
                 x: f32::from(reply.root_x),
                 y: f32::from(reply.root_y),

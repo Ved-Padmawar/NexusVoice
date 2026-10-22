@@ -118,7 +118,7 @@ fn function_keys_parse_up_to_the_last_one_global_hotkey_knows() {
         HotKey::from_str(&text).unwrap_or_else(|e| panic!("{text:?}: {e}"));
     }
     let mut recording = Recording::default();
-    for key in ["f0", "f36", "fx", "f"] {
+    for key in ["f0", "f36", "fx", "f-1"] {
         assert!(!recording.press_key(&stroke("ctrl", key)), "{key} was accepted");
     }
     assert!(recording.is_empty());

@@ -9,7 +9,7 @@ use gpui_kit::component::calendar::Date;
 use gpui_kit::component::date_picker::{DatePicker, DatePickerState};
 use gpui_kit::component::{Sizable as _, Size};
 use gpui_kit::{
-    div, prelude::*, px, App, AppContext as _, Context, ElementId, Entity, EventEmitter,
+    div, prelude::*, px, App, Context, ElementId, Entity, EventEmitter,
     FontWeight, SharedString, Window,
 };
 
@@ -124,10 +124,10 @@ impl FilterPopover {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let p = *Palette::global(cx);
-        div().flex().gap_1().children(options.map(|(value, label)| {
+        div().flex().gap_1().children(options.into_iter().enumerate().map(|(i, (value, label))| {
             let on = value == current;
             div()
-                .id(ElementId::NamedInteger(id.into(), u64::from(label.len() as u32)))
+                .id(ElementId::NamedInteger(id.into(), i as u64))
                 .flex()
                 .flex_1()
                 .items_center()

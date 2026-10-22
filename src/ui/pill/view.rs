@@ -9,9 +9,9 @@ use std::time::{Duration, Instant};
 use gpui_kit::prelude::*;
 use gpui_kit::{
     div, linear_color_stop, linear_gradient, percentage, point, px, relative, size, svg, Animation,
-    AnimationExt as _, AnyElement, BoxShadow, ClickEvent, Context, CursorStyle, Entity,
-    FontWeight, MouseButton, MouseDownEvent, Pixels, Rgba, SharedString, StyleRefinement, Task,
-    Transformation, Window,
+    AnimationExt as _, AnyElement, BoxShadow, ClickEvent, Context, CursorStyle, Entity, FontWeight,
+    MouseButton, MouseDownEvent, Pixels, Rgba, SharedString, StyleRefinement, Task, Transformation,
+    Window,
 };
 
 use super::geometry::{
@@ -37,6 +37,7 @@ const PAUSED_WAVE: f32 = 0.45;
 const FADE_H: f32 = 28.0;
 const STRIP_H: f32 = 42.0;
 const NOTICE_SHOWN: Duration = Duration::from_secs(3);
+#[cfg(windows)]
 const KEEP_ON_TOP: Duration = Duration::from_secs(2);
 
 const PAUSE_ICON: &str = "icons/pill/pause.svg";
@@ -115,6 +116,8 @@ impl Motion {
     }
 }
 
+// Independent window and layout flags; a state machine would only rename them.
+#[allow(clippy::struct_excessive_bools)]
 pub struct PillView {
     state: PillState,
     theme: PillTheme,
@@ -161,7 +164,10 @@ impl PillView {
         #[cfg(windows)]
         cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(KEEP_ON_TOP).await;
-            if this.update(cx, |this, _| this.native.keep_on_top()).is_err() {
+            if this
+                .update(cx, |this, _| this.native.keep_on_top())
+                .is_err()
+            {
                 return;
             }
         })
@@ -222,7 +228,8 @@ impl PillView {
             Event::PillNotice(text) => self.show_notice(text.into(), window, cx),
             Event::Waveform(levels) => {
                 if self.capturing() {
-                    self.waveform.update(cx, |wave, cx| wave.set_levels(levels, cx));
+                    self.waveform
+                        .update(cx, |wave, cx| wave.set_levels(levels, cx));
                 }
             }
             Event::Partial(partial) => self.set_partial(partial, window, cx),
@@ -241,7 +248,7 @@ impl PillView {
             self.percent = format!("{percent}%").into();
         }
         if self.capturing() && !was_capturing {
-            self.waveform.update(cx, |wave, cx| wave.reset(cx));
+            self.waveform.update(cx, Waveform::reset);
         }
         // Leaving the capture states drops the partial; the card's exit still
         // shows the last text, which the transcript keeps.
@@ -258,8 +265,9 @@ impl PillView {
         if !self.capturing() || (partial.committed.is_empty() && partial.tentative.is_empty()) {
             return;
         }
-        self.transcript
-            .update(cx, |transcript, cx| transcript.set_partial(partial, window, cx));
+        self.transcript.update(cx, |transcript, cx| {
+            transcript.set_partial(partial, window, cx);
+        });
         self.has_partial = true;
         self.reconcile(window, cx);
         cx.notify();
@@ -305,7 +313,8 @@ impl PillView {
         }
         if style != self.waveform_style {
             self.waveform_style = style;
-            self.waveform.update(cx, |wave, cx| wave.set_style(style, cx));
+            self.waveform
+                .update(cx, |wave, cx| wave.set_style(style, cx));
         }
         self.live_transcript = live;
         self.reconcile(window, cx);
@@ -391,8 +400,7 @@ impl PillView {
         } else {
             capsule_window()
         };
-        self.native
-            .resize(window, size(px(width), px(height)));
+        self.native.resize(window, size(px(width), px(height)));
         self.window_large = large;
     }
 
@@ -462,7 +470,6 @@ impl PillView {
         }
 
         let mut busy = self.motion.is_active(now);
-        if busy { eprintln!("TRACE active {:?}", self.motion.tweens().iter().map(|t| t.is_active(now)).collect::<Vec<_>>()); } // TEMP-HARNESS
         if let Some(drag) = self.drag {
             if self.native.drag(drag, window) {
                 busy = true;
@@ -484,7 +491,7 @@ impl PillView {
 
     fn begin_drag(&mut self, _: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if self.native.is_movable() {
-            self.drag = self.native.begin_drag(window);
+            self.drag = self.native.begin_drag();
             cx.notify();
         } else {
             window.start_window_move();
@@ -710,7 +717,7 @@ impl PillView {
 
     /// The card's strip: the capsule's row at the capsule's size while the
     /// card closes, the roomier one while it is open.
-    fn strip(&self, closing: bool, opacity: f32) -> gpui_kit::Div {
+    fn strip(closing: bool, opacity: f32) -> gpui_kit::Div {
         let (height, left, right, bottom) = if closing {
             (32.0, 8.0, 10.0, 0.0)
         } else {
@@ -729,7 +736,13 @@ impl PillView {
     }
 
     /// The accent wash pooling at the card's bottom edge.
-    fn tide(&self, theme: &PillThemeDef, now: Instant, inner_h: f32, radius: f32) -> impl IntoElement {
+    fn tide(
+        &self,
+        theme: &PillThemeDef,
+        now: Instant,
+        inner_h: f32,
+        radius: f32,
+    ) -> impl IntoElement {
         let height = self.motion.tide_height.value(now).min(inner_h);
         let alpha = TIDE_ALPHA * self.motion.tide_opacity.value(now);
         let accent = |a: f32| Rgba { a, ..theme.accent };
@@ -782,17 +795,22 @@ impl PillView {
             tint,
         );
         let clear = Rgba { a: 0.0, ..surface };
+        // A corner's radius is capped at half the box's height, so the box
+        // must be tall enough to hold the pill's own; the gradient ends at
+        // `FADE_H` regardless.
+        let corner = (radius - 1.0).max(0.0);
+        let height = (corner * 2.0).max(FADE_H);
         div()
             .absolute()
             .top_0()
             .left_0()
             .right_0()
-            .h(px(FADE_H))
-            .rounded_t(px((radius - 1.0).max(0.0)))
+            .h(px(height))
+            .rounded_t(px(corner))
             .bg(linear_gradient(
                 180.0,
                 linear_color_stop(surface, 0.0),
-                linear_color_stop(clear, 1.0),
+                linear_color_stop(clear, FADE_H / height),
             ))
     }
 
@@ -865,7 +883,16 @@ impl PillView {
             .shadow(vec![BoxShadow::new(
                 px(0.0),
                 px(4.0),
-                theme::faded(Rgba { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }, 0.5).into(),
+                theme::faded(
+                    Rgba {
+                        r: 0.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 1.0,
+                    },
+                    0.5,
+                )
+                .into(),
             )
             .blur_radius(px(16.0))])
             .child(text.clone());
@@ -884,7 +911,6 @@ impl PillView {
 impl Render for PillView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let now = Instant::now();
-        eprintln!("TRACE render {:?}", now); // TEMP-HARNESS
         self.tick(now, window, cx);
 
         let theme = self.def();
@@ -911,7 +937,7 @@ impl Render for PillView {
             .bg(look.bg)
             .shadow(shadows(theme, look.shadow))
             .cursor_grab()
-            .active(|style| style.cursor_grabbing())
+            .active(gpui_kit::Styled::cursor_grabbing)
             .on_mouse_down(MouseButton::Left, cx.listener(Self::begin_drag));
 
         let has_strip = !matches!(
@@ -919,13 +945,16 @@ impl Render for PillView {
             PillState::Processing | PillState::Downloading(_)
         );
         if roomy {
-            pill = pill.flex_col().justify_end().child(self.tide(theme, now, inner_h, radius));
+            pill = pill
+                .flex_col()
+                .justify_end()
+                .child(self.tide(theme, now, inner_h, radius));
             let fading = self.motion.transcript_opacity.value(now) > 0.0
                 || self.motion.transcript_opacity.is_active(now);
             if self.expanded() || fading {
-                pill = pill.child(self.transcript()).child(self.transcript_fade(
-                    theme, &look, now, inner_h, radius,
-                ));
+                pill = pill
+                    .child(self.transcript())
+                    .child(self.transcript_fade(theme, &look, now, inner_h, radius));
             }
             pill = if !has_strip {
                 // Keep the transcript's bottom inset while the strip is gone.
@@ -935,13 +964,16 @@ impl Render for PillView {
                 pill.child(strip)
             } else {
                 pill.child(
-                    self.strip(closing, strip_opacity)
+                    Self::strip(closing, strip_opacity)
                         .gap(px(6.0))
                         .children(self.strip_items(theme)),
                 )
             };
         } else if self.dictating() {
-            pill = pill.px(px(5.0)).items_center().child(self.dictation(theme, now, cx));
+            pill = pill
+                .px(px(5.0))
+                .items_center()
+                .child(self.dictation(theme, now, cx));
         } else {
             pill = pill
                 .items_center()

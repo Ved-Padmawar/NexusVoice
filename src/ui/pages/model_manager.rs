@@ -2,7 +2,7 @@
 
 use gpui_kit::component::{notification::Notification, WindowExt as _};
 use gpui_kit::{
-    anchored, deferred, div, point, prelude::*, px, Context, Corner, EventEmitter, FontWeight,
+    anchored, deferred, div, point, prelude::*, px, Anchor, Context, EventEmitter, FontWeight,
     Window,
 };
 
@@ -11,7 +11,7 @@ use crate::ui::components::{icon, modal};
 use crate::ui::icons::AppIcon;
 use crate::ui::pages::models::{format_manager_size, icon_button};
 use crate::ui::runtime::SpawnApi as _;
-use crate::ui::theme::{Palette, R_LG, R_MD, R_XL, R_XS};
+use crate::ui::theme::{Palette, R_LG, R_MD, R_XS};
 
 /// The dialog asked to be closed; its owner drops it.
 pub struct ManagerClosed;
@@ -26,22 +26,30 @@ impl EventEmitter<ManagerClosed> for ModelManager {}
 
 impl ModelManager {
     pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let manager = Self {
+        Self::load(cx);
+        Self {
             models: Vec::new(),
             deleting: None,
-        };
-        manager.load(cx);
-        manager
+        }
     }
 
-    fn load(&self, cx: &mut Context<Self>) {
-        cx.spawn_api(async { api::get_downloaded_models() }, |this: &mut Self, models, cx| {
-            this.models = models;
-            cx.notify();
-        });
+    fn load(cx: &mut Context<Self>) {
+        cx.spawn_api(
+            async { api::get_downloaded_models() },
+            |this: &mut Self, models, cx| {
+                this.models = models;
+                cx.notify();
+            },
+        );
     }
 
-    fn delete(&mut self, variant: String, name: String, window: &mut Window, cx: &mut Context<Self>) {
+    fn delete(
+        &mut self,
+        variant: String,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.deleting.is_some() {
             return;
         }
@@ -54,8 +62,11 @@ impl ModelManager {
                 this.deleting = None;
                 match result {
                     Ok(()) => {
-                        window.push_notification(Notification::success(format!("{name} deleted")), cx);
-                        this.load(cx);
+                        window.push_notification(
+                            Notification::success(format!("{name} deleted")),
+                            cx,
+                        );
+                        Self::load(cx);
                     }
                     Err(e) => {
                         log::warn!("could not delete {name}: {e}");
@@ -78,7 +89,12 @@ impl ModelManager {
         }
     }
 
-    fn render_row(&self, index: usize, model: &DownloadedModel, cx: &Context<Self>) -> impl IntoElement {
+    fn render_row(
+        &self,
+        index: usize,
+        model: &DownloadedModel,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
         let p = *Palette::global(cx);
         let busy = self.deleting.as_deref() == Some(model.variant.as_str());
         let (variant, name) = (model.variant.clone(), model.display_name.clone());
@@ -153,11 +169,15 @@ impl ModelManager {
                                 }))
                         }
                     })
-                    .child(icon(AppIcon::Trash, 13., if busy { p.muted } else { p.fg_2 })),
+                    .child(icon(
+                        AppIcon::Trash,
+                        13.,
+                        if busy { p.muted } else { p.fg_2 },
+                    )),
             )
     }
 
-    fn render_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_content(&self, cx: &Context<Self>) -> impl IntoElement {
         let p = *Palette::global(cx);
         let this = cx.entity();
         div()
@@ -241,13 +261,14 @@ impl Render for ModelManager {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity();
         let content = self.render_content(cx);
+        let viewport = window.viewport_size();
         // Anchored at the window origin: the dialog covers the whole window,
         // not just the tab that opened it.
         deferred(
             anchored()
                 .position(point(px(0.), px(0.)))
-                .anchor(Corner::TopLeft)
-                .child(div().size(window.viewport_size()).child(modal(
+                .anchor(Anchor::TopLeft)
+                .child(div().w(viewport.width).h(viewport.height).child(modal(
                     "model-manager",
                     px(460.),
                     content,

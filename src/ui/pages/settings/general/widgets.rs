@@ -4,8 +4,8 @@ use std::f32::consts::TAU;
 use std::time::Duration;
 
 use gpui_kit::{
-    div, prelude::*, px, radians, Animation, AnimationExt as _, App, ElementId, FontWeight,
-    Hsla, SharedString, Window,
+    anchored, deferred, div, point, prelude::*, px, radians, AbsoluteLength, Animation,
+    AnimationExt as _, App, ElementId, FontWeight, Hsla, Pixels, SharedString, Window,
 };
 
 use crate::ui::components::icon;
@@ -103,4 +103,28 @@ fn knob(x: f32, shadow: Vec<gpui_kit::BoxShadow>) -> impl IntoElement {
         .rounded_full()
         .bg(gpui_kit::white())
         .shadow(shadow)
+}
+
+/// `el` with a border `width` wide on every side; the stock helpers only
+/// offer whole pixels.
+pub fn border_width<E: Styled>(mut el: E, width: Pixels) -> E {
+    let width = Some(AbsoluteLength::Pixels(width));
+    let edges = &mut el.style().border_widths;
+    edges.top = width;
+    edges.right = width;
+    edges.bottom = width;
+    edges.left = width;
+    el
+}
+
+/// `content` laid over the whole window, whatever the size of the view that
+/// owns it: an overlay inside a page would only cover that page.
+pub fn over_window(content: impl IntoElement, window: &Window) -> impl IntoElement {
+    let size = window.viewport_size();
+    deferred(
+        anchored()
+            .position(point(px(0.), px(0.)))
+            .child(div().w(size.width).h(size.height).child(content)),
+    )
+    .with_priority(2)
 }

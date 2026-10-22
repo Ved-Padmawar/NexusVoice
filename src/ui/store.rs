@@ -284,12 +284,12 @@ impl Store {
     pub fn offer_cuda(&mut self, cx: &mut Context<Self>) {
         fn due(store: &Store, cx: &App) -> bool {
             let settings = UiSettings::global(cx);
-            settings.model_chosen
-                && !settings.cuda_offer_seen
-                && !store.cuda_offer_open
-                && store.cuda.is_some_and(|c| {
-                    c.supported && c.pack == PackState::Absent && c.download_progress.is_none()
-                })
+            offer_due(
+                settings.model_chosen,
+                settings.cuda_offer_seen,
+                store.cuda_offer_open,
+                store.cuda,
+            )
         }
         if !due(self, cx) {
             return;
@@ -433,6 +433,17 @@ impl Store {
     }
 }
 
+/// Whether the CUDA offer should open: a model chosen, an NVIDIA GPU, no pack,
+/// no download already under way, and the offer neither open nor used up.
+fn offer_due(model_chosen: bool, seen: bool, open: bool, cuda: Option<CudaStatus>) -> bool {
+    model_chosen
+        && !seen
+        && !open
+        && cuda.is_some_and(|c| {
+            c.supported && c.pack == PackState::Absent && c.download_progress.is_none()
+        })
+}
+
 pub fn init(cx: &mut App) {
     let store = cx.new(|cx| {
         let mut store = Store {
@@ -473,3 +484,7 @@ pub fn handle(event: Event, cx: &mut App) {
         _ => {}
     });
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/ui/store.rs"]
+mod tests;

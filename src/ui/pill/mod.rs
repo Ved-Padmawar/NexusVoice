@@ -13,8 +13,8 @@ mod view;
 pub mod waveform;
 
 use gpui_kit::{
-    point, px, size, App, AppContext as _, Bounds, Global, WindowBackgroundAppearance, WindowBounds,
-    WindowDecorations, WindowHandle, WindowKind, WindowOptions,
+    point, px, size, App, AppContext as _, Bounds, Global, WindowBackgroundAppearance,
+    WindowBounds, WindowDecorations, WindowHandle, WindowKind, WindowOptions,
 };
 
 use crate::events::Event;
@@ -30,13 +30,15 @@ impl Global for PillWindow {}
 pub fn open(cx: &mut App) {
     let (width, height) = capsule_window();
     let window_size = size(px(width), px(height));
-    let origin = cx.primary_display().map_or(point(px(0.0), px(0.0)), |display| {
-        let screen = display.bounds();
-        point(
-            screen.origin.x + (screen.size.width - window_size.width) / 2.0,
-            screen.origin.y + screen.size.height - window_size.height - px(BOTTOM_MARGIN),
-        )
-    });
+    let origin = cx
+        .primary_display()
+        .map_or(point(px(0.0), px(0.0)), |display| {
+            let screen = display.bounds();
+            point(
+                screen.origin.x + (screen.size.width - window_size.width) / 2.0,
+                screen.origin.y + screen.size.height - window_size.height - px(BOTTOM_MARGIN),
+            )
+        });
 
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(origin, window_size))),

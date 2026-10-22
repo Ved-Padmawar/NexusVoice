@@ -102,10 +102,6 @@ impl Tween {
         }
     }
 
-    pub fn target(&self) -> f32 {
-        self.to
-    }
-
     fn progress(&self, now: Instant) -> f32 {
         let elapsed = now.saturating_duration_since(self.start).as_secs_f32();
         let t = &self.transition;
@@ -144,3 +140,7 @@ impl Tween {
         self.transition = Transition::INSTANT;
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/pill_motion.rs"]
+mod tests;

@@ -16,7 +16,10 @@ fn settings_round_trip_through_their_file_format() {
         cuda_offer_seen: true,
     };
     let json = serde_json::to_string(&settings).expect("serialize");
-    assert_eq!(serde_json::from_str::<UiSettings>(&json).expect("parse"), settings);
+    assert_eq!(
+        serde_json::from_str::<UiSettings>(&json).expect("parse"),
+        settings
+    );
 }
 
 #[test]

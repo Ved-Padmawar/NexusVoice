@@ -11,9 +11,7 @@ use std::collections::HashSet;
 use gpui_kit::component::input::InputEvent;
 use gpui_kit::component::input::InputState;
 use gpui_kit::component::{notification::Notification, WindowExt as _};
-use gpui_kit::{
-    div, prelude::*, px, AppContext as _, Context, Entity, Subscription, Window,
-};
+use gpui_kit::{div, prelude::*, px, Context, Entity, Subscription, Window};
 
 use crate::api::{self, DownloadedModel, HardwareProfileResponse};
 use crate::ui::components::{icon, text_input};
@@ -54,7 +52,7 @@ impl VoiceTab {
         let store = Store::entity(cx);
         let query = cx.new(|cx| InputState::new(window, cx).placeholder("Find a model…"));
         let subscriptions = vec![
-            cx.observe(&store, Self::on_store_changed),
+            cx.observe(&store, |this, store, cx| this.on_store_changed(&store, cx)),
             cx.subscribe(&query, |this, state, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     this.query_text = state.read(cx).value().to_string();
@@ -67,7 +65,15 @@ impl VoiceTab {
             store.refresh_downloads(cx);
         });
 
-        let mut tab = Self {
+        Self::refresh_on_disk(cx);
+        cx.spawn_api(
+            async { api::get_hardware_profile() },
+            |this: &mut Self, profile, cx| {
+                this.profile = Some(profile);
+                cx.notify();
+            },
+        );
+        Self {
             profile: None,
             on_disk: Vec::new(),
             saving: false,
@@ -79,26 +85,20 @@ impl VoiceTab {
             manager: None,
             seen_downloads: store.read(cx).downloads.len(),
             _subscriptions: subscriptions,
-        };
-        tab.refresh_on_disk(cx);
+        }
+    }
+
+    fn refresh_on_disk(cx: &mut Context<Self>) {
         cx.spawn_api(
-            async { api::get_hardware_profile() },
-            |this: &mut Self, profile, cx| {
-                this.profile = Some(profile);
+            async { api::get_downloaded_models() },
+            |this: &mut Self, models, cx| {
+                this.on_disk = models;
                 cx.notify();
             },
         );
-        tab
     }
 
-    fn refresh_on_disk(&mut self, cx: &mut Context<Self>) {
-        cx.spawn_api(async { api::get_downloaded_models() }, |this: &mut Self, models, cx| {
-            this.on_disk = models;
-            cx.notify();
-        });
-    }
-
-    fn on_store_changed(&mut self, store: Entity<Store>, cx: &mut Context<Self>) {
+    fn on_store_changed(&mut self, store: &Entity<Store>, cx: &mut Context<Self>) {
         let store = store.read(cx);
         let downloads = store.downloads.len();
         let caught_up = self
@@ -111,7 +111,7 @@ impl VoiceTab {
         }
         if downloads != self.seen_downloads {
             self.seen_downloads = downloads;
-            self.refresh_on_disk(cx);
+            Self::refresh_on_disk(cx);
         }
         cx.notify();
     }
@@ -129,7 +129,7 @@ impl VoiceTab {
                 this.saving = false;
                 match result {
                     Ok(()) => {
-                        Store::entity(cx).update(cx, |store, cx| store.refresh_models(cx));
+                        Store::entity(cx).update(cx, Store::refresh_models);
                         window.push_notification(Notification::success("Model updated"), cx);
                     }
                     Err(e) => {
@@ -146,8 +146,8 @@ impl VoiceTab {
         let view = cx.new(|cx| ModelManager::new(window, cx));
         let closed = cx.subscribe(&view, |this, _, _: &ManagerClosed, cx| {
             this.manager = None;
-            this.refresh_on_disk(cx);
-            Store::entity(cx).update(cx, |store, cx| store.refresh_models(cx));
+            Self::refresh_on_disk(cx);
+            Store::entity(cx).update(cx, Store::refresh_models);
             cx.notify();
         });
         self.manager = Some(OpenManager {
@@ -161,6 +161,68 @@ impl VoiceTab {
             self.filter = filter;
             cx.notify();
         }
+    }
+
+    /// Filter pills, the search box and the legend.
+    fn render_toolbar(&self, counts: [usize; 4], cx: &Context<Self>) -> impl IntoElement {
+        let p = *Palette::global(cx);
+        div()
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap(px(8.))
+            .child(
+                div().flex().items_center().gap(px(4.)).children(
+                    ModelFilter::ALL.into_iter().zip(counts).enumerate().map(
+                        |(i, (filter, count))| {
+                            pill(
+                                ("filter", i),
+                                filter.label(),
+                                self.filter == filter,
+                                false,
+                                cx,
+                            )
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.set_filter(filter, cx)),
+                            )
+                            .child(count.to_string())
+                        },
+                    ),
+                ),
+            )
+            .child(
+                div()
+                    .relative()
+                    .flex_shrink_0()
+                    .w(px(168.))
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(10.))
+                            .top_0()
+                            .bottom_0()
+                            .flex()
+                            .items_center()
+                            .child(icon(AppIcon::Search, 12., p.muted)),
+                    )
+                    .child(
+                        text_input(&self.query, cx)
+                            .h(px(28.))
+                            .pl(px(28.))
+                            .pr(px(8.))
+                            .text_size(px(11.)),
+                    ),
+            )
+            .child(
+                div()
+                    .ml_auto()
+                    .min_w_0()
+                    .truncate()
+                    .text_right()
+                    .text_size(px(10.))
+                    .text_color(p.muted)
+                    .child("Bars show download weight — light to heavy."),
+            )
     }
 }
 
@@ -188,12 +250,12 @@ impl Render for VoiceTab {
                     && matches_query(m, &self.query_text)
             })
             .collect();
-        let count = |filter: ModelFilter| {
+        let counts = ModelFilter::ALL.map(|filter| {
             ordered
                 .iter()
                 .filter(|m| filter.admits(m, on_disk.contains(m.id.as_str())))
                 .count()
-        };
+        });
         let loaded_model = loaded.and_then(|id| store.catalog.iter().find(|m| m.id == id));
 
         div()
@@ -202,65 +264,21 @@ impl Render for VoiceTab {
             .gap(px(12.))
             .child(self.render_status(loaded_model, cx))
             .child(self.unload.clone())
+            .child(self.render_toolbar(counts, cx))
             .child(
                 div()
-                    .flex()
-                    .flex_shrink_0()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(div().flex().items_center().gap(px(4.)).children(
-                        ModelFilter::ALL.into_iter().enumerate().map(|(i, filter)| {
-                            pill(("filter", i), filter.label(), self.filter == filter, false, cx)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.set_filter(filter, cx);
-                                }))
-                                .child(count(filter).to_string())
-                        }),
-                    ))
-                    .child(
-                        div()
-                            .relative()
-                            .flex_shrink_0()
-                            .w(px(168.))
-                            .child(
-                                div()
-                                    .absolute()
-                                    .left(px(10.))
-                                    .top_0()
-                                    .bottom_0()
-                                    .flex()
-                                    .items_center()
-                                    .child(icon(AppIcon::Search, 12., p.muted)),
-                            )
-                            .child(
-                                text_input(&self.query, cx)
-                                    .h(px(28.))
-                                    .pl(px(28.))
-                                    .pr(px(8.))
-                                    .text_size(px(11.)),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .ml_auto()
-                            .min_w_0()
-                            .truncate()
-                            .text_right()
-                            .text_size(px(10.))
-                            .text_color(p.muted)
-                            .child("Bars show download weight — light to heavy."),
-                    ),
+                    .grid()
+                    .grid_cols(3)
+                    .gap(px(10.))
+                    .children(visible.iter().enumerate().map(|(i, model)| {
+                        let state = card::CardState {
+                            loaded: loaded == Some(model.id.as_str()),
+                            installed: on_disk.contains(model.id.as_str()),
+                            recommended: recommended == Some(model.id.as_str()),
+                        };
+                        self.render_card(i, model, state, store.downloads.get(&model.id), cx)
+                    })),
             )
-            .child(div().grid().grid_cols(3).gap(px(10.)).children(
-                visible.iter().enumerate().map(|(i, model)| {
-                    let state = card::CardState {
-                        loaded: loaded == Some(model.id.as_str()),
-                        installed: on_disk.contains(model.id.as_str()),
-                        recommended: recommended == Some(model.id.as_str()),
-                    };
-                    self.render_card(i, model, state, store.downloads.get(&model.id), cx)
-                }),
-            ))
             .when(visible.is_empty(), |el| {
                 el.child(
                     div()
