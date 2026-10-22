@@ -46,7 +46,7 @@ impl RenderOnce for Sidebar {
                     .flex_col()
                     .flex_1()
                     .gap(px(1.))
-                    .p_2()
+                    .p(px(8.))
                     .overflow_y_scroll()
                     .children(NAV.into_iter().map(|(route, label, glyph)| {
                         nav_item(route, label, glyph, route == self.route, cx)
@@ -197,8 +197,8 @@ fn update_prompt(cx: &App) -> impl IntoElement {
     let body = update_body(status, progress, &p);
 
     div()
-        .px_2()
-        .pb_2()
+        .px(px(8.))
+        .pb(px(8.))
         .child(
             div()
                 .relative()
@@ -216,7 +216,7 @@ fn update_prompt(cx: &App) -> impl IntoElement {
                     div()
                         .flex()
                         .items_center()
-                        .gap_2()
+                        .gap(px(8.))
                         .pr(px(18.))
                         .child(
                             div()
@@ -254,7 +254,7 @@ fn update_prompt(cx: &App) -> impl IntoElement {
                             .absolute()
                             .top(px(5.))
                             .right(px(5.))
-                            .size_4()
+                            .size(px(16.))
                             .flex()
                             .items_center()
                             .justify_center()
@@ -302,7 +302,7 @@ fn update_body(status: UpdateStatus, progress: u8, p: &Palette) -> AnyElement {
                 div()
                     .flex()
                     .justify_between()
-                    .gap_2()
+                    .gap(px(8.))
                     .text_size(px(10.))
                     .child(div().text_color(p.muted).child("Downloading…"))
                     .child(
@@ -374,7 +374,7 @@ fn update_detail(status: UpdateStatus, version: &str, p: &Palette) -> impl IntoE
     div()
         .flex()
         .items_center()
-        .gap_1()
+        .gap(px(4.))
         .text_size(px(10.))
         .font_weight(FontWeight::MEDIUM)
         .text_color(p.muted)

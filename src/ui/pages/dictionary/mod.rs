@@ -254,7 +254,7 @@ impl Dictionary {
         div()
             .flex_shrink_0()
             .px(px(18.))
-            .py_3()
+            .py(px(12.))
             .rounded(R_XL)
             .bg(p.panel)
             .border_1()
@@ -413,7 +413,12 @@ enum Column {
 }
 
 fn cell(column: Column, content: impl IntoElement) -> impl IntoElement {
-    let base = div().flex().items_center().px_4().py(px(14.)).min_w_0();
+    let base = div()
+        .flex()
+        .items_center()
+        .px(px(16.))
+        .py(px(14.))
+        .min_w_0();
     match column {
         Column::Term | Column::Replacement => base.w(gpui_kit::relative(0.3)).child(content),
         Column::Hits => base
@@ -475,7 +480,7 @@ fn display_cells(
             Column::Replacement,
             div()
                 .truncate()
-                .px_2()
+                .px(px(8.))
                 .py(px(2.))
                 .rounded(R_SM)
                 .bg(p.accent_soft)
@@ -612,9 +617,9 @@ fn empty_state(cx: &App) -> AnyElement {
         .flex()
         .flex_col()
         .items_center()
-        .gap_2()
-        .py_8()
-        .px_4()
+        .gap(px(8.))
+        .py(px(32.))
+        .px(px(16.))
         .child(
             div()
                 .flex()
@@ -645,8 +650,8 @@ fn table_skeleton(cx: &App) -> impl IntoElement {
         div()
             .flex()
             .items_center()
-            .gap_4()
-            .px_4()
+            .gap(px(16.))
+            .px(px(16.))
             .py(px(14.))
             .when(i < 4, |el| el.border_b_1().border_color(p.border_soft))
             .child(skeleton(
@@ -679,9 +684,9 @@ impl Render for Dictionary {
             .flex_col()
             .size_full()
             .overflow_hidden()
-            .px_8()
-            .pt_7()
-            .pb_4()
+            .px(px(32.))
+            .pt(px(28.))
+            .pb(px(16.))
             .child(page_header(
                 AppIcon::BookOpen,
                 "Dictionary",
@@ -693,7 +698,7 @@ impl Render for Dictionary {
                     .flex_col()
                     .flex_1()
                     .min_h_0()
-                    .gap_5()
+                    .gap(px(20.))
                     .mt(px(6.))
                     .child(self.render_quick_add(cx))
                     .child(self.render_table(cx)),

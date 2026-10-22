@@ -33,7 +33,7 @@ impl RenderOnce for PageHeader {
             .flex_shrink_0()
             .items_center()
             .justify_between()
-            .gap_4()
+            .gap(px(16.))
             .pb(px(14.))
             .mb(px(14.))
             .border_b_1()
@@ -42,7 +42,7 @@ impl RenderOnce for PageHeader {
                 div()
                     .flex()
                     .items_center()
-                    .gap_3()
+                    .gap(px(12.))
                     .min_w_0()
                     .child(
                         div()
@@ -50,7 +50,7 @@ impl RenderOnce for PageHeader {
                             .flex_shrink_0()
                             .items_center()
                             .justify_center()
-                            .size_8()
+                            .size(px(32.))
                             .rounded(R_LG)
                             .bg(p.accent_soft)
                             .child(icon(self.icon, 16., p.accent)),
@@ -88,7 +88,7 @@ pub fn section_heading(
     div()
         .child(
             div()
-                .mb_1()
+                .mb(px(4.))
                 .text_size(px(12.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(p.fg_2)

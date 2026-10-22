@@ -52,6 +52,7 @@ impl Render for PillSection {
             .gap(px(6.))
             .child(group_label(AppIcon::Radio, "RECORDING PILL", &p))
             .child(choice_grid().children(choices));
+        // Cached by the tab, so it fills the box it is laid out in.
         section_card(
             stage(current_def, &p, mini_pill(current_def)),
             current_def.label,
@@ -59,6 +60,7 @@ impl Render for PillSection {
             choices,
             &p,
         )
+        .size_full()
     }
 }
 

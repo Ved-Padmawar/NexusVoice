@@ -146,9 +146,9 @@ impl Render for Settings {
             .flex_col()
             .size_full()
             .overflow_hidden()
-            .px_8()
+            .px(px(32.))
             .pt(px(28.))
-            .pb_4()
+            .pb(px(16.))
             .child(page_header(AppIcon::Settings, "Settings", subtitle(tab)))
             .child(
                 div()
@@ -156,7 +156,7 @@ impl Render for Settings {
                     .flex_shrink_0()
                     .items_center()
                     .justify_between()
-                    .mb_3()
+                    .mb(px(12.))
                     .child(segmented(
                         "settings-tabs",
                         segments,
@@ -174,7 +174,7 @@ impl Render for Settings {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
-                    .pr_1()
+                    .pr(px(4.))
                     .gap(px(tab_gap(tab)))
                     .child(view),
             )

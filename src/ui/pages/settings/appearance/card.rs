@@ -21,12 +21,12 @@ pub fn section_card(
 ) -> Div {
     div()
         .flex()
-        .gap_4()
+        .gap(px(16.))
         .rounded(R_LG)
         .border_1()
         .border_color(p.border_soft)
         .bg(p.panel)
-        .p_4()
+        .p(px(16.))
         .child(
             div()
                 .flex()
@@ -38,7 +38,7 @@ pub fn section_card(
                     div()
                         .flex()
                         .items_baseline()
-                        .gap_2()
+                        .gap(px(8.))
                         .child(
                             div()
                                 .text_size(px(13.))
@@ -133,7 +133,7 @@ impl Choice {
             .gap(px(10.))
             .min_w_0()
             .px(px(10.))
-            .py_2()
+            .py(px(8.))
             .rounded(R_MD)
             .border_1()
             .cursor_pointer()
@@ -153,7 +153,7 @@ impl Choice {
                         .flex_none()
                         .items_center()
                         .justify_center()
-                        .size_4()
+                        .size(px(16.))
                         .rounded_full()
                         .bg(p.accent)
                         .child(icon(AppIcon::Check, 9., p.accent_fg)),

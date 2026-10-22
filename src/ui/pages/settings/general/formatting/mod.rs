@@ -6,7 +6,7 @@ mod presets;
 
 use gpui_kit::component::{notification::Notification, Icon, WindowExt as _};
 use gpui_kit::{
-    div, prelude::*, px, Context, Div, Entity, FontWeight, Stateful, Subscription, Window,
+    div, prelude::*, px, relative, Context, Div, Entity, FontWeight, Stateful, Subscription, Window,
 };
 
 use self::modal::{ProviderModal, ProviderModalEvent};
@@ -147,7 +147,7 @@ impl Render for FormattingToggle {
             .border_color(p.border_soft)
             .child(
                 div()
-                    .px_4()
+                    .px(px(16.))
                     .py(px(10.))
                     .border_b_1()
                     .border_color(p.border_soft)
@@ -161,13 +161,13 @@ impl Render for FormattingToggle {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .gap_4()
-                    .p_4()
+                    .gap(px(16.))
+                    .p(px(16.))
                     .child(
                         div()
                             .flex()
                             .items_start()
-                            .gap_3()
+                            .gap(px(12.))
                             .child(
                                 div()
                                     .mt(px(1.))
@@ -175,7 +175,7 @@ impl Render for FormattingToggle {
                                     .flex_shrink_0()
                                     .items_center()
                                     .justify_center()
-                                    .size_8()
+                                    .size(px(32.))
                                     .rounded(R_MD)
                                     .bg(p.accent_soft)
                                     .child(icon(AppIcon::Sparkles, 14., p.accent)),
@@ -186,8 +186,9 @@ impl Render for FormattingToggle {
                                     .child(
                                         div()
                                             .mt(px(3.))
-                                            .max_w(px(380.))
+                                            .max_w(px(560.))
                                             .text_size(px(11.))
+                                            .line_height(relative(1.5))
                                             .text_color(p.muted)
                                             .child(
                                                 "Sends each transcript to your chosen LLM (local Ollama, \
@@ -202,7 +203,7 @@ impl Render for FormattingToggle {
                             .flex()
                             .flex_shrink_0()
                             .items_center()
-                            .gap_2()
+                            .gap(px(8.))
                             .child(
                                 configure_button(&p)
                                     .on_click(cx.listener(|this, _, window, cx| {

@@ -1,12 +1,13 @@
-//! A segmented tab list: a surface track with the active segment raised.
+//! A segmented tab list: a surface track with the active segment tinted.
 
 use gpui_kit::{
-    div, prelude::*, px, App, ElementId, FontWeight, IntoElement, SharedString, Window,
+    div, prelude::*, px, transparent_black, App, ElementId, FontWeight, IntoElement, SharedString,
+    Window,
 };
 
 use super::icon;
 use crate::ui::icons::AppIcon;
-use crate::ui::theme::{Palette, R_LG, R_MD};
+use crate::ui::theme::{alpha, Palette, R_LG, R_MD};
 
 pub struct Segment<T> {
     pub value: T,
@@ -27,7 +28,7 @@ pub fn segmented<T: Copy + PartialEq + 'static>(
         .id(id.into())
         .flex()
         .items_center()
-        .gap(px(2.))
+        .h(px(36.))
         .p(px(3.))
         .rounded(R_LG)
         .bg(p.surface)
@@ -37,32 +38,34 @@ pub fn segmented<T: Copy + PartialEq + 'static>(
             let on = segment.value == active;
             let value = segment.value;
             let on_select = on_select.clone();
+            let color = if on { p.accent } else { p.muted };
             div()
                 .id(ElementId::NamedInteger("segment".into(), i as u64))
                 .flex()
                 .items_center()
+                .justify_center()
                 .gap(px(5.))
-                .px(px(14.))
-                .py(px(5.))
+                .h_full()
+                .px(px(8.))
+                .py(px(4.))
                 .rounded(R_MD)
+                .border_1()
                 .text_size(px(12.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(color)
                 .cursor_pointer()
                 .map(|el| {
                     if on {
-                        el.bg(p.panel)
-                            .text_color(p.fg)
-                            .font_weight(FontWeight::SEMIBOLD)
+                        el.bg(p.accent_soft)
+                            .border_color(alpha(p.accent, 0.35))
                             .shadow(p.shadow_sm())
                     } else {
-                        el.text_color(p.muted)
-                            .font_weight(FontWeight::MEDIUM)
-                            .hover(|s| s.text_color(p.fg))
+                        el.border_color(transparent_black())
+                            .hover(|s| s.text_color(p.fg_2))
                     }
                 })
                 .on_click(move |_, window, cx| on_select(value, window, cx))
-                .when_some(segment.icon, |el, i| {
-                    el.child(icon(i, 12., if on { p.fg } else { p.muted }))
-                })
+                .when_some(segment.icon, |el, i| el.child(icon(i, 12., color)))
                 .child(segment.label)
         }))
 }

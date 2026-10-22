@@ -9,8 +9,8 @@ use std::time::Duration;
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::{
-    div, prelude::*, px, size, App, Bounds, Context, Entity, Global, Subscription, WindowBounds,
-    WindowDecorations, WindowHandle, WindowOptions,
+    div, prelude::*, px, size, App, Bounds, Context, Entity, Global, StyleRefinement, Subscription,
+    WindowBounds, WindowDecorations, WindowHandle, WindowOptions,
 };
 
 use super::components::spinner;
@@ -253,7 +253,7 @@ impl Render for MainWindow {
                             .min_w_0()
                             .h_full()
                             .overflow_hidden()
-                            .child(page),
+                            .child(page.cached(StyleRefinement::default().size_full())),
                     ),
             )
             .child(title_bar::TitleBar)

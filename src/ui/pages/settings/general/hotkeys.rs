@@ -2,8 +2,8 @@
 
 use gpui_kit::component::{notification::Notification, Icon, WindowExt as _};
 use gpui_kit::{
-    div, prelude::*, px, App, ClickEvent, Context, Entity, FocusHandle, FontWeight, Hsla,
-    KeyDownEvent, KeyUpEvent, ModifiersChangedEvent, SharedString, Window,
+    div, point, prelude::*, px, App, BoxShadow, ClickEvent, Context, Entity, FocusHandle,
+    FontWeight, Hsla, KeyDownEvent, KeyUpEvent, ModifiersChangedEvent, SharedString, Window,
 };
 
 use super::shortcut::{badge_label, Recording};
@@ -61,7 +61,7 @@ impl Render for HotkeySection {
         div()
             .flex()
             .flex_col()
-            .gap_4()
+            .gap(px(16.))
             .child(section_heading(
                 "Keyboard shortcuts",
                 "Set global hotkeys for recording and hands-free dictation.",
@@ -221,7 +221,7 @@ impl HotkeyCard {
             .justify_center()
             .gap(px(6.))
             .px(px(10.))
-            .h_8()
+            .h(px(32.))
             .min_w(px(120.))
             .rounded(R_SM)
             .cursor_pointer()
@@ -270,8 +270,8 @@ impl HotkeyCard {
         if current.is_none() {
             return row.child(
                 div()
-                    .px_2()
-                    .py_1()
+                    .px(px(8.))
+                    .py(px(4.))
                     .rounded(R_SM)
                     .bg(p.bg_alt)
                     .border_1()
@@ -323,8 +323,8 @@ impl Render for HotkeyCard {
             }))
             .flex()
             .items_center()
-            .gap_3()
-            .px_3()
+            .gap(px(12.))
+            .px(px(12.))
             .py(px(10.))
             .rounded(R_MD)
             .bg(p.surface)
@@ -340,7 +340,7 @@ impl Render for HotkeyCard {
                     .flex_shrink_0()
                     .items_center()
                     .justify_center()
-                    .size_7()
+                    .size(px(28.))
                     .rounded(R_SM)
                     .bg(if bound { p.accent_soft } else { p.bg_alt })
                     .child(icon(
@@ -403,14 +403,22 @@ fn key_badges(tokens: &[SharedString], p: &Palette) -> impl IntoElement {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .min_w_6()
+                        .min_w(px(24.))
                         .px(px(6.))
                         .py(px(2.))
                         .rounded(R_SM)
                         .bg(p.bg_alt)
                         .border_1()
                         .border_color(p.border)
+                        .shadow(vec![BoxShadow {
+                            color: p.border,
+                            offset: point(px(0.), px(1.)),
+                            blur_radius: px(0.),
+                            spread_radius: px(0.),
+                            inset: false,
+                        }])
                         .text_size(px(10.))
+                        .line_height(px(14.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(p.fg)
                         .child(badge_label(token).to_string()),
@@ -430,8 +438,8 @@ fn text_button(
         .flex()
         .items_center()
         .justify_center()
-        .h_8()
-        .px_3()
+        .h(px(32.))
+        .px(px(12.))
         .rounded(R_MD)
         .text_size(px(13.))
         .font_weight(FontWeight::MEDIUM)
@@ -467,7 +475,7 @@ fn icon_button(
         .flex()
         .items_center()
         .justify_center()
-        .size_7()
+        .size(px(28.))
         .rounded(R_SM)
         .cursor_pointer()
         .text_color(rest_color)

@@ -8,7 +8,7 @@ mod live_transcript;
 mod microphone;
 mod shortcut;
 
-use gpui_kit::{div, prelude::*, Context, Entity, Subscription, Window};
+use gpui_kit::{div, prelude::*, px, Context, Entity, Subscription, Window};
 
 use self::formatting::FormattingToggle;
 use self::hotkeys::HotkeySection;
@@ -56,19 +56,19 @@ impl Render for GeneralTab {
                 .bg(p.panel)
                 .border_1()
                 .border_color(p.border_soft)
-                .p_4()
+                .p(px(16.))
         };
         let language_supported = self.language.read(cx).supported();
         div()
             .flex()
             .flex_col()
-            .gap_4()
+            .gap(px(16.))
             // Both selects open panels past the card edge.
             .child(
                 card()
                     .grid()
                     .grid_cols(if language_supported { 2 } else { 1 })
-                    .gap_4()
+                    .gap(px(16.))
                     .child(div().min_w_0().child(self.microphone.clone()))
                     .when(language_supported, |el| {
                         el.child(div().min_w_0().child(self.language.clone()))

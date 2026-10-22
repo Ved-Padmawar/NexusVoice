@@ -45,7 +45,7 @@ pub fn transcript_row(
         .flex()
         .w_full()
         .gap(px(14.))
-        .pb_4()
+        .pb(px(16.))
         .when(!place.last, |el| {
             // The rail runs behind the dots, so a row only draws its own span.
             el.child(
@@ -97,9 +97,9 @@ fn card(
         .min_w_0()
         .flex()
         .flex_col()
-        .gap_2()
+        .gap(px(8.))
         .px(px(14.))
-        .py_3()
+        .py(px(12.))
         .rounded(R_LG)
         .bg(p.panel)
         .border_1()
@@ -168,7 +168,7 @@ fn action(id: (&'static str, i64), p: &Palette) -> Stateful<Div> {
         .id(ElementId::NamedInteger(id.0.into(), id.1.unsigned_abs()))
         .flex()
         .items_center()
-        .gap_1()
+        .gap(px(4.))
         .px(px(6.))
         .py(px(2.))
         .rounded(R_SM)

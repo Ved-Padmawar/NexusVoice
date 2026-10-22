@@ -66,7 +66,7 @@ impl TextInjectionSection {
                     .flex_shrink_0()
                     .items_center()
                     .justify_center()
-                    .size_7()
+                    .size(px(28.))
                     .rounded(R_SM)
                     .when(ready, |el| el.bg(p.accent_soft))
                     .child(if ready {
@@ -106,8 +106,8 @@ impl TextInjectionSection {
             .flex_shrink_0()
             .items_center()
             .gap(px(6.))
-            .px_2()
-            .py_1()
+            .px(px(8.))
+            .py(px(4.))
             .rounded(R_SM)
             .bg(p.surface)
             .border_1()
@@ -203,7 +203,7 @@ impl Render for TextInjectionSection {
         let status = self.status.as_ref().filter(|s| s.configurable);
         div().children(status.map(|status| {
             div()
-                .p_4()
+                .p(px(16.))
                 .rounded(R_LG)
                 .bg(p.panel)
                 .border_1()
@@ -211,7 +211,7 @@ impl Render for TextInjectionSection {
                 .child(self.header(status, cx))
                 .child(
                     div()
-                        .mt_3()
+                        .mt(px(12.))
                         .flex()
                         .flex_col()
                         .gap(px(6.))

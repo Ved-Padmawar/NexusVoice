@@ -133,7 +133,7 @@ impl FilterPopover {
         let p = *Palette::global(cx);
         div()
             .flex()
-            .gap_1()
+            .gap(px(4.))
             .children(options.into_iter().enumerate().map(|(i, (value, label))| {
                 let on = value == current;
                 div()
@@ -207,7 +207,7 @@ impl FilterPopover {
             DateMode::On => div().flex().child(Self::date_field(None, &self.on, cx)),
             DateMode::Range => div()
                 .flex()
-                .gap_2()
+                .gap(px(8.))
                 .child(Self::date_field(Some("From"), &self.from, cx))
                 .child(Self::date_field(Some("To"), &self.to, cx)),
         };
@@ -215,8 +215,8 @@ impl FilterPopover {
         div()
             .flex()
             .flex_col()
-            .gap_3()
-            .p_3()
+            .gap(px(12.))
+            .p(px(12.))
             .w(px(280.))
             .child(
                 div()
@@ -239,8 +239,8 @@ impl FilterPopover {
                 div()
                     .flex()
                     .items_center()
-                    .gap_2()
-                    .pt_1()
+                    .gap(px(8.))
+                    .pt(px(4.))
                     .border_t_1()
                     .border_color(p.border_soft)
                     .when(self.applied.is_active(), |el| {
@@ -262,7 +262,7 @@ impl FilterPopover {
                             .flex()
                             .items_center()
                             .h(px(26.))
-                            .px_3()
+                            .px(px(12.))
                             .rounded(R_SM)
                             .bg(p.accent)
                             .text_color(p.accent_fg)

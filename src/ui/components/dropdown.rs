@@ -287,7 +287,7 @@ impl Dropdown {
                     .child(item.label.clone()),
             )
             .when(active, |el| {
-                el.child(div().ml_2().child(icon(AppIcon::Check, 13., p.accent)))
+                el.child(div().ml(px(8.)).child(icon(AppIcon::Check, 13., p.accent)))
             })
     }
 
@@ -323,12 +323,12 @@ impl Dropdown {
                 el.child(
                     div()
                         .flex_shrink_0()
-                        .p_2()
+                        .p(px(8.))
                         .border_b_1()
                         .border_color(p.border_soft)
                         .child(
                             Input::new(&search)
-                                .h_8()
+                                .h(px(32.))
                                 .rounded(R_SM)
                                 .text_size(px(12.))
                                 .prefix(icon(AppIcon::Search, 13., p.fg_2)),
@@ -348,7 +348,7 @@ impl Dropdown {
                         el.child(
                             div()
                                 .px(px(14.))
-                                .py_3()
+                                .py(px(12.))
                                 .text_size(px(12.))
                                 .text_color(p.muted)
                                 .child(self.empty_text.clone()),

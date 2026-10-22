@@ -177,7 +177,7 @@ impl Render for MicrophoneSection {
         div()
             .flex()
             .flex_col()
-            .gap_4()
+            .gap(px(16.))
             .child(section_heading(
                 "Microphone",
                 "Choose which input device records your voice.",
@@ -188,7 +188,7 @@ impl Render for MicrophoneSection {
                     .flex()
                     .min_w_0()
                     .items_center()
-                    .gap_2()
+                    .gap(px(8.))
                     .child(div().flex_1().min_w_0().child(self.dropdown.clone()))
                     .child(self.refresh_button(cx)),
             )

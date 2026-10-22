@@ -1,7 +1,7 @@
 //! The dictation language; hidden for English-only models.
 
 use gpui_kit::component::{notification::Notification, WindowExt as _};
-use gpui_kit::{div, prelude::*, Context, Entity, SharedString, Subscription, Window};
+use gpui_kit::{div, prelude::*, px, Context, Entity, SharedString, Subscription, Window};
 
 use crate::api::{self, LanguageSettings};
 use crate::ui::components::{section_heading, Dropdown, DropdownEvent, DropdownItem};
@@ -138,7 +138,7 @@ impl Render for LanguageSection {
         div().when(self.supported, |el| {
             el.flex()
                 .flex_col()
-                .gap_4()
+                .gap(px(16.))
                 .child(section_heading(
                     "Language",
                     "The language you dictate in. Auto-detect can mix languages mid-sentence.",

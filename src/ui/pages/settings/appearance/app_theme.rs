@@ -89,7 +89,8 @@ impl Render for ThemeSection {
             .gap(px(12.))
             .child(self.group(true, current, &p))
             .child(self.group(false, current, &p));
-        section_card(preview, name, blurb, choices, &p)
+        // Cached by the tab, so it fills the box it is laid out in.
+        section_card(preview, name, blurb, choices, &p).size_full()
     }
 }
 
@@ -207,9 +208,9 @@ fn content(t: &Palette) -> Div {
     let title = div()
         .flex()
         .items_center()
-        .gap_2()
+        .gap(px(8.))
         .px(px(10.))
-        .pb_2()
+        .pb(px(8.))
         .child(
             div()
                 .child(shape(40., 4., 99., t.fg, 0.9))

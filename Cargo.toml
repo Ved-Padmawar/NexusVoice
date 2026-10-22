@@ -5,8 +5,7 @@ edition = "2021"
 license = "MIT"
 
 [features]
-# Build the Vulkan compute backend. Requires the Vulkan SDK at build time, so
-# release builds enable it and local dev runs CPU-only without it.
+# Vulkan backend; needs the Vulkan SDK, so only release builds enable it.
 gpu = ["transcribe-cpp/vulkan"]
 
 # The exe icon; GPUI loads its windows' icon from resource 1.
@@ -14,24 +13,24 @@ gpu = ["transcribe-cpp/vulkan"]
 winresource = "0.1"
 
 [dependencies]
-# GPUI with its component library. Icons are our own Phosphor set (assets/).
+# GPUI and its components; icons are our own Phosphor set.
 gpui-kit = { version = "0.8", default-features = false, features = ["component"] }
 rust-embed = "8"
 log = "0.4"
 async-channel = "2"
 dirs = "7"
 image = { version = "0.25", default-features = false, features = ["png"] }
-# Desktop integration that used to come from Tauri plugins.
+# Desktop integration (formerly Tauri plugins).
 arboard = { version = "3", features = ["wayland-data-control"] }
 global-hotkey = "0.9"
 interprocess = "2"
 tray-icon = "0.26"
-# Self-update: compare versions and verify the minisign signature.
+# Self-update: version compare and minisign verification.
 semver = "1"
 minisign-verify = "0.3"
 base64 = "0.22"
 opener = "0.9"
-# The pill's native window handle, to place it and keep it from taking focus.
+# The pill's native handle, to place it without taking focus.
 raw-window-handle = "0.6"
 strsim = "0.11"
 sqlx = { version = "0.9", features = ["sqlite", "runtime-tokio", "chrono", "migrate"] }
@@ -44,15 +43,12 @@ cpal = "0.18"
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 reqwest = { version = "0.13", features = ["json", "stream"] }
 futures-util = "0.3"
-# The on-demand CUDA pack: unpack, verify and preload its libraries.
+# The on-demand CUDA pack: unpack, verify, preload.
 flate2 = "1"
 sha2 = "0.10"
 libloading = "0.8"
 
-# transcribe.cpp wrapper: GGUF speech-to-text across ~16 model families, with
-# both single-shot (`Session::run`) and native streaming (`Session::stream`).
-# `dynamic-backends` loads the backend modules at runtime instead of link time,
-# so one binary covers every backend it was built with. Only Vulkan is, today.
+# GGUF speech-to-text, single-shot and streaming.
 transcribe-cpp = { version = "0.3", default-features = false }
 rubato = "5"
 rphonetic = "4"
@@ -62,9 +58,7 @@ earshot = "1.2.1"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Dxgi", "Win32_Graphics_Gdi", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Console", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Threading", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
-# GPU backends are dlopen'd at runtime, so one binary serves every accelerator.
-# The Vulkan module is built only under the `gpu` feature (release builds), which
-# needs the Vulkan SDK present; without it the CPU variants still ship.
+# Backends are loaded at runtime, so one binary serves every accelerator.
 transcribe-cpp = { version = "0.3", features = ["dynamic-backends"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -73,35 +67,37 @@ metal = "0.33"
 [target.'cfg(target_os = "linux")'.dependencies]
 ash = "0.38"
 transcribe-cpp = { version = "0.3", features = ["dynamic-backends"] }
-# The tray icon is a GTK widget on Linux and needs its own GTK main loop.
+# The Linux tray icon needs a GTK main loop.
 gtk = "0.18"
-# Wayland refuses global key grabs, so dictation is also triggerable by signal.
+# Wayland has no global hotkeys; dictation is also triggered by signal.
 signal-hook = "0.4"
-# xdg-desktop-portal: the sanctioned way to type on Wayland, no helper tool.
-# Placing the pill: GPUI can resize a window but not move it.
+# Typing on Wayland (portal) and placing the pill on X11.
 x11rb = "0.13"
 ashpd = { version = "0.13", default-features = false, features = ["async-io", "remote_desktop", "screencast"] }
 
 [dev-dependencies]
 tempfile = "3"
 serial_test = "4"
-# Signs fixtures with a throwaway key to exercise the updater's verification.
+# Signs updater test fixtures.
 minisign = "0.10"
 
-# GPUI's Windows backend asks for the DirectX debug layer in debug builds and
-# logs an error on every start where the Graphics Tools aren't installed.
+# Unoptimized GPUI can't hold a frame rate, so dev builds optimize dependencies.
+[profile.dev.package."*"]
+opt-level = 2
+
+# Skips GPUI's DirectX debug layer, which errors without the Graphics Tools.
 [profile.dev.package.gpui-pre-windows]
 debug-assertions = false
 
 [profile.release]
-# Must stay "unwind" — the recording path's catch_unwind guards are no-ops under "abort".
+# The recording path relies on catch_unwind.
 panic = "unwind"
 codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
 
-# Installers, built in CI by `cargo packager` (see .github/workflows/release.yml).
+# Installers, built in CI by `cargo packager`.
 [package.metadata.packager]
 product-name = "NexusVoice"
 identifier = "com.nexusvoice.app"
@@ -116,22 +112,21 @@ icons = [
     "packaging/icons/icon.ico",
     "packaging/icons/icon.icns",
 ]
-# The transcribe.cpp runtime and its dlopen'd backends, staged by build.rs.
+# transcribe.cpp and its backends, staged by build.rs.
 resources = [{ src = "transcribe-libs/*", target = "." }]
 
 [package.metadata.packager.deb]
 depends = ["libxdo3", "libasound2", "libblas3", "liblapack3", "libgomp1", "libxkbcommon-x11-0", "libayatana-appindicator3-1"]
 
 [package.metadata.packager.appimage]
-# The Vulkan loader and Wayland client must come from the user's graphics
-# stack; bundling the runner's copies shadows a newer Mesa or ICD.
+# Must come from the user's graphics stack.
 excluded-libs = ["libvulkan.so*", "libwayland-client.so*"]
 
 [package.metadata.packager.nsis]
 installer-icon = "packaging/icons/icon.ico"
 install-mode = "currentUser"
 
-# The rpm, which cargo-packager does not make; built by `cargo generate-rpm`.
+# Built by `cargo generate-rpm`.
 [package.metadata.generate-rpm]
 name = "nexusvoice"
 summary = "Local, private voice dictation"
