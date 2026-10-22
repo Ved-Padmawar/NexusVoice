@@ -126,7 +126,7 @@ mod bindings {
             .with(HotkeyKind::PushToTalk, Some("Ctrl+Space".to_string()))
             .is_ok());
         let err = bound()
-            .with(HotkeyKind::DictationCommit, Some("ctrl+space".to_string()))
+            .with(HotkeyKind::DictationCommit, Some("Ctrl+Space".to_string()))
             .expect_err("taken by push-to-talk");
         assert_eq!(err.code(), "hotkey_conflict");
     }
