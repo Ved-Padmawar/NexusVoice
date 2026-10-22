@@ -15,7 +15,7 @@ use super::geometry::{
     CARD_W,
 };
 use super::motion::{Curve, Transition, Tween};
-use super::native::{Drag, NativeWindow};
+use super::native::{Drag, Grab, NativeWindow};
 use super::theme::{self, ButtonColors, Look, PillThemeDef, DOWNLOAD, DOWNLOAD_PCT};
 use super::transcript::Transcript;
 use super::waveform::{Align, Waveform};
@@ -138,6 +138,7 @@ pub struct PillView {
     was_expanded: bool,
     was_returning: bool,
     drag: Option<Drag>,
+    hovered: bool,
 }
 
 impl PillView {
@@ -180,7 +181,7 @@ impl PillView {
             percent: SharedString::default(),
             waveform: cx.new(|_| Waveform::new(style, theme.accent, false)),
             transcript: cx.new(|_| Transcript::new(theme)),
-            native: NativeWindow::new(window),
+            native: NativeWindow::new(window, cx),
             window_large: false,
             roomy: false,
             opening: false,
@@ -188,6 +189,7 @@ impl PillView {
             was_expanded: false,
             was_returning: false,
             drag: None,
+            hovered: false,
         }
     }
 
@@ -467,6 +469,7 @@ impl PillView {
                 busy = true;
             } else {
                 self.drag = None;
+                self.sync_grab();
             }
         }
         // The children are cached, so a fade has to be handed to them.
@@ -484,10 +487,20 @@ impl PillView {
     fn begin_drag(&mut self, _: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if self.native.is_movable() {
             self.drag = self.native.begin_drag();
+            self.sync_grab();
             cx.notify();
         } else {
             window.start_window_move();
         }
+    }
+
+    fn sync_grab(&self) {
+        self.native
+            .set_grab(match (self.drag.is_some(), self.hovered) {
+                (true, _) => Grab::Closed,
+                (false, true) => Grab::Open,
+                (false, false) => Grab::None,
+            });
     }
 
     fn hover(&mut self, index: usize, hovered: bool, cx: &mut Context<Self>) {
@@ -896,7 +909,11 @@ impl Render for PillView {
             .shadow(theme::shadows(theme, look.shadow))
             .cursor_grab()
             .active(gpui_kit::Styled::cursor_grabbing)
-            .on_mouse_down(MouseButton::Left, cx.listener(Self::begin_drag));
+            .on_mouse_down(MouseButton::Left, cx.listener(Self::begin_drag))
+            .on_hover(cx.listener(|this, hovered: &bool, _, _| {
+                this.hovered = *hovered;
+                this.sync_grab();
+            }));
 
         let has_strip = !matches!(
             self.state,
