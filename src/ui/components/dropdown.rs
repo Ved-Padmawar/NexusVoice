@@ -1,20 +1,17 @@
-//! The one dropdown every select in the app uses: a trigger showing the
-//! current choice, and a menu below it with an optional search field, the
-//! choice checked, arrow keys and Enter to pick, Escape or a click outside to
-//! close.
+//! The dropdown every select uses: a trigger and a menu with optional search
+//! and keyboard navigation.
 
 use std::cell::Cell;
 use std::rc::Rc;
-use std::time::Duration;
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::{
-    anchored, canvas, deferred, div, prelude::*, px, Animation, AnimationExt as _, App, Bounds,
-    Context, ElementId, Entity, EventEmitter, FocusHandle, Focusable, KeyDownEvent, MouseDownEvent,
-    Pixels, ScrollHandle, SharedString, Subscription, Window,
+    anchored, canvas, deferred, div, prelude::*, px, App, Bounds, Context, ElementId, Entity,
+    EventEmitter, FocusHandle, Focusable, KeyDownEvent, MouseDownEvent, Pixels, ScrollHandle,
+    SharedString, Subscription, Window,
 };
 
-use super::icon;
+use super::{icon, popover_open, popover_panel};
 use crate::ui::icons::AppIcon;
 use crate::ui::theme::{Palette, R_LG, R_MD, R_SM};
 
@@ -56,7 +53,6 @@ impl DropdownItem {
 
 #[derive(Debug, Clone)]
 pub enum DropdownEvent {
-    /// The user picked a different value.
     Changed(SharedString),
 }
 
@@ -70,13 +66,11 @@ pub struct Dropdown {
     empty_text: SharedString,
     disabled: bool,
     open: bool,
-    /// Index into the filtered list.
     highlighted: usize,
     search: Option<Entity<InputState>>,
     focus: FocusHandle,
     scroll: ScrollHandle,
-    /// The trigger's bounds as last painted: the menu matches its width, and
-    /// a press on it is the trigger's to handle, not an outside click.
+    /// The trigger's last painted bounds: the menu's width, and not an outside click.
     trigger: Rc<Cell<Bounds<Pixels>>>,
     _search_changed: Option<Subscription>,
 }
@@ -121,8 +115,7 @@ impl Dropdown {
         self
     }
 
-    /// Add a search field to the menu that filters items by label and value,
-    /// saying `empty_text` when nothing matches.
+    /// Add a search field filtering by label and value.
     #[must_use]
     pub fn searchable(
         self,
@@ -317,19 +310,10 @@ impl Dropdown {
             .map(|(row, &index)| self.render_row(row, index, row == last, cx))
             .collect::<Vec<_>>();
 
-        div()
-            .id("dropdown-menu")
-            .occlude()
+        let panel = popover_panel("dropdown-menu", p.shadow_lg(), cx)
             .flex()
             .flex_col()
             .h(height)
-            .mt_1()
-            .overflow_hidden()
-            .rounded(R_LG)
-            .bg(p.panel)
-            .border_1()
-            .border_color(p.border)
-            .shadow(p.shadow_lg())
             .on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, window, cx| {
                 if !this.trigger.get().contains(&event.position) {
                     this.set_open(false, window, cx);
@@ -371,12 +355,8 @@ impl Dropdown {
                         )
                     })
                     .children(rows),
-            )
-            .with_animation(
-                "dropdown-open",
-                Animation::new(Duration::from_millis(140)).with_easing(gpui_kit::ease_out_quint()),
-                |el, t| el.opacity(t).mt(px(4. - 4. * (1. - t))),
-            )
+            );
+        popover_open(panel, "dropdown-open", px(4.))
     }
 }
 

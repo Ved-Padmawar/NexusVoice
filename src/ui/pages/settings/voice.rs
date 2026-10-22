@@ -1,6 +1,4 @@
-//! The model catalog: what is running, how to unload it, and a card per model
-//! to download, cancel or switch to. Filters narrow the grid rather than
-//! folding it.
+//! The Voice tab: the model in use, unloading, and a card per model.
 
 mod card;
 mod status;
@@ -14,12 +12,10 @@ use gpui_kit::component::{notification::Notification, WindowExt as _};
 use gpui_kit::{div, prelude::*, px, Context, Entity, Subscription, Window};
 
 use crate::api::{self, DownloadedModel, HardwareProfileResponse};
-use crate::ui::components::{icon, text_input};
+use crate::ui::components::{icon, pill, text_input};
 use crate::ui::icons::AppIcon;
 use crate::ui::pages::model_manager::{ManagerClosed, ModelManager};
-use crate::ui::pages::models::{
-    matches_query, model_name_to_id, pill, sort_for_display, ModelFilter,
-};
+use crate::ui::pages::models::{matches_query, model_name_to_id, sort_for_display, ModelFilter};
 use crate::ui::runtime::SpawnApi as _;
 use crate::ui::store::Store;
 use crate::ui::theme::Palette;
@@ -163,7 +159,6 @@ impl VoiceTab {
         }
     }
 
-    /// Filter pills, the search box and the legend.
     fn render_toolbar(&self, counts: [usize; 4], cx: &Context<Self>) -> impl IntoElement {
         let p = *Palette::global(cx);
         div()

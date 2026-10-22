@@ -4,16 +4,15 @@ use gpui_kit::{div, prelude::*, px, AnyElement, Context, FontWeight, Subscriptio
 
 use crate::api::{self, DownloadedModel, HardwareProfileResponse};
 use crate::inference::cuda::PackState;
-use crate::ui::components::{icon, spinner};
-use crate::ui::icons::AppIcon;
-use crate::ui::pages::models::{
-    button, format_about_size, icon_button, progress_bar, ButtonKind, ButtonSize, Tone,
+use crate::ui::components::{
+    button, icon, icon_button, progress_bar, spinner, ButtonKind, ButtonSize, Tone,
 };
+use crate::ui::icons::AppIcon;
+use crate::ui::pages::models::format_about_size;
 use crate::ui::runtime::SpawnApi as _;
 use crate::ui::store::{Store, UpdateState, UpdateStatus};
 use crate::ui::theme::{alpha, Palette, R_LG, R_MD, R_SM};
 
-/// What a status tile's button does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Action {
     Check,
@@ -68,12 +67,11 @@ enum Body {
     Progress { percent: u8, cancel: bool },
 }
 
-/// One flat status card: badge, title, then a detail line or a progress line.
+/// A flat status card: badge, title, then a detail or progress line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Tile {
     tone: Tone,
     glyph: AppIcon,
-    /// Checking: the glyph turns.
     spinning: bool,
     title: String,
     body: Body,
@@ -158,7 +156,7 @@ fn update_tile(update: &UpdateState, current: &str) -> Tile {
     }
 }
 
-/// The CUDA pack's tile; `None` where CUDA does not apply.
+/// `None` where CUDA does not apply.
 fn cuda_tile(
     cuda: Option<crate::api::CudaStatus>,
     backend: Option<&str>,

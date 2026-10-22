@@ -26,8 +26,8 @@ impl AssetSource for Assets {
     }
 }
 
-/// Register Inter, so text renders the same on every machine: it is absent on
-/// most Linux installs, where the fallback's wider metrics overflow layouts.
+/// Register Inter: absent on most Linux installs, where the fallback's wider
+/// metrics overflow layouts.
 pub fn load_fonts(cx: &App) {
     let fonts = Assets::iter()
         .filter(|name| name.starts_with("fonts/"))

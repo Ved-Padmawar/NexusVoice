@@ -1,5 +1,4 @@
-//! Structured logging: one JSON object per line in the log dir, plus stdout in
-//! dev. The file rolls over at 10 MB, keeping the one before it.
+//! JSON-line logs in the log dir (plus stdout in dev), rolled over at 10 MB.
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -29,7 +28,6 @@ impl Logger {
             .ok()
     }
 
-    /// Keep one previous file, as `nexusvoice.log.1`.
     fn rotate_if_full(&self, file: &mut Option<File>) {
         let full = file
             .as_ref()
@@ -92,8 +90,7 @@ impl Log for Logger {
     }
 }
 
-/// A short id for this run, so lines from one session can be grouped when logs
-/// from several runs interleave.
+/// A short per-run id, to group lines when runs interleave.
 fn session_id() -> String {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

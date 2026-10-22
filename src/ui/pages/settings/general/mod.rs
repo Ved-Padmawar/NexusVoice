@@ -1,5 +1,4 @@
-//! General: input first, since it is what the rest of the app assumes is
-//! already right.
+//! General: input first, since the rest of the app assumes it is right.
 
 mod formatting;
 mod hotkeys;
@@ -8,7 +7,6 @@ mod language;
 mod live_transcript;
 mod microphone;
 mod shortcut;
-mod widgets;
 
 use gpui_kit::{div, prelude::*, Context, Entity, Subscription, Window};
 

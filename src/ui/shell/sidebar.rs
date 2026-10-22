@@ -172,7 +172,6 @@ fn nav_item(
         .child(label)
 }
 
-/// Installs in place — the About tab is the secondary path, not the only one.
 fn update_prompt(cx: &App) -> impl IntoElement {
     let p = *Palette::global(cx);
     let update = &Store::entity(cx).read(cx).update;
@@ -278,8 +277,6 @@ fn update_prompt(cx: &App) -> impl IntoElement {
         .into_any_element()
 }
 
-/// The prompt's lower half: a progress bar while downloading, else the
-/// install or restart button.
 fn update_body(status: UpdateStatus, progress: u8, p: &Palette) -> AnyElement {
     let p = *p;
     if status == UpdateStatus::Downloading {
@@ -369,7 +366,6 @@ fn update_body(status: UpdateStatus, progress: u8, p: &Palette) -> AnyElement {
     }
 }
 
-/// "v1.0 → v1.1", or the new version with where the install stands.
 fn update_detail(status: UpdateStatus, version: &str, p: &Palette) -> impl IntoElement {
     let accent_version = div()
         .text_color(p.accent)

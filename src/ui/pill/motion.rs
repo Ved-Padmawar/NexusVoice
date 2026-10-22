@@ -1,9 +1,4 @@
 //! Time-based tweens that ask for frames only while they move.
-//!
-//! A [`Tween`] is a value and a clock, nothing more: the owner samples it each
-//! time it renders and requests another frame while [`Tween::is_active`].
-//! Retargeting mid-flight starts from wherever the value is, so a reversal
-//! never jumps.
 
 use std::time::Instant;
 
@@ -115,13 +110,11 @@ impl Tween {
         self.from + (self.to - self.from) * self.transition.curve.at(self.progress(now))
     }
 
-    /// Still travelling, or waiting out its delay.
     pub fn is_active(&self, now: Instant) -> bool {
         self.progress(now) < 1.0
     }
 
-    /// Head for `to` from the current value. Aiming where it already aims is a
-    /// no-op, so callers can retarget on every state change without restarting.
+    /// Aiming where it already aims is a no-op, so callers can retarget freely.
     pub fn retarget(&mut self, to: f32, now: Instant, transition: Transition) {
         if (to - self.to).abs() <= f32::EPSILON {
             return;
@@ -132,7 +125,6 @@ impl Tween {
         self.transition = transition;
     }
 
-    /// Arrive at `to` without travelling.
     pub fn snap(&mut self, to: f32, now: Instant) {
         self.from = to;
         self.to = to;

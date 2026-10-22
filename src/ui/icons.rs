@@ -1,5 +1,4 @@
-//! The app's own icons: Phosphor, under `assets/icons/app/`. The kit's built-in
-//! icon paths are served Phosphor files too, so every icon is from one set.
+//! The app's Phosphor icons, under `assets/icons/app/`.
 
 use gpui_kit::component::IconNamed;
 use gpui_kit::SharedString;

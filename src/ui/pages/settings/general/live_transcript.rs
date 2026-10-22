@@ -2,14 +2,13 @@
 
 use gpui_kit::{div, prelude::*, px, Context, FontWeight, Subscription, Window};
 
-use super::widgets::switch;
-use crate::ui::components::icon;
+use crate::ui::components::{icon, switch};
 use crate::ui::icons::AppIcon;
 use crate::ui::settings::UiSettings;
 use crate::ui::theme::{Palette, R_LG, R_MD};
 
 pub struct LiveTranscriptToggle {
-    /// Set by the first flip, so the switch does not slide when the page opens.
+    /// Set by the first flip, so the switch doesn't slide in.
     flipped: bool,
     _settings_changed: Subscription,
 }

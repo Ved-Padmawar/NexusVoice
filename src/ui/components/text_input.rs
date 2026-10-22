@@ -1,5 +1,4 @@
-//! Text fields, styled as the app's inputs: 34px, surface fill, a 1px edge
-//! that turns accent on focus.
+//! Text fields styled as the app's inputs.
 
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::{prelude::*, px, App, Entity};

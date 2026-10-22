@@ -1,9 +1,5 @@
-//! The recording flow: hotkeys and pill buttons in, pill state out.
-//!
-//! One task owns the state and handles one input at a time, so a fast
-//! press-and-release can never stop a recording that is still starting, and no
-//! two triggers (a hotkey, a pill click, a Wayland signal) can race each other.
-//! The UI only draws what [`Event::Pill`] says.
+//! The recording flow: hotkeys and pill buttons in, pill state out. One task
+//! handles one input at a time, so triggers can never race.
 
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -20,12 +16,10 @@ const ERROR_LINGER: Duration = Duration::from_secs(3);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PillState {
     Idle,
-    /// Push-to-talk, held down.
     Recording,
     Dictation {
         paused: bool,
     },
-    /// Finalizing the transcript and typing it.
     Processing,
     /// A model is downloading; the percentage of the current file.
     Downloading(u8),
@@ -45,7 +39,6 @@ pub enum Input {
     /// Start dictation, or pause/resume a running one.
     DictationToggle,
     DictationCommit,
-    /// Throw the current recording away without transcribing it.
     Cancel,
     /// The finished transcript, or an empty string when nothing was said.
     Finished(String),
@@ -57,7 +50,6 @@ pub enum Input {
 
 static INPUTS: OnceLock<mpsc::UnboundedSender<Input>> = OnceLock::new();
 
-/// Start the controller. Must run inside the tokio runtime, once.
 pub fn spawn() {
     let (tx, rx) = mpsc::unbounded_channel();
     if INPUTS.set(tx).is_err() {
@@ -175,8 +167,7 @@ impl Controller {
             }
             Input::Finished(text) => {
                 if !text.is_empty() {
-                    // A failed paste leaves the transcript on the clipboard and in
-                    // the history, so the user can still paste it themselves.
+                    // A failed paste leaves the transcript on the clipboard and in history.
                     if let Err(e) = crate::injection::type_text(&text).await {
                         log::warn!("text injection failed: {e}");
                     }
@@ -216,8 +207,7 @@ impl Controller {
         }
     }
 
-    /// Recording needs any model on disk: the engine falls back to one when the
-    /// selected model is still downloading. Tells the user why when it can't.
+    /// Any model on disk will do; the engine falls back while the selected one downloads.
     fn model_ready(&self) -> bool {
         if state::get().has_downloaded_model() {
             return true;

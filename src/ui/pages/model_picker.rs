@@ -1,15 +1,13 @@
-//! First run: pick a speech model, then download it. Shown over the window
-//! until `UiSettings::model_chosen` is set; choosing a model that is already
-//! on disk skips the download.
+//! First run: pick a speech model and download it (skipped if already on disk).
 
 use gpui_kit::component::{notification::Notification, WindowExt as _};
 use gpui_kit::{div, prelude::*, px, Context, Entity, FontWeight, Subscription, Window};
 
 use crate::api::{self, CatalogModel, HardwareProfileResponse};
-use crate::ui::components::{icon, modal};
+use crate::ui::components::{button, icon, modal, progress_bar};
 use crate::ui::icons::AppIcon;
 use crate::ui::pages::models::{
-    button, format_model_size, is_streaming, model_name_to_id, progress_bar, sort_for_display,
+    format_model_size, is_streaming, model_name_to_id, sort_for_display,
 };
 use crate::ui::runtime::SpawnApi as _;
 use crate::ui::settings::UiSettings;
@@ -20,7 +18,6 @@ pub struct ModelPicker {
     profile: Option<HardwareProfileResponse>,
     profile_requested: bool,
     selected: Option<String>,
-    /// The override is being saved.
     confirming: bool,
     /// The download is under way; the footer shows its progress.
     confirmed: bool,
@@ -81,9 +78,8 @@ impl ModelPicker {
         );
     }
 
-    /// The download entry is removed when it finishes, which is the close
-    /// signal. An entry gone without the file is a failed start: back to the
-    /// choice, so the user can try again.
+    /// The download entry vanishing closes the picker; without the file it was a
+    /// failed start, so go back to the choice.
     fn download_ended(&mut self, cx: &mut Context<Self>) {
         if api::active_model_downloaded() {
             Self::finish(cx);
@@ -114,7 +110,6 @@ impl ModelPicker {
             move |this: &mut Self, result, window, cx| match result {
                 Ok(downloaded) => {
                     Store::entity(cx).update(cx, Store::refresh_models);
-                    // Already on disk: skip the download step.
                     if downloaded {
                         return Self::finish(cx);
                     }
@@ -430,7 +425,6 @@ impl ModelPicker {
     }
 }
 
-/// The round check on the left of an option.
 fn radio(active: bool, p: &Palette) -> impl IntoElement {
     div()
         .flex()
@@ -451,7 +445,6 @@ fn radio(active: bool, p: &Palette) -> impl IntoElement {
         .when(active, |el| el.child(icon(AppIcon::Check, 9., p.accent_fg)))
 }
 
-/// Size, language and, for streaming models, the live mark.
 fn option_facts(model: &CatalogModel, p: &Palette) -> impl IntoElement {
     div()
         .flex()
@@ -530,6 +523,6 @@ impl Render for ModelPicker {
                     .child(div().grid().grid_cols(2).gap(px(8.)).children(options)),
             )
             .child(self.render_footer(store, cx));
-        modal("model-picker", width, content, None, cx)
+        modal("model-picker", width, content, None, window, cx)
     }
 }

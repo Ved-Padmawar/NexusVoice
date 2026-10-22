@@ -1,5 +1,4 @@
-//! The pill's sizes: what is drawn, and the OS window that holds it. They are
-//! kept in step by hand; a window smaller than its content clips the card.
+//! The pill's drawn sizes and its OS window's, kept in step by hand.
 
 use crate::transcription::controller::PillState;
 
@@ -8,8 +7,7 @@ pub const CARD_W: f32 = 332.0;
 pub const CARD_MIN_H: f32 = 84.0;
 pub const CARD_MAX_H: f32 = 186.0;
 pub const CARD_RADIUS: f32 = 28.0;
-/// The strip below the transcript (42) plus the transcript's own padding
-/// (19 above, 8 below).
+/// The strip below the transcript (42) plus the transcript's padding (19 + 8).
 const TEXT_AND_STRIP: f32 = 69.0;
 
 /// Slack so the border and shadow are never clipped by the window edge.
@@ -19,10 +17,8 @@ const SIDE_SLACK: f32 = 4.0;
 /// Room to animate in without the window resizing per frame.
 const CARD_PAD: f32 = 16.0;
 
-/// How far above the screen's bottom edge the capsule rests.
 pub const BOTTOM_MARGIN: f32 = 72.0;
 
-/// The capsule's width: it grows for a label and collapses for a spinner.
 pub const fn capsule_width(state: &PillState) -> f32 {
     match state {
         PillState::Recording => 80.0,
@@ -31,8 +27,7 @@ pub const fn capsule_width(state: &PillState) -> f32 {
     }
 }
 
-/// The card's height for a transcript `text_height` tall: it follows the text,
-/// between a floor that keeps it a card and a ceiling past which the text scrolls.
+/// Follows the text, between a card-sized floor and a scrolling ceiling.
 pub fn card_height(text_height: f32) -> f32 {
     (text_height + TEXT_AND_STRIP).clamp(CARD_MIN_H, CARD_MAX_H)
 }

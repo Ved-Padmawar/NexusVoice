@@ -29,8 +29,7 @@ impl Render for PillSection {
         let current_def = def(current);
         let choices = PillTheme::ALL.map(|theme| {
             let t = def(theme);
-            // The translucent values sit on the pill's own ground, which is
-            // how they actually appear.
+            // Translucent values shown on the pill's own ground, as they really appear.
             let lead = strip(
                 [t.bg, t.border, t.brand, t.accent].map(|color| over(color, t.bg)),
                 13.,

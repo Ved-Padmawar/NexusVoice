@@ -1,9 +1,5 @@
-//! Self-update from the GitHub release feed.
-//!
-//! Reads the same `latest.json` and verifies the same minisign signatures the
-//! Tauri build used, so an installed copy keeps updating across the switch.
-//! Windows runs the downloaded installer; a Linux AppImage replaces itself.
-//! deb and rpm installs update through their package manager.
+//! Self-update from the GitHub release feed, compatible with the Tauri build's
+//! `latest.json` and minisign signatures.
 
 use std::path::PathBuf;
 
@@ -34,7 +30,6 @@ struct Artifact {
     url: String,
 }
 
-/// A newer release, ready to download.
 #[derive(Debug, Clone)]
 pub struct Update {
     pub version: String,
@@ -58,7 +53,6 @@ pub async fn check() -> Result<Option<Update>, String> {
     newer_update(&manifest, env!("CARGO_PKG_VERSION"), PLATFORM)
 }
 
-/// The update `manifest` offers over `current` for `platform`, if any.
 fn newer_update(
     manifest: &Manifest,
     current: &str,
@@ -81,12 +75,14 @@ fn newer_update(
     }))
 }
 
-/// Download, verify and install `update`, reporting whole percentages.
-/// On Windows the installer takes over and this process should exit.
+/// Download, verify and install `update`. On Windows the installer takes over.
 ///
 /// # Errors
 /// The download fails, the signature does not verify, or installing fails.
 pub async fn install(update: &Update, mut on_progress: impl FnMut(u8)) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let target = install_target();
+    #[cfg(not(target_os = "windows"))]
     let target = install_target()?;
     let response = reqwest::get(&update.url)
         .await
@@ -128,8 +124,6 @@ pub fn relaunch() -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Check `bytes` against a base64 minisign `signature` and `public_key`, both
-/// as the release tooling writes them.
 fn verify(bytes: &[u8], signature: &str, public_key: &str) -> Result<(), String> {
     let decode = |b64: &str| -> Result<String, String> {
         let raw = base64::engine::general_purpose::STANDARD
@@ -144,13 +138,12 @@ fn verify(bytes: &[u8], signature: &str, public_key: &str) -> Result<(), String>
         .map_err(|_| "the update's signature did not verify".to_string())
 }
 
-/// Where the verified download goes.
 #[cfg(target_os = "windows")]
-fn install_target() -> Result<PathBuf, String> {
-    Ok(std::env::temp_dir().join("NexusVoice-update-setup.exe"))
+fn install_target() -> PathBuf {
+    std::env::temp_dir().join("NexusVoice-update-setup.exe")
 }
 
-/// Only an AppImage can replace itself; its path is in `$APPIMAGE`.
+/// Only an `AppImage` can replace itself; its path is in `$APPIMAGE`.
 #[cfg(not(target_os = "windows"))]
 fn install_target() -> Result<PathBuf, String> {
     std::env::var_os("APPIMAGE")
@@ -169,8 +162,7 @@ fn apply(target: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Swap the AppImage in place: written beside it, then renamed over it, so a
-/// failure leaves the old one intact. Takes effect on restart.
+/// Swap the `AppImage` via a rename, so a failure leaves the old one intact.
 #[cfg(not(target_os = "windows"))]
 fn apply(target: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;

@@ -1,5 +1,4 @@
-//! One transcript on the activity timeline: a dot on the rail and a card with
-//! the text, when and where it was pasted, and copy / delete.
+//! One transcript on the activity timeline.
 
 use std::time::Duration;
 
@@ -16,7 +15,6 @@ use crate::api::dto::TranscriptResponse;
 use crate::ui::icons::AppIcon;
 use crate::ui::theme::{Palette, R_LG, R_SM};
 
-/// Where a row sits in the list, which decides how far the rail runs.
 #[derive(Clone, Copy)]
 pub struct RowPlace {
     pub first: bool,
@@ -26,7 +24,6 @@ pub struct RowPlace {
 
 pub struct RowState {
     pub copied: bool,
-    /// Just arrived: fades in rather than popping.
     pub fresh: bool,
 }
 
@@ -166,7 +163,6 @@ fn card(
         )
 }
 
-/// A ghost text button at the card's foot; the caller adds hover colour and content.
 fn action(id: (&'static str, i64), p: &Palette) -> Stateful<Div> {
     div()
         .id(ElementId::NamedInteger(id.0.into(), id.1.unsigned_abs()))

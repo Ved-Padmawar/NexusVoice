@@ -1,6 +1,5 @@
-//! Smart formatting: sends each transcript to the user's LLM to tidy
-//! punctuation and lists. Off by default; turning it on without an endpoint
-//! opens the provider modal.
+//! Smart formatting: tidy each transcript with the user's LLM. Turning it on
+//! without an endpoint opens the provider modal.
 
 mod modal;
 mod presets;
@@ -12,10 +11,9 @@ use gpui_kit::{
 
 use self::modal::{ProviderModal, ProviderModalEvent};
 use self::presets::{is_configured, label};
-use super::widgets::{over_window, switch};
 use crate::api;
 use crate::llm::config::FormatConfig;
-use crate::ui::components::icon;
+use crate::ui::components::{icon, switch};
 use crate::ui::icons::AppIcon;
 use crate::ui::runtime::SpawnApi as _;
 use crate::ui::theme::{Palette, R_LG, R_MD};
@@ -23,9 +21,8 @@ use crate::ui::vendors::{vendor_mark, Vendor};
 
 pub struct FormattingToggle {
     config: FormatConfig,
-    /// The open modal, with the subscription that hears it close or save.
     modal: Option<(Entity<ProviderModal>, Subscription)>,
-    /// Set by the first flip, so the switch does not slide when the page opens.
+    /// Set by the first flip, so the switch doesn't slide in.
     flipped: bool,
 }
 
@@ -139,7 +136,7 @@ fn configure_button(p: &Palette) -> Stateful<Div> {
 }
 
 impl Render for FormattingToggle {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = *Palette::global(cx);
         let this = cx.entity();
         div()
@@ -224,6 +221,6 @@ impl Render for FormattingToggle {
                             )),
                     ),
             )
-            .children(self.modal.as_ref().map(|(modal, _)| over_window(modal.clone(), window)))
+            .children(self.modal.as_ref().map(|(modal, _)| modal.clone()))
     }
 }

@@ -1,6 +1,5 @@
-//! The formatter providers on offer and the rules for a usable endpoint.
-//! `FormatConfig::is_usable` is what really decides at dictation time; the
-//! checks here only gate the modal's buttons, so they must never be stricter.
+//! Formatter presets and endpoint checks. These only gate the modal's buttons;
+//! `FormatConfig::is_usable` decides at dictation time, so never be stricter.
 
 use crate::llm::config::{FormatConfig, Profile};
 
@@ -59,12 +58,10 @@ pub const PRESETS: [Preset; 6] = [
     },
 ];
 
-/// The preset for `id`; the first for an id nobody knows.
 pub fn preset(id: &str) -> &'static Preset {
     PRESETS.iter().find(|p| p.id == id).unwrap_or(&PRESETS[0])
 }
 
-/// A provider's name for the card summary; an unknown id stands for itself.
 pub fn label(id: &str) -> &str {
     PRESETS.iter().find(|p| p.id == id).map_or(id, |p| p.label)
 }
@@ -74,15 +71,12 @@ pub fn shows_base_url(provider: &str) -> bool {
     provider != "anthropic"
 }
 
-/// Whether `provider` has the minimum to make a request: a model, and a base
-/// URL unless it is Anthropic. The API key is never required: blank sends no
-/// auth header, which is how local servers run.
+/// A model, and a base URL unless Anthropic. The API key is optional (local servers).
 pub fn is_configured(provider: &str, base_url: &str, model: &str) -> bool {
     !model.trim().is_empty() && (provider == "anthropic" || !base_url.trim().is_empty())
 }
 
-/// What the form shows after switching to `provider`: its saved details, with
-/// the preset URL standing in only for a provider that never had one.
+/// The form after switching provider: its saved details, else the preset URL.
 pub fn profile_for_switch(provider: &str, saved: Option<&Profile>) -> Profile {
     let saved = saved.cloned().unwrap_or_default();
     let fallback_url = match provider {
@@ -99,7 +93,6 @@ pub fn profile_for_switch(provider: &str, saved: Option<&Profile>) -> Profile {
     }
 }
 
-/// `initial` with `profile`, trimmed, saved under `provider` and made active.
 pub fn draft(initial: &FormatConfig, provider: &str, profile: &Profile) -> FormatConfig {
     let mut config = initial.clone();
     config.provider = provider.to_string();

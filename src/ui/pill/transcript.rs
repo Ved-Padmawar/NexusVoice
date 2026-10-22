@@ -1,10 +1,5 @@
-//! The live transcript inside the pill's card.
-//!
-//! The text is shaped once per partial, at the card's final width so it never
-//! rewraps while the card grows, and measured then: the card's height follows
-//! it. Painting only replays the shaped glyphs, bottom-aligned, which is what
-//! scrolling to the end looked like in the old webview. Being its own entity,
-//! a partial repaints this and nothing else.
+//! The live transcript in the pill's card: shaped once per partial at the
+//! card's final width, so it never rewraps while the card grows.
 
 use std::time::Duration;
 
@@ -69,7 +64,6 @@ impl Transcript {
         }
     }
 
-    /// The text's height at the card's width, for sizing the card.
     pub fn height(&self) -> f32 {
         self.height
     }
@@ -97,7 +91,6 @@ impl Transcript {
         }
     }
 
-    /// Show the blinking caret, starting bright, or hide it and stop its timer.
     pub fn set_caret(&mut self, shown: bool, cx: &mut Context<Self>) {
         if shown == self.caret.shown {
             return;
@@ -187,8 +180,7 @@ impl Transcript {
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
             let mut y = top;
             for line in &self.lines {
-                // A failed paint is a glyph that would not rasterize; there is
-                // nothing to do about it mid-frame.
+                // A glyph that won't rasterize; nothing to do mid-frame.
                 let _ = line.paint(
                     point(left, y),
                     line_height,

@@ -1,5 +1,4 @@
-//! The one-line readout above the grid: the model in use, the backend and
-//! what the models take on disk.
+//! The readout above the grid: model in use, backend and disk usage.
 
 use gpui_kit::{div, prelude::*, px, Context, FontWeight};
 
@@ -99,7 +98,6 @@ impl VoiceTab {
             .child(Self::render_manage_button(&p, cx))
     }
 
-    /// The backend and what the models take on disk.
     fn render_hardware(&self, p: &Palette) -> impl IntoElement {
         let disk_bytes: u64 = self.on_disk.iter().map(|m| m.size_bytes).sum();
         let backend = self.profile.as_ref().map_or_else(

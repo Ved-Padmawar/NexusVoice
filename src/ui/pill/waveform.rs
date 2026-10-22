@@ -1,13 +1,5 @@
-//! The four capture waveforms: `bars`, `memo`, `eq` and `spectrum`.
-//!
-//! One entity draws whichever style it is given from the same 8 levels the
-//! capture thread emits at ~30 Hz. Frames come at display rate by easing
-//! toward the latest levels, and only while something still moves: once the
-//! levels are silent and the drawing has settled, the entity stops asking for
-//! frames and the window goes idle.
-//!
-//! Settings previews reuse it with `idle_motion` on, which keeps a faint
-//! motion going through silence.
+//! The four capture waveforms (`bars`, `memo`, `eq`, `spectrum`). They ease
+//! toward the latest levels and request frames only while something moves.
 
 use std::time::Instant;
 
@@ -46,8 +38,7 @@ pub enum Align {
     Center,
 }
 
-/// A smoothing factor tuned at 60 Hz, scaled to the real frame time so the
-/// waveform reacts at the same speed on a 144 Hz display.
+/// A 60 Hz smoothing factor scaled to the real frame time.
 pub(crate) fn ease(factor: f32, dt: f32) -> f32 {
     1.0 - (1.0 - factor).powf(dt * 60.0)
 }
@@ -58,7 +49,6 @@ pub(crate) const fn f(index: usize) -> f32 {
     index as f32
 }
 
-/// The `bars` style: one eased bar per level.
 #[derive(Default)]
 struct Bars {
     height: [f32; BANDS],
@@ -82,8 +72,7 @@ struct Eq {
     phase: f32,
 }
 
-/// Analyser columns, low frequencies left. The 8 bands are interpolated across
-/// a finer grid and jittered per column, or they move in lockstep as blocks.
+/// Analyser columns, low frequencies left, interpolated from the 8 bands.
 struct Spectrum {
     bins: usize,
     value: [f32; SPECTRUM_MAX_BINS],
@@ -113,8 +102,7 @@ impl Drawing {
             WaveformStyle::Spectrum => Self::Spectrum(Spectrum {
                 bins: 0,
                 value: [0.0; SPECTRUM_MAX_BINS],
-                // The golden angle spreads the phases evenly, decorrelating
-                // neighbouring columns without a random source.
+                // Golden-angle phases decorrelate neighbouring columns.
                 seed: std::array::from_fn(|i| (f(i) * 2.399_963) % std::f32::consts::TAU),
                 time: 0.0,
             }),
@@ -122,7 +110,6 @@ impl Drawing {
     }
 }
 
-/// What every renderer needs for one frame.
 struct Frame<'a> {
     bounds: Bounds<Pixels>,
     levels: &'a [f32; BANDS],
@@ -141,7 +128,6 @@ impl Frame<'_> {
         f32::from(self.bounds.size.height)
     }
 
-    /// A rectangle in the waveform's own coordinates, in `accent` at `alpha`.
     fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, radii: Corners<Pixels>, alpha: f32) {
         let origin = self.bounds.origin;
         let bounds = Bounds::new(
@@ -156,7 +142,6 @@ impl Frame<'_> {
             .paint_quad(fill(bounds, color).corner_radii(radii));
     }
 
-    /// A disc centred on (`x`, `y`).
     fn dot(&mut self, x: f32, y: f32, radius: f32, alpha: f32) {
         self.rect(
             x - radius,
@@ -370,8 +355,7 @@ impl Eq {
 }
 
 impl Spectrum {
-    /// The bands interpolated at `t` across the spectrum, tilted up toward the
-    /// highs, which carry less energy.
+    /// The bands interpolated at `t`, tilted up toward the quieter highs.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // 0 <= x < BANDS
     fn band_at(levels: &[f32; BANDS], t: f32) -> f32 {
         let x = t * f(BANDS - 1);
@@ -451,7 +435,6 @@ impl Spectrum {
     }
 }
 
-/// Draws the capture levels in one of the four styles.
 pub struct Waveform {
     drawing: Drawing,
     style: WaveformStyle,
@@ -479,7 +462,7 @@ impl Waveform {
         }
     }
 
-    /// The newest capture frame, 0 to 1 per band. Anything else is clamped.
+    /// The newest levels, 0 to 1 per band.
     pub fn set_levels(&mut self, levels: [f32; BANDS], cx: &mut Context<Self>) {
         let levels = levels.map(|l| {
             if l.is_finite() {

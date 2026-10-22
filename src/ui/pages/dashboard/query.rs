@@ -1,5 +1,4 @@
-//! What the feed asks the backend for and how the answers pile up: filters to
-//! page queries, keyset cursors, and the loaded rows.
+//! The feed's page queries, keyset cursors and loaded rows.
 
 use std::collections::HashSet;
 
@@ -9,7 +8,6 @@ use crate::api::{dto::TranscriptResponse, PageQuery};
 
 pub const PAGE_SIZE: usize = 50;
 
-/// The date range and order the user applied in the filter popover.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TranscriptFilters {
     pub from: Option<NaiveDate>,
@@ -22,7 +20,6 @@ impl TranscriptFilters {
         self.from.is_some() || self.to.is_some() || self.sort_asc
     }
 
-    /// The query for the page after `cursor`, or the first page without one.
     pub fn page_query(&self, cursor: Option<&Cursor>) -> PageQuery {
         PageQuery {
             #[allow(clippy::cast_possible_wrap)] // PAGE_SIZE is a small constant
@@ -36,17 +33,14 @@ impl TranscriptFilters {
     }
 }
 
-/// Where the next page starts: the last row of the previous one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cursor {
     pub created_at: String,
     pub id: i64,
 }
 
-/// The rows loaded so far, oldest page last, plus where the next page starts.
-///
-/// The cursor is fixed when a page arrives, so deleting or prepending a row
-/// never moves it and a full page can't be mistaken for the last one.
+/// The rows loaded so far. The cursor is fixed per page, so deleting or
+/// prepending a row never moves it.
 #[derive(Debug, Default, PartialEq)]
 pub struct Loaded {
     pub items: Vec<TranscriptResponse>,
@@ -54,7 +48,6 @@ pub struct Loaded {
 }
 
 impl Loaded {
-    /// A short page is the last: there is nothing after it.
     pub fn from_first_page(rows: Vec<TranscriptResponse>) -> Self {
         let next = next_cursor(&rows);
         Self {
@@ -71,8 +64,7 @@ impl Loaded {
         self.next.is_some()
     }
 
-    /// Add a following page, skipping rows already shown (an insert between
-    /// two fetches shifts rows across the page boundary).
+    /// Add a following page, skipping rows an insert shifted across the boundary.
     pub fn append_page(&mut self, rows: Vec<TranscriptResponse>) {
         self.next = next_cursor(&rows);
         let seen: HashSet<i64> = self.items.iter().map(|t| t.id).collect();
@@ -80,8 +72,7 @@ impl Loaded {
             .extend(dedup(rows).into_iter().filter(|t| !seen.contains(&t.id)));
     }
 
-    /// Put a just-saved transcript on top unless it is already loaded.
-    /// Returns whether the list changed.
+    /// Put a just-saved transcript on top unless loaded; returns whether it changed.
     pub fn prepend(&mut self, transcript: TranscriptResponse) -> bool {
         if self.items.iter().any(|t| t.id == transcript.id) {
             return false;
@@ -90,7 +81,6 @@ impl Loaded {
         true
     }
 
-    /// Returns the removed row's former index.
     pub fn remove(&mut self, id: i64) -> Option<usize> {
         let index = self.items.iter().position(|t| t.id == id)?;
         self.items.remove(index);

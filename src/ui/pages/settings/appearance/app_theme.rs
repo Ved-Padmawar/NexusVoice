@@ -7,7 +7,6 @@ use crate::ui::icons::AppIcon;
 use crate::ui::settings::{ThemeName, UiSettings};
 use crate::ui::theme::{alpha, Palette, R_MD};
 
-/// What settings says about each theme, in `ThemeName::ALL` order.
 pub(super) const THEMES: [(ThemeName, &str, &str); 8] = [
     (ThemeName::Abyss, "Abyss", "cool slate, periwinkle accent"),
     (ThemeName::Midnight, "Midnight", "slate indigo, cyan accent"),
@@ -20,7 +19,6 @@ pub(super) const THEMES: [(ThemeName, &str, &str); 8] = [
 ];
 
 pub struct ThemeSection {
-    /// Each theme's palette, built once: swatches and the preview read them.
     palettes: [Palette; 8],
     _settings_changed: Subscription,
 }
@@ -83,8 +81,7 @@ impl Render for ThemeSection {
             .position(|&n| n == current)
             .unwrap_or(0);
         let (_, name, blurb) = THEMES[index];
-        // The preview holds its place and only its colours move, so picking a
-        // theme reads as a before and after.
+        // The preview holds its place and only recolours, reading as before and after.
         let preview = preview_frame(&p).child(theme_preview(&self.palettes[index]));
         let choices = div()
             .flex()
@@ -96,7 +93,6 @@ impl Render for ThemeSection {
     }
 }
 
-/// A flat shape: `w` by `h`, `radius` round, `color` at `opacity`.
 fn shape(w: f32, h: f32, radius: f32, color: Hsla, opacity: f32) -> Div {
     div()
         .flex_none()
@@ -106,7 +102,6 @@ fn shape(w: f32, h: f32, radius: f32, color: Hsla, opacity: f32) -> Div {
         .bg(alpha(color, opacity))
 }
 
-/// The window in miniature, painted in `t`.
 fn theme_preview(t: &Palette) -> Div {
     div()
         .relative()

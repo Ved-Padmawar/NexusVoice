@@ -1,18 +1,15 @@
-//! Running backend calls from views. The call runs on the tokio runtime; the
-//! view is updated back on the UI thread when it finishes, if it still exists.
+//! Running backend calls from views: on tokio, then back on the UI thread.
 
 use std::future::Future;
 
 use gpui_kit::{Context, Window};
 
 pub trait SpawnApi<V: 'static> {
-    /// Run `call` on the backend runtime, then hand its result to `done`.
     fn spawn_api<T, F>(&mut self, call: F, done: impl FnOnce(&mut V, T, &mut Context<V>) + 'static)
     where
         T: Send + 'static,
         F: Future<Output = T> + Send + 'static;
 
-    /// Like [`Self::spawn_api`], with the view's window.
     fn spawn_api_in<T, F>(
         &mut self,
         window: &Window,

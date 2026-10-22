@@ -2,8 +2,7 @@
 
 use std::fmt;
 
-/// A stable machine-readable `code` for callers that branch on the failure,
-/// and a `message` fit to show the user.
+/// A stable machine-readable `code` and a user-facing `message`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiError {
     code: &'static str,
@@ -18,8 +17,7 @@ impl ApiError {
         }
     }
 
-    /// Not read by the UI today, which shows `message`; tests pin it so
-    /// the failure kinds stay distinct.
+    /// Not read by the UI; tests pin it so failure kinds stay distinct.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn code(&self) -> &'static str {
         self.code

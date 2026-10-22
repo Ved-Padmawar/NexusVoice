@@ -1,9 +1,5 @@
-//! The one channel from the backend to the UI.
-//!
-//! Every background task reports through [`emit`]. Events that steer the
-//! recording flow are shown to the [`controller`](crate::transcription::controller)
-//! first, then everything is queued for the UI, which drains the channel on its
-//! own executor. Nothing here blocks: a send is a lock-free push.
+//! The one channel from the backend to the UI. The recording controller sees
+//! each event first; sends never block.
 
 use std::sync::OnceLock;
 
@@ -11,8 +7,7 @@ use crate::api::dto::TranscriptResponse;
 use crate::audio::waveform::BANDS;
 use crate::transcription::controller::{self, PillState};
 
-/// What the pill shows while a recording runs: the settled words, then the
-/// words the decoder may still revise.
+/// The pill's live text: settled words, then words the decoder may revise.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Partial {
     pub committed: String,
@@ -73,14 +68,13 @@ fn channel() -> &'static async_channel::Sender<Event> {
     })
 }
 
-/// Hand `event` to the controller, then queue it for the UI.
 pub fn emit(event: Event) {
     controller::observe(&event);
     // Unbounded and never closed while the app runs, so this cannot fail.
     let _ = channel().try_send(event);
 }
 
-/// The UI's end of the channel. Events emitted before the UI starts are kept.
+/// The UI's end; events emitted before the UI starts are kept.
 pub fn receiver() -> async_channel::Receiver<Event> {
     channel();
     RECEIVER

@@ -1,14 +1,13 @@
-//! Controls the model screens draw alike: buttons, pills, the progress bar
-//! and the status tones.
+//! The button every page uses, and the icon-only button.
 
 use std::time::Duration;
 
 use gpui_kit::{
-    div, prelude::*, px, relative, App, ClickEvent, Div, ElementId, FontWeight, Hsla, Pixels,
-    SharedString, Stateful, StyleRefinement, Window,
+    div, prelude::*, px, App, ClickEvent, Div, ElementId, FontWeight, Pixels, SharedString,
+    Stateful, StyleRefinement, Window,
 };
 
-use crate::ui::components::{icon, spinner};
+use super::{icon, spinner};
 use crate::ui::icons::AppIcon;
 use crate::ui::theme::{alpha, Palette, R_MD};
 
@@ -35,6 +34,7 @@ pub struct Button {
     kind: ButtonKind,
     size: ButtonSize,
     icon: Option<AppIcon>,
+    icon_size: Option<f32>,
     disabled: bool,
     /// Working: shows a spinner in place of the icon and ignores clicks.
     busy: bool,
@@ -49,6 +49,7 @@ pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Butto
         kind: ButtonKind::Primary,
         size: ButtonSize::Default,
         icon: None,
+        icon_size: None,
         disabled: false,
         busy: false,
         on_click: None,
@@ -72,6 +73,12 @@ impl Button {
     #[must_use]
     pub fn icon(mut self, icon: AppIcon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    #[must_use]
+    pub fn icon_size(mut self, size: f32) -> Self {
+        self.icon_size = Some(size);
         self
     }
 
@@ -109,6 +116,8 @@ impl RenderOnce for Button {
             (ButtonSize::Sm, false) => (32., 12., 6., 11.),
             (ButtonSize::Sm, true) => (32., 10., 6., 11.),
         };
+        let icon_px = self.icon_size.unwrap_or(icon_px);
+        let enabled = !self.disabled && !self.busy;
         let text = match self.kind {
             ButtonKind::Primary => p.accent_fg,
             ButtonKind::Outline | ButtonKind::OutlineDanger => p.fg,
@@ -128,19 +137,19 @@ impl RenderOnce for Button {
             .whitespace_nowrap()
             .text_color(text)
             .map(|el| match self.kind {
-                ButtonKind::Primary => el.bg(p.accent).hover(|s| s.bg(p.accent_hover)),
-                ButtonKind::Outline => el
-                    .bg(p.bg)
-                    .border_1()
-                    .border_color(p.border)
-                    .hover(|s| s.bg(p.surface_hover)),
-                ButtonKind::OutlineDanger => {
-                    el.bg(p.bg).border_1().border_color(p.border).hover(|s| {
-                        s.bg(p.danger_soft)
-                            .border_color(p.danger)
-                            .text_color(p.danger)
-                    })
+                ButtonKind::Primary => el.bg(p.accent),
+                ButtonKind::Outline | ButtonKind::OutlineDanger => {
+                    el.bg(p.bg).border_1().border_color(p.border)
                 }
+            })
+            .when(enabled, |el| match self.kind {
+                ButtonKind::Primary => el.hover(|s| s.bg(p.accent_hover)),
+                ButtonKind::Outline => el.hover(|s| s.bg(p.surface_hover)),
+                ButtonKind::OutlineDanger => el.hover(|s| {
+                    s.bg(p.danger_soft)
+                        .border_color(p.danger)
+                        .text_color(p.danger)
+                }),
             })
             .map(|el| match (self.busy, self.icon) {
                 (true, _) => el.child(spinner(
@@ -155,7 +164,7 @@ impl RenderOnce for Button {
                 (false, None) => el,
             })
             .child(self.label);
-        if self.disabled || self.busy {
+        if !enabled {
             el = el.opacity(0.5).cursor_not_allowed();
         } else if let Some(handler) = self.on_click {
             el = el
@@ -189,91 +198,4 @@ pub fn icon_button(
         .text_color(p.muted)
         .hover(|s| s.text_color(p.danger).bg(alpha(p.danger, 0.12)))
         .child(icon(name, glyph, p.muted))
-}
-
-/// A rounded toggle chip: filters and radio options. The caller adds the
-/// click handler, which a `disabled` chip must not get.
-pub fn pill(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    on: bool,
-    disabled: bool,
-    cx: &App,
-) -> Stateful<Div> {
-    let p = Palette::global(cx);
-    div()
-        .id(id.into())
-        .flex()
-        .items_center()
-        .gap(px(6.))
-        .px(px(10.))
-        .py(px(4.))
-        .rounded_full()
-        .border_1()
-        .text_size(px(11.))
-        .font_weight(FontWeight::MEDIUM)
-        .map(|el| {
-            if on {
-                el.border_color(alpha(p.accent, 0.55))
-                    .bg(p.accent_soft)
-                    .text_color(p.accent)
-            } else {
-                el.border_color(p.border)
-                    .text_color(p.fg_2)
-                    .hover(|s| s.border_color(p.muted).text_color(p.fg))
-            }
-        })
-        .map(|el| {
-            if disabled {
-                el.opacity(0.5)
-            } else {
-                el.cursor_pointer()
-            }
-        })
-        .child(label.into())
-}
-
-/// A rounded bar `height` px tall, filled to `percent`.
-pub fn progress_bar(percent: u8, height: f32, track: Hsla, fill: Hsla) -> Div {
-    div()
-        .h(px(height))
-        .flex_1()
-        .overflow_hidden()
-        .rounded_full()
-        .bg(track)
-        .child(
-            div()
-                .h_full()
-                .w(relative(f32::from(percent.min(100)) / 100.))
-                .rounded_full()
-                .bg(fill),
-        )
-}
-
-/// The colour a status tile or dialog badge speaks in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tone {
-    Accent,
-    Success,
-    Danger,
-}
-
-impl Tone {
-    /// The badge's background and glyph colours.
-    pub fn badge(self, p: &Palette) -> (Hsla, Hsla) {
-        match self {
-            Self::Accent => (p.accent_soft, p.accent),
-            Self::Success => (p.success_soft, p.success),
-            Self::Danger => (p.danger_soft, p.danger),
-        }
-    }
-
-    /// The title colour: plain text for the neutral tone.
-    pub fn title(self, p: &Palette) -> Hsla {
-        match self {
-            Self::Accent => p.fg,
-            Self::Success => p.success,
-            Self::Danger => p.danger,
-        }
-    }
 }

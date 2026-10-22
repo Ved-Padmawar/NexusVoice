@@ -1,17 +1,12 @@
-//! Linux needs an external helper to type transcripts, because Wayland does not
-//! let an application send keystrokes to another window. Which helper works
-//! depends on the compositor, so the choice is shown rather than left to fail
-//! silently: a missing tool means nothing is ever pasted.
-//!
-//! Shows nothing on Windows and macOS, where the clipboard needs no setup.
+//! Linux typing helper status: Wayland blocks synthetic keystrokes, so the
+//! working helper is shown rather than failing silently. Empty elsewhere.
 
 use std::time::Duration;
 
 use gpui_kit::{div, prelude::*, px, Context, FontWeight, Window};
 
-use super::widgets::spinning_icon;
 use crate::api::{self, dto::InjectionStatus};
-use crate::ui::components::icon;
+use crate::ui::components::{icon, spinning_icon};
 use crate::ui::icons::AppIcon;
 use crate::ui::runtime::SpawnApi as _;
 use crate::ui::theme::{Palette, R_LG, R_MD, R_SM, R_XS};
@@ -30,8 +25,7 @@ impl TextInjectionSection {
         }
     }
 
-    /// The probe spawns a process per tool, so it runs on demand rather than
-    /// on a timer: the set only changes when the user installs something.
+    /// Probes spawn a process per tool, so this runs on demand, not on a timer.
     fn load(cx: &mut Context<Self>) {
         cx.spawn_api(
             async { api::get_injection_status().await },

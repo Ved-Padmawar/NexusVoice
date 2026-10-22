@@ -1,13 +1,12 @@
-//! Choosing which input device records.
-
 use std::time::Duration;
 
 use gpui_kit::component::{notification::Notification, WindowExt as _};
 use gpui_kit::{div, prelude::*, px, Context, Entity, SharedString, Subscription, Window};
 
-use super::widgets::{section_heading, spinning_icon};
 use crate::api::{self, InputDeviceInfo};
-use crate::ui::components::{icon, Dropdown, DropdownEvent, DropdownItem};
+use crate::ui::components::{
+    icon, section_heading, spinning_icon, Dropdown, DropdownEvent, DropdownItem,
+};
 use crate::ui::icons::AppIcon;
 use crate::ui::runtime::SpawnApi as _;
 use crate::ui::theme::{Palette, R_MD};
@@ -15,8 +14,7 @@ use crate::ui::theme::{Palette, R_MD};
 /// The "Default" option's value: no saved preference, follow the OS.
 const DEFAULT_VALUE: &str = "__default__";
 
-/// Long enough that the refresh icon visibly turns even when the device list
-/// comes back from a cache.
+/// So the refresh icon visibly turns even when the list comes from a cache.
 const MIN_REFRESH: Duration = Duration::from_millis(500);
 
 pub struct MicrophoneSection {
@@ -72,8 +70,7 @@ impl MicrophoneSection {
         );
     }
 
-    /// List the devices. A refresh keeps the controls usable and only spins
-    /// the icon.
+    /// List the devices; a refresh only spins the icon.
     fn fetch(&mut self, refresh: bool, window: &mut Window, cx: &mut Context<Self>) {
         if refresh {
             self.refreshing = true;
@@ -152,9 +149,7 @@ impl MicrophoneSection {
     }
 }
 
-/// The "Default" option for the OS default device, then every other named
-/// device once. The default device is only listed as that sentinel, so it never
-/// appears twice.
+/// "Default" for the OS device, then every other device once.
 fn options(devices: &[InputDeviceInfo]) -> Vec<(SharedString, SharedString)> {
     let default_label = devices.iter().find(|d| d.is_default).map_or_else(
         || "Default".to_string(),

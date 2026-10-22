@@ -1,11 +1,9 @@
-//! Where the app keeps its files. Matches the directories the Tauri build used,
-//! so an existing install keeps its models, history and settings.
+//! Where the app keeps its files: the same dirs as the Tauri build.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-/// Debug builds are the dev app: their own data dir, a "Dev" badge, and a
-/// separate single-instance lock so they run beside an installed release.
+/// Debug builds get their own data dir, a "Dev" badge and instance lock.
 pub const IS_DEV: bool = cfg!(debug_assertions);
 
 pub const IDENTIFIER: &str = if IS_DEV {
@@ -35,8 +33,7 @@ pub fn log_dir() -> PathBuf {
     base(dirs::data_local_dir()).join("logs")
 }
 
-/// Models live in the release data dir even in dev, so a dev build reuses
-/// downloads. Dev's dir is the release one plus a `.dev` suffix.
+/// The release models dir even in dev (`<id>.dev` minus `.dev`), so dev reuses downloads.
 pub fn shared_models_dir() -> PathBuf {
     models_dir_for(app_data_dir())
 }

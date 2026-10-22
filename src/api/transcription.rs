@@ -1,5 +1,4 @@
-//! Recording lifecycle: start, stop, dictation and cancel. Driven by the
-//! [`controller`](crate::transcription::controller), which serializes them.
+//! Recording lifecycle, serialized by the [`controller`](crate::transcription::controller).
 
 use std::sync::{atomic::Ordering, Arc};
 
@@ -115,8 +114,8 @@ pub async fn commit_dictation() -> Result<(), ApiError> {
     }
 }
 
-/// Finalize takes the buffer, leaving it with no capacity. Reserve ~30 s here
-/// so the audio callback isn't reallocating under the buffer lock.
+/// Finalize leaves the buffer without capacity; reserve ~30 s so the audio
+/// callback doesn't reallocate under the lock.
 fn clear_audio_buffer(state: &AppState) {
     const RESERVE_SECS: usize = 30;
     let rate = *lock_recovering(&state.native_sample_rate) as usize;
@@ -137,9 +136,8 @@ fn ensure_dictation_active(state: &AppState) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// Report "started" only once the mic is producing audio. A warm stream
-/// delivers on the next callback; a cold open takes longer. A failed open, a
-/// dead stream or a device that never delivers aborts the recording.
+/// Report "started" only once the mic delivers audio; a failed or silent
+/// device aborts the recording.
 async fn await_capture_started(state: &AppState) -> Result<(), ApiError> {
     const READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
     let ready = state.mic.ready_signal();
@@ -170,8 +168,7 @@ async fn await_capture_started(state: &AppState) -> Result<(), ApiError> {
     ))
 }
 
-/// Discard the recording in progress: capture stops and nothing is decoded,
-/// typed or saved.
+/// Discard the recording: nothing is decoded, typed or saved.
 pub fn cancel_recording() {
     let state = state::get();
     if !state.try_stop_transcription() {
@@ -186,7 +183,6 @@ pub fn cancel_recording() {
     log::info!("recording cancelled");
 }
 
-/// Stop capturing after a post-roll, leaving the device open for next time.
 async fn stop_capture(state: &AppState) {
     let mic = Arc::clone(&state.mic);
     tokio::task::spawn_blocking(move || mic.disarm_after_post_roll())
@@ -194,8 +190,7 @@ async fn stop_capture(state: &AppState) {
         .ok();
 }
 
-/// The streaming worker writes `streamed_text` only after `running` goes
-/// false, so reading it straight after capture stops loses the tail.
+/// `streamed_text` is written only after `running` drops, so wait for the tail.
 async fn wait_for_stream_done(state: &AppState) {
     const STREAM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
     let stream_done = Arc::clone(&state.stream_done);
@@ -216,8 +211,7 @@ async fn finalize_current_recording(state: &'static AppState) -> Result<(), ApiE
     // The post-roll alone is 0.2 s, so this only drops a tap.
     const MIN_DURATION_SECS: f64 = 0.3;
 
-    // Before the recording flag drops: a long recording would otherwise look
-    // idle and the watcher could unload the engine this stop is about to use.
+    // Before the flag drops, or the idle watcher could unload the engine mid-stop.
     state.touch_engine();
     if !state.try_stop_transcription() {
         return Err(ApiError::new(
@@ -229,8 +223,7 @@ async fn finalize_current_recording(state: &'static AppState) -> Result<(), ApiE
     stop_capture(state).await;
     wait_for_stream_done(state).await;
 
-    // Session first, audio buffer second — the lock order the stream worker
-    // uses. Taking the session waits out any in-flight stream decode.
+    // Session, then audio buffer: the stream worker's lock order.
     let session = state.take_stream_session();
     let streamed = state.take_streamed_text();
 
@@ -304,12 +297,7 @@ async fn finalize_current_recording(state: &'static AppState) -> Result<(), ApiE
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Input device selection
-// ---------------------------------------------------------------------------
-
-/// A selectable microphone. `is_default` marks the OS default; `is_selected`
-/// marks the user's saved preference (or the default when none is saved).
+/// `is_selected` is the saved preference, or the default when none is saved.
 #[derive(Debug, Clone)]
 pub struct InputDeviceInfo {
     pub name: String,
@@ -317,8 +305,7 @@ pub struct InputDeviceInfo {
     pub is_selected: bool,
 }
 
-/// List usable input devices, excluding loopback/virtual endpoints. The first
-/// entry the UI shows is "Default"; these are the named alternatives.
+/// Usable input devices, excluding loopback/virtual endpoints.
 pub fn list_input_devices() -> Vec<InputDeviceInfo> {
     let state = state::get();
     let selected = state.load_input_device();
@@ -332,8 +319,7 @@ pub fn list_input_devices() -> Vec<InputDeviceInfo> {
         .collect()
 }
 
-/// Choose an input device by name. Pass `None` (or omit) to follow the OS
-/// default. Takes effect on the next recording — the current one is unaffected.
+/// `None` follows the OS default. Applies from the next recording.
 pub fn set_input_device(name: Option<&str>) -> Result<(), ApiError> {
     let state = state::get();
     match name.map(str::trim).filter(|n| !n.is_empty()) {

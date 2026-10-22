@@ -1,6 +1,4 @@
-//! Model & inference-config commands: catalog listing, downloaded-model
-//! management, download start/cancel, model override, dictation language, and
-//! hardware profile.
+//! Models: catalog, downloads, the override, dictation language and hardware.
 
 use std::sync::Arc;
 
@@ -10,10 +8,6 @@ use crate::state;
 
 use super::error::ApiError;
 
-// ---------------------------------------------------------------------------
-// Downloaded-model management
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone)]
 pub struct DownloadedModel {
     pub variant: String,
@@ -22,7 +16,6 @@ pub struct DownloadedModel {
     pub is_active: bool,
 }
 
-/// The full catalog, for the model picker.
 #[derive(Debug, Clone)]
 pub struct CatalogModel {
     pub id: String,
@@ -38,8 +31,6 @@ pub struct CatalogModel {
     pub is_active: bool,
 }
 
-/// The catalog with per-model download state, so the picker renders from one
-/// source of truth instead of a hardcoded frontend list.
 pub fn get_model_catalog() -> Vec<CatalogModel> {
     use crate::inference::provider::{detect_backend, select_model};
 
@@ -68,7 +59,6 @@ pub fn get_model_catalog() -> Vec<CatalogModel> {
         .collect()
 }
 
-/// List all model files currently on disk.
 pub fn get_downloaded_models() -> Vec<DownloadedModel> {
     use crate::inference::provider::{detect_backend, select_model};
 
@@ -93,9 +83,7 @@ pub fn get_downloaded_models() -> Vec<DownloadedModel> {
         .collect()
 }
 
-/// Delete a downloaded model file by catalog id. Any model may be deleted,
-/// including the active one — transcription then surfaces a "no model" error
-/// until another is downloaded.
+/// Delete a model file by catalog id, the active one included.
 pub async fn delete_model(variant: String) -> Result<(), ApiError> {
     use crate::inference::catalog;
     use crate::inference::provider::{canonical_override, detect_backend, select_model};
@@ -113,7 +101,6 @@ pub async fn delete_model(variant: String) -> Result<(), ApiError> {
 
     std::fs::remove_file(&path).map_err(|e| ApiError::new("io_error", e.to_string()))?;
 
-    // Nothing more to do unless we deleted the active model.
     let active = select_model(detect_backend(), state.load_model_override().as_deref());
     if entry.id != active.id {
         return Ok(());
@@ -121,9 +108,7 @@ pub async fn delete_model(variant: String) -> Result<(), ApiError> {
 
     state.evict_engine().await;
 
-    // Prefer another downloaded model over "no model": switch to the most
-    // capable file left on disk (the catalog is tier-ascending, so the last
-    // match wins); only go to "no model" when nothing is left.
+    // Fall back to the most capable file left (the catalog is tier-ascending).
     let fallback = catalog::all()
         .iter()
         .rfind(|m| m.id != entry.id && state.models_dir.join(&m.filename).exists());
@@ -140,13 +125,8 @@ pub async fn delete_model(variant: String) -> Result<(), ApiError> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Model-size override
-// ---------------------------------------------------------------------------
-
-/// Set the active model by catalog id. Evicts the cached engine and eagerly
-/// warms the newly selected model in the background, so the first transcription
-/// after a switch isn't stalled by load.
+/// Set the active model and warm it in the background, so the first
+/// transcription after a switch isn't stalled.
 pub async fn set_model_override(variant: String) -> Result<(), ApiError> {
     let state = state::get();
     let id = crate::inference::provider::canonical_override(&variant)
@@ -159,8 +139,7 @@ pub async fn set_model_override(variant: String) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// Rebuild + warm the active engine off the command path. A missing model is
-/// not an error here — transcription surfaces that later.
+/// Rebuild and warm the engine; a missing model surfaces at transcription.
 fn warm_engine_in_background() {
     tokio::spawn(async move {
         let state = state::get();
@@ -176,13 +155,9 @@ fn warm_engine_in_background() {
     });
 }
 
-// ---------------------------------------------------------------------------
-// Dictation language
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone)]
 pub struct LanguageOption {
-    /// ISO code, or `auto` for the detect-per-decode sentinel.
+    /// ISO code, or `auto`.
     pub code: String,
     pub name: String,
     pub is_selected: bool,
@@ -190,15 +165,12 @@ pub struct LanguageOption {
 
 #[derive(Debug, Clone)]
 pub struct LanguageSettings {
-    /// Whether the active model handles anything but English.
     pub supported: bool,
     /// Empty when `supported` is false.
     pub options: Vec<LanguageOption>,
 }
 
-/// The picker's list with the active choice marked, `auto` first. Codes come
-/// from the loaded model itself; an English-only model reports
-/// `supported: false` and no options.
+/// The picker's list, `auto` first; English-only models report unsupported.
 pub fn get_language_options() -> LanguageSettings {
     use crate::inference::language::{self, AUTO};
     use crate::inference::provider::{detect_backend, select_model};
@@ -213,7 +185,6 @@ pub fn get_language_options() -> LanguageSettings {
         };
     }
 
-    // From the catalog, so the list is complete whether or not a model has loaded.
     let advertised = &model.languages;
 
     let saved = state.load_language();
@@ -256,8 +227,7 @@ pub fn get_language_options() -> LanguageSettings {
     }
 }
 
-/// Set the dictation language. The loaded engine is repointed rather than
-/// evicted — language is a per-run option, so a reload would be pure cost.
+/// Repoints the loaded engine: language is per-run, so no reload.
 pub async fn set_language(code: Option<String>) -> Result<(), ApiError> {
     use crate::inference::language;
     use crate::inference::provider::{detect_backend, select_model};
@@ -276,8 +246,8 @@ pub async fn set_language(code: Option<String>) -> Result<(), ApiError> {
         .save_language(saved)
         .map_err(|e| ApiError::new("io_error", e.to_string()))?;
 
-    // A streaming recording holds the engine until it ends: apply off the async
-    // runtime, reading the saved choice once locked so the latest change wins.
+    // A streaming recording holds the engine: apply off the runtime, re-reading
+    // the saved choice once locked so the latest change wins.
     if let Some(engine) = state.engine.lock().await.clone() {
         tokio::task::spawn_blocking(move || {
             if let Ok(mut guard) = engine.lock() {
@@ -300,10 +270,6 @@ pub fn set_model_unload(policy: ModelUnload) -> Result<(), ApiError> {
         .save_model_unload(policy)
         .map_err(|e| ApiError::new("io_error", e.to_string()))
 }
-
-// ---------------------------------------------------------------------------
-// Hardware profile
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 pub struct HardwareProfileResponse {
@@ -340,10 +306,6 @@ pub fn get_hardware_profile() -> HardwareProfileResponse {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Model download status / control
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone)]
 pub struct ActiveDownload {
     pub id: String,
@@ -352,7 +314,6 @@ pub struct ActiveDownload {
     pub error: Option<String>,
 }
 
-/// Whether the model the engine will load is on disk.
 pub fn active_model_downloaded() -> bool {
     use crate::inference::provider::{detect_backend, select_model};
 
@@ -361,9 +322,8 @@ pub fn active_model_downloaded() -> bool {
     state.models_dir.join(&entry.filename).exists()
 }
 
-/// Fetch a model by id. Never changes the active model, so a failed or
-/// cancelled download can't leave the override pointing at a missing file.
-/// Beyond `MAX_CONCURRENT_DOWNLOADS` it waits in `Queued`.
+/// Fetch a model by id without changing the active one; beyond
+/// `MAX_CONCURRENT_DOWNLOADS` it queues.
 pub fn start_model_download(id: String) -> Result<(), ApiError> {
     let state = state::get();
     let entry = crate::inference::catalog::all()
@@ -372,15 +332,13 @@ pub fn start_model_download(id: String) -> Result<(), ApiError> {
         .ok_or_else(|| ApiError::new("unknown_model", "no such model in the catalog"))?
         .clone();
 
-    // Already on disk: only the complete event clears the caller's optimistic
-    // `queued`, so emit one rather than returning quietly.
+    // Only the complete event clears the caller's optimistic `queued`.
     if state.models_dir.join(&entry.filename).exists() {
         emit_download(id, ModelDownload::Complete);
         return Ok(());
     }
 
-    // Already in flight: silent no-op — re-emitting `start` would rewind the
-    // caller's progress bar to 0.
+    // Re-emitting `start` would rewind the caller's progress bar.
     let Some(cancel) = state.downloads.enqueue(&id) else {
         return Ok(());
     };
@@ -425,9 +383,7 @@ pub fn start_model_download(id: String) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// Cancel a queued or running download. A cancel pressed in the last moments of
-/// a transfer arrives after the file is published; the download then stands and
-/// the caller learns that from `model-download-complete`.
+/// Cancel a download; one cancelled at the last moment completes anyway.
 pub fn cancel_model_download(id: &str) {
     state::get().downloads.cancel(id);
 }
@@ -436,8 +392,7 @@ fn emit_download(id: String, status: ModelDownload) {
     events::emit(Event::ModelDownload { id, status });
 }
 
-/// Every download queued, running, or holding an error, so the UI can rehydrate
-/// after a reload without waiting for the next event.
+/// Every download queued, running or failed, to rehydrate the UI.
 pub fn get_active_downloads() -> Vec<ActiveDownload> {
     state::get()
         .downloads

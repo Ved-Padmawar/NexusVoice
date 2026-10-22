@@ -1,6 +1,5 @@
-//! Speech-shaped levels for the previews. The capture thread is silent here, and
-//! random noise would make every style look alike, so this fakes syllables,
-//! phonemes and breaths instead.
+//! Fake speech levels (syllables, phonemes, breaths) for the previews; random
+//! noise would make every style look alike.
 
 use crate::audio::waveform::BANDS;
 use crate::ui::pill::waveform::{ease, f};
@@ -33,7 +32,7 @@ impl SpeechLevels {
         }
     }
 
-    /// Uniform in [0, 1): xorshift, which is plenty for jitter.
+    /// Uniform in [0, 1) via xorshift.
     fn random(&mut self) -> f32 {
         self.rng ^= self.rng << 13;
         self.rng ^= self.rng >> 17;
@@ -44,7 +43,6 @@ impl SpeechLevels {
         bits / 16_777_216.0
     }
 
-    /// Advance by `dt` seconds and return the levels, 0 to 1 per band.
     pub fn step(&mut self, dt: f32) -> [f32; BANDS] {
         let dt = dt.clamp(0.0, MAX_DT);
         self.time += dt;
@@ -74,8 +72,7 @@ impl SpeechLevels {
         self.smooth
     }
 
-    /// A vowel loads the low bands, a consonant the highs: that split is what
-    /// makes the bands move independently.
+    /// Vowels load the low bands, consonants the highs, so bands move independently.
     fn syllable_target(&mut self) -> [f32; BANDS] {
         if self.time > self.phone_end {
             self.vowel = self.random() > 0.42;

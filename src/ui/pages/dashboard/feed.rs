@@ -1,5 +1,4 @@
-//! The "Recent activity" list: a virtualized, keyset-paged feed of transcripts
-//! or of search results, kept current as new ones are saved.
+//! The "Recent activity" feed: virtualized, keyset-paged, kept current.
 
 use std::time::Duration;
 
@@ -26,13 +25,11 @@ const COPIED_FOR: Duration = Duration::from_secs(2);
 const FADE_IN_FOR: Duration = Duration::from_millis(400);
 
 pub enum FeedEvent {
-    /// A row was deleted, so the usage totals changed.
     Deleted,
 }
 
 pub struct Feed {
     filters: TranscriptFilters,
-    /// The trimmed search text; empty shows the plain feed.
     term: String,
     loaded: Option<Loaded>,
     status: LoadState,
@@ -75,14 +72,12 @@ impl Feed {
         feed
     }
 
-    /// The count badge: rows of the plain feed loaded so far.
     pub fn badge_count(&self) -> Option<usize> {
         let loaded = self.loaded.as_ref()?;
         (self.term.is_empty() && !loaded.items.is_empty()).then_some(loaded.items.len())
     }
 
-    /// Change what is listed; unchanged input does nothing. The old rows stay
-    /// up until the new first page arrives.
+    /// Change what is listed; old rows stay up until the new first page arrives.
     pub fn set_query(&mut self, term: &str, filters: TranscriptFilters, cx: &mut Context<Self>) {
         let term = term.trim();
         if self.term == term && self.filters == filters {
@@ -143,7 +138,6 @@ impl Feed {
         cx.notify();
     }
 
-    /// Fetch the page after the last loaded row, once the end of the list is in view.
     fn load_more(&mut self, window: &Window, cx: &mut Context<Self>) {
         let ready = self.status == LoadState::Loaded && !self.fetching_more && !self.more_failed;
         let Some(cursor) = self
@@ -191,8 +185,7 @@ impl Feed {
     fn timeline(&self, cx: &mut Context<Self>) -> AnyElement {
         let this = cx.entity();
         let rows = list(self.list.clone(), move |ix, window, cx| {
-            // Having the spinner row near the viewport is what asks for the
-            // next page, as the old scroll sentinel did.
+            // A spinner row near the viewport requests the next page.
             if this.read(cx).is_loading_slot(ix) && !this.read(cx).more_failed {
                 let feed = this.clone();
                 window.defer(cx, move |window, cx| {
@@ -255,7 +248,6 @@ impl Feed {
         );
     }
 
-    /// Drop the row in place rather than refetch every page.
     fn on_deleted(&mut self, id: i64, cx: &mut Context<Self>) {
         if let Some(index) = self.loaded.as_mut().and_then(|l| l.remove(id)) {
             self.list.splice(index..index + 1, 0);
@@ -286,7 +278,6 @@ impl Feed {
         transcript_row(item, place, &state, this, cx)
     }
 
-    /// Whether row `ix` is the loading spinner after the last transcript.
     fn is_loading_slot(&self, ix: usize) -> bool {
         self.loaded
             .as_ref()
@@ -424,7 +415,6 @@ fn empty_state(searching: bool, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// Four placeholder cards on the timeline rail.
 fn feed_skeleton(cx: &App) -> impl IntoElement {
     let p = *Palette::global(cx);
     div()

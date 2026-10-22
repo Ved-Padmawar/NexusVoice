@@ -1,10 +1,5 @@
-//! App-wide state the main window shares between pages: startup, the model
-//! catalog and downloads, the CUDA pack and the pending update.
-//!
-//! One entity, held in a global. Pages observe it and re-render on change;
-//! backend events land here through [`handle`]. Page-local data (the feed, the
-//! dictionary) stays with the page that shows it, which subscribes to
-//! [`StoreEvent`] for the changes it must reflect.
+//! App-wide state shared between pages: startup, the model catalog and
+//! downloads, the CUDA pack and the pending update.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -103,8 +98,7 @@ struct StoreHandle(Entity<Store>);
 
 impl Global for StoreHandle {}
 
-// Methods take `&mut self` even when they only spawn work, so each one has the
-// `update(cx, Store::method)` shape views call it with.
+// `&mut self` throughout, so every method fits `update(cx, Store::method)`.
 #[allow(clippy::unused_self)]
 impl Store {
     pub fn entity(cx: &App) -> Entity<Self> {
@@ -136,8 +130,6 @@ impl Store {
         })
         .detach();
     }
-
-    // ── Models ──────────────────────────────────────────────────────────────
 
     pub fn refresh_models(&mut self, cx: &mut Context<Self>) {
         cx.spawn_api(async { api::get_model_catalog() }, |store, catalog, cx| {
@@ -199,7 +191,6 @@ impl Store {
         api::cancel_model_download(id);
     }
 
-    /// The catalog entry the backend will load, if the catalog is in.
     pub fn active_model(&self) -> Option<&CatalogModel> {
         self.catalog.iter().find(|m| m.is_active)
     }
@@ -246,12 +237,9 @@ impl Store {
         cx.notify();
     }
 
-    // ── CUDA ────────────────────────────────────────────────────────────────
-
     pub fn refresh_cuda(&mut self, cx: &mut Context<Self>) {
         cx.spawn_api(async { api::get_cuda_status() }, |store, cuda, cx| {
-            // CUDA added from About counts too: removing it later must not
-            // re-offer it.
+            // CUDA added from About counts too, so removing it later doesn't re-offer it.
             if cuda.pack != PackState::Absent {
                 UiSettings::update(cx, |s| s.cuda_offer_seen = true);
             }
@@ -287,9 +275,7 @@ impl Store {
         self.refresh_cuda(cx);
     }
 
-    /// Offer CUDA once: a model chosen, an NVIDIA GPU, and no pack yet.
-    /// Re-checked when the delay ends, since the picker or a download may
-    /// have moved on.
+    /// Offer CUDA once, re-checked after the delay in case things moved on.
     pub fn offer_cuda(&mut self, cx: &mut Context<Self>) {
         fn due(store: &Store, cx: &App) -> bool {
             let settings = UiSettings::global(cx);
@@ -348,8 +334,6 @@ impl Store {
             }
         }
     }
-
-    // ── Updates ─────────────────────────────────────────────────────────────
 
     pub fn check_for_update(&mut self, cx: &mut Context<Self>) {
         self.update.status = UpdateStatus::Checking;
@@ -442,8 +426,6 @@ impl Store {
     }
 }
 
-/// Whether the CUDA offer should open: a model chosen, an NVIDIA GPU, no pack,
-/// no download already under way, and the offer neither open nor used up.
 fn offer_due(model_chosen: bool, seen: bool, open: bool, cuda: Option<CudaStatus>) -> bool {
     model_chosen
         && !seen

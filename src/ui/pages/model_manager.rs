@@ -1,19 +1,15 @@
-//! The Model Manager: every model file on disk, with a delete button each.
+//! The Model Manager: every model file on disk, each deletable.
 
 use gpui_kit::component::{notification::Notification, WindowExt as _};
-use gpui_kit::{
-    anchored, deferred, div, point, prelude::*, px, Anchor, Context, EventEmitter, FontWeight,
-    Window,
-};
+use gpui_kit::{div, prelude::*, px, Context, EventEmitter, FontWeight, Window};
 
 use crate::api::{self, DownloadedModel};
-use crate::ui::components::{icon, modal};
+use crate::ui::components::{icon, icon_button, modal};
 use crate::ui::icons::AppIcon;
-use crate::ui::pages::models::{format_manager_size, icon_button};
+use crate::ui::pages::models::format_manager_size;
 use crate::ui::runtime::SpawnApi as _;
 use crate::ui::theme::{Palette, R_LG, R_MD, R_XS};
 
-/// The dialog asked to be closed; its owner drops it.
 pub struct ManagerClosed;
 
 pub struct ModelManager {
@@ -261,23 +257,15 @@ impl Render for ModelManager {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity();
         let content = self.render_content(cx);
-        let viewport = window.viewport_size();
-        // Anchored at the window origin: the dialog covers the whole window,
-        // not just the tab that opened it.
-        deferred(
-            anchored()
-                .position(point(px(0.), px(0.)))
-                .anchor(Anchor::TopLeft)
-                .child(div().w(viewport.width).h(viewport.height).child(modal(
-                    "model-manager",
-                    px(460.),
-                    content,
-                    Some(Box::new(move |_, cx| {
-                        this.update(cx, |_, cx| cx.emit(ManagerClosed));
-                    })),
-                    cx,
-                ))),
+        modal(
+            "model-manager",
+            px(460.),
+            content,
+            Some(Box::new(move |_, cx| {
+                this.update(cx, |_, cx| cx.emit(ManagerClosed));
+            })),
+            window,
+            cx,
         )
-        .with_priority(2)
     }
 }

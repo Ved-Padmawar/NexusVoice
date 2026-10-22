@@ -1,8 +1,5 @@
-//! The recording pill: a small always-on-top overlay that mirrors the
-//! controller's state, and expands into a card for the live transcript.
-//!
-//! [`theme`] and [`waveform`] are shared with Settings, which previews the
-//! pill themes and waveform styles with them.
+//! The recording pill: an always-on-top overlay that expands into a card for
+//! the live transcript.
 
 mod geometry;
 mod motion;
@@ -21,7 +18,6 @@ use crate::events::Event;
 use geometry::{capsule_window, BOTTOM_MARGIN};
 use view::PillView;
 
-/// The pill's window, kept so events can reach its view.
 struct PillWindow(WindowHandle<PillView>);
 
 impl Global for PillWindow {}
@@ -51,8 +47,7 @@ pub fn open(cx: &mut App) {
         is_minimizable: false,
         window_background: WindowBackgroundAppearance::Transparent,
         window_decorations: Some(WindowDecorations::Client),
-        // An unfocused window is otherwise held to 30 fps, which would make
-        // the waveform and the card's growth visibly choppy.
+        // Unfocused windows are otherwise capped at 30 fps, choppy for the waveform.
         inactive_frame_interval: None,
         app_id: Some("nexusvoice-pill".into()),
         ..WindowOptions::default()
@@ -63,11 +58,19 @@ pub fn open(cx: &mut App) {
     }
 }
 
-/// Route a pill event to the view.
 pub fn handle(event: Event, cx: &mut App) {
     let Some(PillWindow(handle)) = cx.try_global::<PillWindow>() else {
         return;
     };
     let handle = *handle;
     let _ = handle.update(cx, |pill, window, cx| pill.handle(event, window, cx));
+}
+
+/// Put the pill back above the main window, which covers it when activated.
+pub fn raise(cx: &mut App) {
+    let Some(PillWindow(handle)) = cx.try_global::<PillWindow>() else {
+        return;
+    };
+    let handle = *handle;
+    let _ = handle.update(cx, |pill, _, _| pill.keep_on_top());
 }

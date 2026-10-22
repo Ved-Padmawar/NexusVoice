@@ -1,19 +1,33 @@
-//! Loading and error states: the spinner, skeleton blocks, and the section
-//! wrapper that picks between skeleton, error and content.
+//! Loading and error states: spinners, skeletons and the section wrapper.
 
+use std::f32::consts::TAU;
 use std::time::Duration;
 
 use gpui_kit::{
-    canvas, div, point, prelude::*, px, Animation, AnimationExt as _, App, Bounds, Div, ElementId,
-    Hsla, IntoElement, PathBuilder, Pixels, SharedString, Window,
+    canvas, div, point, prelude::*, px, radians, Animation, AnimationExt as _, App, Bounds, Div,
+    ElementId, Hsla, IntoElement, PathBuilder, Pixels, SharedString, Window,
 };
 
 use super::icon;
 use crate::ui::icons::AppIcon;
 use crate::ui::theme::{alpha, Palette, R_MD};
 
-/// A `size` ring in `track` with a quarter arc in `arc`, turning once every
-/// `period`. Drawn as paths, so it stays crisp at any size.
+/// `name` turning once every `period`.
+pub fn spinning_icon(
+    id: impl Into<SharedString>,
+    name: AppIcon,
+    size: f32,
+    color: Hsla,
+    period: Duration,
+) -> impl IntoElement {
+    icon(name, size, color).with_animation(
+        ElementId::Name(id.into()),
+        Animation::new(period).repeat(),
+        |icon, turn| icon.rotate(radians(turn * TAU)),
+    )
+}
+
+/// A ring with a turning quarter arc, drawn as paths so it stays crisp.
 pub fn spinner(
     id: impl Into<SharedString>,
     size: f32,
@@ -70,8 +84,7 @@ fn paint_ring(
     }
 }
 
-/// A pulsing placeholder block, as Tailwind's `animate-pulse` draws it.
-/// `shape` sizes and rounds it.
+/// A pulsing placeholder block, like Tailwind's `animate-pulse`.
 pub fn skeleton(
     id: impl Into<SharedString>,
     shape: impl FnOnce(Div) -> Div,
@@ -87,7 +100,6 @@ pub fn skeleton(
     )
 }
 
-/// Where a section's data is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoadState {
     Loading,
@@ -95,8 +107,7 @@ pub enum LoadState {
     Loaded,
 }
 
-/// Picks what a section shows: content once loaded (or already on screen),
-/// a skeleton while loading, or the error with a retry.
+/// Content once loaded, a skeleton while loading, or the error with a retry.
 #[derive(IntoElement)]
 pub struct SectionState {
     state: LoadState,

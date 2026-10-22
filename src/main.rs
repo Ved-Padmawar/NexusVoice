@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![windows_subsystem = "windows"]
 
 mod api;
 mod audio;
@@ -22,6 +22,14 @@ mod ui;
 use platform::paths;
 
 fn main() {
+    // A GUI app has no console; dev builds print to the terminal they ran from.
+    #[cfg(all(windows, debug_assertions))]
+    // SAFETY: a plain call with no pointers; it fails harmlessly without a parent console.
+    let _ = unsafe {
+        windows::Win32::System::Console::AttachConsole(
+            windows::Win32::System::Console::ATTACH_PARENT_PROCESS,
+        )
+    };
     platform::logging::init();
 
     let args: Vec<String> = std::env::args().skip(1).collect();

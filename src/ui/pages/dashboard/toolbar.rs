@@ -1,20 +1,13 @@
-//! The activity toolbar's buttons and the panel each opens below it. The panel
-//! is styled like the shared dropdown menu: panel fill, 1px edge, rounded,
-//! fading in over 140ms.
+//! The activity toolbar's buttons and the popover each opens below it.
 
-use std::time::Duration;
+use gpui_kit::{anchored, deferred, div, prelude::*, px, Anchor, App, IntoElement, Pixels, Window};
 
-use gpui_kit::{
-    anchored, deferred, div, prelude::*, px, Anchor, Animation, AnimationExt as _, App, ElementId,
-    IntoElement, Pixels, Window,
-};
-
+use crate::ui::components::{popover_open, popover_panel};
 use crate::ui::icons::AppIcon;
-use crate::ui::theme::{alpha, Palette, R_LG, R_MD};
+use crate::ui::theme::{alpha, Palette, R_MD};
 use gpui_kit::component::Icon;
 
-/// The 28px pill button: an icon and a label. `highlighted` is the filter's
-/// "something is applied" look.
+/// The 28px toolbar button; `highlighted` marks an applied filter.
 pub fn toolbar_button(
     id: &'static str,
     glyph: AppIcon,
@@ -49,9 +42,8 @@ pub fn toolbar_button(
         .child(label)
 }
 
-/// A zero-size anchor at the trigger's bottom-right corner (so the trigger
-/// must be `relative`), holding `content` right-aligned below it, `gap` away.
-/// `on_dismiss` runs on a click outside the panel.
+/// `content` right-aligned below a `relative` trigger, `gap` away; `on_dismiss`
+/// runs on an outside click.
 pub fn popover_below(
     id: &'static str,
     content: impl IntoElement,
@@ -66,22 +58,13 @@ pub fn popover_below(
     } else {
         p.shadow_md()
     };
-    let panel = div()
-        .id(id)
-        .occlude()
-        .overflow_hidden()
-        .rounded(R_LG)
-        .bg(p.panel)
-        .border_1()
-        .border_color(p.border)
-        .shadow(shadow)
-        .on_mouse_down_out(move |_, window, cx| on_dismiss(window, cx))
-        .child(content)
-        .with_animation(
-            ElementId::Name(id.into()),
-            Animation::new(Duration::from_millis(140)).with_easing(gpui_kit::ease_out_quint()),
-            move |el, t| el.opacity(t).mt(gap - px(4. * (1. - t))),
-        );
+    let panel = popover_open(
+        popover_panel(id, shadow, cx)
+            .on_mouse_down_out(move |_, window, cx| on_dismiss(window, cx))
+            .child(content),
+        id,
+        gap,
+    );
 
     div()
         .absolute()

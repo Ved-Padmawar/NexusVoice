@@ -1,12 +1,10 @@
-//! The eight app themes, defined in OKLCH exactly as the design tokens were,
-//! and projected onto gpui-component's theme so kit components match.
+//! The eight app themes in OKLCH, projected onto the kit's theme.
 
 use gpui_kit::component::{Theme, ThemeMode};
 use gpui_kit::{px, App, BoxShadow, Global, Hsla, Pixels, Rgba};
 
 use super::settings::ThemeName;
 
-/// Radius scale.
 pub const R_XS: Pixels = px(4.);
 pub const R_SM: Pixels = px(6.);
 pub const R_MD: Pixels = px(8.);
@@ -15,14 +13,12 @@ pub const R_XL: Pixels = px(16.);
 
 pub const SIDEBAR_W: Pixels = px(220.);
 
-/// Base text size and family.
 pub const FONT_SIZE: Pixels = px(13.);
 pub const FONT_FAMILY: &str = "Inter";
 
 /// Windows 11's close-button red, deliberately not theme-tinted.
 pub const CLOSE_RED: u32 = 0xc4_2b_1c;
 
-/// A theme's colors. Field names follow the design tokens they replace.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Palette {
     pub dark: bool,
@@ -55,7 +51,6 @@ pub struct Palette {
 
 impl Global for Palette {}
 
-/// Convert an OKLCH color to GPUI's HSLA, through linear sRGB.
 pub fn oklch(l: f32, c: f32, h: f32) -> Hsla {
     oklcha(l, c, h, 1.)
 }
@@ -208,7 +203,6 @@ impl Palette {
 #[allow(clippy::too_many_lines)] // one table of eight themes reads best whole
 fn spec(name: ThemeName) -> Spec {
     match name {
-        // Blue-grey dark, periwinkle accent (default).
         ThemeName::Abyss => Spec {
             dark: true,
             hue: 250.,
@@ -230,7 +224,6 @@ fn spec(name: ThemeName) -> Spec {
             shadow: (0., 0., 0.),
             shadow_alpha: [(0.30, 0.20), (0.40, 0.25), (0.60, 0.35)],
         },
-        // Near-neutral indigo, cyan accent.
         ThemeName::Midnight => Spec {
             dark: true,
             hue: 265.,
@@ -252,7 +245,6 @@ fn spec(name: ThemeName) -> Spec {
             shadow: (0., 0., 0.),
             shadow_alpha: [(0.45, 0.30), (0.55, 0.35), (0.70, 0.45)],
         },
-        // Slate blue-grey, pale icy accent; matches the Steel pill.
         ThemeName::Steel => Spec {
             dark: true,
             hue: 264.,
@@ -274,7 +266,6 @@ fn spec(name: ThemeName) -> Spec {
             shadow: (0., 0., 0.),
             shadow_alpha: [(0.35, 0.22), (0.50, 0.30), (0.70, 0.40)],
         },
-        // Dark forest green, mint accent.
         ThemeName::Pine => Spec {
             dark: true,
             hue: 150.,
@@ -296,7 +287,6 @@ fn spec(name: ThemeName) -> Spec {
             shadow: (0., 0., 0.),
             shadow_alpha: [(0.30, 0.20), (0.45, 0.28), (0.60, 0.35)],
         },
-        // Off-white light, cobalt accent.
         ThemeName::Canvas => Spec {
             dark: false,
             hue: 250.,
@@ -318,7 +308,6 @@ fn spec(name: ThemeName) -> Spec {
             shadow: (0.25, 0.01, 250.),
             shadow_alpha: [(0.04, 0.03), (0.08, 0.05), (0.12, 0.07)],
         },
-        // Warm white light, orange accent.
         ThemeName::Dawn => Spec {
             dark: false,
             hue: 32.,
@@ -340,7 +329,6 @@ fn spec(name: ThemeName) -> Spec {
             shadow: (0.22, 0.02, 30.),
             shadow_alpha: [(0.07, 0.04), (0.12, 0.07), (0.18, 0.10)],
         },
-        // Cool teal light, cyan-teal accent.
         ThemeName::Breeze => Spec {
             dark: false,
             hue: 200.,
@@ -362,7 +350,6 @@ fn spec(name: ThemeName) -> Spec {
             shadow: (0.20, 0.01, 200.),
             shadow_alpha: [(0.06, 0.04), (0.10, 0.06), (0.14, 0.08)],
         },
-        // Soft rose light, pink accent.
         ThemeName::Blossom => Spec {
             dark: false,
             hue: 355.,
@@ -387,7 +374,6 @@ fn spec(name: ThemeName) -> Spec {
     }
 }
 
-/// Make `name` the active theme, for our own views and the kit's components.
 pub fn apply(name: ThemeName, cx: &mut App) {
     let p = Palette::of(name);
     cx.set_global(p);

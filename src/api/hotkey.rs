@@ -1,11 +1,10 @@
-//! Global hotkey bindings: validation and persistence. Registering them with
-//! the OS is [`crate::platform::hotkeys`]'s job.
+//! Hotkey bindings: validation and persistence (OS registration is in `platform`).
 
 use crate::state::{AppState, HotkeyKind};
 
 use super::error::ApiError;
 
-/// The three dictation hotkeys. `None` is unbound.
+/// The three dictation hotkeys; `None` is unbound.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HotkeyBindings {
     pub push_to_talk: Option<String>,
@@ -44,15 +43,13 @@ impl HotkeyBindings {
         }
     }
 
-    /// Every bound hotkey with its kind.
     pub fn bound(&self) -> impl Iterator<Item = (HotkeyKind, &str)> {
         Self::KINDS
             .into_iter()
             .filter_map(|kind| self.get(kind).map(|hotkey| (kind, hotkey)))
     }
 
-    /// These bindings with `kind` set to `hotkey` (or cleared by `None`),
-    /// validated against the other two.
+    /// These bindings with `kind` set to `hotkey`, validated against the others.
     ///
     /// # Errors
     /// `hotkey_invalid` for a hotkey that could never fire, `hotkey_conflict`
@@ -71,7 +68,6 @@ impl HotkeyBindings {
         Ok(next)
     }
 
-    /// Persist the binding for `kind`.
     pub fn save(&self, state: &AppState, kind: HotkeyKind) {
         match self.get(kind) {
             Some(hotkey) => {

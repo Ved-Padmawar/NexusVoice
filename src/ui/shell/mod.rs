@@ -1,9 +1,5 @@
-//! The main window: title bar, sidebar, the active page, the startup screen,
-//! first-run modals and toasts.
-//!
-//! Closing the window removes it; the app lives on in the tray and the pill.
-//! Pages are created on first visit and kept, so switching back is instant and
-//! keeps scroll position and inputs.
+//! The main window: title bar, sidebar, pages, startup screen, first-run
+//! modals and toasts. Pages are created on first visit and kept.
 
 mod sidebar;
 mod title_bar;
@@ -25,8 +21,7 @@ use super::theme::Palette;
 use crate::platform::{self, paths};
 use crate::state::HotkeyKind;
 
-/// The system-wide hotkeys, owned by the UI thread (see `platform::hotkeys`).
-/// `None` where the platform offers none, e.g. Wayland.
+/// The system-wide hotkeys; `None` where unavailable (Wayland).
 pub struct Hotkeys(Option<platform::hotkeys::Hotkeys>);
 
 impl Global for Hotkeys {}
@@ -39,8 +34,6 @@ impl Hotkeys {
             .map(platform::hotkeys::Hotkeys::bindings)
     }
 
-    /// Bind or clear one hotkey.
-    ///
     /// # Errors
     /// The hotkey is invalid, taken, or global hotkeys are unavailable.
     pub fn set(
@@ -69,7 +62,6 @@ struct MainWindowHandle(Option<WindowHandle<gpui_kit::base::Root>>);
 
 impl Global for MainWindowHandle {}
 
-/// Bring the main window forward, opening it if it was closed.
 pub fn open_main_window(cx: &mut App) {
     let existing = cx
         .try_global::<MainWindowHandle>()
@@ -123,6 +115,11 @@ impl MainWindow {
             cx.subscribe_in(&store, window, |_, _, event: &StoreEvent, window, cx| {
                 if let StoreEvent::Notice(notice) = event {
                     window.push_notification(toast(notice), cx);
+                }
+            }),
+            cx.observe_window_activation(window, |_, window, cx| {
+                if window.is_window_active() {
+                    super::pill::raise(cx);
                 }
             }),
         ];

@@ -1,5 +1,4 @@
-//! The single registry of vendor logos. The LLM provider picker and the model
-//! catalog both resolve through here, so a logo is declared once.
+//! The vendor logo registry, shared by the LLM provider picker and the catalog.
 
 use gpui_kit::{div, img, prelude::*, px, svg, Hsla, ObjectFit};
 
@@ -22,11 +21,9 @@ pub enum Vendor {
     Custom,
 }
 
-/// How a monochrome vector mark is coloured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tint {
     Brand(u32),
-    /// The mark follows the text colour around it.
     Inherit,
 }
 
@@ -47,8 +44,7 @@ impl Vendor {
         })
     }
 
-    /// Which vendor trained a model family. The catalog ships `qwen3-asr`, the
-    /// table is keyed `qwen3asr`: hyphens are ignored.
+    /// Which vendor trained a model family; hyphens are ignored.
     pub fn for_family(family: &str) -> Option<Self> {
         match family.replace('-', "").as_str() {
             "whisper" => Some(Self::OpenAi),
@@ -59,7 +55,6 @@ impl Vendor {
         }
     }
 
-    /// The bundled logo file; the custom tile has none.
     pub fn asset(self) -> Option<&'static str> {
         Some(match self {
             Self::OpenAi => "providers/openai.svg",
@@ -88,8 +83,6 @@ impl Vendor {
     }
 }
 
-/// `vendor`'s logo in a `size` px square. `inherit` colours the marks that
-/// follow the surrounding text.
 pub fn vendor_mark(
     vendor: Vendor,
     size: f32,

@@ -1,5 +1,4 @@
-//! Settings: four tabs under one header. A tab is built the first time it is
-//! opened and kept, so it keeps its scroll position and what was typed in it.
+//! Settings: four tabs, each built on first open and kept.
 
 mod about;
 mod appearance;
@@ -88,7 +87,6 @@ fn tab_label(tab: SettingsTab) -> (&'static str, AppIcon) {
     }
 }
 
-/// How far apart a tab's blocks sit.
 fn tab_gap(tab: SettingsTab) -> f32 {
     match tab {
         SettingsTab::General => 20.,

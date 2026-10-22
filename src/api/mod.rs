@@ -1,7 +1,4 @@
-//! The operations the UI performs, grouped by domain. Each is a thin call over
-//! the app state and the service modules, returning [`ApiError`] on failure.
-//! Async ones run on the tokio runtime; the UI reaches them through
-//! `ui::runtime`.
+//! The operations the UI performs, grouped by domain, failing with [`ApiError`].
 
 mod cuda;
 mod data;

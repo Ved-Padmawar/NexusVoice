@@ -1,2 +1,0 @@
-# Product names that are not code identifiers.
-doc-valid-idents = ["SQLite", "AppImage", ".."]

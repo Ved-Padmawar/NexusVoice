@@ -1,4 +1,4 @@
-//! Data commands: transcripts, usage stats, and dictionary CRUD.
+//! Transcripts, usage stats and the dictionary.
 
 use crate::database::dto::dictionary::CreateDictionaryEntry;
 use crate::database::repositories::{
@@ -41,7 +41,6 @@ pub async fn get_usage_stats() -> Result<UsageStatsResponse, ApiError> {
     })
 }
 
-/// Resolves once the database is open, or with why it could not be.
 pub async fn wait_until_ready() -> Result<(), ApiError> {
     state::get().db().await?;
     Ok(())
@@ -50,7 +49,6 @@ pub async fn wait_until_ready() -> Result<(), ApiError> {
 const MAX_PAGE_SIZE: i64 = 200;
 const DEFAULT_PAGE_SIZE: i64 = 50;
 
-/// Pagination, cursor and filter args shared by the transcript list and search.
 #[derive(Debug, Clone, Default)]
 pub struct PageQuery {
     pub limit: Option<i64>,
@@ -69,7 +67,7 @@ impl PageQuery {
             .clamp(1, MAX_PAGE_SIZE)
     }
 
-    /// Both halves must be present; either alone is a client bug — treat as none.
+    /// Either half alone is a client bug; treat it as none.
     fn cursor(&self) -> Option<Cursor<'_>> {
         match (self.cursor_created_at.as_deref(), self.cursor_id) {
             (Some(created_at), Some(id)) => Some(Cursor { created_at, id }),
@@ -85,9 +83,8 @@ impl PageQuery {
         self.from.as_deref()
     }
 
-    /// Inclusive upper bound. The picker sends a bare `YYYY-MM-DD` but
-    /// `created_at` is `YYYY-MM-DD HH:MM:SS`, compared lexicographically, so a
-    /// bare date would exclude the whole day it names.
+    /// Inclusive upper bound: a bare `YYYY-MM-DD` is extended to the day's end, as
+    /// `created_at` compares lexicographically.
     fn end_bound(&self) -> Option<String> {
         self.to.as_deref().map(|t| {
             if t.len() == 10 {
@@ -133,13 +130,11 @@ pub async fn search_transcripts(
 
     let fts_query = TranscriptRepository::build_fts_query(&query);
 
-    // An all-punctuation query can normalize to an empty FTS string — that's
-    // "no searchable terms", not an error.
+    // An all-punctuation query has no searchable terms; not an error.
     if fts_query.trim().is_empty() {
         return Ok(vec![]);
     }
 
-    // Propagate real DB/FTS errors instead of masking them as empty results.
     let repo = TranscriptRepository::new(state.db().await?.clone());
     let to = page.end_bound();
     let items = repo
@@ -166,13 +161,12 @@ pub async fn get_dictionary() -> Result<Vec<DictionaryResponse>, ApiError> {
     let state = state::get();
     let cache = state.dict_cache.read().await;
     let mut entries: Vec<_> = cache.values().cloned().collect();
-    // The cache is a HashMap, so sort or rows reshuffle after every edit.
+    // The cache is a HashMap: sort, or rows reshuffle after every edit.
     entries.sort_unstable_by(|a, b| a.term.cmp(&b.term));
     Ok(entries.into_iter().map(DictionaryResponse::from).collect())
 }
 
-/// The upsert keys on `term`, so a rename inserts a new row; `previous_term`
-/// names the old one to drop, or it lingers and keeps rewriting dictation.
+/// The upsert keys on `term`, so a rename must drop `previous_term` or it lingers.
 pub async fn update_dictionary(
     term: String,
     replacement: String,
@@ -192,7 +186,6 @@ pub async fn update_dictionary(
         repo.delete_by_term(previous).await?;
     }
 
-    // Update in-memory cache: O(1) insert/replace via HashMap
     let mut cache = state.dict_cache.write().await;
     if let Some(previous) = &renamed_from {
         cache.remove(previous);

@@ -1,4 +1,4 @@
-//! The "Export" button: pick a format, choose where to save, write the file.
+//! The "Export" button: pick a format and where to save.
 
 use std::cell::Cell;
 use std::path::PathBuf;
@@ -25,7 +25,6 @@ pub struct ExportMenu {
     trigger_hovered: Rc<Cell<bool>>,
 }
 
-/// How saving ended; a cancelled dialog is not an error and says nothing.
 enum Saved {
     Cancelled,
     To,

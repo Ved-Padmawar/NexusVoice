@@ -1,4 +1,4 @@
-//! The header every page opens with: an accent tile, the title and a subtitle.
+//! Headings: the header every page opens with, and the section heading.
 
 use gpui_kit::{div, prelude::*, px, App, FontWeight, IntoElement, SharedString, Window};
 
@@ -77,4 +77,27 @@ impl RenderOnce for PageHeader {
                     ),
             )
     }
+}
+
+pub fn section_heading(
+    title: &'static str,
+    description: &'static str,
+    cx: &App,
+) -> impl IntoElement {
+    let p = Palette::global(cx);
+    div()
+        .child(
+            div()
+                .mb_1()
+                .text_size(px(12.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(p.fg_2)
+                .child(title),
+        )
+        .child(
+            div()
+                .text_size(px(12.))
+                .text_color(p.muted)
+                .child(description),
+        )
 }

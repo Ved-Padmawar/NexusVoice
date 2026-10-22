@@ -1,12 +1,10 @@
-//! The dictation language. Support is per model, so the picker follows the
-//! active model and hides itself for an English-only one.
+//! The dictation language; hidden for English-only models.
 
 use gpui_kit::component::{notification::Notification, WindowExt as _};
 use gpui_kit::{div, prelude::*, Context, Entity, SharedString, Subscription, Window};
 
-use super::widgets::section_heading;
 use crate::api::{self, LanguageSettings};
-use crate::ui::components::{Dropdown, DropdownEvent, DropdownItem};
+use crate::ui::components::{section_heading, Dropdown, DropdownEvent, DropdownItem};
 use crate::ui::icons::AppIcon;
 use crate::ui::runtime::SpawnApi as _;
 use crate::ui::store::Store;
@@ -19,7 +17,6 @@ pub struct LanguageSection {
     supported: bool,
     /// The language the backend has, which a failed change goes back to.
     selected: SharedString,
-    /// The model the options were fetched for.
     model_id: Option<String>,
     /// Newest fetch; an older answer arriving late is dropped.
     request: u64,
@@ -52,7 +49,6 @@ impl LanguageSection {
         section
     }
 
-    /// Whether the active model handles any language but English.
     pub fn supported(&self) -> bool {
         self.supported
     }

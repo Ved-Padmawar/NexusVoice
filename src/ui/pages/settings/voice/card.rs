@@ -1,16 +1,13 @@
-//! One model in the grid: what it is, how heavy, and the one action that
-//! fits its state — download, cancel, retry, switch to it, or "in use".
+//! One model card: details, weight, and the action that fits its state.
 
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::{div, prelude::*, px, AnyElement, App, Context, Div, FontWeight, Stateful};
 
 use super::VoiceTab;
 use crate::api::CatalogModel;
-use crate::ui::components::icon;
+use crate::ui::components::{icon, icon_button, progress_bar};
 use crate::ui::icons::AppIcon;
-use crate::ui::pages::models::{
-    format_model_size, icon_button, is_streaming, progress_bar, weight_tier, TIER_LABELS,
-};
+use crate::ui::pages::models::{format_model_size, is_streaming, weight_tier, TIER_LABELS};
 use crate::ui::store::{Download, DownloadStatus, Store};
 use crate::ui::theme::{alpha, Palette, R_LG, R_MD, R_XS};
 use crate::ui::vendors::{vendor_mark, Vendor};
@@ -169,7 +166,6 @@ impl VoiceTab {
     }
 }
 
-/// The full-width, 28px-high button the card's action row uses.
 fn edge_button(
     id: impl Into<gpui_kit::ElementId>,
     edge: gpui_kit::Hsla,
@@ -191,7 +187,6 @@ fn edge_button(
         .font_weight(FontWeight::SEMIBOLD)
 }
 
-/// The model's vendor mark, name, recommendation and description.
 fn card_header(model: &CatalogModel, state: CardState, p: &Palette, cx: &App) -> impl IntoElement {
     let CardState {
         loaded,
@@ -272,7 +267,6 @@ fn card_header(model: &CatalogModel, state: CardState, p: &Palette, cx: &App) ->
         )
 }
 
-/// Weight meter and size on the left; streaming and language on the right.
 fn card_facts(index: usize, model: &CatalogModel, loaded: bool, p: &Palette) -> impl IntoElement {
     let tier = weight_tier(model.size_bytes);
     let tone = if loaded { p.accent } else { p.fg_2 };

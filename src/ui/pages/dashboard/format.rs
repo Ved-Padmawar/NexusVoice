@@ -1,4 +1,4 @@
-//! Text the dashboard shows or exports, kept free of UI so it can be tested.
+//! The dashboard's display and export text, UI-free for testing.
 
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use serde::{Serialize, Serializer};
@@ -44,9 +44,8 @@ pub fn fmt_count(n: i64) -> String {
 
 const SQLITE_FORMAT: &str = "%Y-%m-%d %H:%M:%S%.f";
 
-/// A stored timestamp as "Jun 5, 02:30 PM" in the local zone. `SQLite`'s
-/// `CURRENT_TIMESTAMP` is UTC with no zone marker, so it is tagged as UTC here;
-/// the raw string stays untouched because it is also the pagination cursor.
+/// "Jun 5, 02:30 PM" in the local zone. `SQLite`'s `CURRENT_TIMESTAMP` is UTC
+/// without a marker; the raw string stays as the pagination cursor.
 pub fn fmt_date(raw: &str) -> String {
     fmt_date_in(raw, &Local)
 }
@@ -65,7 +64,6 @@ pub fn fmt_date_in<Tz: TimeZone>(raw: &str, tz: &Tz) -> String {
     }
 }
 
-/// "1 transcript" / "3 transcripts".
 pub fn count_noun(n: usize, noun: &str) -> String {
     format!("{n} {noun}{}", if n == 1 { "" } else { "s" })
 }
@@ -86,7 +84,6 @@ impl ExportFormat {
         }
     }
 
-    /// Menu entry text.
     pub fn menu_label(self) -> &'static str {
         match self {
             Self::Txt => "Plain text (.txt)",
@@ -94,7 +91,6 @@ impl ExportFormat {
         }
     }
 
-    /// Name used in the success toast.
     pub fn short_name(self) -> &'static str {
         match self {
             Self::Txt => "TXT",
@@ -118,8 +114,7 @@ struct ExportRow<'a> {
     duration_seconds: Option<f64>,
 }
 
-/// Whole numbers print without a fraction ("2", not "2.0"), as in JSON from
-/// JavaScript, so exports match the ones the old app wrote.
+/// Whole numbers without a fraction, as the old app's JS exports wrote them.
 #[allow(clippy::ref_option)] // the signature `serialize_with` requires
 fn js_number<S: Serializer>(value: &Option<f64>, serializer: S) -> Result<S::Ok, S::Error> {
     match *value {
@@ -130,8 +125,6 @@ fn js_number<S: Serializer>(value: &Option<f64>, serializer: S) -> Result<S::Ok,
     }
 }
 
-/// The file body for `items`, with TXT timestamps shown in `tz`.
-///
 /// # Errors
 /// Only if JSON serialization fails, which plain rows cannot cause.
 pub fn export_content<Tz: TimeZone>(

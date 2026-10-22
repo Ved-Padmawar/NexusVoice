@@ -1,5 +1,4 @@
-//! The "Filter" button and its popover: a date range or one day, and the sort
-//! order. Nothing applies until "Apply".
+//! The "Filter" popover: date range or day, and sort order, applied on "Apply".
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -83,7 +82,7 @@ impl FilterPopover {
         }
     }
 
-    /// Opening shows what is applied, discarding edits that were never applied.
+    /// Opening discards unapplied edits.
     fn set_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
         if open {
             let applied = self.applied;
@@ -321,8 +320,7 @@ impl Render for FilterPopover {
                     px(6.),
                     true,
                     move |window, cx| {
-                        // A calendar's popup lies outside the panel, so a click
-                        // in it is an outside click too; it belongs to the picker.
+                        // A calendar popup lies outside the panel; clicks in it belong to the picker.
                         let in_calendar = pickers.iter().any(|picker| {
                             picker
                                 .read(cx)

@@ -1,9 +1,5 @@
-//! System-wide hotkeys. Presses go straight to the recording controller.
-//!
-//! Windows delivers hotkey messages to the thread that registered them, so
-//! [`Hotkeys`] is created and used on the UI thread, whose message loop serves
-//! them. Wayland refuses global grabs; there the user binds `--toggle-dictation`
-//! in their desktop instead (see [`crate::remote`]).
+//! System-wide hotkeys, created and used on the UI thread (Windows delivers
+//! their messages there). Wayland users bind `--toggle-dictation` instead.
 
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -16,7 +12,6 @@ use crate::api::{ApiError, HotkeyBindings};
 use crate::state::{self, HotkeyKind};
 use crate::transcription::controller::{self, Input};
 
-/// Registered hotkey id → what it does, read by the event handler.
 static ACTIONS: RwLock<Option<HashMap<u32, HotkeyKind>>> = RwLock::new(None);
 
 pub struct Hotkeys {
@@ -26,8 +21,7 @@ pub struct Hotkeys {
 }
 
 impl Hotkeys {
-    /// Start listening and bind the saved hotkeys. A saved hotkey that no
-    /// longer registers is logged and left unbound.
+    /// A saved hotkey that no longer registers is logged and left unbound.
     ///
     /// # Errors
     /// When the platform offers no global hotkeys at all.
@@ -49,8 +43,7 @@ impl Hotkeys {
         &self.bindings
     }
 
-    /// Bind `kind` to `hotkey`, or unbind it with `None`, and save the choice.
-    /// A rejected change leaves every working hotkey bound.
+    /// Bind or unbind `kind` and save; a rejected change keeps working hotkeys.
     ///
     /// # Errors
     /// The hotkey is invalid, duplicates another, or the OS refused it.
@@ -65,7 +58,7 @@ impl Hotkeys {
         Ok(())
     }
 
-    /// Replace every registration with `bindings`, all or nothing.
+    /// Replace every registration, all or nothing.
     fn apply(&mut self, bindings: HotkeyBindings) -> Result<(), ApiError> {
         let _ = self.manager.unregister_all(&self.registered);
         self.registered.clear();

@@ -1,5 +1,4 @@
-//! The dictionary: trigger words and what they are replaced with, added from
-//! a quick form and edited in place in the table.
+//! The dictionary: trigger words and their replacements.
 
 mod form;
 
@@ -12,16 +11,16 @@ use gpui_kit::{
     ListAlignment, ListState, Subscription, Window,
 };
 
-use super::dashboard::{primary_button, ButtonSize};
 use crate::api::{self, dto::DictionaryResponse};
-use crate::ui::components::{icon, page_header, skeleton, text_input, LoadState, SectionState};
+use crate::ui::components::{
+    button, icon, page_header, skeleton, text_input, LoadState, SectionState,
+};
 use crate::ui::icons::AppIcon;
 use crate::ui::runtime::SpawnApi as _;
 use crate::ui::theme::{alpha, Palette, R_LG, R_MD, R_SM, R_XL};
 use form::entry_from_fields;
 
-/// What Tailwind's `font-mono` resolved to on each platform; the correction
-/// chip is the one place the app shows code-like text.
+/// Tailwind's `font-mono` per platform, for the correction chip.
 const MONO_FONT: &str = if cfg!(target_os = "windows") {
     "Consolas"
 } else if cfg!(target_os = "macos") {
@@ -33,7 +32,6 @@ const MONO_FONT: &str = if cfg!(target_os = "windows") {
 /// Rows rendered beyond the viewport, so scrolling doesn't pop them in.
 const OVERDRAW: f32 = 400.;
 
-/// The row being edited in place.
 struct Edit {
     id: i64,
     /// The term as stored, so a rename can drop the old entry.
@@ -284,20 +282,18 @@ impl Dictionary {
                     .child(field("Trigger word", &self.term))
                     .child(field("Corrected text", &self.replacement))
                     .child(
-                        primary_button(
+                        button(
                             "add-entry",
-                            ButtonSize::Default,
-                            !can_add,
-                            {
-                                let this = cx.entity();
-                                move |window, cx| this.update(cx, |this, cx| this.add(window, cx))
+                            if self.saving {
+                                "Saving…"
+                            } else {
+                                "Add to Dictionary"
                             },
-                            cx,
                         )
-                        .child(if self.saving {
-                            "Saving…"
-                        } else {
-                            "Add to Dictionary"
+                        .disabled(!can_add)
+                        .on_click({
+                            let this = cx.entity();
+                            move |window, cx| this.update(cx, |this, cx| this.add(window, cx))
                         }),
                     ),
             )
@@ -416,7 +412,6 @@ enum Column {
     Actions,
 }
 
-/// A table cell with the column's width and alignment.
 fn cell(column: Column, content: impl IntoElement) -> impl IntoElement {
     let base = div().flex().items_center().px_4().py(px(14.)).min_w_0();
     match column {
@@ -588,7 +583,6 @@ fn edit_cells(
     ]
 }
 
-/// A 28px square icon button that tints on hover.
 fn icon_button(
     kind: &'static str,
     id: i64,

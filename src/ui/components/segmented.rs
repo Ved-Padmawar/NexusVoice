@@ -14,7 +14,6 @@ pub struct Segment<T> {
     pub icon: Option<AppIcon>,
 }
 
-/// One segment per value; clicking one calls `on_select` with its value.
 pub fn segmented<T: Copy + PartialEq + 'static>(
     id: impl Into<ElementId>,
     segments: Vec<Segment<T>>,

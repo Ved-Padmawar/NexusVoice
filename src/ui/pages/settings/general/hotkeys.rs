@@ -1,5 +1,4 @@
-//! Global hotkeys: one recorder per action. Click a recorder, press the
-//! combination, then save it.
+//! Global hotkeys: one recorder per action.
 
 use gpui_kit::component::{notification::Notification, Icon, WindowExt as _};
 use gpui_kit::{
@@ -8,9 +7,8 @@ use gpui_kit::{
 };
 
 use super::shortcut::{badge_label, Recording};
-use super::widgets::section_heading;
 use crate::state::HotkeyKind;
-use crate::ui::components::icon;
+use crate::ui::components::{icon, section_heading};
 use crate::ui::icons::AppIcon;
 use crate::ui::shell::Hotkeys;
 use crate::ui::theme::{alpha, Palette, R_MD, R_SM};
@@ -114,8 +112,8 @@ impl HotkeyCard {
         window.push_notification(Notification::error(message.to_string()), cx);
     }
 
-    /// A global hotkey is grabbed system-wide, so it would swallow the very
-    /// combination being recorded: unbind it until the recording is settled.
+    /// The grabbed hotkey would swallow the combination being recorded, so it is
+    /// unbound until the recording settles.
     fn start_listening(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.editing() {
             self.restore = self.current(cx);
@@ -420,7 +418,6 @@ fn key_badges(tokens: &[SharedString], p: &Palette) -> impl IntoElement {
         }))
 }
 
-/// A text button: the accent fill when `primary`, otherwise a quiet one.
 fn text_button(
     id: &'static str,
     label: &'static str,
@@ -458,7 +455,6 @@ fn text_button(
         .child(label)
 }
 
-/// A 28px icon button that tints and fills on hover.
 fn icon_button(
     id: &'static str,
     name: AppIcon,

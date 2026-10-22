@@ -1,5 +1,4 @@
-//! Interface preferences, saved as `ui.json` in the app data dir. Backend
-//! settings (model, language, hotkeys…) keep their own files.
+//! Interface preferences, saved as `ui.json` in the app data dir.
 
 use gpui_kit::{App, Global};
 use serde::{Deserialize, Serialize};
@@ -47,7 +46,6 @@ impl PillTheme {
     pub const ALL: [Self; 4] = [Self::Steel, Self::Midnight, Self::Canvas, Self::Dawn];
 }
 
-/// How the pill draws the capture levels. All four read the same frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WaveformStyle {
@@ -121,8 +119,7 @@ impl UiSettings {
         cx.global::<Self>()
     }
 
-    /// Change the settings and save them. Views re-render through the global
-    /// observer; nothing is written when the edit changed nothing.
+    /// Edit and save; nothing is written when nothing changed.
     pub fn update(cx: &mut App, edit: impl FnOnce(&mut Self)) {
         let mut next = Self::global(cx).clone();
         edit(&mut next);

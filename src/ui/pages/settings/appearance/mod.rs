@@ -1,5 +1,4 @@
-//! Appearance: the app theme, the pill theme and the waveform style, each a
-//! card with a live preview beside its choices.
+//! Appearance: app theme, pill theme and waveform style, each with a live preview.
 
 mod app_theme;
 mod card;

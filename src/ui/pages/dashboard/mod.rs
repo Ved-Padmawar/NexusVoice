@@ -1,7 +1,5 @@
-//! The dashboard: usage totals and the searchable, filterable, exportable
-//! feed of past transcripts.
+//! The dashboard: usage totals and the transcript feed.
 
-mod button;
 mod export;
 mod feed;
 mod filter;
@@ -15,10 +13,10 @@ use std::time::Duration;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{div, prelude::*, px, Context, Entity, FontWeight, Subscription, Task, Window};
 
-pub(super) use button::{primary_button, ButtonSize};
-
 use crate::api::{self, UsageStatsResponse};
-use crate::ui::components::{icon, page_header, skeleton, text_input, LoadState, SectionState};
+use crate::ui::components::{
+    button, icon, page_header, skeleton, text_input, ButtonSize, LoadState, SectionState,
+};
 use crate::ui::icons::AppIcon;
 use crate::ui::runtime::SpawnApi as _;
 use crate::ui::settings::{Route, SettingsTab, UiSettings};
@@ -38,7 +36,6 @@ pub struct Dashboard {
     stats_state: LoadState,
     filters: TranscriptFilters,
     search: Entity<InputState>,
-    /// Pending debounce; replacing it cancels the previous one.
     search_debounce: Option<Task<()>>,
     feed: Entity<Feed>,
     export: Entity<ExportMenu>,
@@ -104,7 +101,6 @@ impl Dashboard {
         );
     }
 
-    /// Typing searches once it pauses, so a keystroke doesn't query per letter.
     fn debounce_search(&mut self, cx: &mut Context<Self>) {
         self.search_debounce = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SEARCH_DEBOUNCE).await;
@@ -142,20 +138,16 @@ impl Dashboard {
                     .child("No hotkey set — NexusVoice won't record until you configure one."),
             )
             .child(
-                primary_button(
-                    "set-hotkey",
-                    ButtonSize::Small,
-                    false,
-                    |_, cx| {
+                button("set-hotkey", "Set hotkey")
+                    .size(ButtonSize::Sm)
+                    .icon(AppIcon::Settings2)
+                    .icon_size(12.)
+                    .on_click(|_, cx| {
                         UiSettings::update(cx, |s| {
                             s.route = Route::Settings;
                             s.settings_tab = SettingsTab::General;
                         });
-                    },
-                    cx,
-                )
-                .child(icon(AppIcon::Settings2, 12., p.accent_fg))
-                .child("Set hotkey"),
+                    }),
             )
     }
 
@@ -329,7 +321,6 @@ fn stats_skeleton(cx: &gpui_kit::App) -> impl IntoElement {
 
 impl Render for Dashboard {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // `None` where the platform has no global hotkeys, so there is nothing to set.
         let missing_hotkey = Hotkeys::bindings(cx).is_some_and(|b| b.push_to_talk.is_none());
         div()
             .flex()

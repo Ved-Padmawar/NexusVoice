@@ -1,4 +1,4 @@
-//! Optional CUDA backend: status, download and removal of the CUDA pack.
+//! The optional CUDA pack: status, download and removal.
 
 use std::sync::Arc;
 
@@ -10,10 +10,9 @@ use super::error::ApiError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CudaStatus {
-    /// An NVIDIA GPU on a platform the pack is built for; CUDA is hidden otherwise.
+    /// An NVIDIA GPU on a platform the pack is built for.
     pub supported: bool,
     pub pack: cuda::PackState,
-    /// Percent of the running download; `None` when idle.
     pub download_progress: Option<u8>,
 }
 
@@ -26,7 +25,7 @@ pub fn get_cuda_status() -> CudaStatus {
     }
 }
 
-/// Fetch the CUDA pack in the background, reported through `cuda-download-*` events.
+/// Reported through `cuda-download-*` events.
 pub fn start_cuda_download() -> Result<(), ApiError> {
     let state = state::get();
     if !cuda::supported() {

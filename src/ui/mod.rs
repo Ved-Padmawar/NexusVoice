@@ -1,8 +1,5 @@
-//! The GPUI front end: the main window and the recording pill.
-//!
-//! Views never poll. Backend events arrive on one channel, drained here on the
-//! UI thread and routed to the entity that cares: pill events to the pill,
-//! data events to the [`store`]. Only the views reading what changed repaint.
+//! The GPUI front end. Backend events arrive on one channel and are routed
+//! on the UI thread to the pill or the [`store`].
 
 mod assets;
 pub mod components;
@@ -52,7 +49,6 @@ pub fn run() {
         });
 }
 
-/// Route every backend event to its view, in order, on the UI thread.
 async fn pump_events(cx: &mut AsyncApp) {
     let receiver = events::receiver();
     while let Ok(event) = receiver.recv().await {

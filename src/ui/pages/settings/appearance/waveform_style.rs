@@ -1,9 +1,5 @@
-//! The waveform style: the recording pill drawing speech-shaped levels, and a
-//! swatch per style running the style itself.
-//!
-//! Nothing here asks for frames unless the section is on screen: the driver is
-//! a canvas in this view's own tree, so it stops painting, and so stops
-//! requesting frames, as soon as the tab is not rendered.
+//! The waveform style: a pill preview and a swatch per style. The frame driver
+//! is a canvas in this view, so frames stop when the tab isn't rendered.
 
 use std::time::Instant;
 
@@ -17,7 +13,6 @@ use crate::ui::pill::waveform::Waveform;
 use crate::ui::settings::{UiSettings, WaveformStyle};
 use crate::ui::theme::{Palette, R_XS};
 
-/// What settings says about each style, in `WaveformStyle::ALL` order.
 pub(super) const STYLES: [(WaveformStyle, &str, &str); 4] = [
     (WaveformStyle::Bars, "Bars", "live level meter"),
     (WaveformStyle::Memo, "Memo", "scrolling voice note"),
@@ -28,9 +23,7 @@ pub(super) const STYLES: [(WaveformStyle, &str, &str); 4] = [
 pub struct WaveformSection {
     levels: SpeechLevels,
     last_frame: Option<Instant>,
-    /// The pill preview, in the chosen style.
     preview: Entity<Waveform>,
-    /// One per style, in `STYLES` order, each running its own style.
     swatches: [Entity<Waveform>; 4],
     _settings_changed: Subscription,
 }
@@ -61,7 +54,6 @@ impl WaveformSection {
         cx.notify();
     }
 
-    /// Feed the next frame of speech to every preview.
     fn advance(&mut self, cx: &mut Context<Self>) {
         let now = Instant::now();
         let dt = self
@@ -134,7 +126,6 @@ impl WaveformSection {
         })
     }
 
-    /// The pill at its recording size, in the chosen pill theme.
     fn preview_pill(&self, t: &PillThemeDef) -> impl IntoElement {
         capsule(t, 32.)
             .w(px(80.))

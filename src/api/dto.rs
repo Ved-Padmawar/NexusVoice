@@ -1,5 +1,4 @@
-//! Response types handed to the UI, with `From` conversions from the internal
-//! database models.
+//! Response types handed to the UI.
 
 use crate::database::models::{dictionary::DictionaryEntry, transcript::Transcript};
 
@@ -9,7 +8,6 @@ pub struct TranscriptResponse {
     pub content: String,
     pub word_count: i64,
     pub duration_seconds: Option<f64>,
-    /// App the transcript was dictated into; `None` when it wasn't determined.
     pub target_app: Option<String>,
     pub created_at: String,
 }
@@ -58,12 +56,10 @@ pub struct InjectionTool {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InjectionStatus {
-    /// `true` where injection needs external tools the user must install.
     pub configurable: bool,
     /// Human-readable session, e.g. "Wayland (GNOME)". Empty off Linux.
     pub session: String,
     pub selected: Option<String>,
-    /// Best first.
     pub tools: Vec<InjectionTool>,
 }
 
@@ -88,8 +84,7 @@ impl InjectionStatus {
         let portal = linux::portal_available().await;
         let selected = linux::selected();
 
-        // The portal leads the list because it is tried first and needs no
-        // install; the tools below it are the fallback where it is unsupported.
+        // The portal leads: tried first, nothing to install.
         let mut tools = Vec::new();
         if session.is_wayland() {
             tools.push(InjectionTool {

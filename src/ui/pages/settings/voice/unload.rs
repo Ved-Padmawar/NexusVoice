@@ -5,9 +5,8 @@ use gpui_kit::{div, prelude::*, px, Context, FontWeight, Window};
 
 use crate::api;
 use crate::inference::idle::ModelUnload;
-use crate::ui::components::icon;
+use crate::ui::components::{icon, pill};
 use crate::ui::icons::AppIcon;
-use crate::ui::pages::models::pill;
 use crate::ui::theme::{Palette, R_MD};
 
 const OPTIONS: [(ModelUnload, &str); 6] = [
@@ -30,7 +29,7 @@ impl ModelUnloadSection {
         }
     }
 
-    /// Saves `next`; a failed save puts the previous choice back.
+    /// A failed save restores the previous choice.
     fn choose(&mut self, next: ModelUnload, window: &mut Window, cx: &mut Context<Self>) {
         if next == self.policy {
             return;

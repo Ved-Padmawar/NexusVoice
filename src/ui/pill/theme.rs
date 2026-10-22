@@ -1,5 +1,4 @@
-//! The pill's colours, one table per theme. Settings reads the same table for
-//! its swatches and previews, so a theme is defined once.
+//! The pill's colours, one table per theme; Settings previews read it too.
 
 use gpui_kit::{px, BoxShadow, Rgba};
 
@@ -19,7 +18,6 @@ const fn rgb(r: u8, g: u8, b: u8) -> Rgba {
     rgba(r, g, b, 1.0)
 }
 
-/// One layer of a pill's shadow.
 #[derive(Debug, Clone, Copy)]
 pub struct Shadow {
     pub offset_y: f32,
@@ -46,9 +44,7 @@ pub struct ButtonColors {
 
 #[derive(Debug, Clone, Copy)]
 pub struct PillThemeDef {
-    /// The name settings shows for the theme.
     pub label: &'static str,
-    /// Idle surface.
     pub bg: Rgba,
     pub border: Rgba,
     /// Mic icon, waveform and caret.
@@ -59,8 +55,7 @@ pub struct PillThemeDef {
     pub processing: Surface,
     pub downloading: Surface,
     pub error: Surface,
-    /// Drawn while idle, recording, dictating or showing an error; the
-    /// spinner states sit flat.
+    /// Not drawn in the spinner states.
     pub shadow: &'static [Shadow],
     /// The processing spinner; downloading always uses [`DOWNLOAD`].
     pub spinner: Rgba,
@@ -122,7 +117,6 @@ const DAWN_INK: (u8, u8, u8) = (37, 22, 20);
 const AMBER: Rgba = rgb(245, 158, 11);
 /// The downloading spinner, the same in every theme.
 pub const DOWNLOAD: Rgba = AMBER;
-/// The percentage inside the downloading spinner.
 pub const DOWNLOAD_PCT: Rgba = rgba(251, 191, 36, 0.95);
 
 const STEEL: PillThemeDef = PillThemeDef {
@@ -306,9 +300,7 @@ impl PillThemeDef {
     }
 }
 
-/// Blend two colours the way a browser eases between them: with the colour
-/// channels weighted by alpha, so fading to transparent does not drag through
-/// black.
+/// Blend with alpha-weighted channels, so fading to transparent avoids black.
 pub fn mix(from: Rgba, to: Rgba, t: f32) -> Rgba {
     let lerp = |a: f32, b: f32| a + (b - a) * t;
     let alpha = lerp(from.a, to.a);
@@ -334,7 +326,6 @@ impl Look {
     }
 }
 
-/// `colour` at `factor` of its alpha.
 pub fn faded(color: Rgba, factor: f32) -> Rgba {
     Rgba {
         a: color.a * factor,
@@ -342,7 +333,6 @@ pub fn faded(color: Rgba, factor: f32) -> Rgba {
     }
 }
 
-/// The theme's shadow layers at `amount` of their strength, 0 to 1.
 pub fn shadows(theme: &PillThemeDef, amount: f32) -> Vec<BoxShadow> {
     if amount <= 0.001 {
         return Vec::new();

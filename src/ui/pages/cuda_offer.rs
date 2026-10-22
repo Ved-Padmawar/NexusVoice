@@ -1,15 +1,13 @@
-//! Offers the CUDA pack once the first-run picker has closed, on NVIDIA GPUs
-//! only. The dialog follows the download through to its restart.
+//! The one-time CUDA pack offer for NVIDIA GPUs, after the first-run picker.
 
 use gpui_kit::{div, prelude::*, px, AnyElement, App, Context, FontWeight, Window};
 
 use crate::api;
 use crate::inference::cuda::PackState;
-use crate::ui::components::{icon, modal};
-use crate::ui::icons::AppIcon;
-use crate::ui::pages::models::{
-    button, icon_button, progress_bar, Button, ButtonKind, ButtonSize, Tone,
+use crate::ui::components::{
+    button, icon, icon_button, modal, progress_bar, Button, ButtonKind, ButtonSize, Tone,
 };
+use crate::ui::icons::AppIcon;
 use crate::ui::runtime::SpawnApi as _;
 use crate::ui::store::Store;
 use crate::ui::theme::{Palette, R_LG, R_SM};
@@ -67,7 +65,6 @@ fn text(body: String, p: &Palette) -> impl IntoElement {
         .child(body)
 }
 
-/// Two buttons of equal width.
 fn actions(left: impl IntoElement, right: impl IntoElement) -> impl IntoElement {
     div()
         .flex()
@@ -195,7 +192,7 @@ fn offer(gpu: &str, p: &Palette) -> AnyElement {
 }
 
 impl Render for CudaOffer {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = *Palette::global(cx);
         let store = Store::entity(cx).read(cx);
         let progress = store.cuda.and_then(|c| c.download_progress);
@@ -217,6 +214,7 @@ impl Render for CudaOffer {
                 .child(body)
                 .when(progress.is_none(), |el| el.child(close_button(cx))),
             None,
+            window,
             cx,
         )
     }

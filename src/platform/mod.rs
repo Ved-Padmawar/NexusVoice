@@ -1,7 +1,6 @@
-//! Operating-system services the app needs outside its own windows: where its
-//! files live, logging, the clipboard, a single running instance, the tray,
-//! global hotkeys and self-update.
+//! Operating-system services outside the app's windows.
 
+#[cfg(not(target_os = "windows"))] // Windows pastes through its own clipboard code
 pub mod clipboard;
 pub mod hotkeys;
 pub mod logging;

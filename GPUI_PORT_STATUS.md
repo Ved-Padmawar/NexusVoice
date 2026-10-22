@@ -20,29 +20,11 @@ app is one native Rust process using GPUI Kit 0.8 with Phosphor icons.
   `cargo test` 470 tests passing (even) as of commit 568ad0c.
 
 ## Remaining
-1. **Widget consolidation** (was in progress when work stopped): merge the
-   duplicated button implementations (`pages/dashboard/button.rs` vs
-   `pages/models/widgets.rs` vs `edge_button` in `settings/voice/card.rs`),
-   move `pill`/`icon_button`/`progress_bar`/`Tone` and the General tab's
-   `switch`/`section_heading` into `src/ui/components/`, share one popover panel
-   style between `dashboard/toolbar.rs` and the Dropdown, unify `over_window`
-   (General) with `components::modal`. Keep output pixel-identical and keep the
-   test count even. If this commit contains partial edits from that pass,
-   run `cargo clippy` / `cargo test` first and fix or revert those files.
-2. **Pill re-raise on Windows**: add `pill::raise(cx)` and call it from the
-   shell when the main window is activated (old app re-promoted the pill
-   immediately; now only a 2 s topmost loop runs).
-3. **Windows compile check**: `cfg(windows)` code (pill `native.rs`, tray,
-   updater, `winresource` icon in `build.rs`) has not been compiled for
-   Windows. Run CI or `cargo check --target x86_64-pc-windows-msvc` on Windows.
-4. **Visual QA vs the old app**: each page was checked by screenshot against
-   the legacy CSS by eye, not pixel-diffed. Known small deviations are listed
-   in the agents' notes: no letter-spacing (GPUI lacks it), no `title=`
-   tooltips in the pill, some framer-motion exit animations skipped, kit
-   DatePicker is 32px instead of 28px.
-5. **Verify the Voice tab catalog** renders model cards in a normal run (one
-   agent saw an empty catalog while testing with a private data dir).
-6. **MSI upgrade code** differs from the Tauri one (cargo-packager derives it),
-   so an old Tauri `.msi` install won't upgrade in place; the NSIS installer
-   and the self-updater are unaffected.
-7. Delete `GPUI_PORT_STATUS.md` once the above is done.
+1. **Visual QA vs the old app**: pages were compared by eye, not pixel-diffed.
+   Known deviations: no letter-spacing (GPUI lacks it), no `title=` tooltips in
+   the pill, some exit animations skipped, kit DatePicker is 32px not 28px.
+2. **MSI upgrade code** differs from the Tauri one (cargo-packager has no
+   option for it; it would need a custom WiX template), so an old Tauri `.msi`
+   install won't upgrade in place. NSIS and the self-updater are unaffected.
+3. Linux/macOS `cfg` code was not compiled in the last pass (done on Windows).
+4. Delete `GPUI_PORT_STATUS.md` once the above is done.

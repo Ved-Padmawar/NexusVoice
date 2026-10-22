@@ -1,7 +1,5 @@
-//! The system clipboard, for pasting transcripts.
-//!
-//! One handle lives for the whole run: on X11 and Wayland the clipboard is
-//! served by the process that set it, so dropping the handle would empty it.
+//! The system clipboard. One handle lives for the whole run: on X11 and Wayland
+//! dropping it would empty the clipboard.
 
 use std::sync::{Mutex, OnceLock};
 

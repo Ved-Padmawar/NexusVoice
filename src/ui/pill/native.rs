@@ -1,16 +1,9 @@
-//! What GPUI cannot do for the pill: place its window.
-//!
-//! GPUI can resize a window but not move one, and the pill must sit where the
-//! user dragged it, grow upward from there, and never take focus from the app
-//! being dictated into. So this talks to the window system directly, by the
-//! window's raw handle: X11 via `x11rb`, Windows via Win32. Wayland offers
-//! clients no positioning at all; there the pill only resizes and the
-//! compositor drags it.
+//! Places the pill's window through the window system (X11, Win32), which
+//! GPUI cannot do. Wayland allows no positioning, so there it only resizes.
 
 use gpui_kit::{point, px, Bounds, Pixels, Point, Size, Window};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-/// Where the pointer is, and whether the primary button is down.
 #[derive(Debug, Clone, Copy)]
 pub struct Pointer {
     /// Screen position in device pixels.
@@ -19,14 +12,12 @@ pub struct Pointer {
     pub pressed: bool,
 }
 
-/// A drag in progress: the window follows the pointer's travel since it began.
 #[derive(Debug, Clone, Copy)]
 pub struct Drag {
     from: Pointer,
     origin: Point<Pixels>,
 }
 
-/// A frame as whole device pixels: x, y, width, height.
 #[cfg(any(target_os = "linux", windows))]
 #[allow(clippy::cast_possible_truncation)] // screen coordinates are nowhere near i32's range
 fn device_frame(frame: Bounds<Pixels>, scale: f32) -> (i32, i32, i32, i32) {
@@ -50,15 +41,12 @@ enum Backend {
 
 pub struct NativeWindow {
     backend: Backend,
-    /// The frame last asked for. The window system reports it back late, and
-    /// GPUI does not track a window moved behind its back, so this is the
-    /// only source of the window's position.
+    /// The frame last asked for: GPUI does not track a window moved behind its back.
     frame: Bounds<Pixels>,
     scale: f32,
 }
 
 impl NativeWindow {
-    /// Take the window as GPUI opened it, keeping it out of the focus order.
     pub fn new(window: &Window) -> Self {
         let backend = match HasWindowHandle::window_handle(window).map(|handle| handle.as_raw()) {
             #[cfg(target_os = "linux")]
@@ -98,8 +86,7 @@ impl NativeWindow {
         }
     }
 
-    /// Resize to `new_size`, holding the bottom-centre still so a card grows
-    /// upward from the capsule it came from.
+    /// Resize around the bottom-centre, so a card grows upward from the capsule.
     pub fn resize(&mut self, window: &mut Window, new_size: Size<Pixels>) {
         let current = self.frame;
         let anchor = point(
@@ -136,14 +123,13 @@ impl NativeWindow {
             #[cfg(target_os = "linux")]
             Backend::X11(connection) => connection.pointer(),
             #[cfg(windows)]
-            Backend::Win32(handle) => handle.pointer(),
+            Backend::Win32(_) => win32::Handle::pointer(),
             Backend::Fixed => None,
         }
     }
 
-    /// Put the window back above its peers. Windows demotes topmost windows
-    /// when a fullscreen app appears; an X11 pop-up is unmanaged, so nothing
-    /// restacks it but a window raised after it.
+    /// Re-raise: Windows demotes topmost windows under fullscreen apps, and an
+    /// unmanaged X11 pop-up is only restacked by raising it.
     pub fn keep_on_top(&self) {
         match &self.backend {
             #[cfg(target_os = "linux")]
@@ -164,8 +150,7 @@ mod x11 {
 
     use super::Pointer;
 
-    /// A connection of the pill's own: the window id is global, and requests
-    /// on it do not disturb GPUI's.
+    /// Its own connection, so requests on it don't disturb GPUI's.
     pub struct Connection {
         conn: RustConnection,
         window: u32,
@@ -218,29 +203,71 @@ mod win32 {
     use gpui_kit::{Bounds, Pixels};
     use raw_window_handle::Win32WindowHandle;
     use windows::Win32::Foundation::{HWND, POINT};
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMNCRP_DISABLED, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE,
+        DWMWA_NCRENDERING_POLICY, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+        DWMWINDOWATTRIBUTE,
+    };
     use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE,
-        HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, WS_EX_NOACTIVATE,
-        WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+        GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE,
+        HWND_TOPMOST, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+        SWP_SHOWWINDOW, WS_CAPTION, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+        WS_SYSMENU, WS_THICKFRAME,
     };
 
     use super::Pointer;
 
     pub struct Handle(HWND);
 
+    /// Set a DWM attribute; a failure (pre-Windows 11) leaves the default.
+    fn set_dwm<T>(hwnd: HWND, attribute: DWMWINDOWATTRIBUTE, value: &T) {
+        // SAFETY: `value` is a live `T` and the size passed is its own.
+        let _ = unsafe {
+            DwmSetWindowAttribute(
+                hwnd,
+                attribute,
+                std::ptr::from_ref(value).cast(),
+                u32::try_from(size_of::<T>()).unwrap_or(0),
+            )
+        };
+    }
+
     impl Handle {
-        /// NOACTIVATE keeps clicks on the pill from stealing focus from the
-        /// app being dictated into; TOOLWINDOW keeps it out of the taskbar and
-        /// Alt+Tab.
+        /// NOACTIVATE: clicks don't steal focus. TOOLWINDOW: no taskbar or Alt+Tab.
+        /// Frame stripped, as Windows 11 draws a border and shadow round GPUI pop-ups.
         pub fn new(handle: Win32WindowHandle) -> Self {
             let hwnd = HWND(handle.hwnd.get() as *mut c_void);
             // SAFETY: `hwnd` is the live window GPUI just created.
             unsafe {
                 let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-                let wanted = (WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0 | WS_EX_TOPMOST.0) as isize;
+                // Sign-extended, as Windows widens a LONG style to LONG_PTR.
+                let wanted = (WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0 | WS_EX_TOPMOST.0)
+                    .cast_signed() as isize;
                 SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | wanted);
+                let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+                let frame = (WS_CAPTION.0 | WS_THICKFRAME.0 | WS_SYSMENU.0).cast_signed() as isize;
+                SetWindowLongPtrW(
+                    hwnd,
+                    GWL_STYLE,
+                    (style & !frame) | WS_POPUP.0.cast_signed() as isize,
+                );
             }
+            set_dwm(hwnd, DWMWA_NCRENDERING_POLICY, &DWMNCRP_DISABLED);
+            set_dwm(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &DWMWCP_DONOTROUND);
+            set_dwm(hwnd, DWMWA_BORDER_COLOR, &DWMWA_COLOR_NONE);
+            // SAFETY: as above; FRAMECHANGED makes the new styles take effect.
+            let _ = unsafe {
+                SetWindowPos(
+                    hwnd,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+            };
             Self(hwnd)
         }
 
@@ -264,8 +291,7 @@ mod win32 {
         }
 
         pub fn raise(&self) {
-            // SAFETY: as above. Toggling topmost is what re-promotes a window
-            // that already has the flag.
+            // SAFETY: as above. Re-setting topmost re-promotes the window.
             let raised = unsafe {
                 SetWindowPos(
                     self.0,
@@ -282,10 +308,10 @@ mod win32 {
             }
         }
 
-        pub fn pointer(&self) -> Option<Pointer> {
+        pub fn pointer() -> Option<Pointer> {
             let mut at = POINT::default();
             // SAFETY: `at` is a valid out-pointer for the call.
-            unsafe { GetCursorPos(&mut at) }.ok()?;
+            unsafe { GetCursorPos(&raw mut at) }.ok()?;
             // SAFETY: a plain query of the key state.
             let pressed = unsafe { GetAsyncKeyState(i32::from(VK_LBUTTON.0)) } < 0;
             #[allow(clippy::cast_precision_loss)]

@@ -1,12 +1,6 @@
-//! What the model screens share: the catalog's display order, size labels,
-//! the filters on the Voice tab, and the small widgets drawn the same way in
-//! the Voice tab, the first-run picker and About.
-
-mod widgets;
+//! What the model screens share: display order, size labels and filters.
 
 use crate::api::CatalogModel;
-
-pub use widgets::{button, icon_button, pill, progress_bar, Button, ButtonKind, ButtonSize, Tone};
 
 /// Family display order. Unlisted families sort after these, alphabetically.
 const FAMILY_ORDER: [&str; 6] = [
@@ -18,7 +12,6 @@ const FAMILY_ORDER: [&str; 6] = [
     "moonshine",
 ];
 
-/// Group the catalog by family, smallest model first within each.
 pub fn sort_for_display(catalog: &[CatalogModel]) -> Vec<&CatalogModel> {
     let rank = |family: &str| {
         FAMILY_ORDER
@@ -37,13 +30,11 @@ pub fn sort_for_display(catalog: &[CatalogModel]) -> Vec<&CatalogModel> {
     sorted
 }
 
-/// Whether a model can be driven by its own streaming session.
 pub fn is_streaming(model: &CatalogModel) -> bool {
     model.pipelines.iter().any(|p| p == "streaming")
 }
 
-/// Resolve a backend display name (from the hardware profile) to a catalog
-/// id. Falls back to the first catalog entry when nothing matches.
+/// Resolve a backend display name to a catalog id, else the first entry.
 pub fn model_name_to_id<'a>(name: &str, catalog: &'a [CatalogModel]) -> Option<&'a str> {
     let name = name.to_lowercase();
     catalog
@@ -53,8 +44,7 @@ pub fn model_name_to_id<'a>(name: &str, catalog: &'a [CatalogModel]) -> Option<&
         .map(|m| m.id.as_str())
 }
 
-/// `bytes / unit` to `decimals` places, rounded half up. Integer arithmetic,
-/// so no float casts and no drift at the half.
+/// `bytes / unit` to `decimals` places, rounded half up in integers.
 fn fixed(bytes: u64, unit: u64, decimals: u32) -> String {
     let scale = 10u128.pow(decimals);
     let scaled = (u128::from(bytes) * scale + u128::from(unit) / 2) / u128::from(unit);
@@ -74,7 +64,7 @@ const MB: u64 = 1_000_000;
 const GIB: u64 = 1 << 30;
 const MIB: u64 = 1 << 20;
 
-/// Download size as the catalog shows it, e.g. "886 MB" or "1.7 GB".
+/// e.g. "886 MB" or "1.7 GB".
 pub fn format_model_size(bytes: u64) -> String {
     if bytes >= GB {
         format!("{} GB", fixed(bytes, GB, 1))
@@ -83,12 +73,10 @@ pub fn format_model_size(bytes: u64) -> String {
     }
 }
 
-/// Total on-disk size in the Voice tab's status line: decimal GB, two places.
 pub fn format_disk_total(bytes: u64) -> String {
     format!("{} GB", fixed(bytes, GB, 2))
 }
 
-/// A file's size in the Model Manager: binary units, two places for GB.
 pub fn format_manager_size(bytes: u64) -> String {
     if bytes == 0 {
         "0 B".into()
@@ -99,7 +87,6 @@ pub fn format_manager_size(bytes: u64) -> String {
     }
 }
 
-/// Total model size on About: binary units, one place for GB.
 pub fn format_about_size(bytes: u64) -> String {
     if bytes >= GIB {
         format!("{} GB", fixed(bytes, GIB, 1))
@@ -110,8 +97,7 @@ pub fn format_about_size(bytes: u64) -> String {
     }
 }
 
-/// How heavy a download is, quantised: a proportional bar made small models
-/// invisible slivers.
+/// Quantised download weight; a proportional bar made small models invisible.
 pub fn weight_tier(bytes: u64) -> usize {
     match bytes {
         1_000_000_000.. => 3,
@@ -123,7 +109,6 @@ pub fn weight_tier(bytes: u64) -> usize {
 
 pub const TIER_LABELS: [&str; 4] = ["Light", "Medium", "Heavy", "Max"];
 
-/// The Voice tab's narrowing of the grid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelFilter {
     All,
@@ -154,7 +139,6 @@ impl ModelFilter {
     }
 }
 
-/// Whether the search text appears in a model's name or description.
 pub fn matches_query(model: &CatalogModel, query: &str) -> bool {
     let query = query.trim().to_lowercase();
     query.is_empty()

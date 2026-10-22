@@ -1,5 +1,4 @@
-//! The frameless window's title strip: a drag region across the top with
-//! minimize, maximize and close at the right, laid over the content.
+//! The frameless window's title strip: drag region plus window buttons.
 
 use gpui_kit::{
     canvas, div, point, prelude::*, px, rgb, App, Bounds, Hsla, IntoElement, MouseButton,
@@ -37,7 +36,6 @@ impl Control {
         }
     }
 
-    /// The glyph, drawn as the original 10px vector marks.
     fn paint(self, bounds: Bounds<Pixels>, color: Hsla, window: &mut Window) {
         let c = bounds.center();
         let at = |x: f32, y: f32| point(c.x + px(x), c.y + px(y));

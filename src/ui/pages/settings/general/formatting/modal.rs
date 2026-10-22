@@ -1,21 +1,21 @@
-//! The provider modal: pick a provider, fill in its endpoint, test it, save.
+//! The provider modal: pick a provider, set its endpoint, test, save.
 
 use std::time::Duration;
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::{notification::Notification, Icon, WindowExt as _};
 use gpui_kit::{
-    div, prelude::*, px, App, ClickEvent, Context, Div, ElementId, Entity, EventEmitter,
-    FocusHandle, FontWeight, KeyDownEvent, SharedString, Stateful, Subscription, Window,
+    div, prelude::*, px, AbsoluteLength, App, ClickEvent, Context, Div, ElementId, Entity,
+    EventEmitter, FocusHandle, FontWeight, KeyDownEvent, Pixels, SharedString, Stateful,
+    Subscription, Window,
 };
 
-use super::super::widgets::{border_width, spinning_icon};
 use super::presets::{
     draft, is_configured, preset, profile_for_switch, shows_base_url, Preset, PRESETS,
 };
 use crate::api;
 use crate::llm::config::{FormatConfig, Profile};
-use crate::ui::components::{icon, modal, text_input};
+use crate::ui::components::{icon, modal, spinning_icon, text_input};
 use crate::ui::icons::AppIcon;
 use crate::ui::runtime::SpawnApi as _;
 use crate::ui::theme::{alpha, Palette, R_LG, R_MD};
@@ -25,9 +25,7 @@ use crate::ui::vendors::{vendor_mark, Vendor};
 const RESULT_FLASH: Duration = Duration::from_secs(4);
 
 pub enum ProviderModalEvent {
-    /// Saved and enabled; carries the stored config.
     Saved(FormatConfig),
-    /// Closed without saving.
     Closed,
 }
 
@@ -184,8 +182,7 @@ impl ProviderModal {
         cx.notify();
     }
 
-    /// Show a result briefly, then return the button to its ready state:
-    /// leaving it on a past result would mislead.
+    /// Show a result briefly, then reset the button so it never shows a stale one.
     fn flash_result(&mut self, result: TestResult, cx: &mut Context<Self>) {
         self.test_result = result;
         self.flash += 1;
@@ -202,7 +199,7 @@ impl ProviderModal {
         .detach();
     }
 
-    /// Saving also enables formatting: the user set up an endpoint to use it.
+    /// Saving also enables formatting.
     fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.can_submit(cx) || self.saving {
             return;
@@ -461,7 +458,6 @@ impl ProviderModal {
     }
 }
 
-/// The footer buttons' shared frame; the caller adds the colours.
 fn footer_button(id: &'static str, disabled: bool) -> Stateful<Div> {
     div()
         .id(ElementId::Name(id.into()))
@@ -506,7 +502,7 @@ fn fill(
 }
 
 impl Render for ProviderModal {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = *Palette::global(cx);
         let content = div()
             .id("provider-modal")
@@ -530,7 +526,19 @@ impl Render for ProviderModal {
             Some(Box::new(move |_, cx| {
                 this.update(cx, |_, cx| cx.emit(ProviderModalEvent::Closed));
             })),
+            window,
             cx,
         )
     }
+}
+
+/// A border `width` wide on every side; the stock helpers take whole pixels.
+pub fn border_width<E: Styled>(mut el: E, width: Pixels) -> E {
+    let width = Some(AbsoluteLength::Pixels(width));
+    let edges = &mut el.style().border_widths;
+    edges.top = width;
+    edges.right = width;
+    edges.bottom = width;
+    edges.left = width;
+    el
 }

@@ -9,8 +9,7 @@ const SHOW: &str = "show";
 const QUIT: &str = "quit";
 
 fn build() -> Result<TrayIcon, String> {
-    // A crisp 256px source: Windows downscales it cleanly, where the small
-    // default icon layer gets upscaled and looks blurry.
+    // A 256px source downscales cleanly; the small default layer looks blurry.
     let image = image::load_from_memory(include_bytes!("../../packaging/icons/tray.png"))
         .map_err(|e| e.to_string())?
         .into_rgba8();
@@ -49,8 +48,7 @@ fn build() -> Result<TrayIcon, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Linux trays are GTK widgets, so the icon gets its own thread running a GTK
-/// main loop.
+/// Linux trays are GTK widgets, so the icon gets a GTK main loop thread.
 #[cfg(target_os = "linux")]
 pub fn install() {
     let spawned = std::thread::Builder::new().name("tray".into()).spawn(|| {
@@ -68,8 +66,7 @@ pub fn install() {
     }
 }
 
-/// Windows delivers tray messages to the thread that created the icon, so it
-/// is built on the UI thread, whose message loop serves it, and lives as long.
+/// Built on the UI thread, which receives its messages on Windows.
 #[cfg(not(target_os = "linux"))]
 pub fn install() {
     thread_local! {

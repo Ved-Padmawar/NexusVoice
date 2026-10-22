@@ -1,6 +1,4 @@
-//! One running instance. A second launch hands its arguments to the first over
-//! a local socket and exits: a dictation flag (the Wayland path, where the
-//! desktop owns the shortcut) is acted on, anything else reopens the window.
+//! One running instance: a second launch forwards its arguments and exits.
 
 use std::io::{BufRead, BufReader, Write};
 
@@ -12,8 +10,7 @@ fn socket_name() -> std::io::Result<Name<'static>> {
     format!("{}.sock", super::paths::IDENTIFIER).to_ns_name::<GenericNamespaced>()
 }
 
-/// Claim the instance lock, or forward `args` to the instance holding it.
-/// Returns `false` when another instance is running and this one should exit.
+/// Returns `false` when another instance holds the lock and this one should exit.
 pub fn acquire(args: &[String]) -> bool {
     let Ok(name) = socket_name() else {
         return true;

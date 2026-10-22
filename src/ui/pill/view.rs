@@ -1,8 +1,5 @@
-//! The pill: a pure view of the controller's [`PillState`].
-//!
-//! Frames are requested only while something moves: a geometry or colour
-//! tween, the spinner, a drag. The waveform and the transcript are entities of
-//! their own, so a 30 Hz level update or a new partial repaints just that one.
+//! The pill: a pure view of the controller's [`PillState`]. Frames are
+//! requested only while something moves.
 
 use std::time::{Duration, Instant};
 
@@ -45,7 +42,6 @@ const CHECK_ICON: &str = "icons/pill/check.svg";
 const MIC_ICON: &str = "icons/pill/mic.svg";
 const SPINNER_ICON: &str = "icons/pill/spinner.svg";
 
-/// Every tween the pill owns, sampled once per render.
 struct Motion {
     width: Tween,
     height: Tween,
@@ -107,7 +103,6 @@ impl Motion {
         self.tweens().iter().any(|tween| tween.is_active(now))
     }
 
-    /// The card's shape is still travelling.
     fn is_morphing(&self, now: Instant) -> bool {
         [&self.width, &self.height, &self.radius]
             .iter()
@@ -140,7 +135,6 @@ pub struct PillView {
     opening: bool,
     /// The window has room above the capsule for the notice.
     headroom: bool,
-    /// Whether the card was open at the last reconcile.
     was_expanded: bool,
     was_returning: bool,
     drag: Option<Drag>,
@@ -221,6 +215,10 @@ impl PillView {
         self.wants_card() && self.roomy
     }
 
+    pub fn keep_on_top(&self) {
+        self.native.keep_on_top();
+    }
+
     pub fn handle(&mut self, event: Event, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             Event::Pill(state) => self.set_state(state, window, cx),
@@ -249,8 +247,7 @@ impl PillView {
         if self.capturing() && !was_capturing {
             self.waveform.update(cx, Waveform::reset);
         }
-        // Leaving the capture states drops the partial; the card's exit still
-        // shows the last text, which the transcript keeps.
+        // Leaving capture drops the partial; the transcript keeps it for the exit.
         if !self.capturing() {
             self.has_partial = false;
         }
@@ -342,8 +339,7 @@ impl PillView {
         );
     }
 
-    /// Bring the window, the layout and every tween in line with what the
-    /// pill now wants. Safe to call again at any time.
+    /// Bring window, layout and tweens in line with the state. Idempotent.
     fn reconcile(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let now = Instant::now();
         let wants_card = self.wants_card();
@@ -355,8 +351,7 @@ impl PillView {
         if wants_card && !self.roomy && !self.opening {
             self.resize_window(window, true);
             self.opening = true;
-            // Two frames, so the bigger window has painted before the card
-            // grows into it.
+            // Two frames, so the bigger window has painted before the card grows.
             let this = cx.entity();
             window.on_next_frame(move |window, _| {
                 window.on_next_frame(move |window, cx| {
@@ -439,9 +434,8 @@ impl PillView {
         m.wave_opacity
             .retarget(if paused { PAUSED_WAVE } else { 1.0 }, now, fade(0.12));
 
-        // On a direct card to idle result the capsule's contents appear only
-        // once the shell is nearly compact; at full opacity in the wide card
-        // the label would visibly sweep inward.
+        // Card to idle: fade the capsule's contents in only once the shell is nearly
+        // compact, or the label visibly sweeps inward.
         if returning && !self.was_returning {
             m.strip_opacity.snap(0.0, now);
             m.strip_opacity.retarget(
@@ -460,8 +454,7 @@ impl PillView {
             .update(cx, |transcript, cx| transcript.set_caret(caret, cx));
     }
 
-    /// Everything that advances with the clock, once per frame: the collapse
-    /// finishing, the drag, the children that draw a fade, the next frame.
+    /// Per-frame clock work: the collapse, the drag, fades, the next frame.
     fn tick(&mut self, now: Instant, window: &mut Window, cx: &mut Context<Self>) {
         if self.roomy && !self.wants_card() && !self.motion.is_morphing(now) {
             self.roomy = false;
@@ -527,9 +520,7 @@ impl PillView {
             .child(text)
     }
 
-    /// The waveform's slot: fills what the row leaves in the capsule, a fixed
-    /// 54px in the card. Canvas styles draw into a box of their own width,
-    /// centred even where it overflows the slot; `bars` fills it.
+    /// The waveform's slot: what the capsule's row leaves, or 54px in the card.
     fn wave_slot(&self, dictation: bool) -> impl IntoElement {
         let canvas_style = self.waveform_style != WaveformStyle::Bars;
         let canvas_w = if self.roomy {
@@ -604,9 +595,7 @@ impl PillView {
             )
     }
 
-    /// Pause/resume, waveform and commit. In the card they sit in a 22/1fr/22
-    /// row with the waveform hugging the pause button; in the capsule they
-    /// fill it edge to edge.
+    /// Pause/resume, waveform and commit.
     fn dictation(&self, theme: &PillThemeDef, now: Instant, cx: &mut Context<Self>) -> AnyElement {
         let (icon, icon_size) = if self.paused() {
             (PLAY_ICON, 11.0)
@@ -652,8 +641,6 @@ impl PillView {
 }
 
 impl PillView {
-    /// The icon, brand label, waveform or error label: whatever the state
-    /// puts in the capsule's row or the card's strip.
     fn strip_items(&self, theme: &PillThemeDef) -> Vec<AnyElement> {
         let mic = Self::icon(MIC_ICON, 11.0, theme.accent).into_any_element();
         match self.state {
@@ -691,8 +678,7 @@ impl PillView {
         }
     }
 
-    /// The card's strip: the capsule's row at the capsule's size while the
-    /// card closes, the roomier one while it is open.
+    /// The card's strip: capsule-sized while the card closes, roomier while open.
     fn strip(closing: bool, opacity: f32) -> gpui_kit::Div {
         let (height, left, right, bottom) = if closing {
             (32.0, 8.0, 10.0, 0.0)
@@ -742,9 +728,7 @@ impl PillView {
         }
     }
 
-    /// The transcript's top edge fading into the pill's own colour, the way
-    /// the old mask faded the text. It rounds its corners with the pill, which
-    /// clips only to a rectangle.
+    /// The transcript's top edge fading into the pill's colour.
     fn transcript_fade(
         &self,
         theme: &PillThemeDef,
@@ -771,9 +755,8 @@ impl PillView {
             tint,
         );
         let clear = Rgba { a: 0.0, ..surface };
-        // A corner's radius is capped at half the box's height, so the box
-        // must be tall enough to hold the pill's own; the gradient ends at
-        // `FADE_H` regardless.
+        // A corner radius is capped at half the box height, so the box must be tall
+        // enough for the pill's radius.
         let corner = (radius - 1.0).max(0.0);
         let height = (corner * 2.0).max(FADE_H);
         div()
@@ -841,8 +824,7 @@ impl PillView {
         )
     }
 
-    /// The notice bubble: above the capsule, or inside the card's top edge
-    /// where the card fills the window.
+    /// The notice bubble: above the capsule, or inside the card's top edge.
     fn notice(&self, text: &SharedString) -> impl IntoElement {
         let bubble = div()
             .max_w(px(300.0))

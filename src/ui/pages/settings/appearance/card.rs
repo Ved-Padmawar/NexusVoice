@@ -1,5 +1,4 @@
-//! The pieces the three Appearance cards share: the card with its preview and
-//! caption, the choice buttons and the pill-shaped previews.
+//! Pieces the three Appearance cards share.
 
 use gpui_kit::{
     div, prelude::*, px, rgb, svg, AnyElement, ElementId, FontWeight, Hsla, StyleRefinement, Window,
@@ -13,7 +12,6 @@ use gpui_kit::{App, Div, Rgba, Stateful};
 
 const MIC_ICON: &str = "icons/pill/mic.svg";
 
-/// A card: the preview and its caption on the left, the choices on the right.
 pub fn section_card(
     preview: impl IntoElement,
     name: &'static str,
@@ -69,7 +67,6 @@ pub fn section_card(
         )
 }
 
-/// The raised frame round a preview.
 pub fn preview_frame(p: &Palette) -> Div {
     div()
         .overflow_hidden()
@@ -79,7 +76,7 @@ pub fn preview_frame(p: &Palette) -> Div {
         .shadow(p.shadow_sm())
 }
 
-/// The line above a group of choices; `text` is given in capitals.
+/// `text` is given in capitals.
 pub fn group_label(name: AppIcon, text: &'static str, p: &Palette) -> impl IntoElement {
     div()
         .flex()
@@ -92,13 +89,11 @@ pub fn group_label(name: AppIcon, text: &'static str, p: &Palette) -> impl IntoE
         .child(text)
 }
 
-/// Two columns of choices.
 pub fn choice_grid() -> Div {
     div().grid().grid_cols(2).gap(px(6.))
 }
 
-/// One choice: the `lead` swatch, a title (with an optional hint under it)
-/// and a check when it is the active one.
+/// One choice: swatch, title, optional hint, and a check when active.
 pub struct Choice {
     pub id: ElementId,
     pub active: bool,
@@ -167,7 +162,6 @@ impl Choice {
     }
 }
 
-/// A row of colour cells, `cell_w` wide each, in a bordered strip.
 pub fn strip(colors: impl IntoIterator<Item = Hsla>, cell_w: f32, p: &Palette) -> AnyElement {
     div()
         .flex()
@@ -184,13 +178,11 @@ pub fn strip(colors: impl IntoIterator<Item = Hsla>, cell_w: f32, p: &Palette) -
         .into_any_element()
 }
 
-/// `color` laid over `ground`, as a translucent value shows on the pill.
 pub fn over(color: Rgba, ground: Rgba) -> Hsla {
     mix(Hsla::from(Rgba { a: 1., ..color }), ground.into(), color.a)
 }
 
-/// The backdrop a pill preview sits on: the pill's own ground mixed down, so
-/// it has something to stand off from.
+/// The backdrop a pill preview sits on: the pill's ground mixed down.
 pub fn stage(def: &PillThemeDef, p: &Palette, pill: impl IntoElement) -> Div {
     let ground = if def.bg == rgb(0xff_ff_ff) {
         rgb(0xe8_ea_f0).into()
@@ -211,7 +203,6 @@ pub fn stage(def: &PillThemeDef, p: &Palette, pill: impl IntoElement) -> Div {
         .child(pill)
 }
 
-/// The pill's mic at `size`, in the theme's accent.
 pub fn mic(def: &PillThemeDef, size: f32) -> impl IntoElement {
     svg()
         .path(MIC_ICON)
@@ -220,7 +211,6 @@ pub fn mic(def: &PillThemeDef, size: f32) -> impl IntoElement {
         .text_color(def.accent)
 }
 
-/// A pill capsule of `height` carrying `contents`, in the theme's own colours.
 pub fn capsule(def: &PillThemeDef, height: f32) -> Div {
     div()
         .flex()
