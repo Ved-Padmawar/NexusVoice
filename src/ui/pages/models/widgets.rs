@@ -1,12 +1,14 @@
 //! Controls the model screens draw alike: buttons, pills, the progress bar
 //! and the status tones.
 
+use std::time::Duration;
+
 use gpui_kit::{
     div, prelude::*, px, relative, App, ClickEvent, Div, ElementId, FontWeight, Hsla, Pixels,
     SharedString, Stateful, StyleRefinement, Window,
 };
 
-use crate::ui::components::icon;
+use crate::ui::components::{icon, spinner};
 use crate::ui::icons::AppIcon;
 use crate::ui::theme::{alpha, Palette, R_MD};
 
@@ -34,6 +36,8 @@ pub struct Button {
     size: ButtonSize,
     icon: Option<AppIcon>,
     disabled: bool,
+    /// Working: shows a spinner in place of the icon and ignores clicks.
+    busy: bool,
     on_click: Option<ClickHandler>,
     style: StyleRefinement,
 }
@@ -46,6 +50,7 @@ pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Butto
         size: ButtonSize::Default,
         icon: None,
         disabled: false,
+        busy: false,
         on_click: None,
         style: StyleRefinement::default(),
     }
@@ -73,6 +78,12 @@ impl Button {
     #[must_use]
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    #[must_use]
+    pub fn busy(mut self, busy: bool) -> Self {
+        self.busy = busy;
         self
     }
 
@@ -129,9 +140,20 @@ impl RenderOnce for Button {
                     .border_color(p.border)
                     .hover(|s| s.bg(p.danger_soft).border_color(p.danger).text_color(p.danger)),
             })
-            .when_some(self.icon, |el, name| el.child(icon(name, icon_px, text)))
+            .map(|el| match (self.busy, self.icon) {
+                (true, _) => el.child(spinner(
+                    "button-spinner",
+                    icon_px,
+                    2.,
+                    alpha(text, 0.3),
+                    text,
+                    Duration::from_millis(800),
+                )),
+                (false, Some(name)) => el.child(icon(name, icon_px, text)),
+                (false, None) => el,
+            })
             .child(self.label);
-        if self.disabled {
+        if self.disabled || self.busy {
             el = el.opacity(0.5).cursor_not_allowed();
         } else if let Some(handler) = self.on_click {
             el = el

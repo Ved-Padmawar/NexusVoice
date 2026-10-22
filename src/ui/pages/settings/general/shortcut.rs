@@ -56,6 +56,12 @@ impl Recording {
         }
     }
 
+    /// Whether a recorded modifier is no longer held: the user let go, which
+    /// ends the recording.
+    pub fn modifier_released(&self, held: &Modifiers) -> bool {
+        self.modifiers.iter().any(|m| !m.is_held(held))
+    }
+
     /// Record a main key along with the modifiers held with it. Returns
     /// `false` for a key a hotkey cannot be bound to.
     pub fn press_key(&mut self, keystroke: &Keystroke) -> bool {

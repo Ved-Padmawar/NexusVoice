@@ -148,6 +148,16 @@ fn modifiers_alone_make_no_shortcut_but_stay_on_the_badges() {
 }
 
 #[test]
+fn letting_go_of_a_recorded_modifier_is_noticed() {
+    let mut recording = Recording::default();
+    recording.press_modifiers(&held("ctrl shift"));
+    assert!(!recording.modifier_released(&held("ctrl shift")));
+    assert!(!recording.modifier_released(&held("ctrl shift alt")));
+    assert!(recording.modifier_released(&held("ctrl")));
+    assert!(recording.modifier_released(&held("")));
+}
+
+#[test]
 fn pressing_a_second_main_key_replaces_the_first() {
     let mut recording = Recording::default();
     assert!(recording.press_key(&stroke("ctrl", "a")));

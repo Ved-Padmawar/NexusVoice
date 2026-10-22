@@ -141,5 +141,6 @@ impl Tween {
         self.from = to;
         self.to = to;
         self.start = now;
+        self.transition = Transition::INSTANT;
     }
 }

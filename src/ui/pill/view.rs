@@ -462,6 +462,7 @@ impl PillView {
         }
 
         let mut busy = self.motion.is_active(now);
+        if busy { eprintln!("TRACE active {:?}", self.motion.tweens().iter().map(|t| t.is_active(now)).collect::<Vec<_>>()); } // TEMP-HARNESS
         if let Some(drag) = self.drag {
             if self.native.drag(drag, window) {
                 busy = true;
@@ -883,6 +884,7 @@ impl PillView {
 impl Render for PillView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let now = Instant::now();
+        eprintln!("TRACE render {:?}", now); // TEMP-HARNESS
         self.tick(now, window, cx);
 
         let theme = self.def();

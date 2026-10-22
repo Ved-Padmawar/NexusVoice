@@ -3,7 +3,9 @@
 mod cuda_offer;
 mod dashboard;
 mod dictionary;
+mod model_manager;
 mod model_picker;
+mod models;
 mod settings;
 
 pub use cuda_offer::CudaOffer;
