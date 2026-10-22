@@ -440,6 +440,8 @@ pub struct Waveform {
     style: WaveformStyle,
     accent: Rgba,
     idle_motion: bool,
+    /// Frames come from the owner's clock, not from paint.
+    paced: bool,
     bars_gap: f32,
     bars_align: Align,
     opacity: f32,
@@ -454,12 +456,20 @@ impl Waveform {
             style,
             accent,
             idle_motion,
+            paced: false,
             bars_gap: 2.0,
             bars_align: Align::Center,
             opacity: 1.0,
             levels: [0.0; BANDS],
             last_frame: None,
         }
+    }
+
+    /// The owner calls [`Self::set_levels`] on its own clock, once per frame.
+    #[must_use]
+    pub const fn paced(mut self) -> Self {
+        self.paced = true;
+        self
     }
 
     /// The newest levels, 0 to 1 per band.
@@ -471,10 +481,11 @@ impl Waveform {
                 0.0
             }
         });
-        if levels
-            .iter()
-            .zip(&self.levels)
-            .any(|(a, b)| (a - b).abs() > f32::EPSILON)
+        if self.paced
+            || levels
+                .iter()
+                .zip(&self.levels)
+                .any(|(a, b)| (a - b).abs() > f32::EPSILON)
         {
             self.levels = levels;
             cx.notify();
@@ -569,11 +580,12 @@ impl Waveform {
 impl Render for Waveform {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this: Entity<Self> = cx.entity();
+        let paced = self.paced;
         canvas(
             |_, _, _| (),
             move |bounds, (), window, cx| {
                 let settled = this.update(cx, |waveform, _| waveform.paint(bounds, window));
-                if !settled {
+                if !settled && !paced {
                     window.request_animation_frame();
                 }
             },

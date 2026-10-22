@@ -89,9 +89,8 @@ fn tab_label(tab: SettingsTab) -> (&'static str, AppIcon) {
 
 fn tab_gap(tab: SettingsTab) -> f32 {
     match tab {
-        SettingsTab::General => 20.,
+        SettingsTab::General | SettingsTab::Appearance => 20.,
         SettingsTab::Voice | SettingsTab::About => 12.,
-        SettingsTab::Appearance => 24.,
     }
 }
 

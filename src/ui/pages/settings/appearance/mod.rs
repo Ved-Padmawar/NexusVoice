@@ -68,7 +68,7 @@ impl Render for AppearanceTab {
         div()
             .flex()
             .flex_col()
-            .gap(px(24.))
+            .gap(px(20.))
             .child(self.theme_height.render(self.theme.clone().into()))
             .child(self.pill_height.render(self.pill.clone().into()))
             .child(self.waveform.clone())

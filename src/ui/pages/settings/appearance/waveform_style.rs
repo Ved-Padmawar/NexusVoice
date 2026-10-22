@@ -1,9 +1,9 @@
 //! The waveform style: a pill preview and a swatch per style. The frame driver
 //! is a canvas in this view, so frames stop when the tab isn't rendered.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use gpui_kit::{canvas, div, prelude::*, px, Context, Entity, Subscription, Window};
+use gpui_kit::{canvas, div, prelude::*, px, Context, Entity, Subscription, Task, Window};
 
 use super::card::{capsule, choice_grid, full, group_label, mic, section_card, stage, Choice};
 use super::levels::SpeechLevels;
@@ -20,11 +20,15 @@ pub(super) const STYLES: [(WaveformStyle, &str, &str); 4] = [
     (WaveformStyle::Spectrum, "Spectrum", "analyser columns"),
 ];
 
+/// 30 Hz: every step re-renders the views above the previews.
+const FRAME: Duration = Duration::from_millis(33);
+
 pub struct WaveformSection {
     levels: SpeechLevels,
     last_frame: Option<Instant>,
     preview: Entity<Waveform>,
     swatches: [Entity<Waveform>; 4],
+    next_frame: Option<Task<()>>,
     _settings_changed: Subscription,
 }
 
@@ -34,12 +38,13 @@ impl WaveformSection {
         let accent = def(settings.pill_theme).accent;
         let style = settings.waveform_style;
         let waveform =
-            |cx: &mut Context<Self>, style| cx.new(|_| Waveform::new(style, accent, true));
+            |cx: &mut Context<Self>, style| cx.new(|_| Waveform::new(style, accent, true).paced());
         Self {
             levels: SpeechLevels::new(),
             last_frame: None,
             preview: waveform(cx, style),
             swatches: STYLES.map(|(style, ..)| waveform(cx, style)),
+            next_frame: None,
             _settings_changed: cx.observe_global::<UiSettings>(Self::settings_changed),
         }
     }
@@ -66,15 +71,28 @@ impl WaveformSection {
         }
     }
 
-    /// An empty canvas whose paint steps the levels and asks for the next frame.
+    /// Step the levels one frame from now, unless a step is already pending.
+    fn schedule(&mut self, cx: &mut Context<Self>) {
+        if self.next_frame.is_some() {
+            return;
+        }
+        // Timed from the last step, so render time does not stretch the period.
+        let wait = FRAME.saturating_sub(self.last_frame.map_or(FRAME, |last| last.elapsed()));
+        self.next_frame = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(wait).await;
+            let _ = this.update(cx, |this, cx| {
+                this.next_frame = None;
+                this.advance(cx);
+            });
+        }));
+    }
+
+    /// An empty canvas whose paint schedules the next step.
     fn driver(cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity();
         canvas(
             |_, _, _| (),
-            move |_, (), window, cx| {
-                this.update(cx, Self::advance);
-                window.request_animation_frame();
-            },
+            move |_, (), _, cx| this.update(cx, Self::schedule),
         )
         .absolute()
         .size_0()
