@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=NexusVoice
+Comment=Local, private voice dictation
+Exec=nexusvoice
+Icon=nexusvoice
+Categories=Utility;Accessibility;
+Terminal=false
+StartupWMClass=com.nexusvoice.app

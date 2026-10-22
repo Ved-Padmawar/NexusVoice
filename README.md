@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="src-tauri/icons/128x128.png" alt="NexusVoice logo" width="96" />
+<img src="packaging/icons/128x128.png" alt="NexusVoice logo" width="96" />
 
 # NexusVoice
 
@@ -10,11 +10,8 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 <br/>
 
-![Tauri](https://img.shields.io/badge/Tauri_2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust_1.97-CE422B?style=for-the-badge&logo=rust&logoColor=white)
-![React](https://img.shields.io/badge/React_19-61DAFB?style=for-the-badge&logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
-![Tailwind](https://img.shields.io/badge/Tailwind_v4-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white)
+![GPUI](https://img.shields.io/badge/GPUI_Kit-1F2937?style=for-the-badge&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
 ![Speech to Text](https://img.shields.io/badge/Speech_to_Text-412991?style=for-the-badge&logoColor=white)
 
@@ -127,18 +124,17 @@ Use a small **instruct** model (e.g. `qwen2.5-3b-instruct`) — not a reasoning/
 
 | Layer | Technology |
 |-------|-----------|
-| Desktop runtime | Tauri 2 |
-| Backend | Rust 1.97 |
+| Language | Rust 1.97 — one native process, no webview |
+| UI | GPUI with GPUI Kit components |
 | Audio capture | cpal |
 | Transcription | transcribe-cpp (ggml) |
 | Voice activity detection | earshot (pure Rust) |
 | GPU inference | Vulkan (NVIDIA, AMD, Intel) and optional CUDA (NVIDIA), resolved at runtime |
 | Smart formatting | Ollama, LM Studio, OpenAI, OpenRouter, Anthropic, or any OpenAI-compatible endpoint over HTTP |
 | Database | SQLite via sqlx |
-| Frontend | React 19 + TypeScript |
-| Styling | Tailwind CSS v4 + shadcn/ui |
-| State | Zustand |
-| Icons | lucide-react |
+| Icons | Phosphor |
+| Desktop integration | tray-icon, global-hotkey, arboard |
+| Packaging and updates | cargo-packager, minisign-signed self-update |
 
 ---
 
@@ -160,8 +156,8 @@ Download the latest build for your platform from [Releases](../../releases/lates
 | `NexusVoice_x.x.x_amd64.deb` | Debian, Ubuntu, Zorin — update via `apt` |
 | `NexusVoice_x.x.x.x86_64.rpm` | Fedora, RHEL — update via `dnf` |
 
-Only the AppImage can update itself: Tauri'''s updater has no `.deb`/`.rpm`
-installer, so package installs are updated through the package manager.
+Only the AppImage can update itself; `.deb` and `.rpm` installs are updated
+through the package manager.
 
 One build covers every machine: GPU backends are loaded at runtime and the CPU
 path is selected per instruction set. On NVIDIA GPUs the app offers an optional
@@ -169,10 +165,10 @@ CUDA download (about 500 MB, needs driver 580+) from first-run setup or
 Settings → About.
 
 **Requirements:**
-- **Windows:** Windows 10 1803+ or Windows 11 (WebView2 is pre-installed).
-- **Linux:** WebKitGTK 4.1 (`libwebkit2gtk-4.1`) and `libxdo3`, both pulled in automatically by the `.deb`/`.rpm`. For GPU acceleration, install your distro's Vulkan driver (Mesa for AMD/Intel, the NVIDIA driver for NVIDIA).
+- **Windows:** Windows 10 1803+ or Windows 11.
+- **Linux:** a Vulkan driver for the interface and GPU inference (Mesa for AMD/Intel, the NVIDIA driver for NVIDIA), plus `libxdo3` and the AppIndicator library for the tray, both pulled in automatically by the `.deb`/`.rpm`.
 
-No Rust, Node, CMake, or any dev tools needed on the target machine.
+No Rust, CMake, or any dev tools needed on the target machine.
 
 ### Linux setup
 
@@ -197,7 +193,7 @@ shows what was found and what will be used.
 below the display server — it just needs its daemon running.
 
 **2. Bind the dictation shortcut yourself.** On Wayland the compositor owns key
-grabs, so add a custom shortcut in your desktop'''s keyboard settings pointing at:
+grabs, so add a custom shortcut in your desktop's keyboard settings pointing at:
 
 ```
 nexusvoice --toggle-dictation
@@ -213,24 +209,23 @@ nexusvoice --toggle-dictation
 ## Building from Source
 
 **Prerequisites:**
-- [Rust](https://rustup.rs/) (stable)
-- [Bun](https://bun.sh/) 1.3+
+- [Rust](https://rustup.rs/) (stable) and [just](https://github.com/casey/just)
 - [CMake](https://cmake.org/) 3.28+
 - [LLVM/Clang](https://releases.llvm.org/) 17+
+- Linux only: `libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev libvulkan-dev libgtk-3-dev libayatana-appindicator3-dev libasound2-dev libxdo-dev`
 
 ```bash
 git clone https://github.com/Ved-Padmawar/NexusVoice.git
 cd NexusVoice
-bun install
-bun run tauri build
+just dev   # dev build: its own data dir and a "Dev" badge
+just run   # optimized build, using your real NexusVoice data
 ```
 
-Installer output: `src-tauri/target/release/bundle/`
-
-**Dev server:**
-```bash
-bun run tauri dev
-```
+Local builds run transcription on the CPU, so the Vulkan SDK is not needed.
+Release builds add GPU support with `cargo build --release --features gpu`
+(Vulkan SDK required) and are packaged by CI with
+[cargo-packager](https://github.com/crabnebula-dev/cargo-packager). `just check`
+runs the same lint and test gate as CI.
 
 ---
 

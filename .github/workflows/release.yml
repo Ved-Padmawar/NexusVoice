@@ -17,25 +17,22 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }} / ${{ matrix.variant }})
+    name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # One build per OS: backend modules are loaded at runtime, so a single
-          # binary covers Vulkan and every CPU variant.
-          - { os: windows-latest, variant: standard }
-          - { os: ubuntu-22.04,   variant: standard }
+        # One build per OS: backend modules are loaded at runtime, so a single
+        # binary covers Vulkan and every CPU variant. CUDA ships separately.
+        os: [windows-latest, ubuntu-22.04]
 
     steps:
       - uses: actions/checkout@v7
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       # Windows only: build into a short path (C:\b) to avoid MSVC/CMake path-length
       # limits. Linux uses the repo's configured .cargo-target dir — the
@@ -59,24 +56,31 @@ jobs:
           echo "CMAKE=$cmake"        | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       # ── Linux system dependencies ────────────────────────────────────────────
-      # Built on Ubuntu 22.04 — the oldest base that ships WebKitGTK 4.1, which
-      # keeps the glibc floor low enough to run on older distros.
+      # Ubuntu 22.04 keeps the glibc floor low enough to run on older distros.
+      # GPUI needs the X11/Wayland/xkb headers; the tray needs GTK and
+      # appindicator; audio needs ALSA; enigo's X11 path needs libxdo.
       - name: Install Linux system deps
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libwayland-dev \
+            libx11-xcb-dev \
+            libxcb1-dev \
+            libvulkan-dev \
+            libfontconfig-dev \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev \
             libasound2-dev \
             libxdo-dev \
+            libdbus-1-dev \
+            libssl-dev \
             patchelf \
             libfuse2 \
             file \
             build-essential \
-            libssl-dev \
             clang \
             libclang-dev \
             llvm-dev \
@@ -93,7 +97,7 @@ jobs:
           echo "LIBCLANG_PATH=$LIBCLANG_DIR" >> "$GITHUB_ENV"
 
       # Needed to compile the Vulkan backend module (the `gpu` feature). Local
-      # dev builds omit the feature and run CPU-only without the SDK.
+      # builds omit the feature and run CPU-only without the SDK.
       - name: Install Vulkan SDK (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -118,111 +122,75 @@ jobs:
           sudo apt-get install -y vulkan-sdk
           glslc --version
 
-      - name: Install frontend deps
-        run: bun install --frozen-lockfile
-
-      # Gate the release on the same checks run locally. A tag whose code fails
-      # type-check, lint, tests, formatting or Clippy must not publish.
-      - name: Frontend checks (type, lint, unit tests)
-        run: |
-          bun run build
-          bun run lint
-          bun run test
-
-      # Prebuilt binary, so this costs seconds rather than a source build.
-      - name: Setup nextest
-        uses: taiki-e/install-action@nextest
-
-      # Tests build in the release profile so tauri-action reuses their
-      # artifacts instead of recompiling the dependency tree. Clippy only
-      # emits metadata, so a release profile would buy it nothing.
-      - name: Backend checks (format, Clippy, tests)
-        working-directory: src-tauri
-        run: |
-          cargo fmt --check
-          cargo clippy -- -W clippy::pedantic -D warnings
-          cargo nextest run --release
-
       - name: Set version from tag
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
-          sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
-          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
+          sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" Cargo.toml
 
       - name: Cache Rust deps
         uses: Swatinem/rust-cache@v2.9.2
         with:
-          workspaces: src-tauri
           cache-targets: false
 
-      # Tauri's mirrored linuxdeploy bundles a `strip` too old to process
-      # libraries built with current toolchains, which is the "failed to run
-      # linuxdeploy" that previously kept AppImage out of this release. Putting
-      # a current upstream build in Tauri's tool cache is the fix.
-      # `--appimage-extract-and-run` avoids needing FUSE on the runner.
-      - name: Install linuxdeploy
+      # Prebuilt binaries, so these cost seconds rather than source builds.
+      - name: Install nextest and packagers
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest,cargo-packager,cargo-generate-rpm
+
+      # Gate the release on the same checks run locally. A tag whose code fails
+      # formatting, Clippy or tests must not publish. Tests build in the release
+      # profile so the release build below reuses their artifacts.
+      - name: Checks (format, Clippy, tests)
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -W clippy::pedantic -D warnings
+          cargo nextest run --release
+
+      # Every CPU variant is compiled and selected at runtime, so the binary
+      # never inherits the runner's ISA and faults on older CPUs (0xc000001d).
+      - name: Build
+        run: cargo build --release --features gpu
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: cargo packager --release --formats nsis,wix
+
+      # cargo-packager fetches an old linuxdeploy whose `strip` cannot process
+      # libraries built with current toolchains; a current upstream build in its
+      # tool cache is used instead. `--appimage-extract-and-run` avoids FUSE.
+      - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
-          TOOLS="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
+          TOOLS="${XDG_CACHE_HOME:-$HOME/.cache}/.cargo-packager/AppImage"
           mkdir -p "$TOOLS"
           curl -fsSL --retry 3 -o "$TOOLS/linuxdeploy-x86_64.AppImage" \
             https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           chmod +x "$TOOLS/linuxdeploy-x86_64.AppImage"
-          "$TOOLS/linuxdeploy-x86_64.AppImage" --appimage-extract-and-run --version
+          cargo packager --release --formats deb,appimage
+          cargo generate-rpm --target-dir .cargo-target -o .cargo-target/release/
 
-      # Every CPU variant is compiled and selected at runtime, so the binary
-      # never inherits the runner's ISA and fault on older CPUs (0xc000001d).
-      - name: Build (Windows)
-        if: runner.os == 'Windows'
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: bun run tauri build -- --features gpu
-
-      # deb and rpm cover package-manager installs; the AppImage is additionally
-      # the only Linux bundle Tauri emits an updater artifact for, so it is what
-      # makes auto-update work at all on Linux.
-      - name: Build (Linux)
-        if: runner.os == 'Linux'
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # The Vulkan loader and Wayland client must come from the user's
-          # graphics stack; bundling the runner's copies shadows a newer Mesa
-          # or ICD and breaks GPU inference on rolling-release distros.
-          LINUXDEPLOY_EXCLUDED_LIBRARIES: "libvulkan.so*;libwayland-client.so*"
-          # appimagetool writes this as X-AppImage-Version, which desktop
-          # integration tools (Gear Lever) read to track installed versions.
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          export LINUXDEPLOY_OUTPUT_VERSION="${GITHUB_REF_NAME#v}"
-          bun run tauri build --bundles deb,rpm,appimage -- --features gpu
-
-      # Collect the updater artifact each OS produces: NSIS on Windows, the
-      # AppImage on Linux. deb and rpm are not updater targets — those users
-      # update through their package manager.
-      - name: Collect updater artifact
+      # Sign the updater artifact each OS produces: the NSIS installer on
+      # Windows, the AppImage on Linux. deb and rpm users update through their
+      # package manager. The key is the one the app's updater verifies against.
+      - name: Sign updater artifact
         shell: python
         env:
+          CARGO_PACKAGER_SIGN_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           UPDATER_PLATFORM: ${{ runner.os == 'Windows' && 'windows-x86_64' || 'linux-x86_64' }}
-          BUNDLE_GLOB: ${{ runner.os == 'Windows' && 'C:/b/release/bundle/nsis/*.exe' || '.cargo-target/release/bundle/appimage/*.AppImage' }}
+          BUNDLE_GLOB: ${{ runner.os == 'Windows' && 'C:/b/release/*-setup.exe' || '.cargo-target/release/*.AppImage' }}
         run: |
-          import glob, os, pathlib
+          import glob, os, pathlib, subprocess
 
-          # `*.AppImage` also matches the `.sig` sitting beside it, so the
-          # signature files are filtered out before picking the bundle.
-          matches = sorted(
-            m for m in glob.glob(os.environ["BUNDLE_GLOB"]) if not m.endswith(".sig")
-          )
+          matches = sorted(glob.glob(os.environ["BUNDLE_GLOB"]))
           if not matches:
             raise SystemExit(f"no updater bundle matched {os.environ['BUNDLE_GLOB']}")
 
           bundle = pathlib.Path(matches[0])
+          subprocess.run(["cargo", "packager", "signer", "sign", str(bundle)], check=True)
           pathlib.Path("updater-sig.txt").write_text(
             pathlib.Path(f"{bundle}.sig").read_text().strip()
           )
@@ -233,7 +201,7 @@ jobs:
       - name: Upload updater signature
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: sig-${{ matrix.os }}-${{ matrix.variant }}
+          name: sig-${{ matrix.os }}
           path: |
             updater-sig.txt
             updater-name.txt
@@ -246,8 +214,8 @@ jobs:
           tag_name: ${{ github.ref_name }}
           fail_on_unmatched_files: false
           files: |
-            C:/b/release/bundle/nsis/*.exe
-            C:/b/release/bundle/msi/*.msi
+            C:/b/release/*-setup.exe
+            C:/b/release/*.msi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -258,10 +226,10 @@ jobs:
           tag_name: ${{ github.ref_name }}
           fail_on_unmatched_files: false
           files: |
-            .cargo-target/release/bundle/deb/*.deb
-            .cargo-target/release/bundle/rpm/*.rpm
-            .cargo-target/release/bundle/appimage/*.AppImage
-            .cargo-target/release/bundle/appimage/*.AppImage.sig
+            .cargo-target/release/*.deb
+            .cargo-target/release/*.rpm
+            .cargo-target/release/*.AppImage
+            .cargo-target/release/*.AppImage.sig
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -315,7 +283,7 @@ jobs:
         run: |
           import os, pathlib, re
 
-          lock = pathlib.Path("src-tauri/Cargo.lock").read_text()
+          lock = pathlib.Path("Cargo.lock").read_text()
           locked = lambda name: re.search(rf'name = "{name}"\nversion = "([^"]+)"', lock).group(1)
           crate = pathlib.Path("cuda-build")
           crate.mkdir()
