@@ -13,8 +13,8 @@ app is one native Rust process using GPUI Kit 0.8 with Phosphor icons.
 - UI in `src/ui/`: theme (8 themes from the original OKLCH tokens), shared
   components, shell (title bar, sidebar, update prompt), all pages, modals,
   pill window (`src/ui/pill/`, zero frames when idle).
-- Build: `just dev` (debug, CPU, dev data dir + Dev badge), `just run`
-  (release, CPU). CI builds `--features gpu` (Vulkan), CUDA pack stays a
+- Build: `cargo run` (debug, CPU, dev data dir + Dev badge), `cargo run
+  --release` (release, CPU). CI builds `--features gpu` (Vulkan), CUDA pack stays a
   separate job, installers via cargo-packager (+ cargo-generate-rpm for rpm).
 - `cargo clippy --all-targets -- -W clippy::pedantic -D warnings` clean and
   `cargo test` 470 tests passing (even) as of commit 568ad0c.

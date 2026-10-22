@@ -209,7 +209,7 @@ nexusvoice --toggle-dictation
 ## Building from Source
 
 **Prerequisites:**
-- [Rust](https://rustup.rs/) (stable) and [just](https://github.com/casey/just)
+- [Rust](https://rustup.rs/) (stable)
 - [CMake](https://cmake.org/) 3.28+
 - [LLVM/Clang](https://releases.llvm.org/) 17+
 - Linux only: `libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev libvulkan-dev libgtk-3-dev libayatana-appindicator3-dev libasound2-dev libxdo-dev`
@@ -217,15 +217,15 @@ nexusvoice --toggle-dictation
 ```bash
 git clone https://github.com/Ved-Padmawar/NexusVoice.git
 cd NexusVoice
-just dev   # dev build: its own data dir and a "Dev" badge
-just run   # optimized build, using your real NexusVoice data
+cargo run             # dev build: its own data dir and a "Dev" badge
+cargo run --release   # optimized build, using your real NexusVoice data
 ```
 
 Local builds run transcription on the CPU, so the Vulkan SDK is not needed.
 Release builds add GPU support with `cargo build --release --features gpu`
 (Vulkan SDK required) and are packaged by CI with
-[cargo-packager](https://github.com/crabnebula-dev/cargo-packager). `just check`
-runs the same lint and test gate as CI.
+[cargo-packager](https://github.com/crabnebula-dev/cargo-packager). `cargo lint`,
+`cargo fmt --check` and `cargo test` run the same gate as CI.
 
 ---
 
