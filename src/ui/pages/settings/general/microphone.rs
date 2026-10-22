@@ -2,10 +2,8 @@
 
 use std::time::Duration;
 
-use gpui_kit::component::{WindowExt as _, notification::Notification};
-use gpui_kit::{
-    div, prelude::*, px, Context, Entity, SharedString, Subscription, Window,
-};
+use gpui_kit::component::{notification::Notification, WindowExt as _};
+use gpui_kit::{div, prelude::*, px, Context, Entity, SharedString, Subscription, Window};
 
 use super::widgets::{section_heading, spinning_icon};
 use crate::api::{self, InputDeviceInfo};
@@ -158,10 +156,10 @@ impl MicrophoneSection {
 /// device once. The default device is only listed as that sentinel, so it never
 /// appears twice.
 fn options(devices: &[InputDeviceInfo]) -> Vec<(SharedString, SharedString)> {
-    let default_label = devices
-        .iter()
-        .find(|d| d.is_default)
-        .map_or_else(|| "Default".to_string(), |d| format!("Default — {}", d.name));
+    let default_label = devices.iter().find(|d| d.is_default).map_or_else(
+        || "Default".to_string(),
+        |d| format!("Default — {}", d.name),
+    );
     let mut options = vec![(DEFAULT_VALUE.into(), default_label.into())];
     for device in devices {
         let listed = options.iter().any(|(value, _)| *value == device.name);

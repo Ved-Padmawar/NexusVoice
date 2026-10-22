@@ -34,7 +34,7 @@ pub struct GeneralTab {
 impl GeneralTab {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         // Settings can open straight here, before anything resolved the model.
-        Store::entity(cx).update(cx, |store, cx| store.refresh_models(cx));
+        Store::entity(cx).update(cx, Store::refresh_models);
 
         let language = cx.new(|cx| LanguageSection::new(window, cx));
         Self {
@@ -52,7 +52,14 @@ impl GeneralTab {
 impl Render for GeneralTab {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = *Palette::global(cx);
-        let card = || div().rounded(R_LG).bg(p.panel).border_1().border_color(p.border_soft).p_4();
+        let card = || {
+            div()
+                .rounded(R_LG)
+                .bg(p.panel)
+                .border_1()
+                .border_color(p.border_soft)
+                .p_4()
+        };
         let language_supported = self.language.read(cx).supported();
         div()
             .flex()

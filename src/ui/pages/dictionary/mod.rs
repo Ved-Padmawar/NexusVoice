@@ -14,9 +14,7 @@ use gpui_kit::{
 
 use super::dashboard::{primary_button, ButtonSize};
 use crate::api::{self, dto::DictionaryResponse};
-use crate::ui::components::{
-    icon, page_header, skeleton, text_input, LoadState, SectionState,
-};
+use crate::ui::components::{icon, page_header, skeleton, text_input, LoadState, SectionState};
 use crate::ui::icons::AppIcon;
 use crate::ui::runtime::SpawnApi as _;
 use crate::ui::theme::{alpha, Palette, R_LG, R_MD, R_SM, R_XL};
@@ -47,7 +45,11 @@ pub struct Dictionary {
     _enter: Subscription,
 }
 
-fn input(window: &mut Window, cx: &mut Context<Dictionary>, placeholder: &'static str) -> Entity<InputState> {
+fn input(
+    window: &mut Window,
+    cx: &mut Context<Dictionary>,
+    placeholder: &'static str,
+) -> Entity<InputState> {
     cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
 }
 
@@ -59,11 +61,15 @@ impl Dictionary {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let term = input(window, cx, "e.g. teh, gonna");
         let replacement = input(window, cx, "e.g. the, going to");
-        let enter = cx.subscribe_in(&replacement, window, |this, _, event: &InputEvent, window, cx| {
-            if pressed_enter(event) {
-                this.add(window, cx);
-            }
-        });
+        let enter = cx.subscribe_in(
+            &replacement,
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if pressed_enter(event) {
+                    this.add(window, cx);
+                }
+            },
+        );
         let mut dictionary = Self {
             entries: Vec::new(),
             state: LoadState::Loading,
@@ -123,15 +129,24 @@ impl Dictionary {
         );
     }
 
-    fn start_edit(&mut self, entry: &DictionaryResponse, window: &mut Window, cx: &mut Context<Self>) {
+    fn start_edit(
+        &mut self,
+        entry: &DictionaryResponse,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let term = cx.new(|cx| InputState::new(window, cx).default_value(entry.term.clone()));
         let replacement =
             cx.new(|cx| InputState::new(window, cx).default_value(entry.replacement.clone()));
-        let enter = cx.subscribe_in(&replacement, window, |this, _, event: &InputEvent, window, cx| {
-            if pressed_enter(event) {
-                this.commit_edit(window, cx);
-            }
-        });
+        let enter = cx.subscribe_in(
+            &replacement,
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if pressed_enter(event) {
+                    this.commit_edit(window, cx);
+                }
+            },
+        );
         let previous = self.edit.replace(Edit {
             id: entry.id,
             previous_term: entry.term.clone(),
@@ -164,9 +179,10 @@ impl Dictionary {
         let Some(edit) = self.edit.as_mut().filter(|e| !e.saving) else {
             return;
         };
-        let Some((term, replacement)) =
-            entry_from_fields(&edit.term.read(cx).value(), &edit.replacement.read(cx).value())
-        else {
+        let Some((term, replacement)) = entry_from_fields(
+            &edit.term.read(cx).value(),
+            &edit.replacement.read(cx).value(),
+        ) else {
             return;
         };
         edit.saving = true;
@@ -206,8 +222,11 @@ impl Dictionary {
     fn render_quick_add(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = *Palette::global(cx);
         let can_add = !self.saving
-            && entry_from_fields(&self.term.read(cx).value(), &self.replacement.read(cx).value())
-                .is_some();
+            && entry_from_fields(
+                &self.term.read(cx).value(),
+                &self.replacement.read(cx).value(),
+            )
+            .is_some();
         let field = |label: &'static str, state: &Entity<InputState>| {
             div()
                 .flex()
@@ -265,7 +284,11 @@ impl Dictionary {
                             },
                             cx,
                         )
-                        .child(if self.saving { "Saving…" } else { "Add to Dictionary" }),
+                        .child(if self.saving {
+                            "Saving…"
+                        } else {
+                            "Add to Dictionary"
+                        }),
                     ),
             )
     }
@@ -333,7 +356,10 @@ impl Dictionary {
                     .border_b_1()
                     .border_color(p.border)
                     .child(cell(Column::Term, header_label("Input trigger", p.muted)))
-                    .child(cell(Column::Replacement, header_label("Output correction", p.muted)))
+                    .child(cell(
+                        Column::Replacement,
+                        header_label("Output correction", p.muted),
+                    ))
                     .child(cell(Column::Hits, header_label("Hits", p.muted)))
                     .child(cell(Column::Actions, header_label("Actions", p.muted))),
             )
@@ -384,8 +410,16 @@ fn cell(column: Column, content: impl IntoElement) -> impl IntoElement {
     let base = div().flex().items_center().px_4().py(px(14.)).min_w_0();
     match column {
         Column::Term | Column::Replacement => base.w(gpui_kit::relative(0.3)).child(content),
-        Column::Hits => base.flex_1().min_w(px(100.)).justify_center().child(content),
-        Column::Actions => base.w(px(120.)).flex_shrink_0().justify_end().child(content),
+        Column::Hits => base
+            .flex_1()
+            .min_w(px(100.))
+            .justify_center()
+            .child(content),
+        Column::Actions => base
+            .w(px(120.))
+            .flex_shrink_0()
+            .justify_end()
+            .child(content),
     }
 }
 
@@ -406,7 +440,11 @@ fn hits(entry: &DictionaryResponse, p: Palette) -> impl IntoElement {
         .child(entry.hits.to_string())
 }
 
-fn display_cells(entry: &DictionaryResponse, this: &Entity<Dictionary>, p: Palette) -> Vec<AnyElement> {
+fn display_cells(
+    entry: &DictionaryResponse,
+    this: &Entity<Dictionary>,
+    p: Palette,
+) -> Vec<AnyElement> {
     let (edit_entry, edit_this) = (entry.clone(), this.clone());
     let (id, delete_this) = (entry.id, this.clone());
     vec![
@@ -451,13 +489,29 @@ fn display_cells(entry: &DictionaryResponse, this: &Entity<Dictionary>, p: Palet
                 .items_center()
                 .justify_end()
                 .gap(px(2.))
-                .child(icon_button("edit", entry.id, AppIcon::Pencil, p.accent_soft, p.accent, p, move |window, cx| {
-                    let entry = edit_entry.clone();
-                    edit_this.update(cx, |this, cx| this.start_edit(&entry, window, cx));
-                }))
-                .child(icon_button("delete", entry.id, AppIcon::Trash, alpha(p.danger, 0.12), p.danger, p, move |window, cx| {
-                    delete_this.update(cx, |this, cx| this.delete(id, window, cx));
-                })),
+                .child(icon_button(
+                    "edit",
+                    entry.id,
+                    AppIcon::Pencil,
+                    p.accent_soft,
+                    p.accent,
+                    p,
+                    move |window, cx| {
+                        let entry = edit_entry.clone();
+                        edit_this.update(cx, |this, cx| this.start_edit(&entry, window, cx));
+                    },
+                ))
+                .child(icon_button(
+                    "delete",
+                    entry.id,
+                    AppIcon::Trash,
+                    alpha(p.danger, 0.12),
+                    p.danger,
+                    p,
+                    move |window, cx| {
+                        delete_this.update(cx, |this, cx| this.delete(id, window, cx));
+                    },
+                )),
         )
         .into_any_element(),
     ]
@@ -480,7 +534,11 @@ fn edit_cells(
     let (commit_this, cancel_this) = (this.clone(), this.clone());
     vec![
         cell(Column::Term, div().w_full().child(field(&edit.term))).into_any_element(),
-        cell(Column::Replacement, div().w_full().child(field(&edit.replacement))).into_any_element(),
+        cell(
+            Column::Replacement,
+            div().w_full().child(field(&edit.replacement)),
+        )
+        .into_any_element(),
         cell(Column::Hits, hits(entry, p)).into_any_element(),
         cell(
             Column::Actions,
@@ -490,14 +548,30 @@ fn edit_cells(
                 .justify_end()
                 .gap(px(2.))
                 .child(
-                    icon_button("commit", entry.id, AppIcon::Check, alpha(p.success, 0.12), p.success, p, move |window, cx| {
-                        commit_this.update(cx, |this, cx| this.commit_edit(window, cx));
-                    })
+                    icon_button(
+                        "commit",
+                        entry.id,
+                        AppIcon::Check,
+                        alpha(p.success, 0.12),
+                        p.success,
+                        p,
+                        move |window, cx| {
+                            commit_this.update(cx, |this, cx| this.commit_edit(window, cx));
+                        },
+                    )
                     .when(edit.saving, |el| el.opacity(0.5)),
                 )
-                .child(icon_button("cancel", entry.id, AppIcon::X, alpha(p.danger, 0.12), p.danger, p, move |_, cx| {
-                    cancel_this.update(cx, |this, cx| this.cancel_edit(cx));
-                })),
+                .child(icon_button(
+                    "cancel",
+                    entry.id,
+                    AppIcon::X,
+                    alpha(p.danger, 0.12),
+                    p.danger,
+                    p,
+                    move |_, cx| {
+                        cancel_this.update(cx, |this, cx| this.cancel_edit(cx));
+                    },
+                )),
         )
         .into_any_element(),
     ]
@@ -570,10 +644,26 @@ fn table_skeleton(cx: &App) -> impl IntoElement {
             .px_4()
             .py(px(14.))
             .when(i < 4, |el| el.border_b_1().border_color(p.border_soft))
-            .child(skeleton(format!("dict-skeleton-a-{i}"), |d| d.w(gpui_kit::relative(0.28)).h(px(14.)), cx))
-            .child(skeleton(format!("dict-skeleton-b-{i}"), |d| d.w(gpui_kit::relative(0.28)).h(px(14.)), cx))
-            .child(div().ml_auto().child(skeleton(format!("dict-skeleton-c-{i}"), |d| d.w(px(32.)).h(px(14.)), cx)))
-            .child(skeleton(format!("dict-skeleton-d-{i}"), |d| d.w(px(48.)).h(px(14.)), cx))
+            .child(skeleton(
+                format!("dict-skeleton-a-{i}"),
+                |d| d.w(gpui_kit::relative(0.28)).h(px(14.)),
+                cx,
+            ))
+            .child(skeleton(
+                format!("dict-skeleton-b-{i}"),
+                |d| d.w(gpui_kit::relative(0.28)).h(px(14.)),
+                cx,
+            ))
+            .child(div().ml_auto().child(skeleton(
+                format!("dict-skeleton-c-{i}"),
+                |d| d.w(px(32.)).h(px(14.)),
+                cx,
+            )))
+            .child(skeleton(
+                format!("dict-skeleton-d-{i}"),
+                |d| d.w(px(48.)).h(px(14.)),
+                cx,
+            ))
     }))
 }
 
@@ -605,4 +695,3 @@ impl Render for Dictionary {
             )
     }
 }
-

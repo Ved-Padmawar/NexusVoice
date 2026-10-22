@@ -33,7 +33,10 @@ impl Global for Hotkeys {}
 
 impl Hotkeys {
     pub fn bindings(cx: &App) -> Option<&crate::api::HotkeyBindings> {
-        cx.global::<Self>().0.as_ref().map(platform::hotkeys::Hotkeys::bindings)
+        cx.global::<Self>()
+            .0
+            .as_ref()
+            .map(platform::hotkeys::Hotkeys::bindings)
     }
 
     /// Bind or clear one hotkey.
@@ -124,7 +127,9 @@ impl MainWindow {
             }),
         ];
         cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(Duration::from_millis(250)).await;
+            cx.background_executor()
+                .timer(Duration::from_millis(250))
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.show_startup_spinner = true;
                 cx.notify();
@@ -143,7 +148,12 @@ impl MainWindow {
         }
     }
 
-    fn page(&mut self, route: Route, window: &mut gpui_kit::Window, cx: &mut Context<Self>) -> gpui_kit::AnyView {
+    fn page(
+        &mut self,
+        route: Route,
+        window: &mut gpui_kit::Window,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyView {
         match route {
             Route::Dashboard => self
                 .dashboard
@@ -184,13 +194,22 @@ impl MainWindow {
                     p.accent,
                     Duration::from_millis(650),
                 ))
-                .child(div().text_size(px(12.)).text_color(p.muted).child("Loading…"))
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(p.muted)
+                        .child("Loading…"),
+                )
             })
     }
 }
 
 impl Render for MainWindow {
-    fn render(&mut self, window: &mut gpui_kit::Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(
+        &mut self,
+        window: &mut gpui_kit::Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let p = *Palette::global(cx);
         let store = Store::entity(cx).read(cx);
         if store.startup == Startup::Starting {

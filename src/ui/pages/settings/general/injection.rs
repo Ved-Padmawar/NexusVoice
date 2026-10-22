@@ -23,17 +23,16 @@ pub struct TextInjectionSection {
 
 impl TextInjectionSection {
     pub fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut section = Self {
+        Self::load(cx);
+        Self {
             status: None,
             checking: false,
-        };
-        section.load(cx);
-        section
+        }
     }
 
     /// The probe spawns a process per tool, so it runs on demand rather than
     /// on a timer: the set only changes when the user installs something.
-    fn load(&mut self, cx: &mut Context<Self>) {
+    fn load(cx: &mut Context<Self>) {
         cx.spawn_api(
             async { api::get_injection_status().await },
             |this, status, cx| {
@@ -50,7 +49,7 @@ impl TextInjectionSection {
         }
         self.checking = true;
         cx.notify();
-        self.load(cx);
+        Self::load(cx);
     }
 
     fn header(&self, status: &InjectionStatus, cx: &mut Context<Self>) -> impl IntoElement {
@@ -144,7 +143,7 @@ impl TextInjectionSection {
     }
 }
 
-fn tool_row(tool: &api::dto::InjectionTool, p: Palette) -> impl IntoElement {
+fn tool_row(tool: &api::dto::InjectionTool, p: &Palette) -> impl IntoElement {
     let name_color = if tool.preferred { p.accent } else { p.fg_2 };
     div()
         .flex()
@@ -164,7 +163,9 @@ fn tool_row(tool: &api::dto::InjectionTool, p: Palette) -> impl IntoElement {
             div()
                 .flex_shrink_0()
                 .size(px(12.))
-                .when(tool.available, |el| el.child(icon(AppIcon::Check, 12., p.accent))),
+                .when(tool.available, |el| {
+                    el.child(icon(AppIcon::Check, 12., p.accent))
+                }),
         )
         .child(
             div()
@@ -220,7 +221,7 @@ impl Render for TextInjectionSection {
                         .flex()
                         .flex_col()
                         .gap(px(6.))
-                        .children(status.tools.iter().map(|tool| tool_row(tool, p))),
+                        .children(status.tools.iter().map(|tool| tool_row(tool, &p))),
                 )
         }))
     }

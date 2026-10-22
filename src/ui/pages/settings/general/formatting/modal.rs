@@ -9,12 +9,14 @@ use gpui_kit::{
     FocusHandle, FontWeight, KeyDownEvent, SharedString, Stateful, Subscription, Window,
 };
 
-use super::presets::{draft, is_configured, preset, profile_for_switch, shows_base_url, Preset, PRESETS};
+use super::super::widgets::{border_width, spinning_icon};
+use super::presets::{
+    draft, is_configured, preset, profile_for_switch, shows_base_url, Preset, PRESETS,
+};
 use crate::api;
 use crate::llm::config::{FormatConfig, Profile};
 use crate::ui::components::{icon, modal, text_input};
 use crate::ui::icons::AppIcon;
-use super::super::widgets::{border_width, spinning_icon};
 use crate::ui::runtime::SpawnApi as _;
 use crate::ui::theme::{alpha, Palette, R_LG, R_MD};
 use crate::ui::vendors::{vendor_mark, Vendor};
@@ -62,7 +64,11 @@ impl ProviderModal {
         };
         let seed = initial.active();
         let preset = preset(&provider);
-        let field = |window: &mut Window, cx: &mut Context<Self>, value: &str, placeholder: &str, masked: bool| {
+        let field = |window: &mut Window,
+                     cx: &mut Context<Self>,
+                     value: &str,
+                     placeholder: &str,
+                     masked: bool| {
             cx.new(|cx| {
                 let mut state = InputState::new(window, cx)
                     .placeholder(placeholder.to_string())
@@ -127,21 +133,22 @@ impl ProviderModal {
         self.test_result = TestResult::Idle;
         let profile = profile_for_switch(id, self.initial.profiles.get(id));
         let preset = preset(id);
-        fill(&self.base_url, &profile.base_url, base_url_hint(preset), window, cx);
+        fill(
+            &self.base_url,
+            &profile.base_url,
+            base_url_hint(preset),
+            window,
+            cx,
+        );
         fill(&self.model, &profile.model, preset.model_hint, window, cx);
-        fill(&self.api_key, &profile.api_key, key_hint(preset), window, cx);
+        fill(
+            &self.api_key,
+            &profile.api_key,
+            key_hint(preset),
+            window,
+            cx,
+        );
         cx.notify();
-    }
-
-    fn close(&mut self, cx: &mut Context<Self>) {
-        cx.emit(ProviderModalEvent::Closed);
-    }
-
-    fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if event.keystroke.key == "escape" {
-            self.close(cx);
-            cx.stop_propagation();
-        }
     }
 
     fn test(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -211,11 +218,16 @@ impl ProviderModal {
                 this.saving = false;
                 match result {
                     Ok(()) => {
-                        window.push_notification(Notification::success("Smart formatting enabled"), cx);
+                        window.push_notification(
+                            Notification::success("Smart formatting enabled"),
+                            cx,
+                        );
                         cx.emit(ProviderModalEvent::Saved(config));
                     }
-                    Err(_) => window
-                        .push_notification(Notification::error("Failed to save settings"), cx),
+                    Err(_) => {
+                        window
+                            .push_notification(Notification::error("Failed to save settings"), cx);
+                    }
                 }
                 cx.notify();
             },
@@ -223,7 +235,7 @@ impl ProviderModal {
         cx.notify();
     }
 
-    fn header(&self, p: Palette, cx: &mut Context<Self>) -> impl IntoElement {
+    fn header(p: &Palette, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex()
             .items_center()
@@ -278,12 +290,17 @@ impl ProviderModal {
                     .text_color(p.muted)
                     .cursor_pointer()
                     .hover(|s| s.bg(alpha(p.danger, 0.12)).text_color(p.danger))
-                    .on_click(cx.listener(|this, _, _, cx| this.close(cx)))
+                    .on_click(cx.listener(|_, _, _, cx| cx.emit(ProviderModalEvent::Closed)))
                     .child(Icon::new(AppIcon::X).size(px(14.))),
             )
     }
 
-    fn preset_card(&self, preset: &'static Preset, p: Palette, cx: &mut Context<Self>) -> impl IntoElement {
+    fn preset_card(
+        &self,
+        preset: &'static Preset,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let active = preset.id == self.provider;
         let color = if active { p.accent } else { p.fg };
         let id = preset.id;
@@ -315,37 +332,36 @@ impl ProviderModal {
                 })),
             px(1.5),
         )
-        .children(
-            Vendor::from_id(id).map(|vendor| vendor_mark(vendor, 16., color, cx)),
-        )
+        .children(Vendor::from_id(id).map(|vendor| vendor_mark(vendor, 16., color, cx)))
         .child(div().min_w_0().truncate().child(preset.label))
     }
 
-    fn field(label: &'static str, p: Palette, input: Input) -> Div {
-        div().flex().flex_col().gap(px(6.)).child(
-            div()
-                .text_size(px(11.))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(p.fg_2)
-                .child(label),
-        )
-        .child(input)
+    fn field(label: &'static str, p: &Palette, input: Input) -> Div {
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(6.))
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(p.fg_2)
+                    .child(label),
+            )
+            .child(input)
     }
 
     fn input(state: &Entity<InputState>, cx: &App) -> Input {
         text_input(state, cx).px(px(12.)).text_size(px(12.))
     }
 
-    fn body(&self, p: Palette, cx: &mut Context<Self>) -> impl IntoElement {
+    fn body(&self, p: &Palette, cx: &mut Context<Self>) -> impl IntoElement {
         let preset = preset(&self.provider);
         let model = Self::field("Model", p, Self::input(&self.model, cx)).child(
-            div()
-                .text_size(px(10.))
-                .text_color(p.muted)
-                .child(
-                    "Tip: use a small instruct model (e.g. qwen2.5-3b-instruct), not a reasoning \
+            div().text_size(px(10.)).text_color(p.muted).child(
+                "Tip: use a small instruct model (e.g. qwen2.5-3b-instruct), not a reasoning \
                      model — much faster and more accurate for formatting.",
-                ),
+            ),
         );
         div()
             .flex()
@@ -365,19 +381,29 @@ impl ProviderModal {
             })
             .child(model)
             .child(Self::field(
-                if preset.needs_key { "API key" } else { "API key (optional)" },
+                if preset.needs_key {
+                    "API key"
+                } else {
+                    "API key (optional)"
+                },
                 p,
                 Self::input(&self.api_key, cx).mask_toggle(),
             ))
     }
 
-    fn footer(&self, p: Palette, cx: &mut Context<Self>) -> impl IntoElement {
+    fn footer(&self, p: &Palette, cx: &mut Context<Self>) -> impl IntoElement {
         let ready = self.can_submit(cx);
         let test_disabled = !ready || self.testing;
         let save_disabled = !ready || self.saving;
         let test_icon = if self.testing {
-            spinning_icon("test-spin", AppIcon::Loader, 13., p.fg_2, Duration::from_secs(1))
-                .into_any_element()
+            spinning_icon(
+                "test-spin",
+                AppIcon::Loader,
+                13.,
+                p.fg_2,
+                Duration::from_secs(1),
+            )
+            .into_any_element()
         } else {
             match self.test_result {
                 TestResult::Ok => icon(AppIcon::CheckCircle, 13., p.success).into_any_element(),
@@ -386,8 +412,14 @@ impl ProviderModal {
             }
         };
         let save_icon = if self.saving {
-            spinning_icon("save-spin", AppIcon::Loader, 13., p.accent_fg, Duration::from_secs(1))
-                .into_any_element()
+            spinning_icon(
+                "save-spin",
+                AppIcon::Loader,
+                13.,
+                p.accent_fg,
+                Duration::from_secs(1),
+            )
+            .into_any_element()
         } else {
             icon(AppIcon::Save, 13., p.accent_fg).into_any_element()
         };
@@ -420,7 +452,11 @@ impl ProviderModal {
                     .when(!save_disabled, |el| el.hover(|s| s.opacity(0.9)))
                     .on_click(cx.listener(|this, _, window, cx| this.save(window, cx)))
                     .child(save_icon)
-                    .child(if self.saving { "Saving…" } else { "Save & enable" }),
+                    .child(if self.saving {
+                        "Saving…"
+                    } else {
+                        "Save & enable"
+                    }),
             )
     }
 }
@@ -437,7 +473,7 @@ fn footer_button(id: &'static str, disabled: bool) -> Stateful<Div> {
         .rounded(R_MD)
         .text_size(px(12.))
         .when(disabled, |el| el.opacity(0.4))
-        .when(!disabled, |el| el.cursor_pointer())
+        .when(!disabled, Styled::cursor_pointer)
 }
 
 fn base_url_hint(preset: &Preset) -> &'static str {
@@ -449,7 +485,11 @@ fn base_url_hint(preset: &Preset) -> &'static str {
 }
 
 fn key_hint(preset: &Preset) -> &'static str {
-    if preset.needs_key { "sk-…" } else { "leave blank for local servers" }
+    if preset.needs_key {
+        "sk-…"
+    } else {
+        "leave blank for local servers"
+    }
 }
 
 fn fill(
@@ -471,18 +511,25 @@ impl Render for ProviderModal {
         let content = div()
             .id("provider-modal")
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(Self::on_key_down))
+            .on_key_down(cx.listener(|_, event: &KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" {
+                    cx.emit(ProviderModalEvent::Closed);
+                    cx.stop_propagation();
+                }
+            }))
             .flex()
             .flex_col()
-            .child(self.header(p, cx))
-            .child(self.body(p, cx))
-            .child(self.footer(p, cx));
+            .child(Self::header(&p, cx))
+            .child(self.body(&p, cx))
+            .child(self.footer(&p, cx));
         let this = cx.entity();
         modal(
             "provider-modal-overlay",
             px(460.),
             content,
-            Some(Box::new(move |_, cx| this.update(cx, |this, cx| this.close(cx)))),
+            Some(Box::new(move |_, cx| {
+                this.update(cx, |_, cx| cx.emit(ProviderModalEvent::Closed));
+            })),
             cx,
         )
     }

@@ -4,8 +4,8 @@
 use std::time::Duration;
 
 use gpui_kit::{
-    div, prelude::*, px, Animation, AnimationExt as _, AnyElement, App, ElementId, Entity,
-    FontWeight, IntoElement, Stateful, Div,
+    div, prelude::*, px, Animation, AnimationExt as _, AnyElement, App, Div, ElementId, Entity,
+    FontWeight, IntoElement, Stateful,
 };
 
 use gpui_kit::component::Icon;
@@ -40,9 +40,13 @@ pub fn transcript_row(
     let p = *Palette::global(cx);
     let id = item.id;
     let row = div()
-        .id(ElementId::NamedInteger("transcript".into(), id.unsigned_abs()))
+        .id(ElementId::NamedInteger(
+            "transcript".into(),
+            id.unsigned_abs(),
+        ))
         .relative()
         .flex()
+        .w_full()
         .gap(px(14.))
         .pb_4()
         .when(!place.last, |el| {
@@ -79,7 +83,12 @@ pub fn transcript_row(
     }
 }
 
-fn card(item: &TranscriptResponse, state: &RowState, feed: &Entity<Feed>, p: Palette) -> impl IntoElement {
+fn card(
+    item: &TranscriptResponse,
+    state: &RowState,
+    feed: &Entity<Feed>,
+    p: Palette,
+) -> impl IntoElement {
     let id = item.id;
     let text = item.content.clone();
     let copy_feed = feed.clone();
@@ -130,13 +139,18 @@ fn card(item: &TranscriptResponse, state: &RowState, feed: &Entity<Feed>, p: Pal
                             action(("copy", id), p)
                                 .when(state.copied, |el| el.text_color(p.success))
                                 .child(
-                                    Icon::new(if state.copied { AppIcon::Check } else { AppIcon::Copy })
-                                        .size(px(11.)),
+                                    Icon::new(if state.copied {
+                                        AppIcon::Check
+                                    } else {
+                                        AppIcon::Copy
+                                    })
+                                    .size(px(11.)),
                                 )
                                 .child(if state.copied { "Copied" } else { "Copy" })
                                 .when(!state.copied, |el| el.hover(|s| s.text_color(p.accent)))
                                 .on_click(move |_, _, cx| {
-                                    copy_feed.update(cx, |feed, cx| feed.copy(id, text.clone(), cx));
+                                    copy_feed
+                                        .update(cx, |feed, cx| feed.copy(id, text.clone(), cx));
                                 }),
                         )
                         .child(
@@ -167,4 +181,3 @@ fn action(id: (&'static str, i64), p: Palette) -> Stateful<Div> {
         .text_color(p.muted)
         .cursor_pointer()
 }
-

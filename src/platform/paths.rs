@@ -14,7 +14,11 @@ pub const IDENTIFIER: &str = if IS_DEV {
     "com.nexusvoice.app"
 };
 
-pub const PRODUCT_NAME: &str = if IS_DEV { "NexusVoice Dev" } else { "NexusVoice" };
+pub const PRODUCT_NAME: &str = if IS_DEV {
+    "NexusVoice Dev"
+} else {
+    "NexusVoice"
+};
 
 fn base(dir: Option<PathBuf>) -> PathBuf {
     dir.unwrap_or_else(std::env::temp_dir).join(IDENTIFIER)

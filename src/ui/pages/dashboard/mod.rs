@@ -13,9 +13,7 @@ mod toolbar;
 use std::time::Duration;
 
 use gpui_kit::component::input::{InputEvent, InputState};
-use gpui_kit::{
-    div, prelude::*, px, Context, Entity, FontWeight, Subscription, Task, Window,
-};
+use gpui_kit::{div, prelude::*, px, Context, Entity, FontWeight, Subscription, Task, Window};
 
 pub(super) use button::{primary_button, ButtonSize};
 
@@ -65,7 +63,9 @@ impl Dashboard {
                 this.filters = *filters;
                 this.apply_query(cx);
             }),
-            cx.subscribe(&feed, |this, _, FeedEvent::Deleted, cx| this.refresh_stats(cx)),
+            cx.subscribe(&feed, |this, _, FeedEvent::Deleted, cx| {
+                this.refresh_stats(cx)
+            }),
             cx.subscribe(&Store::entity(cx), |this, _, event: &StoreEvent, cx| {
                 if matches!(event, StoreEvent::TranscriptSaved(_)) {
                     this.refresh_stats(cx);
@@ -164,9 +164,17 @@ impl Dashboard {
         let stats = self.stats.unwrap_or_default();
         let tiles = [
             (AppIcon::Hash, "Total Words", fmt_count(stats.total_words)),
-            (AppIcon::Timer, "Speaking Time", fmt_time(stats.speaking_time_seconds)),
+            (
+                AppIcon::Timer,
+                "Speaking Time",
+                fmt_time(stats.speaking_time_seconds),
+            ),
             (AppIcon::Mic, "Sessions", fmt_count(stats.total_sessions)),
-            (AppIcon::Activity, "Avg Pace", stats.avg_pace_wpm.to_string()),
+            (
+                AppIcon::Activity,
+                "Avg Pace",
+                stats.avg_pace_wpm.to_string(),
+            ),
         ];
         let has_data = self.stats.is_some();
         let retry = cx.entity();
@@ -174,53 +182,56 @@ impl Dashboard {
             self.stats_state.clone(),
             has_data,
             stats_skeleton(cx),
-            div().flex().gap(px(10.)).children(tiles.map(|(glyph, label, value)| {
-                div()
-                    .flex()
-                    .flex_1()
-                    .min_w_0()
-                    .items_center()
-                    .gap(px(14.))
-                    .px(px(18.))
-                    .py_4()
-                    .rounded(R_XL)
-                    .bg(p.panel)
-                    .border_1()
-                    .border_color(p.border)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_shrink_0()
-                            .items_center()
-                            .justify_center()
-                            .size(px(36.))
-                            .rounded(R_MD)
-                            .bg(p.accent_soft)
-                            .child(icon(glyph, 15., p.accent)),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(3.))
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .text_size(px(20.))
-                                    .font_weight(FontWeight::BOLD)
-                                    .line_height(px(20.))
-                                    .text_color(p.fg)
-                                    .child(value),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(p.muted)
-                                    .child(label),
-                            ),
-                    )
-            })),
+            div()
+                .flex()
+                .gap(px(10.))
+                .children(tiles.map(|(glyph, label, value)| {
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_w_0()
+                        .items_center()
+                        .gap(px(14.))
+                        .px(px(18.))
+                        .py_4()
+                        .rounded(R_XL)
+                        .bg(p.panel)
+                        .border_1()
+                        .border_color(p.border)
+                        .child(
+                            div()
+                                .flex()
+                                .flex_shrink_0()
+                                .items_center()
+                                .justify_center()
+                                .size(px(36.))
+                                .rounded(R_MD)
+                                .bg(p.accent_soft)
+                                .child(icon(glyph, 15., p.accent)),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(3.))
+                                .min_w_0()
+                                .child(
+                                    div()
+                                        .text_size(px(20.))
+                                        .font_weight(FontWeight::BOLD)
+                                        .line_height(px(20.))
+                                        .text_color(p.fg)
+                                        .child(value),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(11.))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(p.muted)
+                                        .child(label),
+                                ),
+                        )
+                })),
             move |_, cx| retry.update(cx, |this, cx| this.refresh_stats(cx)),
         )
     }
@@ -302,8 +313,16 @@ fn stats_skeleton(cx: &gpui_kit::App) -> impl IntoElement {
                     .flex()
                     .flex_col()
                     .gap(px(6.))
-                    .child(skeleton(format!("stat-skeleton-value-{i}"), |d| d.w(px(56.)).h(px(16.)), cx))
-                    .child(skeleton(format!("stat-skeleton-label-{i}"), |d| d.w(px(64.)).h(px(10.)), cx)),
+                    .child(skeleton(
+                        format!("stat-skeleton-value-{i}"),
+                        |d| d.w(px(56.)).h(px(16.)),
+                        cx,
+                    ))
+                    .child(skeleton(
+                        format!("stat-skeleton-label-{i}"),
+                        |d| d.w(px(64.)).h(px(10.)),
+                        cx,
+                    )),
             )
     }))
 }

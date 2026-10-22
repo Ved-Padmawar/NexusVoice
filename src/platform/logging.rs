@@ -22,7 +22,11 @@ struct Logger {
 
 impl Logger {
     fn open(&self) -> Option<File> {
-        OpenOptions::new().create(true).append(true).open(&self.path).ok()
+        OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .ok()
     }
 
     /// Keep one previous file, as `nexusvoice.log.1`.
@@ -44,7 +48,12 @@ impl Log for Logger {
         let quiet = QUIET_TARGETS
             .iter()
             .any(|target| metadata.target().starts_with(target));
-        metadata.level() <= if quiet { LevelFilter::Warn } else { LevelFilter::Info }
+        metadata.level()
+            <= if quiet {
+                LevelFilter::Warn
+            } else {
+                LevelFilter::Info
+            }
     }
 
     fn log(&self, record: &Record) {

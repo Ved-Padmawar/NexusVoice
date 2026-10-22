@@ -114,15 +114,15 @@ impl Store {
 
     fn startup(&mut self, cx: &mut Context<Self>) {
         cx.spawn_api(api::wait_until_ready(), |store, result, cx| {
-                store.startup = match result {
-                    Ok(()) => Startup::Ready,
-                    Err(e) => {
-                        log::error!("startup failed: {e}");
-                        Startup::Failed(e.message().to_string().into())
-                    }
-                };
-                cx.notify();
-            });
+            store.startup = match result {
+                Ok(()) => Startup::Ready,
+                Err(e) => {
+                    log::error!("startup failed: {e}");
+                    Startup::Failed(e.message().to_string().into())
+                }
+            };
+            cx.notify();
+        });
         self.refresh_models(cx);
         self.refresh_downloads(cx);
         self.refresh_cuda(cx);
@@ -148,25 +148,28 @@ impl Store {
     }
 
     pub fn refresh_downloads(&mut self, cx: &mut Context<Self>) {
-        cx.spawn_api(async { api::get_active_downloads() }, |store, active, cx| {
-            store.downloads = active
-                .into_iter()
-                .map(|d| {
-                    let status = match d.status.as_str() {
-                        "running" => DownloadStatus::Running,
-                        "error" => DownloadStatus::Failed,
-                        _ => DownloadStatus::Queued,
-                    };
-                    let download = Download {
-                        status,
-                        progress: d.progress,
-                        error: d.error.map(Into::into),
-                    };
-                    (d.id, download)
-                })
-                .collect();
-            cx.notify();
-        });
+        cx.spawn_api(
+            async { api::get_active_downloads() },
+            |store, active, cx| {
+                store.downloads = active
+                    .into_iter()
+                    .map(|d| {
+                        let status = match d.status.as_str() {
+                            "running" => DownloadStatus::Running,
+                            "error" => DownloadStatus::Failed,
+                            _ => DownloadStatus::Queued,
+                        };
+                        let download = Download {
+                            status,
+                            progress: d.progress,
+                            error: d.error.map(Into::into),
+                        };
+                        (d.id, download)
+                    })
+                    .collect();
+                cx.notify();
+            },
+        );
     }
 
     pub fn start_download(&mut self, id: &str, cx: &mut Context<Self>) {
@@ -255,7 +258,9 @@ impl Store {
     }
 
     pub fn download_cuda(&mut self, cx: &mut Context<Self>) {
-        let Some(cuda) = self.cuda.as_mut() else { return };
+        let Some(cuda) = self.cuda.as_mut() else {
+            return;
+        };
         cuda.download_progress = Some(0);
         self.cuda_error = None;
         cx.notify();

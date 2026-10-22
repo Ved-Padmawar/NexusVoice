@@ -399,7 +399,11 @@ pub fn apply(name: ThemeName, cx: &mut App) {
     let p = Palette::of(name);
     cx.set_global(p);
 
-    let mode = if p.dark { ThemeMode::Dark } else { ThemeMode::Light };
+    let mode = if p.dark {
+        ThemeMode::Dark
+    } else {
+        ThemeMode::Light
+    };
     Theme::change(mode, None, cx);
     Theme::update(cx, |theme| {
         theme.font_family = FONT_FAMILY.into();

@@ -1,7 +1,9 @@
 //! The header every page opens with: an accent tile, the title, a subtitle,
 //! and optional actions on the right.
 
-use gpui_kit::{div, prelude::*, px, AnyElement, App, FontWeight, IntoElement, SharedString, Window};
+use gpui_kit::{
+    div, prelude::*, px, AnyElement, App, FontWeight, IntoElement, SharedString, Window,
+};
 
 use super::icon;
 use crate::ui::icons::AppIcon;

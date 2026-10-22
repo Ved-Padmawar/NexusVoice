@@ -505,29 +505,6 @@ impl PillView {
     }
 }
 
-fn shadows(theme: &PillThemeDef, amount: f32) -> Vec<BoxShadow> {
-    if amount <= 0.001 {
-        return Vec::new();
-    }
-    theme
-        .shadow
-        .iter()
-        .map(|shadow| {
-            let built = BoxShadow::new(
-                px(0.0),
-                px(shadow.offset_y),
-                theme::faded(shadow.color, amount).into(),
-            )
-            .blur_radius(px(shadow.blur));
-            if shadow.inset {
-                built.inset()
-            } else {
-                built
-            }
-        })
-        .collect()
-}
-
 fn full() -> StyleRefinement {
     StyleRefinement::default().size_full()
 }
@@ -935,7 +912,7 @@ impl Render for PillView {
             .border_1()
             .border_color(look.border)
             .bg(look.bg)
-            .shadow(shadows(theme, look.shadow))
+            .shadow(theme::shadows(theme, look.shadow))
             .cursor_grab()
             .active(gpui_kit::Styled::cursor_grabbing)
             .on_mouse_down(MouseButton::Left, cx.listener(Self::begin_drag));

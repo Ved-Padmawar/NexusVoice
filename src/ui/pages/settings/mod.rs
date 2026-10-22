@@ -11,9 +11,7 @@ pub use appearance::AppearanceTab;
 pub use general::GeneralTab;
 pub use voice::VoiceTab;
 
-use gpui_kit::{
-    div, prelude::*, px, AnyView, Context, Entity, FontWeight, Subscription, Window,
-};
+use gpui_kit::{div, prelude::*, px, AnyView, Context, Entity, FontWeight, Subscription, Window};
 
 use crate::api;
 use crate::ui::components::{icon, page_header, segmented, Segment};
@@ -41,7 +39,12 @@ impl Settings {
         }
     }
 
-    fn tab_view(&mut self, tab: SettingsTab, window: &mut Window, cx: &mut Context<Self>) -> AnyView {
+    fn tab_view(
+        &mut self,
+        tab: SettingsTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyView {
         match tab {
             SettingsTab::General => self
                 .general
@@ -100,7 +103,7 @@ fn open_logs(window: &mut Window, cx: &mut gpui_kit::App) {
     }
 }
 
-fn logs_button(p: Palette) -> impl IntoElement {
+fn logs_button(p: &Palette) -> impl IntoElement {
     div()
         .id("open-logs")
         .flex()
@@ -132,7 +135,11 @@ impl Render for Settings {
             .into_iter()
             .map(|tab| {
                 let (label, icon) = tab_label(tab);
-                Segment { value: tab, label: label.into(), icon: Some(icon) }
+                Segment {
+                    value: tab,
+                    label: label.into(),
+                    icon: Some(icon),
+                }
             })
             .collect();
 
@@ -159,7 +166,7 @@ impl Render for Settings {
                         |tab, _, cx| UiSettings::update(cx, |s| s.settings_tab = tab),
                         cx,
                     ))
-                    .when(tab == SettingsTab::About, |el| el.child(logs_button(p))),
+                    .when(tab == SettingsTab::About, |el| el.child(logs_button(&p))),
             )
             .child(
                 div()

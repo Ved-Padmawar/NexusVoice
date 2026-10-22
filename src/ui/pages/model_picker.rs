@@ -190,23 +190,25 @@ impl ModelPicker {
                 } else {
                     String::new()
                 };
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .w_auto()
-                    .px(px(10.))
-                    .py(px(4.))
-                    .rounded(R_MD)
-                    .bg(p.surface)
-                    .border_1()
-                    .border_color(p.border_soft)
-                    .child(icon(AppIcon::Cpu, 10., p.muted))
-                    .child(div().text_size(px(10.)).text_color(p.fg_2).child(format!(
-                        "{} · {}{vram}",
-                        profile.gpu_name,
-                        profile.execution_provider.to_uppercase()
-                    )))
+                // Its own row, so the chip is as wide as its text.
+                div().flex().child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .px(px(10.))
+                        .py(px(4.))
+                        .rounded(R_MD)
+                        .bg(p.surface)
+                        .border_1()
+                        .border_color(p.border_soft)
+                        .child(icon(AppIcon::Cpu, 10., p.muted))
+                        .child(div().text_size(px(10.)).text_color(p.fg_2).child(format!(
+                            "{} · {}{vram}",
+                            profile.gpu_name,
+                            profile.execution_provider.to_uppercase()
+                        ))),
+                )
             }))
     }
 

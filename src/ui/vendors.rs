@@ -90,8 +90,18 @@ impl Vendor {
 
 /// `vendor`'s logo in a `size` px square. `inherit` colours the marks that
 /// follow the surrounding text.
-pub fn vendor_mark(vendor: Vendor, size: f32, inherit: Hsla, cx: &gpui_kit::App) -> impl IntoElement {
-    let tile = div().flex().flex_shrink_0().items_center().justify_center().size(px(size));
+pub fn vendor_mark(
+    vendor: Vendor,
+    size: f32,
+    inherit: Hsla,
+    cx: &gpui_kit::App,
+) -> impl IntoElement {
+    let tile = div()
+        .flex()
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .size(px(size));
     match vendor.asset() {
         None => {
             let p = Palette::global(cx);
@@ -101,7 +111,7 @@ pub fn vendor_mark(vendor: Vendor, size: f32, inherit: Hsla, cx: &gpui_kit::App)
                 .border_color(p.border)
                 .child(icon(AppIcon::Plus, size * 0.6, p.fg_2))
         }
-        Some(path) if path.ends_with(".png") => {
+        Some(path) if vendor == Vendor::Moonshine => {
             tile.child(img(path).size_full().object_fit(ObjectFit::Contain))
         }
         Some(path) => {

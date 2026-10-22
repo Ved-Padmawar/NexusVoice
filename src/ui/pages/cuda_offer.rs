@@ -140,7 +140,6 @@ fn downloading(percent: u8, p: &Palette, cx: &App) -> AnyElement {
 
 fn failed(error: &str, p: &Palette, cx: &App) -> AnyElement {
     div()
-        .child(close_button(cx))
         .child(badge(Tone::Danger, AppIcon::AlertCircle, p))
         .child(title("CUDA download failed", p))
         .child(text(
@@ -156,7 +155,6 @@ fn failed(error: &str, p: &Palette, cx: &App) -> AnyElement {
 
 fn ready(p: &Palette, cx: &App) -> AnyElement {
     div()
-        .child(close_button(cx))
         .child(badge(Tone::Success, AppIcon::CheckCircle, p))
         .child(title("CUDA is ready", p))
         .child(text(
@@ -173,7 +171,6 @@ fn ready(p: &Palette, cx: &App) -> AnyElement {
 
 fn offer(gpu: &str, p: &Palette, cx: &App) -> AnyElement {
     div()
-        .child(close_button(cx))
         .child(badge(Tone::Accent, AppIcon::Zap, p))
         .child(title("Your NVIDIA GPU supports CUDA", p))
         .child(text(
@@ -201,7 +198,8 @@ impl Render for CudaOffer {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = *Palette::global(cx);
         let store = Store::entity(cx).read(cx);
-        let body = if let Some(percent) = store.cuda.and_then(|c| c.download_progress) {
+        let progress = store.cuda.and_then(|c| c.download_progress);
+        let body = if let Some(percent) = progress {
             downloading(percent, &p, cx)
         } else if let Some(error) = store.cuda_error.as_deref() {
             failed(error, &p, cx)
@@ -213,7 +211,11 @@ impl Render for CudaOffer {
         modal(
             "cuda-offer",
             px(380.),
-            div().relative().p(px(20.)).child(body),
+            div()
+                .relative()
+                .p(px(20.))
+                .child(body)
+                .when(progress.is_none(), |el| el.child(close_button(cx))),
             None,
             cx,
         )

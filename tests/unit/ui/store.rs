@@ -42,15 +42,37 @@ fn stays_quiet_until_the_status_is_known() {
 
 #[test]
 fn stays_quiet_where_cuda_cannot_run_or_is_already_present() {
-    assert!(!offer_due(true, false, false, cuda(false, PackState::Absent, None)));
-    for pack in [PackState::Installed, PackState::PendingInstall, PackState::PendingRemoval] {
-        assert!(!offer_due(true, false, false, cuda(true, pack, None)), "{pack:?}");
+    assert!(!offer_due(
+        true,
+        false,
+        false,
+        cuda(false, PackState::Absent, None)
+    ));
+    for pack in [
+        PackState::Installed,
+        PackState::PendingInstall,
+        PackState::PendingRemoval,
+    ] {
+        assert!(
+            !offer_due(true, false, false, cuda(true, pack, None)),
+            "{pack:?}"
+        );
     }
 }
 
 #[test]
 fn does_not_offer_what_is_already_downloading() {
     // Started from About before the delay ended: the dialog would be redundant.
-    assert!(!offer_due(true, false, false, cuda(true, PackState::Absent, Some(10))));
-    assert!(!offer_due(true, false, false, cuda(true, PackState::Absent, Some(0))));
+    assert!(!offer_due(
+        true,
+        false,
+        false,
+        cuda(true, PackState::Absent, Some(10))
+    ));
+    assert!(!offer_due(
+        true,
+        false,
+        false,
+        cuda(true, PackState::Absent, Some(0))
+    ));
 }

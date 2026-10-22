@@ -33,7 +33,11 @@ pub fn primary_button(
         .flex_shrink_0()
         .items_center()
         .justify_center()
-        .gap(px(if matches!(size, ButtonSize::Small) { 6. } else { 8. }))
+        .gap(px(if matches!(size, ButtonSize::Small) {
+            6.
+        } else {
+            8.
+        }))
         .h(height)
         .px(pad)
         .rounded(R_MD)

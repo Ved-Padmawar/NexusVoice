@@ -117,7 +117,10 @@ fn ensure_no_conflict<'a>(
         .flatten()
         .any(|other| other.eq_ignore_ascii_case(hotkey))
     {
-        return Err(ApiError::new("hotkey_conflict", "hotkeys must be different"));
+        return Err(ApiError::new(
+            "hotkey_conflict",
+            "hotkeys must be different",
+        ));
     }
     Ok(())
 }

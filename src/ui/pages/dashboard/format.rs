@@ -12,10 +12,18 @@ pub fn fmt_time(seconds: i64) -> String {
     }
     let (minutes, rem) = (seconds / 60, seconds % 60);
     if minutes < 60 {
-        return if rem > 0 { format!("{minutes}m {rem}s") } else { format!("{minutes}m") };
+        return if rem > 0 {
+            format!("{minutes}m {rem}s")
+        } else {
+            format!("{minutes}m")
+        };
     }
     let (hours, rm) = (minutes / 60, minutes % 60);
-    if rm > 0 { format!("{hours}h {rm}m") } else { format!("{hours}h") }
+    if rm > 0 {
+        format!("{hours}h {rm}m")
+    } else {
+        format!("{hours}h")
+    }
 }
 
 /// `1234567` as "1,234,567", like `toLocaleString()` in an English locale.

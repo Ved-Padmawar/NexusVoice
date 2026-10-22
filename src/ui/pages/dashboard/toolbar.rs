@@ -9,9 +9,9 @@ use gpui_kit::{
     IntoElement, Pixels, Window,
 };
 
-use gpui_kit::component::Icon;
 use crate::ui::icons::AppIcon;
 use crate::ui::theme::{alpha, Palette, R_LG, R_MD};
+use gpui_kit::component::Icon;
 
 /// The 28px pill button: an icon and a label. `highlighted` is the filter's
 /// "something is applied" look.
@@ -61,7 +61,11 @@ pub fn popover_below(
     cx: &App,
 ) -> impl IntoElement {
     let p = Palette::global(cx);
-    let shadow = if shadow_lg { p.shadow_lg() } else { p.shadow_md() };
+    let shadow = if shadow_lg {
+        p.shadow_lg()
+    } else {
+        p.shadow_md()
+    };
     let panel = div()
         .id(id)
         .occlude()

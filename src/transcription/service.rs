@@ -8,13 +8,13 @@ use crate::database::dto::transcript::CreateTranscript;
 use crate::database::repositories::{
     dictionary::DictionaryRepository, transcript::TranscriptRepository,
 };
+use crate::events::{self, Event, Partial};
 use crate::inference::TranscriptionEngine;
 use crate::llm::FormatConfig;
 use crate::postprocess::{remove_fillers, DictionaryCorrectionEngine};
-use crate::events::{self, Event, Partial};
 use crate::state::{lock_recovering, AppState, DictCache};
-use crate::transcription::controller::{self, Input};
 use crate::transcribe::{Route, StreamSession};
+use crate::transcription::controller::{self, Input};
 
 /// Push one live-transcript frame to the pill, skipping empty ones. Both decode
 /// paths produce the same split, so the pill never knows which one ran.

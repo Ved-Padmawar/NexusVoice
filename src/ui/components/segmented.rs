@@ -1,6 +1,8 @@
 //! A segmented tab list: a surface track with the active segment raised.
 
-use gpui_kit::{div, prelude::*, px, App, ElementId, FontWeight, IntoElement, SharedString, Window};
+use gpui_kit::{
+    div, prelude::*, px, App, ElementId, FontWeight, IntoElement, SharedString, Window,
+};
 
 use super::icon;
 use crate::ui::icons::AppIcon;

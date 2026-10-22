@@ -3,8 +3,8 @@
 
 use gpui_kit::component::{notification::Notification, Icon, WindowExt as _};
 use gpui_kit::{
-    div, prelude::*, px, App, ClickEvent, Context, Entity, FocusHandle, FontWeight,
-    Hsla, KeyDownEvent, KeyUpEvent, ModifiersChangedEvent, SharedString, Window,
+    div, prelude::*, px, App, ClickEvent, Context, Entity, FocusHandle, FontWeight, Hsla,
+    KeyDownEvent, KeyUpEvent, ModifiersChangedEvent, SharedString, Window,
 };
 
 use super::shortcut::{badge_label, Recording};
@@ -185,14 +185,19 @@ impl HotkeyCard {
         }
     }
 
-    fn on_modifiers(&mut self, event: &ModifiersChangedEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_modifiers(
+        &mut self,
+        event: &ModifiersChangedEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !self.listening {
             return;
         }
-        if self.recording.modifier_released(&event.modifiers) {
+        if self.recording.modifier_released(event.modifiers) {
             self.listening = false;
         } else {
-            self.recording.press_modifiers(&event.modifiers);
+            self.recording.press_modifiers(event.modifiers);
         }
         cx.notify();
     }
@@ -201,7 +206,10 @@ impl HotkeyCard {
         let p = *Palette::global(cx);
         let editing = self.editing();
         let tokens: Vec<SharedString> = if editing {
-            self.recording.tokens().map(|t| t.to_string().into()).collect()
+            self.recording
+                .tokens()
+                .map(|t| t.to_string().into())
+                .collect()
         } else {
             current
                 .map(|c| c.split('+').map(|t| t.to_string().into()).collect())
@@ -227,15 +235,21 @@ impl HotkeyCard {
                     el.border_color(p.border_soft).bg(p.bg_alt)
                 }
             })
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.start_listening(window, cx)))
-            .when(!tokens.is_empty(), |el| el.child(key_badges(&tokens, p)))
+            .on_click(
+                cx.listener(|this, _: &ClickEvent, window, cx| this.start_listening(window, cx)),
+            )
+            .when(!tokens.is_empty(), |el| el.child(key_badges(&tokens, &p)))
             .when(tokens.is_empty(), |el| {
                 el.child(
                     div()
                         .text_size(px(11.))
                         .italic()
                         .text_color(if self.listening { p.accent } else { p.muted })
-                        .child(if self.listening { "Press keys…" } else { "Click to set…" }),
+                        .child(if self.listening {
+                            "Press keys…"
+                        } else {
+                            "Click to set…"
+                        }),
                 )
             })
     }
@@ -247,11 +261,11 @@ impl HotkeyCard {
             let can_save = !self.recording.is_empty();
             return row
                 .child(
-                    text_button("save-hotkey", "Save", true, !can_save, p)
+                    text_button("save-hotkey", "Save", true, !can_save, &p)
                         .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
                 )
                 .child(
-                    text_button("cancel-hotkey", "Cancel", false, false, p)
+                    text_button("cancel-hotkey", "Cancel", false, false, &p)
                         .on_click(cx.listener(|this, _, _, cx| this.cancel(cx))),
                 );
         }
@@ -271,8 +285,14 @@ impl HotkeyCard {
             );
         }
         row.child(
-            icon_button("change-hotkey", AppIcon::Pencil, p.accent, p.accent_soft, p.fg_2)
-                .on_click(cx.listener(|this, _, window, cx| this.start_listening(window, cx))),
+            icon_button(
+                "change-hotkey",
+                AppIcon::Pencil,
+                p.accent,
+                p.accent_soft,
+                p.fg_2,
+            )
+            .on_click(cx.listener(|this, _, window, cx| this.start_listening(window, cx))),
         )
         .child(
             icon_button(
@@ -311,7 +331,11 @@ impl Render for HotkeyCard {
             .rounded(R_MD)
             .bg(p.surface)
             .border_1()
-            .border_color(if self.editing() { alpha(p.accent, 0.55) } else { p.border_soft })
+            .border_color(if self.editing() {
+                alpha(p.accent, 0.55)
+            } else {
+                p.border_soft
+            })
             .child(
                 div()
                     .flex()
@@ -321,7 +345,11 @@ impl Render for HotkeyCard {
                     .size_7()
                     .rounded(R_SM)
                     .bg(if bound { p.accent_soft } else { p.bg_alt })
-                    .child(icon(self.spec.icon, 14., if bound { p.accent } else { p.muted })),
+                    .child(icon(
+                        self.spec.icon,
+                        14.,
+                        if bound { p.accent } else { p.muted },
+                    )),
             )
             .child(
                 div()
@@ -352,7 +380,7 @@ impl Render for HotkeyCard {
     }
 }
 
-fn key_badges(tokens: &[SharedString], p: Palette) -> impl IntoElement {
+fn key_badges(tokens: &[SharedString], p: &Palette) -> impl IntoElement {
     div()
         .flex()
         .items_center()
@@ -398,7 +426,7 @@ fn text_button(
     label: &'static str,
     primary: bool,
     disabled: bool,
-    p: Palette,
+    p: &Palette,
 ) -> gpui_kit::Stateful<gpui_kit::Div> {
     div()
         .id(id)

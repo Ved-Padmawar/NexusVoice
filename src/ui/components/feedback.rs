@@ -29,7 +29,9 @@ pub fn spinner(
             el.child(
                 canvas(
                     |_, _, _| {},
-                    move |bounds, (), window, _| paint_ring(bounds, size, stroke, turn, track, arc, window),
+                    move |bounds, (), window, _| {
+                        paint_ring(bounds, size, stroke, turn, track, arc, window)
+                    },
                 )
                 .size_full(),
             )

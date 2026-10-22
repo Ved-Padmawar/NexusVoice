@@ -124,7 +124,8 @@ fn init_compute_backends(app_data_dir: &std::path::Path) {
 async fn open_database(state: &'static state::AppState) {
     use database::repositories::dictionary::DictionaryRepository;
 
-    let result = database::connection::open_database(&state.app_data_dir.join("nexusvoice.db")).await;
+    let result =
+        database::connection::open_database(&state.app_data_dir.join("nexusvoice.db")).await;
     state.set_database(result.clone());
     let pool = match result {
         Ok(pool) => pool,

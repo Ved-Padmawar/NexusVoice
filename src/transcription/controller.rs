@@ -22,7 +22,9 @@ pub enum PillState {
     Idle,
     /// Push-to-talk, held down.
     Recording,
-    Dictation { paused: bool },
+    Dictation {
+        paused: bool,
+    },
     /// Finalizing the transcript and typing it.
     Processing,
     /// A model is downloading; the percentage of the current file.
@@ -184,7 +186,8 @@ impl Controller {
             Input::Failed(message) => self.fail(message),
             Input::Download(status) => self.on_download(status),
             Input::ClearError(generation) => {
-                if generation == self.error_generation && matches!(self.pill(), PillState::Error(_)) {
+                if generation == self.error_generation && matches!(self.pill(), PillState::Error(_))
+                {
                     self.set(PillState::Idle);
                 }
             }

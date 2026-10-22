@@ -5,7 +5,12 @@
 use gpui_kit::{Keystroke, Modifiers};
 
 /// Held modifiers in the order shortcuts are written.
-const MODIFIERS: [Modifier; 4] = [Modifier::Ctrl, Modifier::Alt, Modifier::Shift, Modifier::Super];
+const MODIFIERS: [Modifier; 4] = [
+    Modifier::Ctrl,
+    Modifier::Alt,
+    Modifier::Shift,
+    Modifier::Super,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Modifier {
@@ -25,7 +30,7 @@ impl Modifier {
         }
     }
 
-    fn is_held(self, held: &Modifiers) -> bool {
+    fn is_held(self, held: Modifiers) -> bool {
         match self {
             Self::Ctrl => held.control,
             Self::Alt => held.alt,
@@ -48,7 +53,7 @@ impl Recording {
     }
 
     /// Note every modifier now held; one let go stays recorded.
-    pub fn press_modifiers(&mut self, held: &Modifiers) {
+    pub fn press_modifiers(&mut self, held: Modifiers) {
         for modifier in MODIFIERS {
             if modifier.is_held(held) && !self.modifiers.contains(&modifier) {
                 self.modifiers.push(modifier);
@@ -58,7 +63,7 @@ impl Recording {
 
     /// Whether a recorded modifier is no longer held: the user let go, which
     /// ends the recording.
-    pub fn modifier_released(&self, held: &Modifiers) -> bool {
+    pub fn modifier_released(&self, held: Modifiers) -> bool {
         self.modifiers.iter().any(|m| !m.is_held(held))
     }
 
@@ -68,7 +73,7 @@ impl Recording {
         let Some(token) = key_token(&keystroke.key) else {
             return false;
         };
-        self.press_modifiers(&keystroke.modifiers);
+        self.press_modifiers(keystroke.modifiers);
         self.key = Some(token);
         true
     }

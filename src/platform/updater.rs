@@ -59,7 +59,11 @@ pub async fn check() -> Result<Option<Update>, String> {
 }
 
 /// The update `manifest` offers over `current` for `platform`, if any.
-fn newer_update(manifest: &Manifest, current: &str, platform: &str) -> Result<Option<Update>, String> {
+fn newer_update(
+    manifest: &Manifest,
+    current: &str,
+    platform: &str,
+) -> Result<Option<Update>, String> {
     let latest = semver::Version::parse(manifest.version.trim_start_matches('v'))
         .map_err(|e| format!("bad version in update feed: {e}"))?;
     let current = semver::Version::parse(current).map_err(|e| e.to_string())?;

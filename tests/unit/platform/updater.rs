@@ -28,8 +28,8 @@ fn signer() -> (minisign::SecretKey, String) {
 }
 
 fn sign(secret: &minisign::SecretKey, bytes: &[u8]) -> String {
-    let signature = minisign::sign(None, secret, bytes, Some("trusted"), Some("untrusted"))
-        .expect("sign");
+    let signature =
+        minisign::sign(None, secret, bytes, Some("trusted"), Some("untrusted")).expect("sign");
     base64::engine::general_purpose::STANDARD.encode(signature.to_string())
 }
 
@@ -40,14 +40,20 @@ fn only_a_strictly_newer_release_is_offered() {
 
     // The same version, or an older one republished, must not loop the user
     // through an install of what they already run.
-    assert!(newer_update(&manifest("1.18.1"), "1.18.1", "linux-x86_64").expect("valid").is_none());
-    assert!(newer_update(&manifest("1.9.9"), "1.18.1", "linux-x86_64").expect("valid").is_none());
+    assert!(newer_update(&manifest("1.18.1"), "1.18.1", "linux-x86_64")
+        .expect("valid")
+        .is_none());
+    assert!(newer_update(&manifest("1.9.9"), "1.18.1", "linux-x86_64")
+        .expect("valid")
+        .is_none());
 }
 
 #[test]
 fn a_tag_style_version_and_a_missing_platform_are_handled() {
     // Releases are tagged `v1.2.3`; the feed sometimes carries the prefix.
-    assert!(newer_update(&manifest("v2.0.0"), "1.18.1", "linux-x86_64").expect("valid").is_some());
+    assert!(newer_update(&manifest("v2.0.0"), "1.18.1", "linux-x86_64")
+        .expect("valid")
+        .is_some());
     // A release without this platform's build is an error, not a silent "up to date".
     assert!(newer_update(&manifest("2.0.0"), "1.18.1", "windows-x86_64").is_err());
 }

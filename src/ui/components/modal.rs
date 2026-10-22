@@ -4,8 +4,8 @@
 use std::time::Duration;
 
 use gpui_kit::{
-    deferred, div, prelude::*, Animation, AnimationExt as _, AnyElement, App, IntoElement,
-    Pixels, SharedString, Window,
+    deferred, div, prelude::*, Animation, AnimationExt as _, AnyElement, App, IntoElement, Pixels,
+    SharedString, Window,
 };
 
 use crate::ui::theme::{alpha, Palette, R_XL};

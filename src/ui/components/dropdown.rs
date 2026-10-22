@@ -239,7 +239,11 @@ impl Dropdown {
         let p = *Palette::global(cx);
         let visible = self.visible(cx);
         // Sized to the unfiltered list, so typing doesn't resize the panel.
-        let search_h = if self.search.is_some() { px(49.) } else { px(0.) };
+        let search_h = if self.search.is_some() {
+            px(49.)
+        } else {
+            px(0.)
+        };
         let height = (ITEM_H * self.items.len() as f32 + search_h + px(2.)).min(MAX_MENU_H);
         let last = visible.len().saturating_sub(1);
 
@@ -367,7 +371,11 @@ impl Render for Dropdown {
                     .items_center()
                     .w_full()
                     .h(px(36.))
-                    .pl(if self.leading_icon.is_some() { px(32.) } else { px(12.) })
+                    .pl(if self.leading_icon.is_some() {
+                        px(32.)
+                    } else {
+                        px(12.)
+                    })
                     .pr(px(32.))
                     .rounded(R_MD)
                     .bg(p.surface)
@@ -399,9 +407,12 @@ impl Render for Dropdown {
                     .child(div().flex_1().truncate().child(label))
                     .child({
                         let width = self.trigger_width.clone();
-                        canvas(move |bounds, _, _| width.set(bounds.size.width), |_, (), _, _| {})
-                            .absolute()
-                            .size_full()
+                        canvas(
+                            move |bounds, _, _| width.set(bounds.size.width),
+                            |_, (), _, _| {},
+                        )
+                        .absolute()
+                        .size_full()
                     })
                     .child(
                         div()
@@ -411,9 +422,11 @@ impl Render for Dropdown {
                             .bottom_0()
                             .flex()
                             .items_center()
-                            .child(icon(AppIcon::ChevronDown, 14., p.fg_2).when(open, |i| {
-                                i.rotate(gpui_kit::radians(std::f32::consts::PI))
-                            })),
+                            .child(
+                                icon(AppIcon::ChevronDown, 14., p.fg_2).when(open, |i| {
+                                    i.rotate(gpui_kit::radians(std::f32::consts::PI))
+                                }),
+                            ),
                     ),
             )
             .when(open, |el| {

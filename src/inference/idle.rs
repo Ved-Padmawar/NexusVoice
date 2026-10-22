@@ -4,8 +4,8 @@
 
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
 use crate::state;
+use serde::{Deserialize, Serialize};
 
 /// How often the watcher looks at the engine; an unload lands up to this late.
 const CHECK_EVERY: Duration = Duration::from_secs(30);

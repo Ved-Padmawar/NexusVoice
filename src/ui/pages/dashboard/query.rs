@@ -57,7 +57,10 @@ impl Loaded {
     /// A short page is the last: there is nothing after it.
     pub fn from_first_page(rows: Vec<TranscriptResponse>) -> Self {
         let next = next_cursor(&rows);
-        Self { items: dedup(rows), next }
+        Self {
+            items: dedup(rows),
+            next,
+        }
     }
 
     pub fn next_cursor(&self) -> Option<&Cursor> {
@@ -97,7 +100,10 @@ impl Loaded {
 
 fn next_cursor(rows: &[TranscriptResponse]) -> Option<Cursor> {
     let last = rows.last().filter(|_| rows.len() >= PAGE_SIZE)?;
-    Some(Cursor { created_at: last.created_at.clone(), id: last.id })
+    Some(Cursor {
+        created_at: last.created_at.clone(),
+        id: last.id,
+    })
 }
 
 fn dedup(rows: Vec<TranscriptResponse>) -> Vec<TranscriptResponse> {

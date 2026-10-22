@@ -63,20 +63,31 @@ async fn a_late_error_timer_does_not_cancel_a_new_recording() {
 async fn stray_inputs_outside_their_mode_are_ignored() {
     // A release with no press, a commit or cancel with nothing recording:
     // none may touch the backend or move the pill.
-    for input in [Input::PushToTalkReleased, Input::DictationCommit, Input::Cancel] {
+    for input in [
+        Input::PushToTalkReleased,
+        Input::DictationCommit,
+        Input::Cancel,
+    ] {
         let mut c = at(PillState::Idle);
         c.handle(input).await;
         assert_eq!(c.pill(), &PillState::Idle);
     }
     let mut c = at(PillState::Recording);
     c.handle(Input::DictationToggle).await;
-    assert_eq!(c.pill(), &PillState::Recording, "dictation cannot start mid push-to-talk");
+    assert_eq!(
+        c.pill(),
+        &PillState::Recording,
+        "dictation cannot start mid push-to-talk"
+    );
 }
 
 #[test]
 fn microphone_failures_get_a_plain_message() {
     let message = |raw: &str| start_error(&ApiError::new("capture_failed", raw));
     assert_eq!(message("No input device available"), "No microphone found");
-    assert_eq!(message("Permission denied by the system"), "Mic access denied");
+    assert_eq!(
+        message("Permission denied by the system"),
+        "Mic access denied"
+    );
     assert_eq!(message("device busy"), "device busy");
 }

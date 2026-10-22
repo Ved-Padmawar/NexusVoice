@@ -32,7 +32,11 @@ fn default_filters_ask_for_the_newest_first_page() {
 
 #[test]
 fn filters_map_to_bare_dates_and_sort_order() {
-    let filters = TranscriptFilters { from: Some(day(2)), to: Some(day(9)), sort_asc: true };
+    let filters = TranscriptFilters {
+        from: Some(day(2)),
+        to: Some(day(9)),
+        sort_asc: true,
+    };
     let query = filters.page_query(None);
     assert_eq!(query.from.as_deref(), Some("2026-03-02"));
     assert_eq!(query.to.as_deref(), Some("2026-03-09"));
@@ -41,18 +45,36 @@ fn filters_map_to_bare_dates_and_sort_order() {
 
 #[test]
 fn the_cursor_carries_both_halves() {
-    let cursor = Cursor { created_at: "2026-01-01 00:00:50".into(), id: 50 };
+    let cursor = Cursor {
+        created_at: "2026-01-01 00:00:50".into(),
+        id: 50,
+    };
     let query = TranscriptFilters::default().page_query(Some(&cursor));
-    assert_eq!(query.cursor_created_at.as_deref(), Some("2026-01-01 00:00:50"));
+    assert_eq!(
+        query.cursor_created_at.as_deref(),
+        Some("2026-01-01 00:00:50")
+    );
     assert_eq!(query.cursor_id, Some(50));
 }
 
 #[test]
 fn only_a_non_default_filter_counts_as_active() {
     assert!(!TranscriptFilters::default().is_active());
-    assert!(TranscriptFilters { sort_asc: true, ..Default::default() }.is_active());
-    assert!(TranscriptFilters { from: Some(day(1)), ..Default::default() }.is_active());
-    assert!(TranscriptFilters { to: Some(day(1)), ..Default::default() }.is_active());
+    assert!(TranscriptFilters {
+        sort_asc: true,
+        ..Default::default()
+    }
+    .is_active());
+    assert!(TranscriptFilters {
+        from: Some(day(1)),
+        ..Default::default()
+    }
+    .is_active());
+    assert!(TranscriptFilters {
+        to: Some(day(1)),
+        ..Default::default()
+    }
+    .is_active());
 }
 
 #[test]
@@ -60,7 +82,10 @@ fn a_full_page_points_at_its_last_row_and_a_short_one_ends_the_feed() {
     let full = Loaded::from_first_page(rows(1..=50));
     assert_eq!(
         full.next_cursor(),
-        Some(&Cursor { created_at: "2026-01-01 00:00:50".into(), id: 50 })
+        Some(&Cursor {
+            created_at: "2026-01-01 00:00:50".into(),
+            id: 50
+        })
     );
     assert!(full.has_more());
 

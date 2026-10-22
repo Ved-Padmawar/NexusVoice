@@ -48,13 +48,13 @@ pub enum Align {
 
 /// A smoothing factor tuned at 60 Hz, scaled to the real frame time so the
 /// waveform reacts at the same speed on a 144 Hz display.
-fn ease(factor: f32, dt: f32) -> f32 {
+pub(crate) fn ease(factor: f32, dt: f32) -> f32 {
     1.0 - (1.0 - factor).powf(dt * 60.0)
 }
 
 // Indices here are below 64, far inside f32's exact range.
 #[allow(clippy::cast_precision_loss)]
-const fn f(index: usize) -> f32 {
+pub(crate) const fn f(index: usize) -> f32 {
     index as f32
 }
 

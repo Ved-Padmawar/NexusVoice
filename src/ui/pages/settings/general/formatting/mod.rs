@@ -23,26 +23,22 @@ use crate::ui::vendors::{vendor_mark, Vendor};
 
 pub struct FormattingToggle {
     config: FormatConfig,
-    modal: Option<Entity<ProviderModal>>,
+    /// The open modal, with the subscription that hears it close or save.
+    modal: Option<(Entity<ProviderModal>, Subscription)>,
     /// Set by the first flip, so the switch does not slide when the page opens.
     flipped: bool,
-    _modal_events: Option<Subscription>,
 }
 
 impl FormattingToggle {
     pub fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
-        cx.spawn_api(
-            async { api::get_format_config() },
-            |this, config, cx| {
-                this.config = config;
-                cx.notify();
-            },
-        );
+        cx.spawn_api(async { api::get_format_config() }, |this, config, cx| {
+            this.config = config;
+            cx.notify();
+        });
         Self {
             config: FormatConfig::default(),
             modal: None,
             flipped: false,
-            _modal_events: None,
         }
     }
 
@@ -83,7 +79,7 @@ impl FormattingToggle {
     fn open_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let initial = self.config.clone();
         let modal = cx.new(|cx| ProviderModal::new(initial, window, cx));
-        self._modal_events = Some(cx.subscribe(&modal, |this, _, event, cx| {
+        let events = cx.subscribe(&modal, |this, _, event, cx| {
             match event {
                 ProviderModalEvent::Saved(config) => this.config = config.clone(),
                 ProviderModalEvent::Closed => {
@@ -93,13 +89,12 @@ impl FormattingToggle {
                 }
             }
             this.modal = None;
-            this._modal_events = None;
             cx.notify();
-        }));
-        self.modal = Some(modal);
+        });
+        self.modal = Some((modal, events));
     }
 
-    fn summary(&self, p: Palette, cx: &gpui_kit::App) -> impl IntoElement {
+    fn summary(&self, p: &Palette, cx: &gpui_kit::App) -> impl IntoElement {
         let line = div()
             .flex()
             .items_center()
@@ -112,20 +107,17 @@ impl FormattingToggle {
         }
         let provider = &self.config.provider;
         let model = self.config.active().model;
-        line.children(
-            Vendor::from_id(provider)
-                .map(|vendor| vendor_mark(vendor, 14., p.fg_2, cx)),
-        )
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .child(format!("{} · {model}", label(provider))),
-        )
+        line.children(Vendor::from_id(provider).map(|vendor| vendor_mark(vendor, 14., p.fg_2, cx)))
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .child(format!("{} · {model}", label(provider))),
+            )
     }
 }
 
-fn configure_button(p: Palette) -> Stateful<Div> {
+fn configure_button(p: &Palette) -> Stateful<Div> {
     div()
         .id("configure-formatting")
         .flex()
@@ -193,7 +185,7 @@ impl Render for FormattingToggle {
                             )
                             .child(
                                 div()
-                                    .child(self.summary(p, cx))
+                                    .child(self.summary(&p, cx))
                                     .child(
                                         div()
                                             .mt(px(3.))
@@ -215,7 +207,7 @@ impl Render for FormattingToggle {
                             .items_center()
                             .gap_2()
                             .child(
-                                configure_button(p)
+                                configure_button(&p)
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.open_modal(window, cx);
                                         cx.notify();
@@ -232,6 +224,6 @@ impl Render for FormattingToggle {
                             )),
                     ),
             )
-            .children(self.modal.clone().map(|modal| over_window(modal, window)))
+            .children(self.modal.as_ref().map(|(modal, _)| over_window(modal.clone(), window)))
     }
 }

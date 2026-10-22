@@ -44,7 +44,11 @@ fn the_buttons_agree_with_the_backends_usability_check() {
 fn anthropic_needs_a_model_but_never_a_base_url() {
     assert!(is_configured("anthropic", "", "claude-sonnet-5"));
     assert!(!is_configured("anthropic", "", ""));
-    assert!(!is_configured("anthropic", "https://api.anthropic.com", "  "));
+    assert!(!is_configured(
+        "anthropic",
+        "https://api.anthropic.com",
+        "  "
+    ));
     assert!(!shows_base_url("anthropic"));
     assert!(shows_base_url("ollama"));
 }
@@ -87,17 +91,26 @@ fn a_draft_trims_the_form_and_keeps_every_other_providers_details() {
         provider: "ollama".into(),
         profiles: HashMap::new(),
     };
-    initial
-        .profiles
-        .insert("openai".into(), profile("https://api.openai.com/v1", "gpt", "k"));
+    initial.profiles.insert(
+        "openai".into(),
+        profile("https://api.openai.com/v1", "gpt", "k"),
+    );
 
-    let next = draft(&initial, "lmstudio", &profile("  http://x/v1 ", " m ", " key\n"));
+    let next = draft(
+        &initial,
+        "lmstudio",
+        &profile("  http://x/v1 ", " m ", " key\n"),
+    );
 
     assert_eq!(next.provider, "lmstudio");
     assert!(!next.enabled, "drafting must not change enabled");
     let saved = &next.profiles["lmstudio"];
     assert_eq!(
-        (saved.base_url.as_str(), saved.model.as_str(), saved.api_key.as_str()),
+        (
+            saved.base_url.as_str(),
+            saved.model.as_str(),
+            saved.api_key.as_str()
+        ),
         ("http://x/v1", "m", "key")
     );
     assert_eq!(next.profiles["openai"].model, "gpt");
@@ -107,7 +120,11 @@ fn a_draft_trims_the_form_and_keeps_every_other_providers_details() {
 #[test]
 fn every_preset_has_a_unique_id_and_a_logo() {
     for (i, preset) in PRESETS.iter().enumerate() {
-        assert!(Vendor::from_id(preset.id).is_some(), "{} has no logo", preset.id);
+        assert!(
+            Vendor::from_id(preset.id).is_some(),
+            "{} has no logo",
+            preset.id
+        );
         assert!(
             PRESETS[i + 1..].iter().all(|other| other.id != preset.id),
             "{} is listed twice",

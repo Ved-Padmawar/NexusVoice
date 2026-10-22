@@ -1,6 +1,5 @@
 //! Data commands: transcripts, usage stats, and dictionary CRUD.
 
-
 use crate::database::dto::dictionary::CreateDictionaryEntry;
 use crate::database::repositories::{
     dictionary::DictionaryRepository,
@@ -100,8 +99,7 @@ impl PageQuery {
     }
 }
 
-pub async fn get_transcripts(page: PageQuery,
-) -> Result<Vec<TranscriptResponse>, ApiError> {
+pub async fn get_transcripts(page: PageQuery) -> Result<Vec<TranscriptResponse>, ApiError> {
     let state = state::get();
     let repo = TranscriptRepository::new(state.db().await?.clone());
     let to = page.end_bound();
@@ -124,7 +122,8 @@ pub async fn export_transcripts() -> Result<Vec<TranscriptResponse>, ApiError> {
     Ok(items.into_iter().map(TranscriptResponse::from).collect())
 }
 
-pub async fn search_transcripts(query: String,
+pub async fn search_transcripts(
+    query: String,
     page: PageQuery,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
     let state = state::get();
@@ -174,7 +173,8 @@ pub async fn get_dictionary() -> Result<Vec<DictionaryResponse>, ApiError> {
 
 /// The upsert keys on `term`, so a rename inserts a new row; `previous_term`
 /// names the old one to drop, or it lingers and keeps rewriting dictation.
-pub async fn update_dictionary(term: String,
+pub async fn update_dictionary(
+    term: String,
     replacement: String,
     previous_term: Option<String>,
 ) -> Result<DictionaryResponse, ApiError> {

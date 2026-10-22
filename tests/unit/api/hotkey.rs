@@ -109,7 +109,10 @@ mod bindings {
     #[test]
     fn setting_a_hotkey_changes_only_its_own_slot() {
         let next = bound()
-            .with(HotkeyKind::DictationCommit, Some(" Ctrl+Enter ".to_string()))
+            .with(
+                HotkeyKind::DictationCommit,
+                Some(" Ctrl+Enter ".to_string()),
+            )
             .expect("valid");
         assert_eq!(next.get(HotkeyKind::DictationCommit), Some("Ctrl+Enter"));
         assert_eq!(next.get(HotkeyKind::PushToTalk), Some("Ctrl+Space"));
@@ -130,7 +133,9 @@ mod bindings {
 
     #[test]
     fn clearing_unbinds_and_drops_it_from_the_registration_set() {
-        let next = bound().with(HotkeyKind::Dictation, None).expect("clearing is valid");
+        let next = bound()
+            .with(HotkeyKind::Dictation, None)
+            .expect("clearing is valid");
         assert_eq!(next.get(HotkeyKind::Dictation), None);
         let registered: Vec<_> = next.bound().map(|(kind, _)| kind).collect();
         assert_eq!(registered, [HotkeyKind::PushToTalk]);
@@ -139,7 +144,9 @@ mod bindings {
     #[test]
     fn a_rejected_change_leaves_the_bindings_untouched() {
         let before = bound();
-        assert!(before.with(HotkeyKind::Dictation, Some("D".to_string())).is_err());
+        assert!(before
+            .with(HotkeyKind::Dictation, Some("D".to_string()))
+            .is_err());
         assert_eq!(before, bound());
     }
 }

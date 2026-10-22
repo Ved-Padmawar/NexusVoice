@@ -9,8 +9,8 @@ use gpui_kit::component::calendar::Date;
 use gpui_kit::component::date_picker::{DatePicker, DatePickerState};
 use gpui_kit::component::{Sizable as _, Size};
 use gpui_kit::{
-    div, prelude::*, px, App, Context, ElementId, Entity, EventEmitter,
-    FontWeight, SharedString, Window,
+    div, prelude::*, px, App, Context, ElementId, Entity, EventEmitter, Focusable as _, FontWeight,
+    Window,
 };
 
 use super::query::TranscriptFilters;
@@ -44,7 +44,10 @@ pub struct FilterPopover {
 
 impl EventEmitter<FilterEvent> for FilterPopover {}
 
-fn date_picker_state(window: &mut Window, cx: &mut Context<FilterPopover>) -> Entity<DatePickerState> {
+fn date_picker_state(
+    window: &mut Window,
+    cx: &mut Context<FilterPopover>,
+) -> Entity<DatePickerState> {
     cx.new(|cx| DatePickerState::new(window, cx).date_format(DATE_FORMAT))
 }
 
@@ -61,7 +64,9 @@ fn set_picked(
     window: &mut Window,
     cx: &mut Context<FilterPopover>,
 ) {
-    state.update(cx, |state, cx| state.set_date(Date::Single(date), window, cx));
+    state.update(cx, |state, cx| {
+        state.set_date(Date::Single(date), window, cx)
+    });
 }
 
 impl FilterPopover {
@@ -94,7 +99,11 @@ impl FilterPopover {
     fn apply(&mut self, cx: &mut Context<Self>) {
         let sort_asc = self.sort_asc;
         let filters = match (self.mode, picked(&self.on, cx)) {
-            (DateMode::On, Some(day)) => TranscriptFilters { from: Some(day), to: Some(day), sort_asc },
+            (DateMode::On, Some(day)) => TranscriptFilters {
+                from: Some(day),
+                to: Some(day),
+                sort_asc,
+            },
             _ => TranscriptFilters {
                 from: picked(&self.from, cx),
                 to: picked(&self.to, cx),
@@ -124,38 +133,48 @@ impl FilterPopover {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let p = *Palette::global(cx);
-        div().flex().gap_1().children(options.into_iter().enumerate().map(|(i, (value, label))| {
-            let on = value == current;
-            div()
-                .id(ElementId::NamedInteger(id.into(), i as u64))
-                .flex()
-                .flex_1()
-                .items_center()
-                .justify_center()
-                .h(px(26.))
-                .rounded(R_SM)
-                .border_1()
-                .text_size(px(11.))
-                .font_weight(FontWeight::MEDIUM)
-                .cursor_pointer()
-                .map(|el| {
-                    if on {
-                        el.border_color(p.accent).bg(p.accent_soft).text_color(p.accent)
-                    } else {
-                        el.border_color(p.border)
-                            .text_color(p.fg_2)
-                            .hover(|s| s.text_color(p.fg))
-                    }
-                })
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    set(this, value);
-                    cx.notify();
-                }))
-                .child(label)
-        }))
+        div()
+            .flex()
+            .gap_1()
+            .children(options.into_iter().enumerate().map(|(i, (value, label))| {
+                let on = value == current;
+                div()
+                    .id(ElementId::NamedInteger(id.into(), i as u64))
+                    .flex()
+                    .flex_1()
+                    .items_center()
+                    .justify_center()
+                    .h(px(26.))
+                    .rounded(R_SM)
+                    .border_1()
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .cursor_pointer()
+                    .map(|el| {
+                        if on {
+                            el.border_color(p.accent)
+                                .bg(p.accent_soft)
+                                .text_color(p.accent)
+                        } else {
+                            el.border_color(p.border)
+                                .text_color(p.fg_2)
+                                .hover(|s| s.text_color(p.fg))
+                        }
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        set(this, value);
+                        cx.notify();
+                    }))
+                    .child(label)
+            }))
     }
 
-    fn date_field(&self, label: Option<&'static str>, state: &Entity<DatePickerState>, cx: &App) -> impl IntoElement {
+    fn date_field(
+        &self,
+        label: Option<&'static str>,
+        state: &Entity<DatePickerState>,
+        cx: &App,
+    ) -> impl IntoElement {
         let p = Palette::global(cx);
         div()
             .flex()
@@ -165,10 +184,9 @@ impl FilterPopover {
             .when_some(label, |el, label| el.child(section_label(label, p.muted)))
             .child(
                 DatePicker::new(state)
-                    .with_size(Size::Small)
+                    .with_size(Size::Medium)
                     .cleanable(true)
-                    .placeholder(SharedString::from(DATE_FORMAT.replace('%', "")))
-                    .text_size(px(11.)),
+                    .placeholder("YYYY-MM-DD"),
             )
     }
 
@@ -275,17 +293,28 @@ impl Render for FilterPopover {
         let this = cx.entity();
         let hovered = self.trigger_hovered.clone();
         let trigger_hovered = self.trigger_hovered.clone();
-        let label = if self.applied.is_active() { "Filter ·" } else { "Filter" };
+        let pickers = [self.from.clone(), self.to.clone(), self.on.clone()];
+        let label = if self.applied.is_active() {
+            "Filter ·"
+        } else {
+            "Filter"
+        };
 
         div()
             .relative()
             .child(
-                toolbar_button("filter", AppIcon::SlidersHorizontal, label, self.applied.is_active(), cx)
-                    .on_hover(move |hover, _, _| hovered.set(*hover))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        let open = !this.open;
-                        this.set_open(open, window, cx);
-                    })),
+                toolbar_button(
+                    "filter",
+                    AppIcon::SlidersHorizontal,
+                    label,
+                    self.applied.is_active(),
+                    cx,
+                )
+                .on_hover(move |hover, _, _| hovered.set(*hover))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    let open = !this.open;
+                    this.set_open(open, window, cx);
+                })),
             )
             .when(self.open, |el| {
                 el.child(popover_below(
@@ -293,8 +322,16 @@ impl Render for FilterPopover {
                     self.form(cx),
                     px(6.),
                     true,
-                    move |_, cx| {
-                        if trigger_hovered.get() {
+                    move |window, cx| {
+                        // A calendar's popup lies outside the panel, so a click
+                        // in it is an outside click too; it belongs to the picker.
+                        let in_calendar = pickers.iter().any(|picker| {
+                            picker
+                                .read(cx)
+                                .focus_handle(cx)
+                                .contains_focused(window, cx)
+                        });
+                        if trigger_hovered.get() || in_calendar {
                             return;
                         }
                         this.update(cx, |this, cx| {

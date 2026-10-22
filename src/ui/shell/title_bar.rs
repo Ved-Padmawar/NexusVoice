@@ -96,7 +96,11 @@ impl RenderOnce for TitleBar {
                 .h_full()
                 .cursor_pointer()
                 .when(is_hovered, |el| {
-                    el.bg(if close { rgb(CLOSE_RED).into() } else { p.surface_hover })
+                    el.bg(if close {
+                        rgb(CLOSE_RED).into()
+                    } else {
+                        p.surface_hover
+                    })
                 })
                 .on_hover(move |over, _, cx| {
                     hovered.update(cx, |h, cx| {
@@ -107,7 +111,9 @@ impl RenderOnce for TitleBar {
                         }
                     });
                 })
-                .when(cfg!(target_os = "windows"), |el| el.window_control_area(control.area()))
+                .when(cfg!(target_os = "windows"), |el| {
+                    el.window_control_area(control.area())
+                })
                 .when(!cfg!(target_os = "windows"), |el| {
                     el.on_mouse_down(MouseButton::Left, |_, window, cx| {
                         window.prevent_default();
@@ -119,8 +125,11 @@ impl RenderOnce for TitleBar {
                     })
                 })
                 .child(
-                    canvas(|_, _, _| {}, move |bounds, (), window, _| control.paint(bounds, color, window))
-                        .size_full(),
+                    canvas(
+                        |_, _, _| {},
+                        move |bounds, (), window, _| control.paint(bounds, color, window),
+                    )
+                    .size_full(),
                 )
         };
 

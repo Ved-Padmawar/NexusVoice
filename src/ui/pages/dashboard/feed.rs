@@ -146,7 +146,12 @@ impl Feed {
     /// Fetch the page after the last loaded row, once the end of the list is in view.
     fn load_more(&mut self, window: &Window, cx: &mut Context<Self>) {
         let ready = self.status == LoadState::Loaded && !self.fetching_more && !self.more_failed;
-        let Some(cursor) = self.loaded.as_ref().filter(|_| ready).and_then(|l| l.next_cursor()) else {
+        let Some(cursor) = self
+            .loaded
+            .as_ref()
+            .filter(|_| ready)
+            .and_then(|l| l.next_cursor())
+        else {
             return;
         };
         self.fetching_more = true;
@@ -171,7 +176,8 @@ impl Feed {
                 let (before, spinner_slot) = (loaded.items.len(), usize::from(loaded.has_more()));
                 loaded.append_page(rows);
                 let after = loaded.items.len() + usize::from(loaded.has_more());
-                self.list.splice(before..before + spinner_slot, after - before);
+                self.list
+                    .splice(before..before + spinner_slot, after - before);
             }
             (Err(e), _) => {
                 self.more_failed = true;
@@ -269,7 +275,10 @@ impl Feed {
         let Some(item) = loaded.items.get(ix) else {
             return self.end_of_list(this, cx);
         };
-        let place = RowPlace { first: ix == 0, last: ix + 1 == loaded.items.len() && !loaded.has_more() };
+        let place = RowPlace {
+            first: ix == 0,
+            last: ix + 1 == loaded.items.len() && !loaded.has_more(),
+        };
         let state = RowState {
             copied: self.copied.as_ref().is_some_and(|(id, _)| *id == item.id),
             fresh: self.fresh.as_ref().is_some_and(|(id, _)| *id == item.id),
@@ -310,7 +319,12 @@ impl Feed {
             )
             .into_any_element()
         };
-        div().flex().justify_center().py_4().child(body).into_any_element()
+        div()
+            .flex()
+            .justify_center()
+            .py_4()
+            .child(body)
+            .into_any_element()
     }
 }
 
@@ -360,7 +374,11 @@ impl Render for Feed {
 fn empty_state(searching: bool, cx: &App) -> AnyElement {
     let p = *Palette::global(cx);
     let (glyph, title, hint) = if searching {
-        (AppIcon::Search, "No results found", "Try different keywords or check your spelling.")
+        (
+            AppIcon::Search,
+            "No results found",
+            "Try different keywords or check your spelling.",
+        )
     } else {
         (
             AppIcon::Mic,
@@ -409,37 +427,49 @@ fn empty_state(searching: bool, cx: &App) -> AnyElement {
 /// Four placeholder cards on the timeline rail.
 fn feed_skeleton(cx: &App) -> impl IntoElement {
     let p = *Palette::global(cx);
-    div().flex().flex_col().gap_3().pr(px(6.)).children((0..4).map(|i| {
-        div()
-            .flex()
-            .gap(px(14.))
-            .child(
-                div().flex_shrink_0().w(px(20.)).flex().justify_center().child(
-                    div().mt(px(12.)).child(skeleton(
-                        format!("feed-skeleton-dot-{i}"),
-                        |d| d.size(px(8.)).rounded_full(),
-                        cx,
-                    )),
-                ),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .px(px(14.))
-                    .py_3()
-                    .rounded(R_LG)
-                    .bg(p.panel)
-                    .border_1()
-                    .border_color(p.border_soft)
-                    .child(skeleton(format!("feed-skeleton-a-{i}"), |d| d.w_full().h(px(12.)), cx))
-                    .child(skeleton(
-                        format!("feed-skeleton-b-{i}"),
-                        |d| d.w(gpui_kit::relative(0.75)).h(px(12.)),
-                        cx,
-                    )),
-            )
-    }))
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pr(px(6.))
+        .children((0..4).map(|i| {
+            div()
+                .flex()
+                .gap(px(14.))
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .w(px(20.))
+                        .flex()
+                        .justify_center()
+                        .child(div().mt(px(12.)).child(skeleton(
+                            format!("feed-skeleton-dot-{i}"),
+                            |d| d.size(px(8.)).rounded_full(),
+                            cx,
+                        ))),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .px(px(14.))
+                        .py_3()
+                        .rounded(R_LG)
+                        .bg(p.panel)
+                        .border_1()
+                        .border_color(p.border_soft)
+                        .child(skeleton(
+                            format!("feed-skeleton-a-{i}"),
+                            |d| d.w_full().h(px(12.)),
+                            cx,
+                        ))
+                        .child(skeleton(
+                            format!("feed-skeleton-b-{i}"),
+                            |d| d.w(gpui_kit::relative(0.75)).h(px(12.)),
+                            cx,
+                        )),
+                )
+        }))
 }

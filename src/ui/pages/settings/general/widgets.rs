@@ -13,7 +13,11 @@ use crate::ui::icons::AppIcon;
 use crate::ui::theme::{mix, Palette};
 
 /// A bold line over a muted description: the head of every section.
-pub fn section_heading(title: &'static str, description: &'static str, cx: &App) -> impl IntoElement {
+pub fn section_heading(
+    title: &'static str,
+    description: &'static str,
+    cx: &App,
+) -> impl IntoElement {
     let p = Palette::global(cx);
     div()
         .child(
@@ -66,7 +70,10 @@ pub fn switch(
     let travel = TRACK_W - KNOB - 2. * KNOB_INSET;
     let at = move |progress: f32| {
         let progress = if on { progress } else { 1. - progress };
-        (mix(on_color, off_color, progress), KNOB_INSET + travel * progress)
+        (
+            mix(on_color, off_color, progress),
+            KNOB_INSET + travel * progress,
+        )
     };
     let shadow = p.shadow_sm();
     let track = div()

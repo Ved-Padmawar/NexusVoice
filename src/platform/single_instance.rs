@@ -4,9 +4,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 
-use interprocess::local_socket::{
-    prelude::*, GenericNamespaced, ListenerOptions, Name, Stream,
-};
+use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions, Name, Stream};
 
 use crate::events::{self, Event};
 
@@ -25,20 +23,20 @@ pub fn acquire(args: &[String]) -> bool {
         return false;
     }
     match ListenerOptions::new().name(name).create_sync() {
-        Ok(listener) => {
-            std::thread::Builder::new()
-                .name("single-instance".into())
-                .spawn(move || {
-                    for stream in listener.incoming().flatten() {
-                        let args: Vec<String> =
-                            BufReader::new(stream).lines().map_while(Result::ok).collect();
-                        if !crate::remote::handle_args(&args) {
-                            events::emit(Event::ShowMainWindow);
-                        }
+        Ok(listener) => std::thread::Builder::new()
+            .name("single-instance".into())
+            .spawn(move || {
+                for stream in listener.incoming().flatten() {
+                    let args: Vec<String> = BufReader::new(stream)
+                        .lines()
+                        .map_while(Result::ok)
+                        .collect();
+                    if !crate::remote::handle_args(&args) {
+                        events::emit(Event::ShowMainWindow);
                     }
-                })
-                .is_ok()
-        }
+                }
+            })
+            .is_ok(),
         // Lost a race with an instance starting at the same moment.
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => false,
         Err(e) => {

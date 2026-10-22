@@ -97,7 +97,11 @@ impl LanguageSection {
             .iter()
             .map(|o| {
                 let item = DropdownItem::new(o.code.clone(), o.name.clone());
-                if o.code == AUTO { item.divider_after() } else { item }
+                if o.code == AUTO {
+                    item.divider_after()
+                } else {
+                    item
+                }
             })
             .collect();
         let selected = self.selected.clone();
@@ -135,17 +139,16 @@ impl LanguageSection {
 
 impl Render for LanguageSection {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .when(self.supported, |el| {
-                el.flex()
-                    .flex_col()
-                    .gap_4()
-                    .child(section_heading(
-                        "Language",
-                        "The language you dictate in. Auto-detect can mix languages mid-sentence.",
-                        cx,
-                    ))
-                    .child(self.dropdown.clone())
-            })
+        div().when(self.supported, |el| {
+            el.flex()
+                .flex_col()
+                .gap_4()
+                .child(section_heading(
+                    "Language",
+                    "The language you dictate in. Auto-detect can mix languages mid-sentence.",
+                    cx,
+                ))
+                .child(self.dropdown.clone())
+        })
     }
 }

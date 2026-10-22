@@ -39,7 +39,10 @@ pub enum CudaDownload {
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    ModelDownload { id: String, status: ModelDownload },
+    ModelDownload {
+        id: String,
+        status: ModelDownload,
+    },
     /// The active model was deleted and nothing else is on disk.
     ModelEvicted,
     /// The active model was deleted and another downloaded one took its place.
@@ -80,5 +83,8 @@ pub fn emit(event: Event) {
 /// The UI's end of the channel. Events emitted before the UI starts are kept.
 pub fn receiver() -> async_channel::Receiver<Event> {
     channel();
-    RECEIVER.get().expect("receiver initialised with the sender").clone()
+    RECEIVER
+        .get()
+        .expect("receiver initialised with the sender")
+        .clone()
 }

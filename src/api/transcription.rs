@@ -3,8 +3,8 @@
 
 use std::sync::{atomic::Ordering, Arc};
 
-use crate::state::{self, lock_recovering, AppState, RecordingMode, SessionPhase};
 use crate::events::{self, Event};
+use crate::state::{self, lock_recovering, AppState, RecordingMode, SessionPhase};
 use crate::transcription::controller::{self, Input};
 use crate::transcription::{self, service::FinalizeContext};
 
@@ -265,8 +265,7 @@ async fn finalize_current_recording(state: &'static AppState) -> Result<(), ApiE
     if let Some(e) = mic_error {
         log::warn!("microphone failed mid-recording, finalizing what was captured: {e}");
         events::emit(Event::PillNotice(
-            "Your microphone stopped mid-recording, so the transcript may be cut off."
-                .to_string(),
+            "Your microphone stopped mid-recording, so the transcript may be cut off.".to_string(),
         ));
     }
 

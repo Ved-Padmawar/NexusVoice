@@ -196,6 +196,13 @@ impl VoiceTab {
                     .flex_shrink_0()
                     .w(px(168.))
                     .child(
+                        text_input(&self.query, cx)
+                            .h(px(28.))
+                            .pl(px(28.))
+                            .pr(px(8.))
+                            .text_size(px(11.)),
+                    )
+                    .child(
                         div()
                             .absolute()
                             .left(px(10.))
@@ -204,13 +211,6 @@ impl VoiceTab {
                             .flex()
                             .items_center()
                             .child(icon(AppIcon::Search, 12., p.muted)),
-                    )
-                    .child(
-                        text_input(&self.query, cx)
-                            .h(px(28.))
-                            .pl(px(28.))
-                            .pr(px(8.))
-                            .text_size(px(11.)),
                     ),
             )
             .child(

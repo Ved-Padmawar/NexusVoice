@@ -117,7 +117,13 @@ fn brand(cx: &App) -> impl IntoElement {
         )
 }
 
-fn nav_item(route: Route, label: &'static str, glyph: AppIcon, active: bool, cx: &App) -> impl IntoElement {
+fn nav_item(
+    route: Route,
+    label: &'static str,
+    glyph: AppIcon,
+    active: bool,
+    cx: &App,
+) -> impl IntoElement {
     let p = Palette::global(cx);
     div()
         .id(label)
@@ -133,7 +139,9 @@ fn nav_item(route: Route, label: &'static str, glyph: AppIcon, active: bool, cx:
         .cursor_pointer()
         .map(|el| {
             if active {
-                el.text_color(p.fg).bg(p.surface).font_weight(FontWeight::SEMIBOLD)
+                el.text_color(p.fg)
+                    .bg(p.surface)
+                    .font_weight(FontWeight::SEMIBOLD)
             } else {
                 el.text_color(p.muted)
                     .font_weight(FontWeight::MEDIUM)
@@ -277,11 +285,19 @@ fn update_prompt(cx: &App) -> impl IntoElement {
                 });
             })
             .child(icon(
-                if ready { AppIcon::RotateCcw } else { AppIcon::Download },
+                if ready {
+                    AppIcon::RotateCcw
+                } else {
+                    AppIcon::Download
+                },
                 10.,
                 if ready { p.accent } else { p.accent_fg },
             ))
-            .child(if ready { "Restart now" } else { "Install update" })
+            .child(if ready {
+                "Restart now"
+            } else {
+                "Install update"
+            })
             .into_any_element()
     };
 

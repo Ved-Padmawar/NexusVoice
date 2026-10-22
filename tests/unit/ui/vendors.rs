@@ -36,7 +36,11 @@ fn every_family_the_catalog_ships_has_a_logo() {
     for model in models {
         let vendor = Vendor::for_family(&model.family)
             .unwrap_or_else(|| panic!("{}: family {:?} has no vendor", model.id, model.family));
-        assert!(vendor.asset().is_some(), "{}: {vendor:?} has no logo", model.id);
+        assert!(
+            vendor.asset().is_some(),
+            "{}: {vendor:?} has no logo",
+            model.id
+        );
     }
 }
 

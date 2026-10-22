@@ -31,7 +31,10 @@ fn stroke(names: &str, key: &str) -> Keystroke {
 
 fn shortcut(names: &str, key: &str) -> String {
     let mut recording = Recording::default();
-    assert!(recording.press_key(&stroke(names, key)), "{key:?} was refused");
+    assert!(
+        recording.press_key(&stroke(names, key)),
+        "{key:?} was refused"
+    );
     recording.shortcut().expect("a main key was pressed")
 }
 
@@ -39,17 +42,28 @@ fn shortcut(names: &str, key: &str) -> String {
 fn the_recorded_string_is_what_the_legacy_recorder_wrote() {
     assert_eq!(shortcut("ctrl shift", "space"), "Ctrl+Shift+Space");
     assert_eq!(shortcut("alt", "d"), "Alt+D");
-    assert_eq!(shortcut("super shift alt ctrl", "k"), "Ctrl+Alt+Shift+Super+K");
+    assert_eq!(
+        shortcut("super shift alt ctrl", "k"),
+        "Ctrl+Alt+Shift+Super+K"
+    );
 }
 
 #[test]
 fn modifiers_are_ordered_whatever_order_they_were_pressed_in() {
     let mut recording = Recording::default();
-    for pressed in ["super", "super shift", "super shift ctrl", "super shift ctrl alt"] {
-        recording.press_modifiers(&held(pressed));
+    for pressed in [
+        "super",
+        "super shift",
+        "super shift ctrl",
+        "super shift ctrl alt",
+    ] {
+        recording.press_modifiers(held(pressed));
     }
     assert!(recording.press_key(&stroke("super shift ctrl alt", "x")));
-    assert_eq!(recording.shortcut().as_deref(), Some("Ctrl+Alt+Shift+Super+X"));
+    assert_eq!(
+        recording.shortcut().as_deref(),
+        Some("Ctrl+Alt+Shift+Super+X")
+    );
     assert_eq!(
         recording.tokens().collect::<Vec<_>>(),
         ["Super", "Shift", "Ctrl", "Alt", "X"],
@@ -106,7 +120,11 @@ fn every_key_the_recorder_names_is_accepted_by_global_hotkey() {
     for (key, code) in keys {
         let text = shortcut("ctrl", key);
         let parsed = HotKey::from_str(&text).unwrap_or_else(|e| panic!("{text:?}: {e}"));
-        assert_eq!(parsed, HotKey::new(Some(Modifiers::CONTROL), code), "{text}");
+        assert_eq!(
+            parsed,
+            HotKey::new(Some(Modifiers::CONTROL), code),
+            "{text}"
+        );
     }
 }
 
@@ -119,7 +137,10 @@ fn function_keys_parse_up_to_the_last_one_global_hotkey_knows() {
     }
     let mut recording = Recording::default();
     for key in ["f0", "f36", "fx", "f-1"] {
-        assert!(!recording.press_key(&stroke("ctrl", key)), "{key} was accepted");
+        assert!(
+            !recording.press_key(&stroke("ctrl", key)),
+            "{key} was accepted"
+        );
     }
     assert!(recording.is_empty());
 }
@@ -128,21 +149,27 @@ fn function_keys_parse_up_to_the_last_one_global_hotkey_knows() {
 fn a_key_without_a_hotkey_name_is_refused_and_records_nothing() {
     let mut recording = Recording::default();
     for key in ["+", "é", "capslock", "!", "unknown", ""] {
-        assert!(!recording.press_key(&stroke("ctrl", key)), "{key:?} was accepted");
+        assert!(
+            !recording.press_key(&stroke("ctrl", key)),
+            "{key:?} was accepted"
+        );
     }
-    assert!(recording.is_empty(), "a refused key must not leave its modifiers behind");
+    assert!(
+        recording.is_empty(),
+        "a refused key must not leave its modifiers behind"
+    );
     assert_eq!(recording.shortcut(), None);
 }
 
 #[test]
 fn modifiers_alone_make_no_shortcut_but_stay_on_the_badges() {
     let mut recording = Recording::default();
-    recording.press_modifiers(&held("ctrl shift"));
+    recording.press_modifiers(held("ctrl shift"));
     assert_eq!(recording.shortcut(), None);
     assert_eq!(recording.tokens().collect::<Vec<_>>(), ["Ctrl", "Shift"]);
 
     // Letting go of Shift before the key keeps it, as the legacy recorder did.
-    recording.press_modifiers(&held("ctrl"));
+    recording.press_modifiers(held("ctrl"));
     assert!(recording.press_key(&stroke("ctrl", "x")));
     assert_eq!(recording.shortcut().as_deref(), Some("Ctrl+Shift+X"));
 }
@@ -150,11 +177,11 @@ fn modifiers_alone_make_no_shortcut_but_stay_on_the_badges() {
 #[test]
 fn letting_go_of_a_recorded_modifier_is_noticed() {
     let mut recording = Recording::default();
-    recording.press_modifiers(&held("ctrl shift"));
-    assert!(!recording.modifier_released(&held("ctrl shift")));
-    assert!(!recording.modifier_released(&held("ctrl shift alt")));
-    assert!(recording.modifier_released(&held("ctrl")));
-    assert!(recording.modifier_released(&held("")));
+    recording.press_modifiers(held("ctrl shift"));
+    assert!(!recording.modifier_released(held("ctrl shift")));
+    assert!(!recording.modifier_released(held("ctrl shift alt")));
+    assert!(recording.modifier_released(held("ctrl")));
+    assert!(recording.modifier_released(held("")));
 }
 
 #[test]

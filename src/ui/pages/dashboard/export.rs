@@ -86,7 +86,13 @@ impl ExportMenu {
         .detach();
     }
 
-    fn finish(&mut self, outcome: Saved, summary: &str, window: &mut Window, cx: &mut Context<Self>) {
+    fn finish(
+        &mut self,
+        outcome: Saved,
+        summary: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.exporting = false;
         cx.notify();
         match outcome {
@@ -141,7 +147,11 @@ impl Render for ExportMenu {
                         }))
                     })
                     .on_hover(move |hover, _, _| hovered.set(*hover))
-                    .tooltip(|window, cx| Tooltip::new("Export transcripts").build(window, cx)),
+                    .when(!self.open, |el| {
+                        el.tooltip(|window, cx| {
+                            Tooltip::new("Export transcripts").build(window, cx)
+                        })
+                    }),
             )
             .when(self.open, |el| {
                 el.child(popover_below(

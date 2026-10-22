@@ -290,11 +290,7 @@ impl CudaDownload {
         result
     }
 
-    async fn fetch(
-        &self,
-        app_data_dir: &Path,
-        cancel: &CancellationToken,
-    ) -> Result<(), String> {
+    async fn fetch(&self, app_data_dir: &Path, cancel: &CancellationToken) -> Result<(), String> {
         let platform = PLATFORM.ok_or("CUDA is not available on this platform")?;
         let manifest = fetch_manifest(platform).await?;
         if !matches_engine(&manifest) {

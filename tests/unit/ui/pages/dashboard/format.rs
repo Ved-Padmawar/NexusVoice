@@ -2,7 +2,12 @@ use chrono::{FixedOffset, NaiveDate};
 
 use super::*;
 
-fn transcript(id: i64, content: &str, created_at: &str, duration: Option<f64>) -> TranscriptResponse {
+fn transcript(
+    id: i64,
+    content: &str,
+    created_at: &str,
+    duration: Option<f64>,
+) -> TranscriptResponse {
     TranscriptResponse {
         id,
         content: content.to_string(),
@@ -39,14 +44,23 @@ fn fmt_date_reads_sqlite_timestamps_as_utc() {
     assert_eq!(fmt_date_in("2026-06-05 12:30:00", &tz), "Jun 5, 02:30 PM");
     // A zone that crosses midnight moves the day too.
     let west = FixedOffset::west_opt(5 * 3600).unwrap();
-    assert_eq!(fmt_date_in("2026-01-01 02:05:09", &west), "Dec 31, 09:05 PM");
+    assert_eq!(
+        fmt_date_in("2026-01-01 02:05:09", &west),
+        "Dec 31, 09:05 PM"
+    );
 }
 
 #[test]
 fn fmt_date_accepts_fractional_seconds_and_rfc3339() {
     let utc = FixedOffset::east_opt(0).unwrap();
-    assert_eq!(fmt_date_in("2026-06-05 00:00:00.250", &utc), "Jun 5, 12:00 AM");
-    assert_eq!(fmt_date_in("2026-06-05T13:00:00+02:00", &utc), "Jun 5, 11:00 AM");
+    assert_eq!(
+        fmt_date_in("2026-06-05 00:00:00.250", &utc),
+        "Jun 5, 12:00 AM"
+    );
+    assert_eq!(
+        fmt_date_in("2026-06-05T13:00:00+02:00", &utc),
+        "Jun 5, 11:00 AM"
+    );
 }
 
 #[test]
@@ -65,8 +79,14 @@ fn count_noun_pluralises_except_one() {
 #[test]
 fn export_file_name_carries_the_date_and_extension() {
     let day = NaiveDate::from_ymd_opt(2026, 3, 9).unwrap();
-    assert_eq!(ExportFormat::Txt.file_name(day), "nexusvoice-transcripts-2026-03-09.txt");
-    assert_eq!(ExportFormat::Json.file_name(day), "nexusvoice-transcripts-2026-03-09.json");
+    assert_eq!(
+        ExportFormat::Txt.file_name(day),
+        "nexusvoice-transcripts-2026-03-09.txt"
+    );
+    assert_eq!(
+        ExportFormat::Json.file_name(day),
+        "nexusvoice-transcripts-2026-03-09.json"
+    );
 }
 
 #[test]

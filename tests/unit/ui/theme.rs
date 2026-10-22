@@ -35,7 +35,11 @@ fn every_theme_keeps_readable_text_on_its_background() {
         let p = Palette::of(name);
         let contrast = (p.fg.l - p.bg.l).abs();
         assert!(contrast > 0.5, "{name:?}: fg/bg lightness gap {contrast}");
-        assert_eq!(p.dark, p.bg.l < p.fg.l, "{name:?}: dark flag disagrees with its colors");
+        assert_eq!(
+            p.dark,
+            p.bg.l < p.fg.l,
+            "{name:?}: dark flag disagrees with its colors"
+        );
     }
 }
 

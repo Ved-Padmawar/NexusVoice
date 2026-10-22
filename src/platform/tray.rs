@@ -53,18 +53,16 @@ fn build() -> Result<TrayIcon, String> {
 /// main loop.
 #[cfg(target_os = "linux")]
 pub fn install() {
-    let spawned = std::thread::Builder::new()
-        .name("tray".into())
-        .spawn(|| {
-            if let Err(e) = gtk::init() {
-                log::warn!("tray unavailable, GTK failed to start: {e}");
-                return;
-            }
-            match build() {
-                Ok(_tray) => gtk::main(),
-                Err(e) => log::warn!("tray unavailable: {e}"),
-            }
-        });
+    let spawned = std::thread::Builder::new().name("tray".into()).spawn(|| {
+        if let Err(e) = gtk::init() {
+            log::warn!("tray unavailable, GTK failed to start: {e}");
+            return;
+        }
+        match build() {
+            Ok(_tray) => gtk::main(),
+            Err(e) => log::warn!("tray unavailable: {e}"),
+        }
+    });
     if let Err(e) = spawned {
         log::warn!("tray thread failed to start: {e}");
     }
