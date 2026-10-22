@@ -34,7 +34,7 @@ pub fn fmt_count(n: i64) -> String {
         out.push('-');
     }
     for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(ch);
@@ -44,7 +44,7 @@ pub fn fmt_count(n: i64) -> String {
 
 const SQLITE_FORMAT: &str = "%Y-%m-%d %H:%M:%S%.f";
 
-/// A stored timestamp as "Jun 5, 02:30 PM" in the local zone. SQLite's
+/// A stored timestamp as "Jun 5, 02:30 PM" in the local zone. `SQLite`'s
 /// `CURRENT_TIMESTAMP` is UTC with no zone marker, so it is tagged as UTC here;
 /// the raw string stays untouched because it is also the pagination cursor.
 pub fn fmt_date(raw: &str) -> String {
@@ -120,6 +120,7 @@ struct ExportRow<'a> {
 
 /// Whole numbers print without a fraction ("2", not "2.0"), as in JSON from
 /// JavaScript, so exports match the ones the old app wrote.
+#[allow(clippy::ref_option)] // the signature `serialize_with` requires
 fn js_number<S: Serializer>(value: &Option<f64>, serializer: S) -> Result<S::Ok, S::Error> {
     match *value {
         #[allow(clippy::cast_possible_truncation)] // guarded by the fract/range check

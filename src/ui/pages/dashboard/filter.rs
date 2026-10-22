@@ -65,7 +65,7 @@ fn set_picked(
     cx: &mut Context<FilterPopover>,
 ) {
     state.update(cx, |state, cx| {
-        state.set_date(Date::Single(date), window, cx)
+        state.set_date(Date::Single(date), window, cx);
     });
 }
 
@@ -125,7 +125,6 @@ impl FilterPopover {
     }
 
     fn choice<T: Copy + PartialEq + 'static>(
-        &self,
         id: &'static str,
         options: [(T, &'static str); 2],
         current: T,
@@ -170,7 +169,6 @@ impl FilterPopover {
     }
 
     fn date_field(
-        &self,
         label: Option<&'static str>,
         state: &Entity<DatePickerState>,
         cx: &App,
@@ -192,14 +190,14 @@ impl FilterPopover {
 
     fn form(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = *Palette::global(cx);
-        let mode = self.choice(
+        let mode = Self::choice(
             "date-mode",
             [(DateMode::Range, "Range"), (DateMode::On, "Specific day")],
             self.mode,
             |this, mode| this.mode = mode,
             cx,
         );
-        let sort = self.choice(
+        let sort = Self::choice(
             "sort-order",
             [(false, "Newest first"), (true, "Oldest first")],
             self.sort_asc,
@@ -207,12 +205,12 @@ impl FilterPopover {
             cx,
         );
         let dates = match self.mode {
-            DateMode::On => div().flex().child(self.date_field(None, &self.on, cx)),
+            DateMode::On => div().flex().child(Self::date_field(None, &self.on, cx)),
             DateMode::Range => div()
                 .flex()
                 .gap_2()
-                .child(self.date_field(Some("From"), &self.from, cx))
-                .child(self.date_field(Some("To"), &self.to, cx)),
+                .child(Self::date_field(Some("From"), &self.from, cx))
+                .child(Self::date_field(Some("To"), &self.to, cx)),
         };
 
         div()

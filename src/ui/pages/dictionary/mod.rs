@@ -80,7 +80,7 @@ impl Dictionary {
                 }
             },
         );
-        let mut dictionary = Self {
+        let dictionary = Self {
             entries: Vec::new(),
             state: LoadState::Loading,
             term,
@@ -90,11 +90,11 @@ impl Dictionary {
             list: ListState::new(0, ListAlignment::Top, px(OVERDRAW)),
             _enter: enter,
         };
-        dictionary.refresh(cx);
+        Self::refresh(cx);
         dictionary
     }
 
-    fn refresh(&mut self, cx: &mut Context<Self>) {
+    fn refresh(cx: &mut Context<Self>) {
         cx.spawn_api(async { api::get_dictionary().await }, |this, result, cx| {
             match result {
                 Ok(entries) => {
@@ -129,7 +129,7 @@ impl Dictionary {
                             field.update(cx, |field, cx| field.set_value("", window, cx));
                         }
                         window.push_notification(Notification::success("Entry saved"), cx);
-                        this.refresh(cx);
+                        Self::refresh(cx);
                     }
                     // The inputs keep their text for another try.
                     Err(e) => window.push_notification(Notification::error(e.to_string()), cx),
@@ -208,7 +208,7 @@ impl Dictionary {
                 match result {
                     Ok(_) => {
                         this.cancel_edit(cx);
-                        this.refresh(cx);
+                        Self::refresh(cx);
                     }
                     // The edit stays open for another try.
                     Err(e) => window.push_notification(Notification::error(e.to_string()), cx),
@@ -218,12 +218,12 @@ impl Dictionary {
         );
     }
 
-    fn delete(&mut self, id: i64, window: &mut Window, cx: &mut Context<Self>) {
+    fn delete(id: i64, window: &mut Window, cx: &mut Context<Self>) {
         cx.spawn_api_in(
             window,
             async move { api::delete_dictionary_entry(id).await },
-            |this, result, window, cx| match result {
-                Ok(()) => this.refresh(cx),
+            |_, result, window, cx| match result {
+                Ok(()) => Self::refresh(cx),
                 Err(e) => window.push_notification(Notification::error(e.to_string()), cx),
             },
         );
@@ -340,7 +340,7 @@ impl Dictionary {
                         false,
                         table_skeleton(cx),
                         content,
-                        move |_, cx| retry.update(cx, |this, cx| this.refresh(cx)),
+                        move |_, cx| retry.update(cx, |_, cx| Self::refresh(cx)),
                     )),
             )
     }
@@ -401,8 +401,8 @@ impl Dictionary {
             })
             .hover(|s| s.bg(p.surface));
         match editing {
-            Some(edit) => row.children(edit_cells(entry, edit, this, p, cx)),
-            None => row.children(display_cells(entry, this, p)),
+            Some(edit) => row.children(edit_cells(entry, edit, this, &p, cx)),
+            None => row.children(display_cells(entry, this, &p)),
         }
         .into_any_element()
     }
@@ -443,7 +443,7 @@ fn header_label(text: &'static str, color: gpui_kit::Hsla) -> impl IntoElement {
         .child(text)
 }
 
-fn hits(entry: &DictionaryResponse, p: Palette) -> impl IntoElement {
+fn hits(entry: &DictionaryResponse, p: &Palette) -> impl IntoElement {
     div()
         .text_size(px(11.))
         .font_weight(FontWeight::BOLD)
@@ -454,7 +454,7 @@ fn hits(entry: &DictionaryResponse, p: Palette) -> impl IntoElement {
 fn display_cells(
     entry: &DictionaryResponse,
     this: &Entity<Dictionary>,
-    p: Palette,
+    p: &Palette,
 ) -> Vec<AnyElement> {
     let (edit_entry, edit_this) = (entry.clone(), this.clone());
     let (id, delete_this) = (entry.id, this.clone());
@@ -520,7 +520,7 @@ fn display_cells(
                     p.danger,
                     p,
                     move |window, cx| {
-                        delete_this.update(cx, |this, cx| this.delete(id, window, cx));
+                        delete_this.update(cx, |_, cx| Dictionary::delete(id, window, cx));
                     },
                 )),
         )
@@ -532,7 +532,7 @@ fn edit_cells(
     entry: &DictionaryResponse,
     edit: &Edit,
     this: &Entity<Dictionary>,
-    p: Palette,
+    p: &Palette,
     cx: &App,
 ) -> Vec<AnyElement> {
     let field = |state: &Entity<InputState>| -> Input {
@@ -580,7 +580,7 @@ fn edit_cells(
                     p.danger,
                     p,
                     move |_, cx| {
-                        cancel_this.update(cx, |this, cx| this.cancel_edit(cx));
+                        cancel_this.update(cx, Dictionary::cancel_edit);
                     },
                 )),
         )
@@ -593,9 +593,9 @@ fn icon_button(
     kind: &'static str,
     id: i64,
     glyph: AppIcon,
-    hover_bg: gpui_kit::Hsla,
-    hover_fg: gpui_kit::Hsla,
-    p: Palette,
+    tint_bg: gpui_kit::Hsla,
+    tint: gpui_kit::Hsla,
+    p: &Palette,
     on_click: impl Fn(&mut Window, &mut App) + 'static,
 ) -> gpui_kit::Stateful<gpui_kit::Div> {
     div()
@@ -607,7 +607,7 @@ fn icon_button(
         .rounded(R_MD)
         .text_color(p.muted)
         .cursor_pointer()
-        .hover(move |s| s.bg(hover_bg).text_color(hover_fg))
+        .hover(move |s| s.bg(tint_bg).text_color(tint))
         .on_click(move |_, window, cx| on_click(window, cx))
         .child(gpui_kit::component::Icon::new(glyph).size(px(14.)))
 }

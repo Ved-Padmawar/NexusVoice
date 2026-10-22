@@ -244,7 +244,7 @@ impl Feed {
         cx.notify();
     }
 
-    pub(super) fn delete(&mut self, id: i64, window: &Window, cx: &mut Context<Self>) {
+    pub(super) fn delete(id: i64, window: &Window, cx: &mut Context<Self>) {
         cx.spawn_api_in(
             window,
             async move { api::delete_transcript(id).await },

@@ -63,17 +63,17 @@ impl Dashboard {
                 this.filters = *filters;
                 this.apply_query(cx);
             }),
-            cx.subscribe(&feed, |this, _, FeedEvent::Deleted, cx| {
-                this.refresh_stats(cx)
+            cx.subscribe(&feed, |_, _, FeedEvent::Deleted, cx| {
+                Self::refresh_stats(cx);
             }),
-            cx.subscribe(&Store::entity(cx), |this, _, event: &StoreEvent, cx| {
+            cx.subscribe(&Store::entity(cx), |_, _, event: &StoreEvent, cx| {
                 if matches!(event, StoreEvent::TranscriptSaved(_)) {
-                    this.refresh_stats(cx);
+                    Self::refresh_stats(cx);
                 }
             }),
         ];
 
-        let mut dashboard = Self {
+        let dashboard = Self {
             stats: None,
             stats_state: LoadState::Loading,
             filters: TranscriptFilters::default(),
@@ -84,11 +84,11 @@ impl Dashboard {
             filter,
             _subscriptions: subscriptions,
         };
-        dashboard.refresh_stats(cx);
+        Self::refresh_stats(cx);
         dashboard
     }
 
-    fn refresh_stats(&mut self, cx: &mut Context<Self>) {
+    fn refresh_stats(cx: &mut Context<Self>) {
         cx.spawn_api(
             async { api::get_usage_stats().await },
             |this, result, cx| {
@@ -108,7 +108,7 @@ impl Dashboard {
     fn debounce_search(&mut self, cx: &mut Context<Self>) {
         self.search_debounce = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(SEARCH_DEBOUNCE).await;
-            let _ = this.update(cx, |this, cx| this.apply_query(cx));
+            let _ = this.update(cx, Self::apply_query);
         }));
     }
 
@@ -119,7 +119,7 @@ impl Dashboard {
             .update(cx, |feed, cx| feed.set_query(&term, filters, cx));
     }
 
-    fn render_notice(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_notice(cx: &mut Context<Self>) -> impl IntoElement {
         let p = *Palette::global(cx);
         div()
             .flex()
@@ -232,7 +232,7 @@ impl Dashboard {
                                 ),
                         )
                 })),
-            move |_, cx| retry.update(cx, |this, cx| this.refresh_stats(cx)),
+            move |_, cx| retry.update(cx, |_, cx| Self::refresh_stats(cx)),
         )
     }
 
@@ -352,7 +352,7 @@ impl Render for Dashboard {
                     .min_h_0()
                     .gap_5()
                     .mt(px(6.))
-                    .when(missing_hotkey, |el| el.child(self.render_notice(cx)))
+                    .when(missing_hotkey, |el| el.child(Self::render_notice(cx)))
                     .child(self.render_stats(cx))
                     .child(
                         div()

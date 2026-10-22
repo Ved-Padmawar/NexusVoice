@@ -45,7 +45,7 @@ impl ExportMenu {
             window,
             async { api::export_transcripts().await },
             move |this, result, window, cx| match result {
-                Ok(items) => this.save(format, items, window, cx),
+                Ok(items) => this.save(format, &items, window, cx),
                 Err(e) => this.finish(Saved::Failed(e.to_string()), "", window, cx),
             },
         );
@@ -54,11 +54,11 @@ impl ExportMenu {
     fn save(
         &mut self,
         format: ExportFormat,
-        items: Vec<TranscriptResponse>,
+        items: &[TranscriptResponse],
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let content = match export_content(format, &items, &Local) {
+        let content = match export_content(format, items, &Local) {
             Ok(content) => content,
             Err(e) => return self.finish(Saved::Failed(e.to_string()), "", window, cx),
         };
@@ -75,9 +75,8 @@ impl ExportMenu {
         cx.spawn_in(window, async move |this, cx| {
             let outcome = match picked.await {
                 Ok(Ok(Some(path))) => write_file(cx, path, content).await,
-                Ok(Ok(None)) => Saved::Cancelled,
+                Ok(Ok(None)) | Err(_) => Saved::Cancelled,
                 Ok(Err(e)) => Saved::Failed(e.to_string()),
-                Err(_) => Saved::Cancelled,
             };
             let _ = this.update_in(cx, |this, window, cx| {
                 this.finish(outcome, &summary, window, cx);

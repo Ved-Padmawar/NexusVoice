@@ -69,13 +69,13 @@ pub fn transcript_row(
                 .justify_center()
                 .child(div().mt(px(12.)).size(px(8.)).rounded_full().bg(p.accent)),
         )
-        .child(card(item, state, feed, p));
+        .child(card(item, state, feed, &p));
 
     if state.fresh {
         row.with_animation(
             ElementId::NamedInteger("transcript-fresh".into(), id.unsigned_abs()),
             Animation::new(Duration::from_millis(180)),
-            |el, t| el.opacity(t),
+            gpui_kit::Styled::opacity,
         )
         .into_any_element()
     } else {
@@ -87,7 +87,7 @@ fn card(
     item: &TranscriptResponse,
     state: &RowState,
     feed: &Entity<Feed>,
-    p: Palette,
+    p: &Palette,
 ) -> impl IntoElement {
     let id = item.id;
     let text = item.content.clone();
@@ -159,7 +159,7 @@ fn card(
                                 .child(Icon::new(AppIcon::Trash).size(px(11.)))
                                 .child("Delete")
                                 .on_click(move |_, window, cx| {
-                                    delete_feed.update(cx, |feed, cx| feed.delete(id, window, cx));
+                                    delete_feed.update(cx, |_, cx| Feed::delete(id, window, cx));
                                 }),
                         ),
                 ),
@@ -167,7 +167,7 @@ fn card(
 }
 
 /// A ghost text button at the card's foot; the caller adds hover colour and content.
-fn action(id: (&'static str, i64), p: Palette) -> Stateful<Div> {
+fn action(id: (&'static str, i64), p: &Palette) -> Stateful<Div> {
     div()
         .id(ElementId::NamedInteger(id.0.into(), id.1.unsigned_abs()))
         .flex()
