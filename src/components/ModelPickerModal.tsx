@@ -12,7 +12,6 @@ import type { HardwareProfile, ModelInfo } from '../types'
 
 export function ModelPickerModal() {
   const setModelChosen = useAppStore(s => s.setModelChosen)
-  const downloads = useAppStore(s => s.downloads)
   const startDownload = useAppStore(s => s.startDownload)
   const refreshModelInfo = useAppStore(s => s.refreshModelInfo)
   const catalog = useAppStore(s => s.catalog)
@@ -72,7 +71,7 @@ export function ModelPickerModal() {
   }
 
   // The entry is removed when the download finishes, which is the close signal.
-  const download = selected ? downloads[selected] : undefined
+  const download = useAppStore(s => (selected ? s.downloads[selected] : undefined))
   useEffect(() => {
     if (confirmed && !download) setModelChosen(true)
   }, [confirmed, download, setModelChosen])

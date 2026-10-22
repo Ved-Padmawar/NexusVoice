@@ -4,8 +4,8 @@
 #[derive(Debug, Clone, PartialEq)]
 pub struct Word {
     pub text: String,
-    /// End timestamp in centiseconds. Whisper reports only segment timing, so
-    /// every word of a segment carries that segment's end.
+    /// End timestamp in centiseconds, `None` when the model reports no
+    /// per-word timing.
     pub end_cs: Option<i64>,
 }
 
@@ -19,19 +19,29 @@ pub struct TimedSegment {
     pub end_ms: i64,
 }
 
-/// Join words into a transcript, attaching trailing punctuation to its word.
+/// Chinese and Japanese text, with its punctuation, is written without spaces.
+fn is_spaceless(c: char) -> bool {
+    matches!(
+        c,
+        '\u{3000}'..='\u{30FF}' | '\u{3400}'..='\u{4DBF}' | '\u{4E00}'..='\u{9FFF}' | '\u{FF00}'..='\u{FFEF}'
+    )
+}
+
+/// Join words into a transcript, attaching trailing punctuation to its word and
+/// leaving no space between two spaceless-script characters.
 pub fn join_words(words: &[Word]) -> String {
     let mut out = String::new();
     for w in words {
         let t = w.text.trim();
-        if t.is_empty() {
+        let Some(first) = t.chars().next() else {
             continue;
-        }
+        };
         // Punctuation attaches to the previous word rather than taking a space.
-        let attaches = t
-            .chars()
-            .next()
-            .is_some_and(|c| matches!(c, ',' | '.' | '!' | '?' | ';' | ':' | '\''));
+        let attaches = matches!(first, ',' | '.' | '!' | '?' | ';' | ':' | '\'')
+            || out
+                .chars()
+                .next_back()
+                .is_some_and(|last| is_spaceless(last) && is_spaceless(first));
         if !out.is_empty() && !attaches {
             out.push(' ');
         }

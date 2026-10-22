@@ -65,7 +65,6 @@ function ModelCard({
   loaded,
   installed,
   recommended,
-  download,
   disabled,
   onDownload,
   onUse,
@@ -75,12 +74,13 @@ function ModelCard({
   loaded: boolean
   installed: boolean
   recommended: boolean
-  download?: ModelDownload
   disabled: boolean
   onDownload: () => void
   onUse: () => void
   onCancel: () => void
 }) {
+  // Per-card subscription: a progress tick re-renders only this card.
+  const download: ModelDownload | undefined = useAppStore(s => s.downloads[model.id])
   const streaming = isStreaming(model)
   const vendor = vendorForFamily(model.family)
 
@@ -241,7 +241,7 @@ export function VoiceTab() {
   const catalog = useAppStore(s => s.catalog)
   const orderedModels = useMemo(() => sortForDisplay(catalog), [catalog])
   const refreshCatalog = useAppStore(s => s.refreshCatalog)
-  const downloads = useAppStore(s => s.downloads)
+  const pendingCount = useAppStore(s => Object.keys(s.downloads).length)
   const selected = useAppStore(s => s.selectedModel)
   const setSelectedModel = useAppStore(s => s.setSelectedModel)
   const refreshModelInfo = useAppStore(s => s.refreshModelInfo)
@@ -261,7 +261,6 @@ export function VoiceTab() {
   }, [refreshModelInfo, refreshCatalog, refreshDownloads])
 
   // Reads the disk on mount, and again when a finished download adds a file.
-  const pendingCount = Object.keys(downloads).length
   useEffect(() => { refreshOnDisk() }, [pendingCount, refreshOnDisk])
 
   const onDiskVariants = useMemo(() => new Set(onDisk.map(m => m.variant)), [onDisk])
@@ -408,7 +407,6 @@ export function VoiceTab() {
             loaded={loadedVariant === model.id}
             installed={onDiskVariants.has(model.id)}
             recommended={recommendedVariant === model.id}
-            download={downloads[model.id]}
             disabled={modelSaving}
             onDownload={() => void startDownload(model.id)}
             onUse={() => void handleUseModel(model.id)}

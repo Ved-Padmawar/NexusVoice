@@ -28,19 +28,19 @@ fn leaves_normal_text_untouched() {
 }
 
 #[test]
-fn segment_text_splits_into_words_carrying_the_segment_end() {
-    let words = split_segment_text("hello there world", 2_500);
+fn segment_text_splits_into_words_without_end_times() {
+    let words = split_segment_text("hello there world");
     assert_eq!(
         words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(),
         vec!["hello", "there", "world"]
     );
-    // Milliseconds convert to centiseconds for the pipeline's trim logic.
-    assert!(words.iter().all(|w| w.end_cs == Some(250)));
+    // The segment's end is not any one word's end, so none is claimed.
+    assert!(words.iter().all(|w| w.end_cs.is_none()));
 }
 
 #[test]
 fn segment_text_drops_hallucination_tokens() {
-    let words = split_segment_text("hello [noise] world", 1_000);
+    let words = split_segment_text("hello [noise] world");
     assert_eq!(
         words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(),
         vec!["hello", "world"]
@@ -48,15 +48,8 @@ fn segment_text_drops_hallucination_tokens() {
 }
 
 #[test]
-fn segment_text_with_no_timestamp_leaves_end_unset() {
-    let words = split_segment_text("hello", -1);
-    assert_eq!(words.len(), 1);
-    assert_eq!(words[0].end_cs, None);
-}
-
-#[test]
 fn empty_segment_text_yields_no_words() {
-    assert_eq!(split_segment_text("   ", 500), Vec::new());
+    assert_eq!(split_segment_text("   "), Vec::new());
 }
 
 #[test]

@@ -3,14 +3,14 @@ use super::*;
 #[test]
 fn same_rate_returns_input() {
     let input: Vec<f32> = (0..1000_i16).map(|i| f32::from(i) / 1000.0).collect();
-    let output = resample(&input, 16_000, 16_000);
+    let output = resample(&input, 16_000, 16_000).unwrap();
     assert_eq!(output, input);
 }
 
 #[test]
 fn upsample_output_length() {
     let input = vec![0.0f32; 16_000]; // 1 second at 16 kHz
-    let output = resample(&input, 16_000, 48_000);
+    let output = resample(&input, 16_000, 48_000).unwrap();
     // Should be approximately 48_000 samples (within 1%)
     let expected = 48_000usize;
     let diff = output.len().abs_diff(expected);
@@ -20,7 +20,7 @@ fn upsample_output_length() {
 #[test]
 fn downsample_output_length() {
     let input = vec![0.0f32; 48_000]; // 1 second at 48 kHz
-    let output = resample(&input, 48_000, 16_000);
+    let output = resample(&input, 48_000, 16_000).unwrap();
     let expected = 16_000usize;
     let diff = output.len().abs_diff(expected);
     assert!(diff < 200, "got {}, expected ~{}", output.len(), expected);
@@ -28,7 +28,7 @@ fn downsample_output_length() {
 
 #[test]
 fn empty_input_returns_empty() {
-    let output = resample(&[], 44_100, 16_000);
+    let output = resample(&[], 44_100, 16_000).unwrap();
     assert_eq!(output, Vec::<f32>::new());
 }
 
@@ -60,7 +60,7 @@ fn sine(freq: f32, rate: u32, samples: usize) -> Vec<f32> {
 #[test]
 fn downsampling_preserves_the_tone() {
     let input = sine(440.0, 48_000, 48_000); // 1 s of A4
-    let out = resample(&input, 48_000, 16_000);
+    let out = resample(&input, 48_000, 16_000).unwrap();
 
     assert!(
         (peak(&out) - 0.8).abs() < 0.1,
@@ -78,7 +78,7 @@ fn downsampling_preserves_the_tone() {
 #[test]
 fn upsampling_preserves_the_tone() {
     let input = sine(440.0, 16_000, 16_000);
-    let out = resample(&input, 16_000, 48_000);
+    let out = resample(&input, 16_000, 48_000).unwrap();
 
     assert!((peak(&out) - 0.8).abs() < 0.1, "peak {}", peak(&out));
     let crossings = crossings(&out);
@@ -92,7 +92,7 @@ fn upsampling_preserves_the_tone() {
 fn output_stays_finite_and_in_range() {
     // A NaN here would poison the mel spectrogram and empty the transcript.
     let input = sine(3_000.0, 44_100, 44_100);
-    let out = resample(&input, 44_100, 16_000);
+    let out = resample(&input, 44_100, 16_000).unwrap();
 
     assert!(
         out.iter().all(|s| s.is_finite()),
@@ -106,7 +106,7 @@ fn a_cached_resampler_gives_the_same_answer_on_reuse() {
     // Instances are cached and reused across recordings, so stale filter state
     // from the previous call must not change the result.
     let input = sine(440.0, 48_000, 16_000);
-    let first = resample(&input, 48_000, 16_000);
-    let second = resample(&input, 48_000, 16_000);
+    let first = resample(&input, 48_000, 16_000).unwrap();
+    let second = resample(&input, 48_000, 16_000).unwrap();
     assert_eq!(first, second, "reuse changed the output");
 }

@@ -59,6 +59,28 @@ fn leading_punctuation_does_not_start_the_transcript_with_a_space() {
 }
 
 #[test]
+fn chinese_words_join_without_spaces() {
+    assert_eq!(join_words(&[w("你"), w("好"), w("世界")]), "你好世界");
+}
+
+#[test]
+fn japanese_words_and_punctuation_join_without_spaces() {
+    assert_eq!(
+        join_words(&[w("こんにちは"), w("、"), w("世界"), w("。")]),
+        "こんにちは、世界。"
+    );
+}
+
+#[test]
+fn spaces_stay_between_latin_words_and_around_other_scripts() {
+    assert_eq!(
+        join_words(&[w("使用"), w("Python"), w("编程")]),
+        "使用 Python 编程"
+    );
+    assert_eq!(join_words(&[w("안녕"), w("하세요")]), "안녕 하세요");
+}
+
+#[test]
 fn an_empty_word_list_joins_to_an_empty_string() {
     assert_eq!(join_words(&[]), "");
     assert_eq!(join_words(&[w("  "), w("\t")]), "");

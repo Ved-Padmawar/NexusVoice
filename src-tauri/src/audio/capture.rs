@@ -162,13 +162,16 @@ struct Shared {
     rate: Arc<Mutex<u32>>,
     /// Signalled on the first sample after arming.
     ready: Arc<(Mutex<bool>, Condvar)>,
+    /// Why the device failed to open or died; cleared when taken.
+    last_error: Mutex<Option<String>>,
+    /// The open stream hit a fatal error and delivers nothing more.
+    dead: AtomicBool,
 }
 
 /// The persistent capture stream. One lives in `AppState` for the app's life.
 pub struct MicStream {
     shared: Arc<Shared>,
     tx: Mutex<Option<mpsc::Sender<Command>>>,
-    last_error: Arc<Mutex<Option<String>>>,
 }
 
 impl MicStream {
@@ -186,9 +189,10 @@ impl MicStream {
                 waveform,
                 rate,
                 ready: Arc::new((Mutex::new(false), Condvar::new())),
+                last_error: Mutex::new(None),
+                dead: AtomicBool::new(false),
             }),
             tx: Mutex::new(None),
-            last_error: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -199,8 +203,7 @@ impl MicStream {
         if slot.is_none() {
             let (tx, rx) = mpsc::channel();
             let shared = Arc::clone(&self.shared);
-            let last_error = Arc::clone(&self.last_error);
-            std::thread::spawn(move || supervise(&rx, &shared, &last_error));
+            std::thread::spawn(move || supervise(&rx, &shared));
             *slot = Some(tx);
         }
         if let Some(tx) = slot.as_ref() {
@@ -212,37 +215,51 @@ impl MicStream {
     /// [`MicStream::ready_signal`] for the first sample.
     pub fn arm(&self) {
         // Drop a stale error so it can't abort this recording.
-        *lock_recovering(&self.last_error) = None;
+        *lock_recovering(&self.shared.last_error) = None;
         *lock_recovering(&self.shared.ready.0) = false;
         self.shared.armed.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_armed(&self) -> bool {
+        self.shared.armed.load(Ordering::SeqCst)
+    }
+
+    /// The stream died and is delivering nothing; cleared by the next open.
+    pub fn is_dead(&self) -> bool {
+        self.shared.dead.load(Ordering::SeqCst)
+    }
+
+    /// Stop capturing immediately, with no post-roll.
+    pub fn disarm(&self) {
+        self.shared.armed.store(false, Ordering::SeqCst);
     }
 
     /// Stop capturing after the post-roll, so trailing speech still lands.
     /// Blocking — call it off the async runtime.
     pub fn disarm_after_post_roll(&self) {
         std::thread::sleep(POST_ROLL);
-        self.shared.armed.store(false, Ordering::SeqCst);
+        self.disarm();
     }
 
     pub fn ready_signal(&self) -> Arc<(Mutex<bool>, Condvar)> {
         Arc::clone(&self.shared.ready)
     }
 
-    /// Error from the last open attempt, if it failed.
+    /// Error from the last open attempt or the live stream, if one failed.
     pub fn take_error(&self) -> Option<String> {
-        lock_recovering(&self.last_error).take()
+        lock_recovering(&self.shared.last_error).take()
     }
 
     /// Release the device — the selected input changed, or the app is exiting.
     pub fn close(&self) {
-        self.shared.armed.store(false, Ordering::SeqCst);
+        self.disarm();
         if let Some(tx) = lock_recovering(&self.tx).as_ref() {
             let _ = tx.send(Command::Close);
         }
     }
 
     pub fn shutdown(&self) {
-        self.shared.armed.store(false, Ordering::SeqCst);
+        self.disarm();
         if let Some(tx) = lock_recovering(&self.tx).take() {
             let _ = tx.send(Command::Shutdown);
         }
@@ -251,11 +268,7 @@ impl MicStream {
 
 /// Owns the `!Send` `cpal::Stream` and services commands, releasing an idle
 /// device after [`IDLE_TIMEOUT`].
-fn supervise(
-    rx: &mpsc::Receiver<Command>,
-    shared: &Arc<Shared>,
-    last_error: &Arc<Mutex<Option<String>>>,
-) {
+fn supervise(rx: &mpsc::Receiver<Command>, shared: &Arc<Shared>) {
     let mut stream = None;
     let mut open_device = None;
     let mut idle_since = std::time::Instant::now();
@@ -264,21 +277,26 @@ fn supervise(
         match rx.recv_timeout(TICK) {
             Ok(Command::Open(preferred)) => {
                 // Reopening the same device would throw away a warm stream.
-                if stream.is_some() && open_device == preferred {
+                if stream.is_some()
+                    && open_device == preferred
+                    && !shared.dead.load(Ordering::SeqCst)
+                {
                     idle_since = std::time::Instant::now();
                     continue;
                 }
+                // Dropped before the flag clears, so only the new stream can set it.
                 drop(stream.take());
+                shared.dead.store(false, Ordering::SeqCst);
                 match open_stream(shared, preferred.as_deref()) {
                     Ok(s) => {
                         stream = Some(s);
                         open_device = preferred;
-                        *lock_recovering(last_error) = None;
+                        *lock_recovering(&shared.last_error) = None;
                         idle_since = std::time::Instant::now();
                     }
                     Err(e) => {
                         log::error!("microphone open failed: {e}");
-                        *lock_recovering(last_error) = Some(e);
+                        *lock_recovering(&shared.last_error) = Some(e);
                         open_device = None;
                         release_ready(shared);
                     }
@@ -290,7 +308,11 @@ fn supervise(
             }
             Ok(Command::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                if shared.armed.load(Ordering::SeqCst) {
+                if stream.is_some() && shared.dead.load(Ordering::SeqCst) {
+                    log::warn!("releasing dead microphone stream");
+                    drop(stream.take());
+                    open_device = None;
+                } else if shared.armed.load(Ordering::SeqCst) {
                     idle_since = std::time::Instant::now();
                 } else if stream.is_some()
                     && idle_since.elapsed() >= IDLE_TIMEOUT
@@ -358,9 +380,26 @@ where
         .build_input_stream(
             *config,
             move |data: &[T], _| {
+                let mut buf = lock_recovering(&cb.buffer);
+                // Checked under the buffer lock: a reader that sees `armed`
+                // off and then takes the lock has every sample this recording got.
                 if !cb.armed.load(Ordering::SeqCst) || cb.paused.load(Ordering::SeqCst) {
                     return;
                 }
+                // Downmix straight into the shared buffer, then hand the newly
+                // appended slice to the waveform meter.
+                let start = buf.len();
+                if channels == 1 {
+                    buf.extend(data.iter().map(|s| s.to_f32()));
+                } else {
+                    buf.extend(data.chunks(channels).map(|frame| {
+                        #[allow(clippy::cast_precision_loss)]
+                        let n = channels as f32; // channels ≤ 8 in practice, no real precision loss
+                        frame.iter().map(|s| s.to_f32()).sum::<f32>() / n
+                    }));
+                }
+                cb.waveform.push(&buf[start..]);
+                drop(buf);
                 // First sample of this recording — unblock the start wait.
                 let (rlock, rcvar) = &*cb.ready;
                 if let Ok(mut r) = rlock.lock() {
@@ -368,21 +407,6 @@ where
                         *r = true;
                         rcvar.notify_all();
                     }
-                }
-                // Downmix straight into the shared buffer, then hand the newly
-                // appended slice to the waveform meter.
-                if let Ok(mut buf) = cb.buffer.lock() {
-                    let start = buf.len();
-                    if channels == 1 {
-                        buf.extend(data.iter().map(|s| s.to_f32()));
-                    } else {
-                        buf.extend(data.chunks(channels).map(|frame| {
-                            #[allow(clippy::cast_precision_loss)]
-                            let n = channels as f32; // channels ≤ 8 in practice, no real precision loss
-                            frame.iter().map(|s| s.to_f32()).sum::<f32>() / n
-                        }));
-                    }
-                    cb.waveform.push(&buf[start..]);
                 }
             },
             move |err| {
@@ -393,8 +417,10 @@ where
                     log::warn!("cpal stream glitch (continuing): {err}");
                     return;
                 }
-                // Fatal: release any start waiting on a sample that won't come.
+                // Fatal: fail any start waiting on a sample that won't come.
                 log::error!("cpal stream error: {err}");
+                *lock_recovering(&on_err.last_error) = Some(err.to_string());
+                on_err.dead.store(true, Ordering::SeqCst);
                 release_ready(&on_err);
             },
             None,

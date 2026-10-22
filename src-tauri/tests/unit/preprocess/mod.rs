@@ -8,7 +8,7 @@ fn non_finite_samples_are_zeroed() {
     // A glitching device emits NaN/Inf. Left in, they poison the FFT and the
     // whole decode comes back empty or as garbage.
     let input = [0.5, f32::NAN, -0.5, f32::INFINITY, f32::NEG_INFINITY, 0.25];
-    let out = to_16k(&input, 16_000);
+    let out = to_16k(&input, 16_000).unwrap();
 
     assert!(out.iter().all(|s| s.is_finite()), "{out:?}");
     assert_eq!(out, vec![0.5, 0.0, -0.5, 0.0, 0.0, 0.25]);
@@ -16,7 +16,7 @@ fn non_finite_samples_are_zeroed() {
 
 #[test]
 fn out_of_range_samples_are_clamped_not_wrapped() {
-    let out = to_16k(&[2.5, -2.5, 1.0, -1.0], 16_000);
+    let out = to_16k(&[2.5, -2.5, 1.0, -1.0], 16_000).unwrap();
     assert_eq!(out, vec![1.0, -1.0, 1.0, -1.0]);
 }
 
@@ -24,7 +24,7 @@ fn out_of_range_samples_are_clamped_not_wrapped() {
 fn audio_already_at_16k_is_not_resampled() {
     // Resampling 16k→16k would cost time and shift the timeline for nothing.
     let input: Vec<f32> = (0..1000u16).map(|i| f32::from(i) / 1000.0 - 0.5).collect();
-    let out = to_16k(&input, 16_000);
+    let out = to_16k(&input, 16_000).unwrap();
     assert_eq!(out.len(), input.len(), "length must be untouched");
     assert_eq!(out, input);
 }
@@ -32,7 +32,7 @@ fn audio_already_at_16k_is_not_resampled() {
 #[test]
 fn a_native_rate_is_resampled_to_16k() {
     let input = vec![0.0f32; 48_000]; // 1 s at 48 kHz
-    let out = to_16k(&input, 48_000);
+    let out = to_16k(&input, 48_000).unwrap();
     assert!(
         out.len().abs_diff(16_000) < 200,
         "expected ~16000 samples, got {}",
@@ -42,7 +42,7 @@ fn a_native_rate_is_resampled_to_16k() {
 
 #[test]
 fn an_empty_buffer_stays_empty() {
-    assert_eq!(to_16k(&[], 48_000), Vec::<f32>::new());
+    assert_eq!(to_16k(&[], 48_000).unwrap(), Vec::<f32>::new());
     assert_eq!(normalize_level(&[]), Vec::<f32>::new());
 }
 

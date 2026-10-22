@@ -30,7 +30,8 @@ fn emit_partial(app: &AppHandle, (committed, tentative): (String, String)) {
     if committed.is_empty() && tentative.is_empty() {
         return;
     }
-    let _ = app.emit(
+    let _ = app.emit_to(
+        "pill",
         "transcription-partial",
         PartialTranscript {
             committed,
@@ -92,6 +93,7 @@ fn spawn_native_stream_worker(app: &AppHandle, state: &AppState) {
     let running = Arc::clone(&state.transcription_running);
     let audio_buffer = Arc::clone(&state.audio_buffer);
     let native_rate = Arc::clone(&state.native_sample_rate);
+    let mic = Arc::clone(&state.mic);
     let engine_cache = Arc::clone(&state.engine);
     let streamed = Arc::clone(&state.streamed_text);
     let stream_done = Arc::clone(&state.stream_done);
@@ -124,24 +126,30 @@ fn spawn_native_stream_worker(app: &AppHandle, state: &AppState) {
         };
         log::info!("decoding via {}", Route::Streaming.as_str());
 
-        // Feed only what capture has added since the last chunk.
+        // Capture outlives `running` by the post-roll. Flags are read before the
+        // buffer, so the pass that sees both off has everything.
         let mut fed = 0usize;
-        while running.load(Ordering::SeqCst) {
-            std::thread::sleep(STREAM_POLL);
+        loop {
+            let capturing = running.load(Ordering::SeqCst) || mic.is_armed();
             let rate = *lock_recovering(&native_rate);
             let chunk = {
                 let buf = lock_recovering(&audio_buffer);
-                if buf.len() <= fed {
-                    continue;
-                }
                 let chunk = buf[fed..].to_vec();
                 fed = buf.len();
                 chunk
             };
-            let prepared = crate::preprocess::to_16k(&chunk, rate);
-            if !prepared.is_empty() && stream.feed(&prepared) {
-                emit_partial(&app, stream.partial());
+            match crate::preprocess::to_16k(&chunk, rate) {
+                Ok(prepared) => {
+                    if !prepared.is_empty() && stream.feed(&prepared) {
+                        emit_partial(&app, stream.partial());
+                    }
+                }
+                Err(e) => stream.drop_chunk(&e),
             }
+            if !capturing {
+                break;
+            }
+            std::thread::sleep(STREAM_POLL);
         }
 
         let _ = app.emit("transcription-partial-end", ());
@@ -221,19 +229,41 @@ fn spawn_local_agreement_worker(app: &AppHandle, state: &AppState) {
 }
 
 /// Emit pill waveform levels at ~30 Hz from the spectrum meter while recording.
+/// The same tick warns once if the mic dies, so the user stops talking into it.
 fn spawn_waveform_emitter(app: &AppHandle, state: &AppState) {
     let running = Arc::clone(&state.transcription_running);
     let waveform = Arc::clone(&state.waveform);
+    let mic = Arc::clone(&state.mic);
     let app = app.clone();
 
     tauri::async_runtime::spawn(async move {
         let mut tick = tokio::time::interval(std::time::Duration::from_millis(33));
+        let mut warned = false;
         while running.load(Ordering::SeqCst) {
             tick.tick().await;
-            let _ = app.emit("pill:waveform", waveform.levels());
+            let _ = app.emit_to("pill", "pill:waveform", waveform.levels());
+            if !warned && mic.is_dead() {
+                warned = true;
+                let _ = app.emit(
+                    "transcription-warning",
+                    "Your microphone stopped. Stop recording to keep what was captured.",
+                );
+            }
         }
-        let _ = app.emit("pill:waveform", [0.0_f32; crate::audio::waveform::BANDS]);
+        let _ = app.emit_to(
+            "pill",
+            "pill:waveform",
+            [0.0_f32; crate::audio::waveform::BANDS],
+        );
     });
+}
+
+/// Why finalize produced no transcript, which decides what the user is told.
+enum FinalizeError {
+    /// The engine panicked or the task died; the engine was reset.
+    Engine(String),
+    /// The recorded audio could not be prepared for decoding.
+    Audio(String),
 }
 
 /// Inputs captured from `AppState` for the finalize task. Gathered in the
@@ -283,7 +313,7 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
         let raw_text = tauri::async_runtime::spawn_blocking({
             let engine = Arc::clone(&engine);
             let engine_cache = Arc::clone(&engine_cache);
-            move || -> Result<(String, Option<String>), String> {
+            move || -> Result<(String, Option<String>), FinalizeError> {
                 // A streaming-native model already decoded everything as it was
                 // fed; only the growing-window path has a tail left to decode.
                 let text = if let Some(text) = streamed {
@@ -294,14 +324,14 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
                     })) else {
                         log::error!("TranscriptionEngine panicked during finalize — evicting");
                         *engine_cache.blocking_lock() = None;
-                        return Err("engine_poisoned".to_string());
+                        return Err(FinalizeError::Engine("engine_poisoned".to_string()));
                     };
                     // Also evict if Mutex was poisoned during finalize
                     if engine.is_poisoned() {
                         log::error!("TranscriptionEngine mutex poisoned after finalize — evicting");
                         *engine_cache.blocking_lock() = None;
                     }
-                    text
+                    text.map_err(FinalizeError::Audio)?
                 };
                 let language = engine
                     .lock()
@@ -311,7 +341,7 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
             }
         })
         .await
-        .map_err(|e| format!("finalize join error: {e}"))
+        .map_err(|e| FinalizeError::Engine(format!("finalize join error: {e}")))
         .and_then(|r| r);
 
         // A long dictation is use too: the idle clock starts when it ends.
@@ -319,10 +349,18 @@ pub fn spawn_finalize(app: AppHandle, ctx: FinalizeContext) {
 
         let (raw_text, language) = match raw_text {
             Ok(t) => t,
-            Err(e) => {
+            Err(FinalizeError::Engine(e)) => {
                 let _ = app.emit(
                     "transcription-error",
                     "Transcription engine encountered an error and was reset. Please try again.",
+                );
+                log::error!("finalize failed: {e}");
+                return;
+            }
+            Err(FinalizeError::Audio(e)) => {
+                let _ = app.emit(
+                    "transcription-error",
+                    "Couldn't process the recorded audio. Please try again.",
                 );
                 log::error!("finalize failed: {e}");
                 return;

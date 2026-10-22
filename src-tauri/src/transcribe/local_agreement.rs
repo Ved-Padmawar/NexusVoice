@@ -98,7 +98,14 @@ impl StreamingSession {
             return;
         }
 
-        let mut prepared = crate::preprocess::to_16k(window, native_rate);
+        let mut prepared = match crate::preprocess::to_16k(window, native_rate) {
+            Ok(prepared) => prepared,
+            // `decoded_len` stays put, so the next poll retries the window.
+            Err(e) => {
+                log::warn!("streaming pass skipped: {e}");
+                return;
+            }
+        };
         if !self.lead_trimmed {
             // `decoded_len` stays put so the next poll re-checks the grown buffer.
             let Some(skip_16k) = lead_speech_offset(&prepared) else {
@@ -277,18 +284,19 @@ impl StreamingSession {
     }
 
     /// Decode the remaining window and append whatever follows the committed
-    /// text. This pass re-covers committed audio, which is aligned away.
+    /// text. This pass re-covers committed audio, which is aligned away. `Err`
+    /// means the audio could not be prepared, so the tail was never decoded.
     fn finish(
         mut self,
         window: &[f32],
         native_rate: u32,
         engine: &Arc<Mutex<TranscriptionEngine>>,
-    ) -> String {
+    ) -> Result<String, String> {
         if native_rate == 0 || window.is_empty() {
-            return self.text();
+            return Ok(self.text());
         }
 
-        let mut prepared = crate::preprocess::to_16k(window, native_rate);
+        let mut prepared = crate::preprocess::to_16k(window, native_rate)?;
         if !self.lead_trimmed {
             // No confident speech at all still gets decoded — the model's own
             // no-speech filters have the final say.
@@ -298,13 +306,13 @@ impl StreamingSession {
         }
         let leveled = crate::preprocess::normalize_level(&prepared);
         if leveled.is_empty() {
-            return self.text();
+            return Ok(self.text());
         }
 
         let prompt = self.prompt();
         let Ok(mut guard) = engine.lock() else {
             log::error!("TranscriptionEngine mutex poisoned during finalize");
-            return self.text();
+            return Ok(self.text());
         };
         match guard.transcribe_segments(&leveled, &prompt, Pass::Final) {
             Ok(segments) => {
@@ -312,11 +320,11 @@ impl StreamingSession {
                 let norm: Vec<String> = hyp.iter().map(|w| normalize_word(&w.text)).collect();
                 let overlap = trailing_overlap(&self.committed_norm, &norm);
                 self.committed.extend_from_slice(&hyp[overlap..]);
-                self.text()
+                Ok(self.text())
             }
             Err(e) => {
                 log::warn!("final decode failed: {e}");
-                self.text()
+                Ok(self.text())
             }
         }
     }
@@ -324,13 +332,13 @@ impl StreamingSession {
 
 /// Finalize a recording: decode the audio the session hasn't committed yet and
 /// return the complete transcript. `None` (recording never streamed) decodes
-/// the whole buffer in one pass.
+/// the whole buffer in one pass. `Err` means the audio could not be prepared.
 pub fn finalize(
     session: Option<StreamingSession>,
     buffer: &[f32],
     native_rate: u32,
     engine: &Arc<Mutex<TranscriptionEngine>>,
-) -> String {
+) -> Result<String, String> {
     let session = session.unwrap_or_default();
     let start = session.window_start().min(buffer.len());
     session.finish(&buffer[start..], native_rate, engine)

@@ -31,7 +31,7 @@ const MAX_H = 16
  * thread, which is silent here — random noise would make every style look
  * alike, so this fakes syllables, phonemes and breaths instead.
  */
-function usePreviewLevels() {
+function usePreviewLevels(rootRef: React.RefObject<HTMLElement | null>) {
   const levelsRef = useRef<number[]>(new Array(BARS).fill(0))
 
   useEffect(() => {
@@ -86,9 +86,32 @@ function usePreviewLevels() {
       raf = requestAnimationFrame(tick)
     }
 
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [])
+    const start = () => {
+      if (raf) return
+      last = performance.now()
+      raf = requestAnimationFrame(tick)
+    }
+    const stop = () => {
+      cancelAnimationFrame(raf)
+      raf = 0
+    }
+
+    // Idle while scrolled off-screen.
+    const el = rootRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      start()
+      return stop
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) start()
+      else stop()
+    })
+    observer.observe(el)
+    return () => {
+      observer.disconnect()
+      stop()
+    }
+  }, [rootRef])
 
   return levelsRef
 }
@@ -100,10 +123,13 @@ function BarsPreview({ levelsRef, accent }: { levelsRef: React.RefObject<number[
 
   useEffect(() => {
     let raf = 0
+    let drawn: number[] | null = null
     const tick = () => {
       const el = wrapRef.current
-      if (el) {
+      // Same array as last frame means the generator is paused.
+      if (el && levelsRef.current !== drawn) {
         const levels = levelsRef.current
+        drawn = levels
         const spans = el.children
         for (let i = 0; i < spans.length; i++) {
           const v = levels[i] ?? 0
@@ -220,7 +246,8 @@ export const WaveformTab = memo(function WaveformTab() {
     setWaveformStyle: s.setWaveformStyle,
     pillTheme: s.pillTheme,
   })))
-  const levelsRef = usePreviewLevels()
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const levelsRef = usePreviewLevels(rootRef)
   const current = WAVEFORM_STYLES.find((s) => s.id === waveformStyle) ?? WAVEFORM_STYLES[0]
   const theme = pillThemeDef(pillTheme)
 
@@ -230,7 +257,7 @@ export const WaveformTab = memo(function WaveformTab() {
   }
 
   return (
-    <div className="flex gap-4 rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
+    <div ref={rootRef} className="flex gap-4 rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
       <div className="flex shrink-0 flex-col gap-2.5">
         {/* Backdrop mixed from the pill's own ground, matching the theme
             preview above it, so the pill has something to sit off. */}

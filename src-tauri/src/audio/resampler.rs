@@ -19,9 +19,9 @@ static RESAMPLERS: OnceLock<ResamplerCache> = OnceLock::new();
 
 /// Resample `samples` from `from_rate` Hz to `to_rate` Hz using a high-quality
 /// sinc interpolation filter. Returns the resampled mono f32 buffer.
-pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
+pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Result<Vec<f32>, String> {
     if from_rate == to_rate || samples.is_empty() {
-        return samples.to_vec();
+        return Ok(samples.to_vec());
     }
 
     let ratio = f64::from(to_rate) / f64::from(from_rate);
@@ -53,21 +53,17 @@ pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
 
     // `process_all` handles chunking, padding, and the startup-delay trim.
     let input = vec![samples.to_vec()];
-    let Ok(adapter) = SequentialSliceOfVecs::new(&input, 1, samples.len()) else {
-        log::error!(
-            "resampler input adapter rejected a {}-frame buffer",
+    let adapter = SequentialSliceOfVecs::new(&input, 1, samples.len()).map_err(|e| {
+        format!(
+            "resampler input adapter rejected a {}-frame buffer: {e}",
             samples.len()
-        );
-        return samples.to_vec();
-    };
+        )
+    })?;
 
-    let mut out = match resampler.process_all(&adapter, samples.len(), None) {
-        Ok(buffer) => buffer.take_data(),
-        Err(e) => {
-            log::error!("resampler error: {e}");
-            return samples.to_vec();
-        }
-    };
+    let mut out = resampler
+        .process_all(&adapter, samples.len(), None)
+        .map_err(|e| format!("resampler error: {e}"))?
+        .take_data();
 
     // Mono, so interleaved output is already the single channel's samples.
     #[allow(
@@ -77,7 +73,7 @@ pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     )]
     let expected_len = (samples.len() as f64 * ratio).round() as usize;
     out.truncate(expected_len);
-    out
+    Ok(out)
 }
 
 #[cfg(test)]

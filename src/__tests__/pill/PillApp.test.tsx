@@ -62,6 +62,30 @@ it('keeps outgoing words available during the transcript exit fade', async () =>
   expect(view.getByText('visible')).toBeInTheDocument()
 })
 
+it('shows a microphone warning without ending the recording', async () => {
+  const view = render(<PillApp />)
+  await waitFor(() => expect(listeners.get(EVENTS.TRANSCRIPTION_WARNING)?.size).toBe(1))
+  await emit(EVENTS.HOTKEY_PRESSED)
+  vi.mocked(invoke).mockClear()
+  await emit(EVENTS.TRANSCRIPTION_WARNING, 'Your microphone stopped.')
+  // The capsule window has no room above the pill, so it grows first.
+  expect(await view.findByText('Your microphone stopped.')).toBeInTheDocument()
+  expect(invoke).toHaveBeenCalledWith('resize_pill', { expanded: true })
+  expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: recording')
+  await waitFor(() => expect(view.queryByText('Your microphone stopped.')).toBeNull(), { timeout: 4000 })
+  await waitFor(() => expect(invoke).toHaveBeenLastCalledWith('resize_pill', { expanded: false }))
+})
+
+it('still pastes the captured text after a microphone warning', async () => {
+  render(<PillApp />)
+  await waitFor(() => expect(listeners.get(EVENTS.TRANSCRIPTION_WARNING)?.size).toBe(1))
+  await emit(EVENTS.HOTKEY_PRESSED)
+  await emit(EVENTS.HOTKEY_RELEASED)
+  await emit(EVENTS.TRANSCRIPTION_WARNING, 'The transcript may be cut off.')
+  await emit(EVENTS.TRANSCRIPTION_COMPLETE, 'captured words')
+  expect(invoke).toHaveBeenCalledWith('type_text', { text: 'captured words' })
+})
+
 it('shrinks the window even when recording ends before expansion IPC resolves', async () => {
   let finishExpansion: (() => void) | undefined
   vi.mocked(invoke).mockImplementation((cmd, args) => {

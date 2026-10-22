@@ -369,10 +369,20 @@ body {
   font-size: 9px;
   font-weight: 500;
   color: #fbbf24;
-  white-space: nowrap;
+  /* The pill is its containing block, so size to the text, not the capsule;
+     the cap keeps a long message inside the card-width window. */
+  width: max-content;
+  max-width: 300px;
+  text-align: center;
   pointer-events: none;
   z-index: 9999;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+/* An open card fills the window, so the message sits inside its top edge. */
+.pill-tooltip--inset {
+  bottom: auto;
+  top: 8px;
 }
 
 /* ================================================================

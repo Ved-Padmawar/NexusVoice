@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { memo, useEffect, useState, useCallback, useRef, useMemo, useSyncExternalStore } from 'react'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
@@ -28,6 +28,33 @@ const PILL_WIDTH: Record<string, number> = {
 type PillState = 'idle' | 'recording' | 'dictation' | 'dictation-paused' | 'processing' | 'error' | 'downloading'
 
 type LivePartial = { committed: string; tentative: string }
+
+// Partials bypass React state so only <LiveText> re-renders per frame.
+// Clearing keeps the last text so the card's exit fade still shows it.
+let livePartial: LivePartial | null = null
+let hasLivePartial = false
+const partialSubs = new Set<() => void>()
+const setPartial = (p: LivePartial | null) => {
+  if (p) livePartial = p
+  hasLivePartial = p !== null
+  partialSubs.forEach((fn) => fn())
+}
+const subscribePartial = (fn: () => void) => {
+  partialSubs.add(fn)
+  return () => { partialSubs.delete(fn) }
+}
+const getPartial = () => livePartial
+const getHasPartial = () => hasLivePartial
+
+const LiveText = memo(function LiveText() {
+  const partial = useSyncExternalStore(subscribePartial, getPartial)
+  return (
+    <>
+      <span className="pill__committed">{partial?.committed}</span>
+      {partial?.tentative && <> <span className="pill__tentative">{partial.tentative}</span></>}
+    </>
+  )
+})
 
 const MIN_H = 3
 const MAX_H = 16
@@ -82,7 +109,7 @@ export function PillApp() {
   const [pillTheme, setPillTheme] = useState<PillTheme>(() => readPersisted<PillTheme>('pillTheme', 'steel'))
   const [waveformStyle, setWaveformStyle] = useState<WaveformStyle>(() => readPersisted<WaveformStyle>('waveformStyle', 'bars'))
   const [liveTranscript, setLiveTranscript] = useState(() => readPersisted<boolean>('liveTranscript', false))
-  const [partial, setPartial] = useState<LivePartial | null>(null)
+  const hasPartial = useSyncExternalStore(subscribePartial, getHasPartial)
   // Canvas styles read levels off a ref so a 30 Hz stream never re-renders.
   const levelsRef = useRef<number[]>(new Array(FLAT_BARS.length).fill(0))
   const stateRef = useRef<PillState>('idle')
@@ -95,9 +122,9 @@ export function PillApp() {
   const isPaused = state === 'dictation-paused'
 
   const wantsCard =
-    liveTranscript && (isRecording || isDictation) && partial !== null
-  const { roomy, expanded, width, height, radius } = usePillGeometry(
-    wantsCard, PILL_WIDTH[state], reduceMotion, innerRef, textRef,
+    liveTranscript && (isRecording || isDictation) && hasPartial
+  const { roomy, expanded, width, height, radius, headroom } = usePillGeometry(
+    wantsCard, tooltip !== '', PILL_WIDTH[state], reduceMotion, innerRef, textRef,
   )
 
   useEffect(() => {
@@ -300,7 +327,7 @@ export function PillApp() {
       unlisteners.push(u2)
     }
     setup()
-    return () => { cancelled = true; unlisteners.forEach(fn => fn()) }
+    return () => { cancelled = true; unlisteners.forEach(fn => fn()); livePartial = null; setPartial(null) }
   }, [])
 
   useEffect(() => {
@@ -372,6 +399,13 @@ export function PillApp() {
       })
       if (cancelled) { u4(); return }
       unlisteners.push(u4)
+
+      // Not an error: the recording carries on and keeps what it captured.
+      const uWarn = await listen<string>(EVENTS.TRANSCRIPTION_WARNING, (event) => {
+        if (event.payload) showTooltip(event.payload)
+      })
+      if (cancelled) { uWarn(); return }
+      unlisteners.push(uWarn)
 
       const u5 = await listen(EVENTS.DICTATION_HOTKEY_PRESSED, async () => {
         if (isRecordingRef.current || stateRef.current === 'processing' || stateRef.current === 'downloading') return
@@ -541,7 +575,8 @@ export function PillApp() {
 
   return (
     <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      {tooltip && <div className="pill-tooltip">{tooltip}</div>}
+      {/* Shown once the window has room; over a card, inside its top edge. */}
+      {tooltip && headroom && <div className={`pill-tooltip${roomy ? ' pill-tooltip--inset' : ''}`}>{tooltip}</div>}
 
       <motion.div
         // Keep the outgoing transcript in its card layout until the close
@@ -583,8 +618,7 @@ export function PillApp() {
               exit={{ opacity: 0, transition: { duration: reduceMotion ? 0 : 0.09 } }}
             >
               <span ref={innerRef} style={{ display: 'block' }}>
-                <span className="pill__committed">{partial?.committed}</span>
-                {partial?.tentative && <> <span className="pill__tentative">{partial.tentative}</span></>}
+                <LiveText />
                 {!isPaused && (
                   <motion.span
                     className="pill__caret"

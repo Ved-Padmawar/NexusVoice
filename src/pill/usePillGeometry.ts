@@ -18,9 +18,13 @@ const painted = () => new Promise<void>(resolve => {
   requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
 })
 
-export function usePillGeometry(wantsCard: boolean, capsuleWidth: number, reduceMotion: boolean | null,
-  innerRef: RefObject<HTMLSpanElement | null>, textRef: RefObject<HTMLDivElement | null>) {
+export function usePillGeometry(wantsCard: boolean, wantsHeadroom: boolean, capsuleWidth: number,
+  reduceMotion: boolean | null, innerRef: RefObject<HTMLSpanElement | null>,
+  textRef: RefObject<HTMLDivElement | null>) {
   const [roomy, setRoomy] = useState(false)
+  // The capsule window has no room above the pill, so a message grows it too.
+  const [headroom, setHeadroom] = useState(false)
+  const wantsHeadroomRef = useRef(wantsHeadroom)
   const [contentHeight, setContentHeight] = useState(CARD_MIN_H)
   const heightRef = useRef(CARD_MIN_H)
   const width = useMotionValue(capsuleWidth)
@@ -43,6 +47,21 @@ export function usePillGeometry(wantsCard: boolean, capsuleWidth: number, reduce
     queue.current = next.catch(() => {})
     return next
   }, [])
+
+  useEffect(() => {
+    wantsHeadroomRef.current = wantsHeadroom
+    if (wantsHeadroom) {
+      let cancelled = false
+      void resize(true).then(() => {
+        if (!cancelled) setHeadroom(true)
+      }).catch(error => console.error('Unable to make room for pill message', error))
+      return () => { cancelled = true }
+    }
+    // A card still open or closing owns the shrink.
+    if (!headroom || wantsCard || roomy) return
+    void resize(false).then(() => setHeadroom(false))
+      .catch(error => console.error('Unable to release pill message room', error))
+  }, [wantsHeadroom, headroom, wantsCard, roomy, resize])
 
   useEffect(() => {
     if (!wantsCard) return
@@ -88,7 +107,7 @@ export function usePillGeometry(wantsCard: boolean, capsuleWidth: number, reduce
         // Gate a reopen before dispatching the shrink: once it is in flight,
         // the next expansion must wait for its own resize acknowledgement.
         setRoomy(false)
-        await resize(false)
+        if (!wantsHeadroomRef.current) await resize(false)
       }).catch(error => console.error('Unable to collapse recording pill', error))
     }
     return () => { cancelled = true; controls.forEach(control => control.stop()) }
@@ -109,5 +128,5 @@ export function usePillGeometry(wantsCard: boolean, capsuleWidth: number, reduce
 
   useEffect(() => () => { void resize(false).catch(error => console.error('Unable to release pill window', error)) }, [resize])
 
-  return { roomy, expanded, width, height, radius }
+  return { roomy, expanded, width, height, radius, headroom }
 }

@@ -289,7 +289,7 @@ fn build_segments(transcript: &transcribe_cpp::Transcript) -> Vec<TimedSegment> 
 
         // A model that emitted no word rows still yields usable text.
         if words.is_empty() {
-            words = split_segment_text(&seg.text, seg.t1_ms);
+            words = split_segment_text(&seg.text);
         }
 
         words.retain(|w| !w.text.is_empty());
@@ -306,14 +306,14 @@ fn build_segments(transcript: &transcribe_cpp::Transcript) -> Vec<TimedSegment> 
     segments
 }
 
-/// Split a segment on whitespace when the model emitted no word rows. Every
-/// word carries the segment's end time — coarse, but the trim logic still works.
-fn split_segment_text(text: &str, end_ms: i64) -> Vec<Word> {
+/// Split a segment on whitespace when the model emitted no word rows. The words
+/// carry no end time: trimming at the segment's end would drop later words.
+fn split_segment_text(text: &str) -> Vec<Word> {
     strip_hallucination_tokens(text)
         .split_whitespace()
         .map(|w| Word {
             text: w.to_string(),
-            end_cs: (end_ms >= 0).then_some(end_ms / 10),
+            end_cs: None,
         })
         .collect()
 }

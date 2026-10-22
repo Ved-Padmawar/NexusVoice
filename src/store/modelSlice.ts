@@ -52,6 +52,8 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
   setSelectedModel: (variant: ModelId) => set({ selectedModel: variant }),
 
   refreshCatalog: async () => {
+    // Static for the app's lifetime; empty means retry.
+    if (get().catalog.length > 0) return
     try {
       set({ catalog: await fetchModelCatalog() })
     } catch { /* ignore */ }

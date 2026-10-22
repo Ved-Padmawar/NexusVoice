@@ -2,7 +2,7 @@ use crate::audio::resample;
 
 /// Resample to 16 kHz. No VAD splicing, so sample indices still map linearly
 /// back to native-rate time.
-pub fn to_16k(samples: &[f32], native_rate: u32) -> Vec<f32> {
+pub fn to_16k(samples: &[f32], native_rate: u32) -> Result<Vec<f32>, String> {
     // A glitching device can emit NaN/Inf, which aborts downstream FFTs.
     let sanitized: Vec<f32> = samples
         .iter()
@@ -16,7 +16,7 @@ pub fn to_16k(samples: &[f32], native_rate: u32) -> Vec<f32> {
         .collect();
 
     if native_rate == 16_000 {
-        sanitized
+        Ok(sanitized)
     } else {
         resample(&sanitized, native_rate, 16_000)
     }

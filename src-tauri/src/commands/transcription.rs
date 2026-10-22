@@ -149,21 +149,29 @@ fn ensure_dictation_active(state: &AppState) -> Result<(), ApiError> {
 }
 
 /// Report "started" only once the mic is producing audio. A warm stream
-/// delivers on the next callback; a cold open takes longer, and the timeout
-/// guards a device that never delivers. A failed open aborts the recording.
+/// delivers on the next callback; a cold open takes longer. A failed open, a
+/// dead stream or a device that never delivers aborts the recording.
 async fn await_capture_started(app: &AppHandle, state: &AppState) -> Result<(), ApiError> {
-    const READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+    const READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
     let ready = state.mic.ready_signal();
-    tauri::async_runtime::spawn_blocking(move || {
+    let timed_out = tauri::async_runtime::spawn_blocking(move || {
         let (lock, cvar) = &*ready;
-        let _ = cvar.wait_timeout_while(lock_recovering(lock), READY_TIMEOUT, |ready| !*ready);
+        let (_guard, wait) = cvar
+            .wait_timeout_while(lock_recovering(lock), READY_TIMEOUT, |ready| !*ready)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        wait.timed_out()
     })
     .await
-    .ok();
+    .unwrap_or(false);
 
-    let Some(e) = state.mic.take_error() else {
+    let Some(e) = state
+        .mic
+        .take_error()
+        .or_else(|| timed_out.then(|| "microphone is not responding".to_string()))
+    else {
         return Ok(());
     };
+    state.mic.disarm();
     state.try_stop_transcription();
     state.reset_recording_session();
     let _ = app.emit(
@@ -200,7 +208,8 @@ async fn wait_for_stream_done(state: &AppState) {
 }
 
 async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<(), ApiError> {
-    const MIN_DURATION_SECS: f64 = 0.5;
+    // The post-roll alone is 0.2 s, so this only drops a tap.
+    const MIN_DURATION_SECS: f64 = 0.3;
 
     // Before the recording flag drops: a long recording would otherwise look
     // idle and the watcher could unload the engine this stop is about to use.
@@ -233,14 +242,31 @@ async fn finalize_current_recording(app: AppHandle, state: &AppState) -> Result<
         None
     };
 
+    // Set when the mic died mid-recording; what it captured first still counts.
+    let mic_error = state.mic.take_error();
+
     #[allow(clippy::cast_precision_loss)]
     let too_short = samples.is_empty()
         || (captured_rate > 0
             && (samples.len() as f64 / f64::from(captured_rate)) < MIN_DURATION_SECS);
     if too_short {
         state.reset_recording_session();
-        let _ = app.emit("transcription-complete", "");
+        if let Some(e) = mic_error {
+            let _ = app.emit(
+                "transcription-error",
+                crate::audio::error::friendly_capture_error(&e),
+            );
+        } else {
+            let _ = app.emit("transcription-complete", "");
+        }
         return Ok(());
+    }
+    if let Some(e) = mic_error {
+        log::warn!("microphone failed mid-recording, finalizing what was captured: {e}");
+        let _ = app.emit(
+            "transcription-warning",
+            "Your microphone stopped mid-recording, so the transcript may be cut off.",
+        );
     }
 
     let engine = match state.get_or_load_engine().await {
@@ -313,18 +339,15 @@ pub fn list_input_devices(state: State<'_, AppState>) -> Vec<InputDeviceInfo> {
 #[tauri::command]
 #[specta::specta]
 pub fn set_input_device(state: State<'_, AppState>, name: Option<String>) -> Result<(), ApiError> {
-    match name {
-        Some(name) if !name.trim().is_empty() => {
-            state
-                .save_input_device(name.trim())
-                .map_err(|e| ApiError::new("io_error", e.to_string()))?;
-            state.mic.close();
-            Ok(())
-        }
-        _ => {
-            state.delete_input_device();
-            state.mic.close();
-            Ok(())
-        }
+    match name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        Some(name) => state
+            .save_input_device(name)
+            .map_err(|e| ApiError::new("io_error", e.to_string()))?,
+        None => state.delete_input_device(),
     }
+    // A recording keeps its stream; the next one reopens on the new device.
+    if !state.transcription_running.load(Ordering::SeqCst) {
+        state.mic.close();
+    }
+    Ok(())
 }
