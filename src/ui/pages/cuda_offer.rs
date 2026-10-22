@@ -138,7 +138,7 @@ fn downloading(percent: u8, p: &Palette, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-fn failed(error: &str, p: &Palette, cx: &App) -> AnyElement {
+fn failed(error: &str, p: &Palette) -> AnyElement {
     div()
         .child(badge(Tone::Danger, AppIcon::AlertCircle, p))
         .child(title("CUDA download failed", p))
@@ -153,7 +153,7 @@ fn failed(error: &str, p: &Palette, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-fn ready(p: &Palette, cx: &App) -> AnyElement {
+fn ready(p: &Palette) -> AnyElement {
     div()
         .child(badge(Tone::Success, AppIcon::CheckCircle, p))
         .child(title("CUDA is ready", p))
@@ -169,7 +169,7 @@ fn ready(p: &Palette, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-fn offer(gpu: &str, p: &Palette, cx: &App) -> AnyElement {
+fn offer(gpu: &str, p: &Palette) -> AnyElement {
     div()
         .child(badge(Tone::Accent, AppIcon::Zap, p))
         .child(title("Your NVIDIA GPU supports CUDA", p))
@@ -202,11 +202,11 @@ impl Render for CudaOffer {
         let body = if let Some(percent) = progress {
             downloading(percent, &p, cx)
         } else if let Some(error) = store.cuda_error.as_deref() {
-            failed(error, &p, cx)
+            failed(error, &p)
         } else if store.cuda.map(|c| c.pack) == Some(PackState::PendingInstall) {
-            ready(&p, cx)
+            ready(&p)
         } else {
-            offer(self.gpu_name.as_deref().unwrap_or("your GPU"), &p, cx)
+            offer(self.gpu_name.as_deref().unwrap_or("your GPU"), &p)
         };
         modal(
             "cuda-offer",

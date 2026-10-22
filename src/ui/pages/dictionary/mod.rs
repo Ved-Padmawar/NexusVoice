@@ -20,6 +20,16 @@ use crate::ui::runtime::SpawnApi as _;
 use crate::ui::theme::{alpha, Palette, R_LG, R_MD, R_SM, R_XL};
 use form::entry_from_fields;
 
+/// What Tailwind's `font-mono` resolved to on each platform; the correction
+/// chip is the one place the app shows code-like text.
+const MONO_FONT: &str = if cfg!(target_os = "windows") {
+    "Consolas"
+} else if cfg!(target_os = "macos") {
+    "Menlo"
+} else {
+    "DejaVu Sans Mono"
+};
+
 /// Rows rendered beyond the viewport, so scrolling doesn't pop them in.
 const OVERDRAW: f32 = 400.;
 
@@ -384,6 +394,7 @@ impl Dictionary {
         let row = div()
             .id(id)
             .flex()
+            .w_full()
             .items_center()
             .when(ix + 1 < self.entries.len(), |el| {
                 el.border_b_1().border_color(p.border_soft)
@@ -475,7 +486,7 @@ fn display_cells(
                 .bg(p.accent_soft)
                 .border_1()
                 .border_color(alpha(p.accent, 0.2))
-                .font_family("monospace")
+                .font_family(MONO_FONT)
                 .text_size(px(12.))
                 .text_color(p.accent)
                 .child(entry.replacement.clone()),
