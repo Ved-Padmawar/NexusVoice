@@ -3,36 +3,36 @@
 
 use super::*;
 
-fn cuda(supported: bool, pack: PackState, download_progress: Option<u8>) -> Option<CudaStatus> {
-    Some(CudaStatus {
+fn cuda(supported: bool, pack: PackState, download_progress: Option<u8>) -> CudaStatus {
+    CudaStatus {
         supported,
         pack,
         download_progress,
-    })
+    }
 }
 
-fn absent() -> Option<CudaStatus> {
+fn absent() -> CudaStatus {
     cuda(true, PackState::Absent, None)
 }
 
 #[test]
 fn offers_when_a_model_is_chosen_and_cuda_can_be_added() {
-    assert!(offer_due(true, false, false, absent()));
+    assert!(offer_due(true, false, false, Some(absent())));
 }
 
 #[test]
 fn waits_for_the_first_run_model_choice() {
-    assert!(!offer_due(false, false, false, absent()));
+    assert!(!offer_due(false, false, false, Some(absent())));
 }
 
 #[test]
 fn never_offers_again_once_seen() {
-    assert!(!offer_due(true, true, false, absent()));
+    assert!(!offer_due(true, true, false, Some(absent())));
 }
 
 #[test]
 fn does_not_stack_a_second_dialog() {
-    assert!(!offer_due(true, false, true, absent()));
+    assert!(!offer_due(true, false, true, Some(absent())));
 }
 
 #[test]
@@ -46,7 +46,7 @@ fn stays_quiet_where_cuda_cannot_run_or_is_already_present() {
         true,
         false,
         false,
-        cuda(false, PackState::Absent, None)
+        Some(cuda(false, PackState::Absent, None))
     ));
     for pack in [
         PackState::Installed,
@@ -54,7 +54,7 @@ fn stays_quiet_where_cuda_cannot_run_or_is_already_present() {
         PackState::PendingRemoval,
     ] {
         assert!(
-            !offer_due(true, false, false, cuda(true, pack, None)),
+            !offer_due(true, false, false, Some(cuda(true, pack, None))),
             "{pack:?}"
         );
     }
@@ -67,12 +67,12 @@ fn does_not_offer_what_is_already_downloading() {
         true,
         false,
         false,
-        cuda(true, PackState::Absent, Some(10))
+        Some(cuda(true, PackState::Absent, Some(10)))
     ));
     assert!(!offer_due(
         true,
         false,
         false,
-        cuda(true, PackState::Absent, Some(0))
+        Some(cuda(true, PackState::Absent, Some(0)))
     ));
 }

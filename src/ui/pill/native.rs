@@ -7,7 +7,7 @@
 //! clients no positioning at all; there the pill only resizes and the
 //! compositor drags it.
 
-use gpui_kit::{point, px, size, Bounds, Pixels, Point, Size, Window};
+use gpui_kit::{point, px, Bounds, Pixels, Point, Size, Window};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 /// Where the pointer is, and whether the primary button is down.

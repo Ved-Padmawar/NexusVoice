@@ -6,7 +6,6 @@ fn model(family: &str, size_bytes: u64) -> CatalogModel {
         display_name: format!("{family} {size_bytes}"),
         family: family.to_string(),
         pipelines: vec!["single-shot".to_string()],
-        default_pipeline: "single-shot".to_string(),
         size_bytes,
         multilingual: false,
         description: "Balanced performance".to_string(),

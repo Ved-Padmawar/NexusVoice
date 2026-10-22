@@ -28,7 +28,7 @@ const RETRY_BASE_DELAY: Duration = Duration::from_secs(1);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// No bytes for this long means the connection is dead; a slow but moving
 /// download keeps going.
-const READ_TIMEOUT: Duration = Duration::from_secs(60);
+const READ_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// Download `entry` into `models_dir`, reporting progress via events.
 /// Returns `Err(CANCELLED)` on user cancel so the caller can tell it from a

@@ -18,6 +18,9 @@ impl ApiError {
         }
     }
 
+    /// Not read by the UI today, which shows `message`; tests pin it so
+    /// the failure kinds stay distinct.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn code(&self) -> &'static str {
         self.code
     }

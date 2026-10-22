@@ -11,12 +11,12 @@ fn update(status: UpdateStatus, version: Option<&str>) -> UpdateState {
     update
 }
 
-fn cuda(pack: PackState, progress: Option<u8>) -> Option<CudaStatus> {
-    Some(CudaStatus {
+fn cuda(pack: PackState, progress: Option<u8>) -> CudaStatus {
+    CudaStatus {
         supported: true,
         pack,
         download_progress: progress,
-    })
+    }
 }
 
 fn detail(tile: &Tile) -> (&str, Option<Tone>) {
@@ -95,7 +95,7 @@ fn cuda_is_hidden_where_it_is_unsupported_or_not_yet_known() {
 
 #[test]
 fn a_running_cuda_download_can_be_cancelled() {
-    let tile = cuda_tile(cuda(PackState::Absent, Some(30)), None, None).expect("tile");
+    let tile = cuda_tile(Some(cuda(PackState::Absent, Some(30))), None, None).expect("tile");
     assert_eq!(
         tile.body,
         Body::Progress {
@@ -107,21 +107,24 @@ fn a_running_cuda_download_can_be_cancelled() {
 
 #[test]
 fn pending_cuda_changes_need_a_restart_to_apply() {
-    let installed = cuda_tile(cuda(PackState::PendingInstall, None), None, None).expect("tile");
+    let installed =
+        cuda_tile(Some(cuda(PackState::PendingInstall, None)), None, None).expect("tile");
     assert_eq!(installed.action, Some(Action::Restart));
-    let removed = cuda_tile(cuda(PackState::PendingRemoval, None), None, None).expect("tile");
+    let removed = cuda_tile(Some(cuda(PackState::PendingRemoval, None)), None, None).expect("tile");
     assert_eq!(removed.title, "CUDA removed");
     assert_eq!(removed.action, Some(Action::Restart));
 }
 
 #[test]
 fn installed_cuda_is_active_only_when_the_backend_is_cuda() {
-    let active = cuda_tile(cuda(PackState::Installed, None), Some("cuda"), None).expect("tile");
+    let active =
+        cuda_tile(Some(cuda(PackState::Installed, None)), Some("cuda"), None).expect("tile");
     assert_eq!(
         (active.title.as_str(), active.tone),
         ("CUDA active", Tone::Success)
     );
-    let idle = cuda_tile(cuda(PackState::Installed, None), Some("vulkan"), None).expect("tile");
+    let idle =
+        cuda_tile(Some(cuda(PackState::Installed, None)), Some("vulkan"), None).expect("tile");
     assert_eq!(idle.title, "CUDA installed, not in use");
     assert_eq!(idle.tone, Tone::Accent);
     assert_eq!(idle.action, Some(Action::RemoveCuda));
@@ -130,7 +133,7 @@ fn installed_cuda_is_active_only_when_the_backend_is_cuda() {
 #[test]
 fn a_cuda_error_replaces_the_hint_but_never_a_restart_prompt() {
     let absent = cuda_tile(
-        cuda(PackState::Absent, None),
+        Some(cuda(PackState::Absent, None)),
         None,
         Some("checksum mismatch"),
     )
@@ -138,7 +141,11 @@ fn a_cuda_error_replaces_the_hint_but_never_a_restart_prompt() {
     assert_eq!(detail(&absent), ("checksum mismatch", Some(Tone::Danger)));
     assert_eq!(absent.action, Some(Action::DownloadCuda));
 
-    let pending =
-        cuda_tile(cuda(PackState::PendingInstall, None), None, Some("stale")).expect("tile");
+    let pending = cuda_tile(
+        Some(cuda(PackState::PendingInstall, None)),
+        None,
+        Some("stale"),
+    )
+    .expect("tile");
     assert_eq!(detail(&pending).0, "Restart to start using it");
 }

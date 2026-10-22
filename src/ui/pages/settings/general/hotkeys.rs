@@ -135,7 +135,7 @@ impl HotkeyCard {
         self.listening = false;
         self.recording = Recording::default();
         if let Some(previous) = self.restore.take() {
-            if let Err(e) = Hotkeys::set(self.spec.kind, Some(previous), cx) {
+            if let Err(e) = Hotkeys::set(self.spec.kind, Some(&previous), cx) {
                 log::warn!("could not restore the {} hotkey: {e}", self.spec.title);
             }
         }
@@ -147,7 +147,7 @@ impl HotkeyCard {
             Self::toast_error(window, "Invalid combination - use modifier + key", cx);
             return;
         };
-        match Hotkeys::set(self.spec.kind, Some(shortcut), cx) {
+        match Hotkeys::set(self.spec.kind, Some(&shortcut), cx) {
             Ok(()) => {
                 self.listening = false;
                 self.recording = Recording::default();

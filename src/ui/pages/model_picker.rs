@@ -45,10 +45,7 @@ impl ModelPicker {
 
     fn on_store_changed(&mut self, store: &Entity<Store>, cx: &mut Context<Self>) {
         let store = store.read(cx);
-        let downloaded = store
-            .model_info
-            .as_ref()
-            .is_some_and(|info| info.downloaded);
+        let downloaded = store.active_model_downloaded();
         let catalog_ready = !store.catalog.is_empty();
         let downloading = self
             .selected
@@ -88,7 +85,7 @@ impl ModelPicker {
     /// signal. An entry gone without the file is a failed start: back to the
     /// choice, so the user can try again.
     fn download_ended(&mut self, cx: &mut Context<Self>) {
-        if api::get_model_info().downloaded {
+        if api::active_model_downloaded() {
             Self::finish(cx);
         } else {
             self.confirmed = false;
@@ -112,13 +109,13 @@ impl ModelPicker {
             window,
             async move {
                 api::set_model_override(variant).await?;
-                Ok::<_, api::ApiError>(api::get_model_info())
+                Ok::<_, api::ApiError>(api::active_model_downloaded())
             },
             move |this: &mut Self, result, window, cx| match result {
-                Ok(info) => {
+                Ok(downloaded) => {
                     Store::entity(cx).update(cx, Store::refresh_models);
                     // Already on disk: skip the download step.
-                    if info.downloaded {
+                    if downloaded {
                         return Self::finish(cx);
                     }
                     Store::entity(cx).update(cx, |store, cx| store.start_download(&id, cx));
@@ -380,7 +377,7 @@ impl ModelPicker {
         let p = *Palette::global(cx);
         let this = cx.entity();
         // An empty catalog after the load finished: nothing to pick from.
-        let load_failed = store.catalog.is_empty() && store.model_info.is_some();
+        let load_failed = store.catalog.is_empty() && store.models_loaded;
         let selected = self
             .selected
             .as_ref()

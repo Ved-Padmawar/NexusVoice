@@ -6,26 +6,26 @@ use gpui_kit::Rgba;
 use super::{mix, oklch, Palette};
 use crate::ui::settings::ThemeName;
 
-fn rgb(color: gpui_kit::Hsla) -> (u8, u8, u8) {
+fn rgb(color: gpui_kit::Hsla) -> (f32, f32, f32) {
     let c = Rgba::from(color);
-    let byte = |v: f32| (v * 255.).round() as u8;
+    let byte = |v: f32| (v * 255.).round();
     (byte(c.r), byte(c.g), byte(c.b))
 }
 
 #[test]
 fn oklch_converts_to_the_srgb_a_browser_paints() {
     // Reference values from CSS Color 4: these are the sRGB primaries and white.
-    assert_eq!(rgb(oklch(1., 0., 0.)), (255, 255, 255));
-    assert_eq!(rgb(oklch(0.627_955, 0.257_683, 29.234)), (255, 0, 0));
-    assert_eq!(rgb(oklch(0.452_014, 0.313_214, 264.052)), (0, 0, 255));
+    assert_eq!(rgb(oklch(1., 0., 0.)), (255., 255., 255.));
+    assert_eq!(rgb(oklch(0.627_955, 0.257_683, 29.234)), (255., 0., 0.));
+    assert_eq!(rgb(oklch(0.452_014, 0.313_214, 264.052)), (0., 0., 255.));
 }
 
 #[test]
 fn mix_weights_the_first_color_like_css_color_mix() {
     let black = oklch(0., 0., 0.);
     let white = oklch(1., 0., 0.);
-    assert_eq!(rgb(mix(white, black, 0.25)), (64, 64, 64));
-    assert_eq!(rgb(mix(white, black, 1.)), (255, 255, 255));
+    assert_eq!(rgb(mix(white, black, 0.25)), (64., 64., 64.));
+    assert_eq!(rgb(mix(white, black, 1.)), (255., 255., 255.));
 }
 
 #[test]

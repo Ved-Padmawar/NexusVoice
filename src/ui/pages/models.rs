@@ -42,9 +42,8 @@ pub fn is_streaming(model: &CatalogModel) -> bool {
     model.pipelines.iter().any(|p| p == "streaming")
 }
 
-/// Resolve a backend display name (from `get_model_info` or the hardware
-/// profile) to a catalog id. Falls back to the first catalog entry when
-/// nothing matches.
+/// Resolve a backend display name (from the hardware profile) to a catalog
+/// id. Falls back to the first catalog entry when nothing matches.
 pub fn model_name_to_id<'a>(name: &str, catalog: &'a [CatalogModel]) -> Option<&'a str> {
     let name = name.to_lowercase();
     catalog

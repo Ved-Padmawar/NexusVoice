@@ -30,7 +30,6 @@ pub struct CatalogModel {
     pub family: String,
     /// Every decode path this model supports (`streaming`, `single-shot`).
     pub pipelines: Vec<String>,
-    pub default_pipeline: String,
     pub size_bytes: u64,
     pub multilingual: bool,
     pub description: String,
@@ -42,8 +41,9 @@ pub struct CatalogModel {
 /// The catalog with per-model download state, so the picker renders from one
 /// source of truth instead of a hardcoded frontend list.
 pub fn get_model_catalog() -> Vec<CatalogModel> {
-    let state = state::get();
     use crate::inference::provider::{detect_backend, select_model};
+
+    let state = state::get();
 
     let active = select_model(detect_backend(), state.load_model_override().as_deref());
 
@@ -58,7 +58,6 @@ pub fn get_model_catalog() -> Vec<CatalogModel> {
                 .iter()
                 .map(|p| p.as_str().to_string())
                 .collect(),
-            default_pipeline: entry.default_pipeline.as_str().to_string(),
             size_bytes: entry.size_bytes,
             multilingual: entry.multilingual,
             description: entry.description.clone(),
@@ -71,8 +70,9 @@ pub fn get_model_catalog() -> Vec<CatalogModel> {
 
 /// List all model files currently on disk.
 pub fn get_downloaded_models() -> Vec<DownloadedModel> {
-    let state = state::get();
     use crate::inference::provider::{detect_backend, select_model};
+
+    let state = state::get();
 
     let active = select_model(detect_backend(), state.load_model_override().as_deref());
 
@@ -97,9 +97,10 @@ pub fn get_downloaded_models() -> Vec<DownloadedModel> {
 /// including the active one — transcription then surfaces a "no model" error
 /// until another is downloaded.
 pub async fn delete_model(variant: String) -> Result<(), ApiError> {
-    let state = state::get();
     use crate::inference::catalog;
     use crate::inference::provider::{canonical_override, detect_backend, select_model};
+
+    let state = state::get();
 
     let entry = canonical_override(&variant)
         .and_then(catalog::find)
@@ -199,9 +200,10 @@ pub struct LanguageSettings {
 /// from the loaded model itself; an English-only model reports
 /// `supported: false` and no options.
 pub fn get_language_options() -> LanguageSettings {
-    let state = state::get();
     use crate::inference::language::{self, AUTO};
     use crate::inference::provider::{detect_backend, select_model};
+
+    let state = state::get();
 
     let model = select_model(detect_backend(), state.load_model_override().as_deref());
     if !model.multilingual {
@@ -257,9 +259,10 @@ pub fn get_language_options() -> LanguageSettings {
 /// Set the dictation language. The loaded engine is repointed rather than
 /// evicted — language is a per-run option, so a reload would be pure cost.
 pub async fn set_language(code: Option<String>) -> Result<(), ApiError> {
-    let state = state::get();
     use crate::inference::language;
     use crate::inference::provider::{detect_backend, select_model};
+
+    let state = state::get();
 
     let model = select_model(detect_backend(), state.load_model_override().as_deref());
     let saved = match code.as_deref() {
@@ -313,8 +316,9 @@ pub struct HardwareProfileResponse {
 }
 
 pub fn get_hardware_profile() -> HardwareProfileResponse {
-    let state = state::get();
     use crate::inference::{cuda, provider::recommend_model};
+
+    let state = state::get();
 
     let hw = crate::hardware::cached_profile();
     let recommended = recommend_model();
@@ -348,24 +352,13 @@ pub struct ActiveDownload {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct ModelInfoResponse {
-    pub downloaded: bool,
-    pub downloading: bool,
-    pub model_name: String,
-}
-
-pub fn get_model_info() -> ModelInfoResponse {
-    let state = state::get();
+/// Whether the model the engine will load is on disk.
+pub fn active_model_downloaded() -> bool {
     use crate::inference::provider::{detect_backend, select_model};
 
+    let state = state::get();
     let entry = select_model(detect_backend(), state.load_model_override().as_deref());
-
-    ModelInfoResponse {
-        downloaded: state.models_dir.join(&entry.filename).exists(),
-        downloading: state.downloads.is_pending(&entry.id),
-        model_name: entry.display_name.clone(),
-    }
+    state.models_dir.join(&entry.filename).exists()
 }
 
 /// Fetch a model by id. Never changes the active model, so a failed or

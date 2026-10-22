@@ -32,7 +32,7 @@ impl LanguageSection {
             let mut dropdown = Dropdown::new("language", cx)
                 .leading_icon(AppIcon::Languages)
                 .placeholder("English")
-                .searchable("Search languages", window, cx);
+                .searchable("Search languages", "No languages match.", window, cx);
             dropdown.set_disabled(true, cx);
             dropdown
         });
@@ -98,7 +98,7 @@ impl LanguageSection {
             .map(|o| {
                 let item = DropdownItem::new(o.code.clone(), o.name.clone());
                 if o.code == AUTO {
-                    item.divider_after()
+                    item.divider_after().pinned()
                 } else {
                     item
                 }

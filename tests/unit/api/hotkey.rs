@@ -6,23 +6,17 @@ use super::{ensure_no_conflict, normalize_hotkey};
 #[test]
 fn a_modifier_plus_a_key_is_accepted() {
     assert_eq!(
-        normalize_hotkey("Ctrl+Shift+D".to_string()).expect("valid"),
+        normalize_hotkey("Ctrl+Shift+D").expect("valid"),
         "Ctrl+Shift+D"
     );
-    assert_eq!(
-        normalize_hotkey("Alt+Space".to_string()).expect("valid"),
-        "Alt+Space"
-    );
-    assert_eq!(
-        normalize_hotkey("Super+K".to_string()).expect("valid"),
-        "Super+K"
-    );
+    assert_eq!(normalize_hotkey("Alt+Space").expect("valid"), "Alt+Space");
+    assert_eq!(normalize_hotkey("Super+K").expect("valid"), "Super+K");
 }
 
 #[test]
 fn surrounding_whitespace_is_trimmed() {
     assert_eq!(
-        normalize_hotkey("  Ctrl+Shift+D \n".to_string()).expect("valid"),
+        normalize_hotkey("  Ctrl+Shift+D \n").expect("valid"),
         "Ctrl+Shift+D"
     );
 }
@@ -30,31 +24,28 @@ fn surrounding_whitespace_is_trimmed() {
 #[test]
 fn an_empty_hotkey_is_rejected() {
     for raw in ["", "   ", "\n\t"] {
-        assert!(
-            normalize_hotkey(raw.to_string()).is_err(),
-            "{raw:?} should be rejected"
-        );
+        assert!(normalize_hotkey(raw).is_err(), "{raw:?} should be rejected");
     }
 }
 
 #[test]
 fn a_bare_key_with_no_modifier_is_rejected() {
     // A global shortcut on a bare letter would swallow that key everywhere.
-    assert!(normalize_hotkey("D".to_string()).is_err());
-    assert!(normalize_hotkey("Space".to_string()).is_err());
+    assert!(normalize_hotkey("D").is_err());
+    assert!(normalize_hotkey("Space").is_err());
 }
 
 #[test]
 fn modifiers_with_no_key_are_rejected() {
     // Nothing to trigger on — it would register and never fire.
-    assert!(normalize_hotkey("Ctrl".to_string()).is_err());
-    assert!(normalize_hotkey("Ctrl+Shift".to_string()).is_err());
-    assert!(normalize_hotkey("Ctrl+Alt+Shift+Super".to_string()).is_err());
+    assert!(normalize_hotkey("Ctrl").is_err());
+    assert!(normalize_hotkey("Ctrl+Shift").is_err());
+    assert!(normalize_hotkey("Ctrl+Alt+Shift+Super").is_err());
 }
 
 #[test]
 fn rejection_carries_the_invalid_code_the_frontend_matches_on() {
-    let err = normalize_hotkey("Ctrl".to_string()).expect_err("rejected");
+    let err = normalize_hotkey("Ctrl").expect_err("rejected");
     assert_eq!(err.code(), "hotkey_invalid");
     assert!(err.message().contains("modifier"), "{err}");
 }
@@ -109,10 +100,7 @@ mod bindings {
     #[test]
     fn setting_a_hotkey_changes_only_its_own_slot() {
         let next = bound()
-            .with(
-                HotkeyKind::DictationCommit,
-                Some(" Ctrl+Enter ".to_string()),
-            )
+            .with(HotkeyKind::DictationCommit, Some(" Ctrl+Enter "))
             .expect("valid");
         assert_eq!(next.get(HotkeyKind::DictationCommit), Some("Ctrl+Enter"));
         assert_eq!(next.get(HotkeyKind::PushToTalk), Some("Ctrl+Space"));
@@ -123,10 +111,10 @@ mod bindings {
     fn a_hotkey_may_be_rebound_to_itself_but_not_to_another_action() {
         // Saving an unchanged recorder must not report a conflict with itself.
         assert!(bound()
-            .with(HotkeyKind::PushToTalk, Some("Ctrl+Space".to_string()))
+            .with(HotkeyKind::PushToTalk, Some("Ctrl+Space"))
             .is_ok());
         let err = bound()
-            .with(HotkeyKind::DictationCommit, Some("Ctrl+Space".to_string()))
+            .with(HotkeyKind::DictationCommit, Some("Ctrl+Space"))
             .expect_err("taken by push-to-talk");
         assert_eq!(err.code(), "hotkey_conflict");
     }
@@ -144,9 +132,7 @@ mod bindings {
     #[test]
     fn a_rejected_change_leaves_the_bindings_untouched() {
         let before = bound();
-        assert!(before
-            .with(HotkeyKind::Dictation, Some("D".to_string()))
-            .is_err());
+        assert!(before.with(HotkeyKind::Dictation, Some("D")).is_err());
         assert_eq!(before, bound());
     }
 }

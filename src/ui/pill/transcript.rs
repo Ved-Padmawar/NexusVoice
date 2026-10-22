@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use gpui_kit::{
     canvas, div, fill, font, point, px, size, Bounds, ContentMask, Context, Corners, Entity,
-    InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, Rgba, SharedString,
-    Styled as _, Task, TextAlign, TextRun, Window, WrappedLine,
+    IntoElement, ParentElement as _, Pixels, Render, Rgba, SharedString, Styled as _, Task,
+    TextAlign, TextRun, Window, WrappedLine,
 };
 
 use super::geometry::CARD_W;

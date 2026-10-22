@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use gpui_kit::{
-    div, img, prelude::*, px, Animation, AnimationExt as _, App, FontWeight, IntoElement,
-    SharedString, Window,
+    div, img, prelude::*, px, Animation, AnimationExt as _, AnyElement, App, FontWeight,
+    IntoElement, SharedString, Window,
 };
 
 use crate::platform::paths;
@@ -193,29 +193,96 @@ fn update_prompt(cx: &App) -> impl IntoElement {
         UpdateStatus::Downloading => "Downloading",
         _ => "Update available",
     };
-    let accent_version = div()
-        .text_color(p.accent)
-        .font_weight(FontWeight::SEMIBOLD)
-        .child(format!("v{version}"));
-    let detail = div()
-        .flex()
-        .items_center()
-        .gap_1()
-        .text_size(px(10.))
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(p.muted)
-        .whitespace_nowrap()
-        .overflow_hidden()
-        .map(|el| match status {
-            UpdateStatus::Available => el
-                .child(concat!("v", env!("CARGO_PKG_VERSION")))
-                .child(div().opacity(0.5).child("→"))
-                .child(accent_version),
-            UpdateStatus::Ready => el.child(accent_version).child("· restart to finish"),
-            _ => el.child(accent_version),
-        });
+    let detail = update_detail(status, &version, &p);
 
-    let body = if status == UpdateStatus::Downloading {
+    let body = update_body(status, progress, &p);
+
+    div()
+        .px_2()
+        .pb_2()
+        .child(
+            div()
+                .relative()
+                .flex()
+                .flex_col()
+                .gap(px(9.))
+                .px(px(11.))
+                .py(px(10.))
+                .rounded(R_MD)
+                .bg(p.surface)
+                .border_1()
+                .border_color(mix(p.accent, p.border_soft, 0.22))
+                .overflow_hidden()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .pr(px(18.))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_shrink_0()
+                                .items_center()
+                                .justify_center()
+                                .size(px(22.))
+                                .rounded(R_SM)
+                                .bg(alpha(p.accent, 0.15))
+                                .child(icon(AppIcon::ArrowUp, 11., p.accent)),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(px(1.))
+                                .flex_1()
+                                .min_w_0()
+                                .child(
+                                    div()
+                                        .text_size(px(11.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(p.fg)
+                                        .truncate()
+                                        .child(title),
+                                )
+                                .child(detail),
+                        ),
+                )
+                .when(status != UpdateStatus::Downloading, |el| {
+                    el.child(
+                        div()
+                            .id("update-dismiss")
+                            .absolute()
+                            .top(px(5.))
+                            .right(px(5.))
+                            .size_4()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(R_SM)
+                            .cursor_pointer()
+                            .hover(|s| s.bg(p.danger_soft))
+                            .on_click(|_, _, cx| {
+                                Store::entity(cx).update(cx, Store::dismiss_update);
+                            })
+                            .child(icon(AppIcon::X, 10., p.muted)),
+                    )
+                })
+                .child(body),
+        )
+        .with_animation(
+            "update-prompt",
+            Animation::new(Duration::from_millis(200)),
+            Styled::opacity,
+        )
+        .into_any_element()
+}
+
+/// The prompt's lower half: a progress bar while downloading, else the
+/// install or restart button.
+fn update_body(status: UpdateStatus, progress: u8, p: &Palette) -> AnyElement {
+    let p = *p;
+    if status == UpdateStatus::Downloading {
         div()
             .flex()
             .flex_col()
@@ -299,85 +366,30 @@ fn update_prompt(cx: &App) -> impl IntoElement {
                 "Install update"
             })
             .into_any_element()
-    };
+    }
+}
 
+/// "v1.0 → v1.1", or the new version with where the install stands.
+fn update_detail(status: UpdateStatus, version: &str, p: &Palette) -> impl IntoElement {
+    let accent_version = div()
+        .text_color(p.accent)
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(format!("v{version}"));
     div()
-        .px_2()
-        .pb_2()
-        .child(
-            div()
-                .relative()
-                .flex()
-                .flex_col()
-                .gap(px(9.))
-                .px(px(11.))
-                .py(px(10.))
-                .rounded(R_MD)
-                .bg(p.surface)
-                .border_1()
-                .border_color(mix(p.accent, p.border_soft, 0.22))
-                .overflow_hidden()
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .pr(px(18.))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_shrink_0()
-                                .items_center()
-                                .justify_center()
-                                .size(px(22.))
-                                .rounded(R_SM)
-                                .bg(alpha(p.accent, 0.15))
-                                .child(icon(AppIcon::ArrowUp, 11., p.accent)),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(px(1.))
-                                .flex_1()
-                                .min_w_0()
-                                .child(
-                                    div()
-                                        .text_size(px(11.))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(p.fg)
-                                        .truncate()
-                                        .child(title),
-                                )
-                                .child(detail),
-                        ),
-                )
-                .when(status != UpdateStatus::Downloading, |el| {
-                    el.child(
-                        div()
-                            .id("update-dismiss")
-                            .absolute()
-                            .top(px(5.))
-                            .right(px(5.))
-                            .size_4()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(R_SM)
-                            .cursor_pointer()
-                            .hover(|s| s.bg(p.danger_soft))
-                            .on_click(|_, _, cx| {
-                                Store::entity(cx).update(cx, |store, cx| store.dismiss_update(cx));
-                            })
-                            .child(icon(AppIcon::X, 10., p.muted)),
-                    )
-                })
-                .child(body),
-        )
-        .with_animation(
-            "update-prompt",
-            Animation::new(Duration::from_millis(200)),
-            |el, t| el.opacity(t),
-        )
-        .into_any_element()
+        .flex()
+        .items_center()
+        .gap_1()
+        .text_size(px(10.))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(p.muted)
+        .whitespace_nowrap()
+        .overflow_hidden()
+        .map(|el| match status {
+            UpdateStatus::Available => el
+                .child(concat!("v", env!("CARGO_PKG_VERSION")))
+                .child(div().opacity(0.5).child("→"))
+                .child(accent_version),
+            UpdateStatus::Ready => el.child(accent_version).child("· restart to finish"),
+            _ => el.child(accent_version),
+        })
 }

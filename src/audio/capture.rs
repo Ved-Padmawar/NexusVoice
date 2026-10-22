@@ -22,7 +22,7 @@ use crate::state::lock_recovering;
 /// How long a warm stream is kept with nothing recording. Long enough to cover
 /// back-to-back dictation, short enough that the OS mic indicator doesn't stay
 /// lit after the user has moved on.
-const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(1);
 
 /// Post-roll after the hotkey is released: cpal has samples in flight, and
 /// trailing speech lands a beat late.

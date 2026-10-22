@@ -30,7 +30,7 @@ pub fn spinner(
                 canvas(
                     |_, _, _| {},
                     move |bounds, (), window, _| {
-                        paint_ring(bounds, size, stroke, turn, track, arc, window)
+                        paint_ring(bounds, size, stroke, turn, track, arc, window);
                     },
                 )
                 .size_full(),
@@ -83,7 +83,7 @@ pub fn skeleton(
         Animation::new(Duration::from_secs(2))
             .repeat()
             .with_easing(gpui_kit::pulsating_between(0.5, 1.)),
-        |el, opacity| el.opacity(opacity),
+        Styled::opacity,
     )
 }
 
@@ -104,7 +104,7 @@ pub struct SectionState {
     has_data: bool,
     skeleton: gpui_kit::AnyElement,
     content: gpui_kit::AnyElement,
-    on_retry: Box<dyn Fn(&mut Window, &mut App)>,
+    on_retry: super::Action,
 }
 
 impl SectionState {

@@ -98,8 +98,8 @@ pub async fn install(update: &Update, mut on_progress: impl FnMut(u8)) -> Result
     let mut reported = 0;
     while let Some(chunk) = stream.next().await {
         bytes.extend_from_slice(&chunk.map_err(|e| e.to_string())?);
-        if total > 0 {
-            let pct = u8::try_from(bytes.len() as u64 * 100 / total).unwrap_or(100);
+        if let Some(pct) = (bytes.len() as u64 * 100).checked_div(total) {
+            let pct = u8::try_from(pct).unwrap_or(100);
             if pct != reported {
                 reported = pct;
                 on_progress(pct);

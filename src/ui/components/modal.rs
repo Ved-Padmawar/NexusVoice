@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use gpui_kit::{
     deferred, div, prelude::*, Animation, AnimationExt as _, AnyElement, App, IntoElement, Pixels,
-    SharedString, Window,
+    SharedString,
 };
 
 use crate::ui::theme::{alpha, Palette, R_XL};
@@ -16,7 +16,7 @@ pub fn modal(
     id: impl Into<SharedString>,
     width: Pixels,
     content: impl IntoElement,
-    on_dismiss: Option<Box<dyn Fn(&mut Window, &mut App)>>,
+    on_dismiss: Option<super::Action>,
     cx: &App,
 ) -> impl IntoElement {
     let p = Palette::global(cx);
@@ -56,7 +56,7 @@ pub fn modal(
             .with_animation(
                 gpui_kit::ElementId::Name(id),
                 Animation::new(Duration::from_millis(160)).with_easing(gpui_kit::ease_out_quint()),
-                |el, t| el.opacity(t),
+                Styled::opacity,
             ),
     )
     .with_priority(2)

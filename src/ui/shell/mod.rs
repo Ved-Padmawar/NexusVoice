@@ -13,8 +13,8 @@ use std::time::Duration;
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::{
-    div, prelude::*, px, size, App, AppContext as _, Bounds, Context, Entity, Global, Subscription,
-    WindowBounds, WindowDecorations, WindowHandle, WindowOptions,
+    div, prelude::*, px, size, App, Bounds, Context, Entity, Global, Subscription, WindowBounds,
+    WindowDecorations, WindowHandle, WindowOptions,
 };
 
 use super::components::spinner;
@@ -45,7 +45,7 @@ impl Hotkeys {
     /// The hotkey is invalid, taken, or global hotkeys are unavailable.
     pub fn set(
         kind: HotkeyKind,
-        hotkey: Option<String>,
+        hotkey: Option<&str>,
         cx: &mut App,
     ) -> Result<(), crate::api::ApiError> {
         match cx.global_mut::<Self>().0.as_mut() {
@@ -269,15 +269,12 @@ impl Render for MainWindow {
 fn toast(notice: &Notice) -> Notification {
     match notice {
         Notice::Info(message) => Notification::info(message.clone()),
-        Notice::Success(message) => Notification::success(message.clone()),
         Notice::Error(message) => Notification::error(message.clone()),
         Notice::CudaReady => Notification::success("CUDA is ready. Restart NexusVoice to use it.")
             .action(|_, _, _| {
                 gpui_kit::component::button::Button::new("restart")
                     .label("Restart")
-                    .on_click(|_, _, cx| {
-                        Store::entity(cx).update(cx, |store, cx| store.restart(cx));
-                    })
+                    .on_click(|_, _, cx| Store::entity(cx).update(cx, Store::restart))
             }),
     }
 }

@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use gpui_kit::{App, AppContext as _, Context, Entity, EventEmitter, Global, SharedString};
 
-use crate::api::{self, dto::TranscriptResponse, CatalogModel, CudaStatus, ModelInfoResponse};
+use crate::api::{self, dto::TranscriptResponse, CatalogModel, CudaStatus};
 use crate::events::{CudaDownload, Event, ModelDownload};
 use crate::inference::cuda::PackState;
 use crate::platform::updater;
@@ -71,7 +71,6 @@ pub struct UpdateState {
 #[derive(Debug, Clone)]
 pub enum Notice {
     Info(SharedString),
-    Success(SharedString),
     Error(SharedString),
     /// CUDA finished installing; offers a restart.
     CudaReady,
@@ -87,7 +86,8 @@ pub struct Store {
     pub startup: Startup,
     /// The model catalog, ascending by capability. Empty until loaded.
     pub catalog: Vec<CatalogModel>,
-    pub model_info: Option<ModelInfoResponse>,
+    /// The catalog has been fetched at least once.
+    pub models_loaded: bool,
     /// Every download queued, running or failed, by model id.
     pub downloads: BTreeMap<String, Download>,
     /// `None` until first fetched.
@@ -103,12 +103,15 @@ struct StoreHandle(Entity<Store>);
 
 impl Global for StoreHandle {}
 
+// Methods take `&mut self` even when they only spawn work, so each one has the
+// `update(cx, Store::method)` shape views call it with.
+#[allow(clippy::unused_self)]
 impl Store {
     pub fn entity(cx: &App) -> Entity<Self> {
         cx.global::<StoreHandle>().0.clone()
     }
 
-    fn notify_user(&self, notice: Notice, cx: &mut Context<Self>) {
+    fn notify_user(notice: Notice, cx: &mut Context<Self>) {
         cx.emit(StoreEvent::Notice(notice));
     }
 
@@ -129,7 +132,7 @@ impl Store {
 
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_secs(3)).await;
-            let _ = this.update(cx, |store, cx| store.check_for_update(cx));
+            let _ = this.update(cx, Store::check_for_update);
         })
         .detach();
     }
@@ -137,14 +140,11 @@ impl Store {
     // ── Models ──────────────────────────────────────────────────────────────
 
     pub fn refresh_models(&mut self, cx: &mut Context<Self>) {
-        cx.spawn_api(
-            async { (api::get_model_catalog(), api::get_model_info()) },
-            |store, (catalog, info), cx| {
-                store.catalog = catalog;
-                store.model_info = Some(info);
-                cx.notify();
-            },
-        );
+        cx.spawn_api(async { api::get_model_catalog() }, |store, catalog, cx| {
+            store.catalog = catalog;
+            store.models_loaded = true;
+            cx.notify();
+        });
     }
 
     pub fn refresh_downloads(&mut self, cx: &mut Context<Self>) {
@@ -188,7 +188,7 @@ impl Store {
             move |store, result, cx| {
                 if let Err(e) = result {
                     store.downloads.remove(&id);
-                    store.notify_user(Notice::Error(e.message().to_string().into()), cx);
+                    Store::notify_user(Notice::Error(e.message().to_string().into()), cx);
                     cx.notify();
                 }
             }
@@ -202,6 +202,10 @@ impl Store {
     /// The catalog entry the backend will load, if the catalog is in.
     pub fn active_model(&self) -> Option<&CatalogModel> {
         self.catalog.iter().find(|m| m.is_active)
+    }
+
+    pub fn active_model_downloaded(&self) -> bool {
+        self.active_model().is_some_and(|m| m.downloaded)
     }
 
     fn on_download(&mut self, id: String, status: ModelDownload, cx: &mut Context<Self>) {
@@ -330,7 +334,7 @@ impl Store {
                 self.refresh_cuda(cx);
                 // The open dialog shows its own Restart.
                 if !self.cuda_offer_open {
-                    self.notify_user(Notice::CudaReady, cx);
+                    Self::notify_user(Notice::CudaReady, cx);
                 }
             }
             CudaDownload::Cancelled => self.refresh_cuda(cx),
@@ -454,7 +458,7 @@ pub fn init(cx: &mut App) {
         let mut store = Store {
             startup: Startup::Starting,
             catalog: Vec::new(),
-            model_info: None,
+            models_loaded: false,
             downloads: BTreeMap::new(),
             cuda: None,
             cuda_error: None,
@@ -470,15 +474,9 @@ pub fn init(cx: &mut App) {
 pub fn handle(event: Event, cx: &mut App) {
     Store::entity(cx).update(cx, |store, cx| match event {
         Event::ModelDownload { id, status } => store.on_download(id, status, cx),
-        Event::ModelSwitched => store.refresh_models(cx),
-        // The active model was deleted: nothing is selected until another is.
-        Event::ModelEvicted => {
-            if let Some(info) = store.model_info.as_mut() {
-                info.downloaded = false;
-            }
-            store.refresh_models(cx);
-        }
-        Event::LanguageReset => store.notify_user(
+        // The active model was deleted; another may have taken its place.
+        Event::ModelSwitched | Event::ModelEvicted => store.refresh_models(cx),
+        Event::LanguageReset => Store::notify_user(
             Notice::Info(
                 "This model does not support your dictation language. Switched to English.".into(),
             ),

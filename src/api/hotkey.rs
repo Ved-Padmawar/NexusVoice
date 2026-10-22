@@ -29,14 +29,10 @@ impl HotkeyBindings {
     }
 
     pub fn get(&self, kind: HotkeyKind) -> Option<&str> {
-        self.slot(kind).as_deref()
-    }
-
-    fn slot(&self, kind: HotkeyKind) -> &Option<String> {
         match kind {
-            HotkeyKind::PushToTalk => &self.push_to_talk,
-            HotkeyKind::Dictation => &self.dictation,
-            HotkeyKind::DictationCommit => &self.dictation_commit,
+            HotkeyKind::PushToTalk => self.push_to_talk.as_deref(),
+            HotkeyKind::Dictation => self.dictation.as_deref(),
+            HotkeyKind::DictationCommit => self.dictation_commit.as_deref(),
         }
     }
 
@@ -61,7 +57,7 @@ impl HotkeyBindings {
     /// # Errors
     /// `hotkey_invalid` for a hotkey that could never fire, `hotkey_conflict`
     /// when it is already bound to another action.
-    pub fn with(&self, kind: HotkeyKind, hotkey: Option<String>) -> Result<Self, ApiError> {
+    pub fn with(&self, kind: HotkeyKind, hotkey: Option<&str>) -> Result<Self, ApiError> {
         let mut next = self.clone();
         let hotkey = hotkey.map(normalize_hotkey).transpose()?;
         if let Some(hotkey) = &hotkey {
@@ -88,7 +84,7 @@ impl HotkeyBindings {
     }
 }
 
-fn normalize_hotkey(hotkey: String) -> Result<String, ApiError> {
+fn normalize_hotkey(hotkey: &str) -> Result<String, ApiError> {
     let hotkey = hotkey.trim().to_string();
     if hotkey.is_empty() {
         return Err(ApiError::new("hotkey_invalid", "hotkey cannot be empty"));

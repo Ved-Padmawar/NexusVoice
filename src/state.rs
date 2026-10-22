@@ -137,6 +137,8 @@ impl Downloads {
         Arc::clone(&self.permits)
     }
 
+    /// Tests read it; the app learns the same from `enqueue` and events.
+    #[cfg(test)]
     pub fn is_pending(&self, id: &str) -> bool {
         self.lock()
             .get(id)
@@ -216,9 +218,7 @@ static STATE: std::sync::OnceLock<AppState> = std::sync::OnceLock::new();
 
 /// Make `state` the process-wide app state. Called once, at startup.
 pub fn install(state: AppState) -> &'static AppState {
-    if STATE.set(state).is_err() {
-        panic!("app state installed twice");
-    }
+    assert!(STATE.set(state).is_ok(), "app state installed twice");
     get()
 }
 

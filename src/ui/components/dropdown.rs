@@ -9,9 +9,9 @@ use std::time::Duration;
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::{
-    anchored, canvas, deferred, div, prelude::*, px, Animation, AnimationExt as _, App, Context,
-    ElementId, Entity, EventEmitter, FocusHandle, Focusable, KeyDownEvent, Pixels, ScrollHandle,
-    SharedString, Subscription, Window,
+    anchored, canvas, deferred, div, prelude::*, px, Animation, AnimationExt as _, App, Bounds,
+    Context, ElementId, Entity, EventEmitter, FocusHandle, Focusable, KeyDownEvent, MouseDownEvent,
+    Pixels, ScrollHandle, SharedString, Subscription, Window,
 };
 
 use super::icon;
@@ -27,6 +27,8 @@ pub struct DropdownItem {
     pub label: SharedString,
     /// Draw a rule under this item, to set it apart from those below.
     pub divider_after: bool,
+    /// Shown whatever the search says, e.g. an "Auto-detect" choice.
+    pub pinned: bool,
 }
 
 impl DropdownItem {
@@ -35,12 +37,19 @@ impl DropdownItem {
             value: value.into(),
             label: label.into(),
             divider_after: false,
+            pinned: false,
         }
     }
 
     #[must_use]
     pub fn divider_after(mut self) -> Self {
         self.divider_after = true;
+        self
+    }
+
+    #[must_use]
+    pub fn pinned(mut self) -> Self {
+        self.pinned = true;
         self
     }
 }
@@ -57,6 +66,8 @@ pub struct Dropdown {
     selected: Option<SharedString>,
     leading_icon: Option<AppIcon>,
     placeholder: SharedString,
+    /// Shown when the search matches nothing.
+    empty_text: SharedString,
     disabled: bool,
     open: bool,
     /// Index into the filtered list.
@@ -64,8 +75,9 @@ pub struct Dropdown {
     search: Option<Entity<InputState>>,
     focus: FocusHandle,
     scroll: ScrollHandle,
-    /// The menu matches the trigger's width, measured as it paints.
-    trigger_width: Rc<Cell<Pixels>>,
+    /// The trigger's bounds as last painted: the menu matches its width, and
+    /// a press on it is the trigger's to handle, not an outside click.
+    trigger: Rc<Cell<Bounds<Pixels>>>,
     _search_changed: Option<Subscription>,
 }
 
@@ -85,13 +97,14 @@ impl Dropdown {
             selected: None,
             leading_icon: None,
             placeholder: SharedString::default(),
+            empty_text: "No matches.".into(),
             disabled: false,
             open: false,
             highlighted: 0,
             search: None,
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
-            trigger_width: Rc::default(),
+            trigger: Rc::default(),
             _search_changed: None,
         }
     }
@@ -108,23 +121,29 @@ impl Dropdown {
         self
     }
 
-    /// Add a search field to the menu that filters items by label and value.
+    /// Add a search field to the menu that filters items by label and value,
+    /// saying `empty_text` when nothing matches.
     #[must_use]
     pub fn searchable(
-        mut self,
+        self,
         placeholder: impl Into<SharedString>,
+        empty_text: impl Into<SharedString>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
-        self._search_changed = Some(cx.subscribe(&search, |this, _, event: &InputEvent, cx| {
+        let search_changed = cx.subscribe(&search, |this, _, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
                 this.highlighted = 0;
                 cx.notify();
             }
-        }));
-        self.search = Some(search);
-        self
+        });
+        Self {
+            search: Some(search),
+            empty_text: empty_text.into(),
+            _search_changed: Some(search_changed),
+            ..self
+        }
     }
 
     pub fn set_items(&mut self, items: Vec<DropdownItem>, cx: &mut Context<Self>) {
@@ -145,10 +164,6 @@ impl Dropdown {
         cx.notify();
     }
 
-    pub fn selected(&self) -> Option<&SharedString> {
-        self.selected.as_ref()
-    }
-
     fn query(&self, cx: &App) -> String {
         self.search
             .as_ref()
@@ -163,6 +178,7 @@ impl Dropdown {
             .enumerate()
             .filter(|(_, item)| {
                 query.is_empty()
+                    || item.pinned
                     || item.label.to_lowercase().contains(&query)
                     || item.value.to_lowercase().contains(&query)
             })
@@ -235,6 +251,53 @@ impl Dropdown {
         cx.notify();
     }
 
+    fn render_row(
+        &self,
+        row: usize,
+        index: usize,
+        last: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let p = *Palette::global(cx);
+        let item = &self.items[index];
+        let active = self.selected.as_ref() == Some(&item.value);
+        div()
+            .id(ElementId::NamedInteger("item".into(), index as u64))
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .h(ITEM_H)
+            .px(px(14.))
+            .text_size(px(12.))
+            .text_color(p.fg)
+            .cursor_pointer()
+            .when(row == self.highlighted, |el| el.bg(p.surface))
+            .when(last, |el| el.rounded_b(R_LG))
+            .when(item.divider_after, |el| {
+                el.border_b_1().border_color(p.border_soft)
+            })
+            .on_mouse_move(cx.listener(move |this, _, _, cx| {
+                if this.highlighted != row {
+                    this.highlighted = row;
+                    cx.notify();
+                }
+            }))
+            .on_click(cx.listener(move |this, _, window, cx| this.pick(index, window, cx)))
+            .child(
+                div()
+                    .flex_1()
+                    .truncate()
+                    .when(active, |el| {
+                        el.font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                            .text_color(p.accent)
+                    })
+                    .child(item.label.clone()),
+            )
+            .when(active, |el| {
+                el.child(div().ml_2().child(icon(AppIcon::Check, 13., p.accent)))
+            })
+    }
+
     fn render_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = *Palette::global(cx);
         let visible = self.visible(cx);
@@ -244,48 +307,15 @@ impl Dropdown {
         } else {
             px(0.)
         };
+        #[allow(clippy::cast_precision_loss)] // a menu holds tens of items, not 2^23
         let height = (ITEM_H * self.items.len() as f32 + search_h + px(2.)).min(MAX_MENU_H);
         let last = visible.len().saturating_sub(1);
 
-        let rows = visible.iter().enumerate().map(|(row, &index)| {
-            let item = &self.items[index];
-            let active = self.selected.as_ref() == Some(&item.value);
-            div()
-                .id(ElementId::NamedInteger("item".into(), index as u64))
-                .flex()
-                .flex_shrink_0()
-                .items_center()
-                .h(ITEM_H)
-                .px(px(14.))
-                .text_size(px(12.))
-                .text_color(p.fg)
-                .cursor_pointer()
-                .when(row == self.highlighted, |el| el.bg(p.surface))
-                .when(row == last, |el| el.rounded_b(R_LG))
-                .when(item.divider_after, |el| {
-                    el.border_b_1().border_color(p.border_soft)
-                })
-                .on_mouse_move(cx.listener(move |this, _, _, cx| {
-                    if this.highlighted != row {
-                        this.highlighted = row;
-                        cx.notify();
-                    }
-                }))
-                .on_click(cx.listener(move |this, _, window, cx| this.pick(index, window, cx)))
-                .child(
-                    div()
-                        .flex_1()
-                        .truncate()
-                        .when(active, |el| {
-                            el.font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                                .text_color(p.accent)
-                        })
-                        .child(item.label.clone()),
-                )
-                .when(active, |el| {
-                    el.child(div().ml_2().child(icon(AppIcon::Check, 13., p.accent)))
-                })
-        });
+        let rows = visible
+            .iter()
+            .enumerate()
+            .map(|(row, &index)| self.render_row(row, index, row == last, cx))
+            .collect::<Vec<_>>();
 
         div()
             .id("dropdown-menu")
@@ -300,7 +330,11 @@ impl Dropdown {
             .border_1()
             .border_color(p.border)
             .shadow(p.shadow_lg())
-            .on_mouse_down_out(cx.listener(|this, _, window, cx| this.set_open(false, window, cx)))
+            .on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                if !this.trigger.get().contains(&event.position) {
+                    this.set_open(false, window, cx);
+                }
+            }))
             .when_some(self.search.clone(), |el, search| {
                 el.child(
                     div()
@@ -333,7 +367,7 @@ impl Dropdown {
                                 .py_3()
                                 .text_size(px(12.))
                                 .text_color(p.muted)
-                                .child("No matches."),
+                                .child(self.empty_text.clone()),
                         )
                     })
                     .children(rows),
@@ -406,13 +440,10 @@ impl Render for Dropdown {
                     })
                     .child(div().flex_1().truncate().child(label))
                     .child({
-                        let width = self.trigger_width.clone();
-                        canvas(
-                            move |bounds, _, _| width.set(bounds.size.width),
-                            |_, (), _, _| {},
-                        )
-                        .absolute()
-                        .size_full()
+                        let trigger = self.trigger.clone();
+                        canvas(move |bounds, _, _| trigger.set(bounds), |_, (), _, _| {})
+                            .absolute()
+                            .size_full()
                     })
                     .child(
                         div()
@@ -430,7 +461,7 @@ impl Render for Dropdown {
                     ),
             )
             .when(open, |el| {
-                let width = self.trigger_width.get();
+                let width = self.trigger.get().size.width;
                 el.child(
                     deferred(
                         anchored()

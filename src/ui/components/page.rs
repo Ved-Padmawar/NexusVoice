@@ -1,9 +1,6 @@
-//! The header every page opens with: an accent tile, the title, a subtitle,
-//! and optional actions on the right.
+//! The header every page opens with: an accent tile, the title and a subtitle.
 
-use gpui_kit::{
-    div, prelude::*, px, AnyElement, App, FontWeight, IntoElement, SharedString, Window,
-};
+use gpui_kit::{div, prelude::*, px, App, FontWeight, IntoElement, SharedString, Window};
 
 use super::icon;
 use crate::ui::icons::AppIcon;
@@ -14,7 +11,6 @@ pub struct PageHeader {
     icon: AppIcon,
     title: SharedString,
     subtitle: SharedString,
-    actions: Vec<AnyElement>,
 }
 
 pub fn page_header(
@@ -26,15 +22,6 @@ pub fn page_header(
         icon,
         title: title.into(),
         subtitle: subtitle.into(),
-        actions: Vec::new(),
-    }
-}
-
-impl PageHeader {
-    #[must_use]
-    pub fn action(mut self, action: impl IntoElement) -> Self {
-        self.actions.push(action.into_any_element());
-        self
     }
 }
 
@@ -89,8 +76,5 @@ impl RenderOnce for PageHeader {
                             ),
                     ),
             )
-            .when(!self.actions.is_empty(), |el| {
-                el.child(div().flex().items_center().gap_2().children(self.actions))
-            })
     }
 }

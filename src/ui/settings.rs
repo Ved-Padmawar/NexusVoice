@@ -59,6 +59,8 @@ pub enum WaveformStyle {
 }
 
 impl WaveformStyle {
+    /// The settings table lists styles itself; tests check it covers these.
+    #[cfg(test)]
     pub const ALL: [Self; 4] = [Self::Bars, Self::Memo, Self::Eq, Self::Spectrum];
 }
 

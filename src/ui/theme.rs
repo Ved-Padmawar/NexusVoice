@@ -12,7 +12,6 @@ pub const R_SM: Pixels = px(6.);
 pub const R_MD: Pixels = px(8.);
 pub const R_LG: Pixels = px(12.);
 pub const R_XL: Pixels = px(16.);
-pub const R_2XL: Pixels = px(20.);
 
 pub const SIDEBAR_W: Pixels = px(220.);
 
@@ -61,18 +60,17 @@ pub fn oklch(l: f32, c: f32, h: f32) -> Hsla {
     oklcha(l, c, h, 1.)
 }
 
-pub fn oklcha(l: f32, c: f32, h: f32, alpha: f32) -> Hsla {
-    let (a, b) = {
-        let h = h.to_radians();
-        (c * h.cos(), c * h.sin())
+pub fn oklcha(lightness: f32, chroma: f32, hue: f32, alpha: f32) -> Hsla {
+    // OKLCH → OKLab → LMS (cubed) → linear sRGB → gamma-encoded sRGB.
+    let (green_red, blue_yellow) = {
+        let hue = hue.to_radians();
+        (chroma * hue.cos(), chroma * hue.sin())
     };
-    let l_ = l + 0.396_337_78 * a + 0.215_803_76 * b;
-    let m_ = l - 0.105_561_346 * a - 0.063_854_17 * b;
-    let s_ = l - 0.089_484_18 * a - 1.291_485_5 * b;
-    let (l3, m3, s3) = (l_ * l_ * l_, m_ * m_ * m_, s_ * s_ * s_);
-    let r = 4.076_741_7 * l3 - 3.307_711_6 * m3 + 0.230_969_94 * s3;
-    let g = -1.268_438 * l3 + 2.609_757_4 * m3 - 0.341_319_38 * s3;
-    let b = -0.004_196_086_3 * l3 - 0.703_418_6 * m3 + 1.707_614_7 * s3;
+    let cone = |k_a: f32, k_b: f32| (lightness + k_a * green_red + k_b * blue_yellow).powi(3);
+    let long = cone(0.396_337_78, 0.215_803_76);
+    let medium = cone(-0.105_561_346, -0.063_854_17);
+    let short = cone(-0.089_484_18, -1.291_485_5);
+    let linear = |k_l: f32, k_m: f32, k_s: f32| k_l * long + k_m * medium + k_s * short;
     let encode = |x: f32| {
         let x = x.clamp(0., 1.);
         if x <= 0.003_130_8 {
@@ -82,9 +80,9 @@ pub fn oklcha(l: f32, c: f32, h: f32, alpha: f32) -> Hsla {
         }
     };
     Rgba {
-        r: encode(r),
-        g: encode(g),
-        b: encode(b),
+        r: encode(linear(4.076_741_7, -3.307_711_6, 0.230_969_94)),
+        g: encode(linear(-1.268_438, 2.609_757_4, -0.341_319_38)),
+        b: encode(linear(-0.004_196_086_3, -0.703_418_6, 1.707_614_7)),
         a: alpha,
     }
     .into()
@@ -109,11 +107,6 @@ pub fn alpha(color: Hsla, alpha: f32) -> Hsla {
         a: color.a * alpha,
         ..color
     }
-}
-
-/// Neutral grey at lightness `l`, as `oklch(l 0 0)`.
-fn grey(l: f32) -> Hsla {
-    oklch(l, 0., 0.)
 }
 
 struct Spec {

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use super::ModelUnload;
 
-const MINUTE: Duration = Duration::from_secs(60);
+const MINUTE: Duration = Duration::from_mins(1);
 
 #[test]
 fn never_keeps_the_model_loaded() {

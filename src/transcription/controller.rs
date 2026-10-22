@@ -184,7 +184,7 @@ impl Controller {
                 self.set(PillState::Idle);
             }
             Input::Failed(message) => self.fail(message),
-            Input::Download(status) => self.on_download(status),
+            Input::Download(status) => self.on_download(&status),
             Input::ClearError(generation) => {
                 if generation == self.error_generation && matches!(self.pill(), PillState::Error(_))
                 {
@@ -195,7 +195,7 @@ impl Controller {
     }
 
     /// The pill mirrors a download only while it has nothing better to show.
-    fn on_download(&mut self, status: ModelDownload) {
+    fn on_download(&mut self, status: &ModelDownload) {
         let showing = matches!(self.pill(), PillState::Downloading(_));
         match status {
             ModelDownload::Queued | ModelDownload::Running => {
@@ -205,7 +205,7 @@ impl Controller {
             }
             ModelDownload::Progress(pct) => {
                 if showing || *self.pill() == PillState::Idle {
-                    self.set(PillState::Downloading(pct));
+                    self.set(PillState::Downloading(*pct));
                 }
             }
             ModelDownload::Complete | ModelDownload::Cancelled | ModelDownload::Failed(_) => {

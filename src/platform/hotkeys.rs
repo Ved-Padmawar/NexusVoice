@@ -54,7 +54,7 @@ impl Hotkeys {
     ///
     /// # Errors
     /// The hotkey is invalid, duplicates another, or the OS refused it.
-    pub fn set(&mut self, kind: HotkeyKind, hotkey: Option<String>) -> Result<(), ApiError> {
+    pub fn set(&mut self, kind: HotkeyKind, hotkey: Option<&str>) -> Result<(), ApiError> {
         let next = self.bindings.with(kind, hotkey)?;
         if let Err(e) = self.apply(next) {
             let previous = self.bindings.clone();

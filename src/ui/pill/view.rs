@@ -8,10 +8,9 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    div, linear_color_stop, linear_gradient, percentage, point, px, relative, size, svg, Animation,
-    AnimationExt as _, AnyElement, BoxShadow, ClickEvent, Context, CursorStyle, Entity, FontWeight,
-    MouseButton, MouseDownEvent, Pixels, Rgba, SharedString, StyleRefinement, Task, Transformation,
-    Window,
+    div, linear_color_stop, linear_gradient, percentage, px, relative, size, svg, Animation,
+    AnimationExt as _, AnyElement, BoxShadow, ClickEvent, Context, Entity, FontWeight, MouseButton,
+    MouseDownEvent, Rgba, SharedString, StyleRefinement, Task, Transformation, Window,
 };
 
 use super::geometry::{
