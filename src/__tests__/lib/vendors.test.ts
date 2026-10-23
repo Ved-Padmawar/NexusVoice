@@ -7,6 +7,7 @@ describe('vendorForFamily', () => {
   it('resolves a plain family name', () => {
     expect(vendorForFamily('whisper')).toBe('openai')
     expect(vendorForFamily('parakeet')).toBe('nvidia')
+    expect(vendorForFamily('granite')).toBe('ibm')
     expect(vendorForFamily('moonshine')).toBe('moonshine')
   })
 
@@ -23,7 +24,7 @@ describe('vendorForFamily', () => {
 
   it('every mapped vendor actually has a logo registered', () => {
     // A typo'd vendor id is invisible at build time and renders nothing.
-    for (const family of ['whisper', 'parakeet', 'nemotron', 'canary', 'qwen3-asr', 'moonshine']) {
+    for (const family of ['whisper', 'parakeet', 'nemotron', 'canary', 'granite', 'qwen3-asr', 'moonshine']) {
       const id = vendorForFamily(family)
       expect(id, `${family} maps to nothing`).not.toBeNull()
       const known = id! in VENDORS || id! in RASTER

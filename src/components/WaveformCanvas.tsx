@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
 import { WAVEFORM_RENDERERS, ACCENT_RGB, type RenderState } from '../lib/waveform'
+import { subscribeEveryFrame, subscribeWhileVisible } from '../lib/frameClock'
 import type { WaveformStyle } from '../store/uiSlice'
 
 type Props = {
@@ -11,15 +12,18 @@ type Props = {
   accent?: string
   /** Faint motion during silence. Settings previews only — see RenderArgs. */
   idleMotion?: boolean
+  /** Settings previews: draw on the shared ~30 fps clock, and not at all
+   *  while off-screen. The pill leaves this off and draws every display frame. */
+  preview?: boolean
 }
 
 /**
- * Drives one canvas waveform style on its own rAF loop.
+ * Drives one canvas waveform style.
  *
  * Levels come in through a ref rather than a prop so a 30 Hz capture stream
  * never re-renders React — the loop just reads the newest frame it has.
  */
-export function WaveformCanvas({ style, width, height, levelsRef, accent = ACCENT_RGB, idleMotion = false }: Props) {
+export function WaveformCanvas({ style, width, height, levelsRef, accent = ACCENT_RGB, idleMotion = false, preview = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const stateRef = useRef<RenderState>({})
 
@@ -38,22 +42,14 @@ export function WaveformCanvas({ style, width, height, levelsRef, accent = ACCEN
     if (!ctx) return
     ctx.scale(dpr, dpr)
 
+    const draw = (dt: number) =>
+      render({ ctx, width, height, levels: levelsRef.current ?? [], dt, state: stateRef.current, accent, idleMotion })
+
     // Resizing clears the backing store. Repaint before the browser can show
     // that blank frame, retaining the same waveform history at the new size.
-    render({ ctx, width, height, levels: levelsRef.current ?? [], dt: 0, state: stateRef.current, accent, idleMotion })
-
-    let raf = 0
-    let last = performance.now()
-    const loop = (now: number) => {
-      // Clamp so a backgrounded window doesn't resume with a huge step.
-      const dt = Math.min((now - last) / 1000, 0.1)
-      last = now
-      render({ ctx, width, height, levels: levelsRef.current ?? [], dt, state: stateRef.current, accent, idleMotion })
-      raf = requestAnimationFrame(loop)
-    }
-    raf = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(raf)
-  }, [style, width, height, accent, idleMotion, levelsRef])
+    draw(0)
+    return preview ? subscribeWhileVisible(canvas, draw) : subscribeEveryFrame(draw)
+  }, [style, width, height, accent, idleMotion, preview, levelsRef])
 
   return (
     <canvas

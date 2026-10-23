@@ -11,6 +11,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: vi.fn(() => ({
     onCloseRequested: vi.fn(() => Promise.resolve(() => {})),
+    onFocusChanged: vi.fn(() => Promise.resolve(() => {})),
     hide: vi.fn(() => Promise.resolve()),
     show: vi.fn(() => Promise.resolve()),
   })),

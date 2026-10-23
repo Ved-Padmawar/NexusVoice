@@ -11,6 +11,7 @@ import {
   Check, Cpu, Database, Download, Globe, HardDrive, Mic, Radio, Search, X,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { Tooltip } from '@/components/ui/tooltip'
 import { VendorMark } from '../../components/ui/VendorMark'
 import { vendorForFamily } from '../../lib/vendors'
 import type { HardwareProfile } from '../../types'
@@ -44,18 +45,20 @@ const TIER_HEIGHTS = ['4px', '6px', '8px', '10px']
 function WeightMeter({ bytes, active }: { bytes: number; active: boolean }) {
   const tier = weightTier(bytes)
   return (
-    <span className="flex items-end gap-0.5" title={`${TIER_LABEL[tier]} download`}>
-      {[0, 1, 2, 3].map((i) => (
-        <span
-          key={i}
-          className="w-0.75 rounded-[1px]"
-          style={{
-            height: TIER_HEIGHTS[i],
-            background: i <= tier ? (active ? 'var(--accent)' : 'var(--fg-2)') : 'var(--border)',
-          }}
-        />
-      ))}
-    </span>
+    <Tooltip content={`${TIER_LABEL[tier]} download`}>
+      <span className="flex items-end gap-0.5">
+        {[0, 1, 2, 3].map((i) => (
+          <span
+            key={i}
+            className="w-0.75 rounded-[1px]"
+            style={{
+              height: TIER_HEIGHTS[i],
+              background: i <= tier ? (active ? 'var(--accent)' : 'var(--fg-2)') : 'var(--border)',
+            }}
+          />
+        ))}
+      </span>
+    </Tooltip>
   )
 }
 
@@ -86,7 +89,6 @@ function ModelCard({
 
   return (
     <div
-      title={model.displayName}
       className={`nv-edge flex flex-col gap-2.5 rounded-(--r-lg) p-3 ${
         loaded
           ? '[--edge:var(--accent)] bg-(--accent-soft)'
@@ -98,11 +100,9 @@ function ModelCard({
             an initial, and groups the families without an accordion. */}
         <span
           className={`grid size-8 shrink-0 place-items-center rounded-(--r-md) ${
-            loaded
-              ? 'border border-(--accent) bg-(--accent-soft)'
-              : installed
-                ? 'border border-(--accent-soft) bg-(--accent-soft)'
-                : 'border border-(--border) bg-(--surface)'
+            installed && !loaded
+              ? 'border border-(--accent-soft) bg-(--accent-soft)'
+              : 'border border-(--border) bg-(--surface)'
           }`}
         >
           {vendor
@@ -112,9 +112,11 @@ function ModelCard({
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-1.5">
-            <span className={`min-w-0 flex-1 truncate text-[12.5px] font-semibold tracking-[-0.01em] ${loaded ? 'text-(--accent)' : 'text-(--fg)'}`}>
-              {model.displayName}
-            </span>
+            <Tooltip content={model.displayName}>
+              <span className={`min-w-0 flex-1 truncate text-[12.5px] font-semibold tracking-[-0.01em] ${loaded ? 'text-(--accent)' : 'text-(--fg)'}`}>
+                {model.displayName}
+              </span>
+            </Tooltip>
             {recommended && !loaded && (
               <span className="shrink-0 rounded-(--r-xs) border border-(--accent-soft) bg-(--accent-soft) px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.04em] text-(--accent)">
                 Best fit
@@ -133,21 +135,19 @@ function ModelCard({
 
         <span className="ml-auto flex items-center gap-1.5">
           {streaming && (
-            <span
-              title="Streaming — text appears while you speak"
-              className="flex shrink-0 items-center gap-1 rounded-(--r-xs) bg-(--accent-soft) px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.04em] text-(--accent)"
-            >
-              <Radio size={9} strokeWidth={2.5} />
-              streaming
-            </span>
+            <Tooltip content="Streaming — text appears while you speak">
+              <span className="flex shrink-0 items-center gap-1 rounded-(--r-xs) bg-(--accent-soft) px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.04em] text-(--accent)">
+                <Radio size={9} strokeWidth={2.5} />
+                streaming
+              </span>
+            </Tooltip>
           )}
-          <span
-            title={model.multilingual ? 'Multilingual' : 'English only'}
-            className="flex shrink-0 items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.04em] text-muted-foreground"
-          >
-            <Globe size={9} strokeWidth={2.25} />
-            {model.multilingual ? 'multi' : 'en'}
-          </span>
+          <Tooltip content={model.multilingual ? 'Multilingual' : 'English only'}>
+            <span className="flex shrink-0 items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+              <Globe size={9} strokeWidth={2.25} />
+              {model.multilingual ? 'multi' : 'en'}
+            </span>
+          </Tooltip>
         </span>
       </div>
 
@@ -172,48 +172,50 @@ function ModelCard({
                 </span>
               </>
             )}
-            <motion.button
-              type="button"
-              aria-label="Cancel download"
-              title="Cancel download"
-              onClick={onCancel}
-              className="grid size-5 shrink-0 place-items-center rounded-(--r-xs) text-muted-foreground cursor-pointer"
-              whileHover={{ color: 'var(--danger)', backgroundColor: 'color-mix(in srgb, var(--danger) 12%, transparent)' }}
-              whileTap={{ scale: 0.92 }}
-              transition={{ duration: 0.15 }}
-            >
-              <X size={13} strokeWidth={2.25} />
-            </motion.button>
+            <Tooltip content="Cancel download">
+              <motion.button
+                type="button"
+                aria-label="Cancel download"
+                onClick={onCancel}
+                className="grid size-5 shrink-0 place-items-center rounded-(--r-xs) text-muted-foreground cursor-pointer"
+                whileHover={{ color: 'var(--danger)', backgroundColor: 'color-mix(in srgb, var(--danger) 12%, transparent)' }}
+                whileTap={{ scale: 0.92 }}
+                transition={{ duration: 0.15 }}
+              >
+                <X size={13} strokeWidth={2.25} />
+              </motion.button>
+            </Tooltip>
           </>
         ) : loaded ? (
           // `leading-none`, or the icon centres against the taller line box.
-          <span className="nv-edge [--edge:var(--accent)] flex h-7 w-full items-center justify-center gap-1.5 rounded-(--r-md) bg-(--accent-soft) text-[12px] font-semibold text-(--accent)">
+          <span className="nv-edge [--edge:var(--border-soft)] flex h-7 w-full items-center justify-center gap-1.5 rounded-(--r-md) bg-(--surface) text-[12px] font-semibold text-(--success)">
             <Check size={12} strokeWidth={2.5} className="shrink-0" />
             <span className="leading-none">In use</span>
           </span>
         ) : (
-          <button
-            type="button"
-            onClick={installed ? onUse : onDownload}
-            disabled={disabled}
-            title={download?.error ?? undefined}
-            className={`nv-edge flex h-7 w-full items-center justify-center gap-1.5 rounded-(--r-md) bg-(--surface) text-[12px] font-medium cursor-pointer hover:bg-(--accent-soft) hover:text-(--accent) hover:[--edge:color-mix(in_srgb,var(--accent)_45%,transparent)] disabled:cursor-not-allowed disabled:opacity-50 ${
-              download?.status === 'error'
-                ? '[--edge:var(--danger)] text-destructive'
-                : 'text-(--fg-2)'
-            }`}
-          >
-            {installed ? (
-              <span className="leading-none">Use this model</span>
-            ) : (
-              <>
-                <Download size={12} strokeWidth={2} className="shrink-0" />
-                <span className="leading-none">
-                  {download?.status === 'error' ? 'Retry download' : 'Download'}
-                </span>
-              </>
-            )}
-          </button>
+          <Tooltip content={download?.error ?? model.displayName}>
+            <button
+              type="button"
+              onClick={installed ? onUse : onDownload}
+              disabled={disabled}
+              className={`nv-edge flex h-7 w-full items-center justify-center gap-1.5 rounded-(--r-md) bg-(--surface) text-[12px] font-medium cursor-pointer hover:bg-(--accent-soft) hover:text-(--accent) hover:[--edge:color-mix(in_srgb,var(--accent)_45%,transparent)] disabled:cursor-not-allowed disabled:opacity-50 ${
+                download?.status === 'error'
+                  ? '[--edge:var(--danger)] text-destructive'
+                  : 'text-(--fg-2)'
+              }`}
+            >
+              {installed ? (
+                <span className="leading-none">Use this model</span>
+              ) : (
+                <>
+                  <Download size={12} strokeWidth={2} className="shrink-0" />
+                  <span className="leading-none">
+                    {download?.status === 'error' ? 'Retry download' : 'Download'}
+                  </span>
+                </>
+              )}
+            </button>
+          </Tooltip>
         )}
       </div>
     </div>

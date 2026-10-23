@@ -175,12 +175,15 @@ describe('Dashboard — export', () => {
     expect(screen.getByText(/json/i)).toBeInTheDocument()
   })
 
-  it('calls export_transcripts on format select', async () => {
+  it('pages through get_transcripts on format select', async () => {
     renderDashboard()
     fireEvent.click(screen.getByTitle(/export transcripts/i))
     fireEvent.click(screen.getByText(/plain text/i))
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('export_transcripts')
+      expect(mockInvoke).toHaveBeenCalledWith(
+        'get_transcripts',
+        expect.objectContaining({ page: expect.objectContaining({ limit: 200 }) }),
+      )
     })
   })
 })

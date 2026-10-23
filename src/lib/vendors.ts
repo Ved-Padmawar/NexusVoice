@@ -5,6 +5,7 @@ import ollama from '../assets/providers/ollama.svg?react'
 import lmstudio from '../assets/providers/lmstudio.svg?react'
 import openrouter from '../assets/providers/openrouter.svg?react'
 import nvidia from '../assets/providers/nvidia.svg?react'
+import ibm from '../assets/providers/ibm.svg?react'
 import qwen from '../assets/providers/qwen.svg?react'
 import moonshinePng from '../assets/providers/moonshine.png'
 
@@ -29,6 +30,7 @@ export const VENDORS = {
   lmstudio: { Mark: lmstudio, color: '#4B27E5' },
   openrouter: { Mark: openrouter, color: null },
   nvidia: { Mark: nvidia, color: '#76B900' },
+  ibm: { Mark: ibm, color: '#0F62FE' },
   qwen: { Mark: qwen, color: null },
 } as const satisfies Record<string, Vendor>
 
@@ -47,6 +49,7 @@ const FAMILY_VENDOR: Record<string, VendorId | RasterId> = {
   parakeet: 'nvidia',
   nemotron: 'nvidia',
   canary: 'nvidia',
+  granite: 'ibm',
   qwen3asr: 'qwen',
   moonshine: 'moonshine',
 }

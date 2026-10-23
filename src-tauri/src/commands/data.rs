@@ -121,16 +121,6 @@ pub async fn get_transcripts(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn export_transcripts(
-    state: State<'_, AppState>,
-) -> Result<Vec<TranscriptResponse>, ApiError> {
-    let repo = TranscriptRepository::new(state.db().await?.clone());
-    let items = repo.list_all().await?;
-    Ok(items.into_iter().map(TranscriptResponse::from).collect())
-}
-
-#[tauri::command]
-#[specta::specta]
 pub async fn search_transcripts(
     state: State<'_, AppState>,
     query: String,

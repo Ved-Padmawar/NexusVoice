@@ -71,7 +71,6 @@ fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
         commands::get_usage_stats,
         commands::get_transcripts,
         commands::search_transcripts,
-        commands::export_transcripts,
         commands::get_dictionary,
         commands::delete_transcript,
         commands::update_dictionary,

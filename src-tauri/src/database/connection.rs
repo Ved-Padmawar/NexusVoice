@@ -220,6 +220,10 @@ const fn is_inconsistent(err: &MigrateError) -> bool {
 mod tests {
     use super::*;
 
+    fn migration_count() -> i64 {
+        i64::try_from(sqlx::migrate!("src/database/migrations").iter().count()).unwrap()
+    }
+
     /// As the pre-squash build left it: end schema, 13 recorded versions.
     async fn legacy_database() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
@@ -293,7 +297,11 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(versions, 1, "history collapses to the single migration");
+        assert_eq!(
+            versions,
+            migration_count(),
+            "history collapses to the squashed set"
+        );
 
         let (auth_tables,): (i64,) = sqlx::query_as(
             "SELECT count(*) FROM sqlite_master
@@ -315,7 +323,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(versions, 1);
+        assert_eq!(versions, migration_count());
     }
 
     #[tokio::test]
@@ -386,7 +394,10 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(versions, 1);
+        assert_eq!(
+            versions, 1,
+            "adoption re-stamps only the squashed migration"
+        );
     }
 
     /// The real upgrade path: a database shaped by the previous release, opened
@@ -456,6 +467,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_stats_migration_totals_the_existing_transcripts() {
+        let pool = legacy_database().await;
+        sqlx::query("INSERT INTO transcripts (content, word_count, duration_seconds) VALUES ('a', 3, 1.5), ('b', 2, NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        init_database(&pool).await.expect("init succeeds");
+
+        let totals: (i64, i64, f64) =
+            sqlx::query_as("SELECT sessions, words, duration_seconds FROM transcript_stats")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(totals, (2, 5, 1.5));
+    }
+
+    #[tokio::test]
+    async fn the_stats_follow_inserts_updates_and_deletes() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        init_database(&pool).await.expect("init succeeds");
+
+        sqlx::query("INSERT INTO transcripts (content, word_count, duration_seconds) VALUES ('a', 3, 2.0), ('b', 4, 1.0)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE transcripts SET word_count = 10 WHERE content = 'a'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM transcripts WHERE content = 'b'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let totals: (i64, i64, f64) =
+            sqlx::query_as("SELECT sessions, words, duration_seconds FROM transcript_stats")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(totals, (1, 10, 2.0));
+    }
+
+    #[tokio::test]
     async fn a_fresh_database_is_left_to_the_migrator() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         init_database(&pool).await.expect("init succeeds");
@@ -464,6 +519,6 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(versions, 1);
+        assert_eq!(versions, migration_count());
     }
 }

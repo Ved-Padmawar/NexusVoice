@@ -89,14 +89,11 @@ impl TranscriptRepository {
         .await
     }
 
-    /// Returns (`total_sessions`, `total_words`, `total_duration_seconds`) via single aggregate query.
+    /// Returns (`total_sessions`, `total_words`, `total_duration_seconds`) from `transcript_stats`.
     pub async fn get_stats(&self) -> Result<(i64, i64, f64), sqlx::Error> {
-        let row: (i64, i64, Option<f64>) = sqlx::query_as(
-            "SELECT COUNT(*), COALESCE(SUM(word_count), 0), SUM(duration_seconds) FROM transcripts",
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        Ok((row.0, row.1, row.2.unwrap_or(0.0)))
+        sqlx::query_as("SELECT sessions, words, duration_seconds FROM transcript_stats")
+            .fetch_one(&self.pool)
+            .await
     }
 
     /// Keyset-paginated fetch: returns rows strictly after `cursor`, ordered by the
@@ -127,16 +124,6 @@ impl TranscriptRepository {
             .execute(&self.pool)
             .await?;
         Ok(result.rows_affected() > 0)
-    }
-
-    /// Returns all transcripts ordered by date — used for export.
-    pub async fn list_all(&self) -> Result<Vec<Transcript>, sqlx::Error> {
-        sqlx::query_as::<_, Transcript>(
-            "SELECT id, content, word_count, duration_seconds, target_app, created_at
-             FROM transcripts ORDER BY created_at DESC",
-        )
-        .fetch_all(&self.pool)
-        .await
     }
 
     /// Transforms a user query into an FTS5 query string: each word plus a

@@ -7,8 +7,6 @@ import {
   AlertCircle, Copy, Check, Trash2,
   Settings2, Search, Download, SlidersHorizontal, LayoutDashboard,
 } from 'lucide-react'
-import { invoke } from '@tauri-apps/api/core'
-import { COMMANDS } from '../lib/commands'
 import { toast } from 'sonner'
 import { extractErrorMessage } from '../lib/errors'
 import { useAppStore } from '../store/useAppStore'
@@ -17,6 +15,7 @@ import {
   useTranscriptSearch,
   useStats,
   useDeleteTranscript,
+  fetchAllTranscripts,
   NO_FILTERS,
   type TranscriptFilters,
 } from '../lib/queries'
@@ -68,7 +67,7 @@ function ExportButton() {
     setOpen(false)
     setExporting(true)
     try {
-      const items = await invoke<Transcript[]>(COMMANDS.EXPORT_TRANSCRIPTS)
+      const items = await fetchAllTranscripts()
       const date = new Date().toISOString().slice(0, 10)
       if (format === 'txt') {
         const content = items.map(t => `[${fmtDate(t.createdAt)}]\n${t.content}`).join('\n\n---\n\n')

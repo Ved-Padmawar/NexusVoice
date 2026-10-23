@@ -7,6 +7,7 @@ import { useAppStore } from '../../store/useAppStore'
 import { EVENTS } from '../../lib/events'
 import { WaveformCanvas } from '../../components/WaveformCanvas'
 import { BARS, ease } from '../../lib/waveform'
+import { subscribeWhileVisible } from '../../lib/frameClock'
 import { pillThemeDef, type PillThemeDef } from '../../lib/pillThemes'
 import type { WaveformStyle } from '../../store/uiSlice'
 
@@ -42,12 +43,8 @@ function usePreviewLevels(rootRef: React.RefObject<HTMLElement | null>) {
     let phone = 0
     let phoneEnd = 0
     let vowel = true
-    let raf = 0
-    let last = performance.now()
 
-    const tick = (now: number) => {
-      const dt = Math.min((now - last) / 1000, 0.1)
-      last = now
+    const advance = (dt: number) => {
       t += dt
 
       if (t > phraseEnd) {
@@ -83,34 +80,10 @@ function usePreviewLevels(rootRef: React.RefObject<HTMLElement | null>) {
         smooth[i] += (target[i] - smooth[i]) * ease(rising ? 0.55 : 0.12 + i * 0.008, dt)
       }
       levelsRef.current = smooth.slice()
-      raf = requestAnimationFrame(tick)
     }
 
-    const start = () => {
-      if (raf) return
-      last = performance.now()
-      raf = requestAnimationFrame(tick)
-    }
-    const stop = () => {
-      cancelAnimationFrame(raf)
-      raf = 0
-    }
-
-    // Idle while scrolled off-screen.
-    const el = rootRef.current
-    if (!el || typeof IntersectionObserver === 'undefined') {
-      start()
-      return stop
-    }
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) start()
-      else stop()
-    })
-    observer.observe(el)
-    return () => {
-      observer.disconnect()
-      stop()
-    }
+    const root = rootRef.current
+    return root ? subscribeWhileVisible(root, advance) : undefined
   }, [rootRef])
 
   return levelsRef
@@ -122,25 +95,22 @@ function BarsPreview({ levelsRef, accent }: { levelsRef: React.RefObject<number[
   const wrapRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    let raf = 0
+    const wrap = wrapRef.current
+    if (!wrap) return
+
     let drawn: number[] | null = null
-    const tick = () => {
-      const el = wrapRef.current
+    return subscribeWhileVisible(wrap, () => {
       // Same array as last frame means the generator is paused.
-      if (el && levelsRef.current !== drawn) {
-        const levels = levelsRef.current
-        drawn = levels
-        const spans = el.children
-        for (let i = 0; i < spans.length; i++) {
-          const v = levels[i] ?? 0
-          ;(spans[i] as HTMLElement).style.height =
-            `${Math.max(MIN_H, Math.round(MIN_H + (MAX_H - MIN_H) * v))}px`
-        }
+      if (levelsRef.current === drawn) return
+      const levels = levelsRef.current
+      drawn = levels
+      const spans = wrap.children
+      for (let i = 0; i < spans.length; i++) {
+        const v = levels[i] ?? 0
+        ;(spans[i] as HTMLElement).style.height =
+          `${Math.max(MIN_H, Math.round(MIN_H + (MAX_H - MIN_H) * v))}px`
       }
-      raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
+    })
   }, [levelsRef])
 
   return (
@@ -180,7 +150,7 @@ function PreviewPill({ style, levelsRef, theme }: {
       </div>
       {style === 'bars'
         ? <BarsPreview levelsRef={levelsRef} accent={theme.accent} />
-        : <WaveformCanvas style={style} width={42} height={20} levelsRef={levelsRef} accent={theme.accentRgb} idleMotion />}
+        : <WaveformCanvas style={style} width={42} height={20} levelsRef={levelsRef} accent={theme.accentRgb} idleMotion preview />}
     </div>
   )
 }
@@ -215,7 +185,7 @@ function StyleSwatch({ s, active, onPick, levelsRef, theme }: {
       >
         {s.id === 'bars'
           ? <BarsPreview levelsRef={levelsRef} accent={theme.accent} />
-          : <WaveformCanvas style={s.id} width={44} height={16} levelsRef={levelsRef} accent={theme.accentRgb} idleMotion />}
+          : <WaveformCanvas style={s.id} width={44} height={16} levelsRef={levelsRef} accent={theme.accentRgb} idleMotion preview />}
       </span>
 
       <span className="min-w-0 flex-1">

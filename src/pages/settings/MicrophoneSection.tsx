@@ -96,7 +96,7 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
             <button
               type="button"
               aria-label={currentLabel}
-              className={`relative flex flex-1 min-w-0 items-center h-9 pl-8 pr-8 rounded-(--r-md) bg-(--surface) border text-[12px] text-(--fg) cursor-pointer text-left transition-[border-color] duration-(--t-fast) focus:outline-none disabled:opacity-50 ${open ? 'border-(--accent)' : 'border-(--border-soft) hover:border-(--border)'}`}
+              className={`nv-edge relative flex flex-1 min-w-0 items-center h-9 pl-8 pr-8 rounded-(--r-md) bg-(--surface) text-[12px] text-(--fg) cursor-pointer text-left focus:outline-none disabled:opacity-50 ${open ? '[--edge:var(--accent)]' : '[--edge:var(--border-soft)] hover:[--edge:var(--border)]'}`}
             >
               <Mic size={14} strokeWidth={2} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-(--accent) pointer-events-none" />
               <span className="truncate">

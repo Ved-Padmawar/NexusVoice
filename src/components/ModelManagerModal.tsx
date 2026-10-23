@@ -124,7 +124,7 @@ export function ModelManagerModal({ onClose }: Props) {
                           <div className="flex items-center gap-2">
                             <span className="text-[12px] font-semibold text-(--fg)">{model.displayName}</span>
                             {model.isActive && (
-                              <span className="text-[9px] font-bold text-(--accent) bg-(--accent-soft) border border-(--accent-soft) rounded-(--r-xs) px-1.25 py-px uppercase tracking-[0.04em]">
+                              <span className="text-[9px] font-bold text-(--success) bg-(--success-soft) border border-(--success-soft) rounded-(--r-xs) px-1.25 py-px uppercase tracking-[0.04em]">
                                 Active
                               </span>
                             )}

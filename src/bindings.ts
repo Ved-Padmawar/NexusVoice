@@ -96,14 +96,6 @@ async searchTranscripts(query: string, page: PageQuery) : Promise<Result<Transcr
     else return { status: "error", error: e  as any };
 }
 },
-async exportTranscripts() : Promise<Result<TranscriptResponse[], ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("export_transcripts") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
 async getDictionary() : Promise<Result<DictionaryResponse[], ApiError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_dictionary") };

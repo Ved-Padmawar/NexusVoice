@@ -607,7 +607,5 @@ input[type="password"]::-ms-reveal { display: none; }
   flex: 1;
   max-width: 4px;
   border-radius: 999px;
-  transition: height 0.08s ease;
-  will-change: height;
   min-height: 3px;
 }

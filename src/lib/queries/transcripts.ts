@@ -43,11 +43,28 @@ const toPage = (rows: Transcript[]): TranscriptPage => {
 
 const getNextPageParam = (lastPage: TranscriptPage) => lastPage.next
 
-const pageArg = (filters: TranscriptFilters, cursor: Cursor) => ({
-  limit: PAGE_SIZE,
+const pageArg = (filters: TranscriptFilters, cursor: Cursor, limit = PAGE_SIZE) => ({
+  limit,
   ...cursor,
   ...filters,
 })
+
+const EXPORT_PAGE_SIZE = 200
+
+/** Every transcript, newest first, a page at a time so no call holds the whole table. */
+export async function fetchAllTranscripts(): Promise<Transcript[]> {
+  const all: Transcript[] = []
+  let cursor = NO_CURSOR
+  for (;;) {
+    const rows = await invoke<Transcript[]>(COMMANDS.GET_TRANSCRIPTS, {
+      page: pageArg(NO_FILTERS, cursor, EXPORT_PAGE_SIZE),
+    })
+    all.push(...rows)
+    const last = rows.at(-1)
+    if (!last || rows.length < EXPORT_PAGE_SIZE) return all
+    cursor = { cursorCreatedAt: last.createdAt, cursorId: last.id }
+  }
+}
 
 const fetchFeed = (filters: TranscriptFilters, cursor: Cursor) =>
   invoke<Transcript[]>(COMMANDS.GET_TRANSCRIPTS, { page: pageArg(filters, cursor) }).then(toPage)

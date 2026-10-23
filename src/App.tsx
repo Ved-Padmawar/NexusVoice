@@ -18,6 +18,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { Dashboard } from './pages/Dashboard'
 import { SettingsPage as Settings, DictionaryPage as Dictionary, preloadRoute } from './lib/routeModules'
 import { showMainWindow } from './lib/showMainWindow'
+import { setWindowVisible } from './lib/frameClock'
 
 const Spinner = () => (
   <motion.div className="w-7 h-7 rounded-full border-2 border-(--border) border-t-(--accent)" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
@@ -119,7 +120,16 @@ function App() {
   useEffect(() => {
     const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
       event.preventDefault()
+      setWindowVisible(false)
       await getCurrentWindow().hide()
+    })
+    return () => { unlisten.then(fn => fn()) }
+  }, [])
+
+  // Every path that shows the window from the tray or a shortcut also focuses it.
+  useEffect(() => {
+    const unlisten = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused) setWindowVisible(true)
     })
     return () => { unlisten.then(fn => fn()) }
   }, [])
