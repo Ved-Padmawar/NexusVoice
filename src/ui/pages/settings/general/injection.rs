@@ -37,6 +37,11 @@ impl TextInjectionSection {
         );
     }
 
+    /// Whether this platform has anything to show; the tab leaves no gap otherwise.
+    pub fn configurable(&self) -> bool {
+        self.status.as_ref().is_some_and(|s| s.configurable)
+    }
+
     fn recheck(&mut self, cx: &mut Context<Self>) {
         if self.checking {
             return;

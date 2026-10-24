@@ -24,27 +24,9 @@ impl Backend {
     }
 }
 
-/// Overrides written by versions that stored a size keyword rather than a model
-/// id. Mapped on read so an upgrade keeps the user's existing choice.
-const LEGACY_OVERRIDES: &[(&str, &str)] = &[
-    ("large-full", "whisper-large"),
-    ("large", "whisper-large-turbo"),
-    ("medium", "whisper-medium"),
-    ("small", "whisper-small"),
-    ("base", "whisper-base"),
-    ("tiny", "whisper-tiny"),
-];
-
-/// Resolve a persisted override to a catalog id, translating legacy keywords.
+/// Resolve a persisted override to a catalog id.
 pub fn canonical_override(value: &str) -> Option<&'static str> {
-    let trimmed = value.trim();
-    if let Some(entry) = catalog::find(trimmed) {
-        return Some(entry.id.as_str());
-    }
-    LEGACY_OVERRIDES
-        .iter()
-        .find(|(legacy, _)| *legacy == trimmed)
-        .map(|(_, id)| *id)
+    catalog::find(value.trim()).map(|entry| entry.id.as_str())
 }
 
 /// Detect backend from hardware.

@@ -477,7 +477,7 @@ fn option_facts(model: &CatalogModel, p: &Palette) -> impl IntoElement {
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(p.accent)
                     .child(icon(AppIcon::Radio, 10., p.accent))
-                    .child("Live"),
+                    .child("Streaming"),
             )
         })
 }

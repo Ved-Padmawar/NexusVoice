@@ -33,10 +33,12 @@ pub enum Pass {
 
 pub struct TranscriptionEngine {
     session: Session,
-    /// Kept for capability queries after load.
+    /// Kept for device queries after load.
     model: Model,
     /// Finest granularity this model accepts, resolved once at load.
     timestamps: TimestampKind,
+    /// Whether the model drives its own streaming session, read once at load.
+    supports_streaming: bool,
     /// Hint passed to every decode; `None` detects per decode. Always a code
     /// this model advertises.
     language: Option<String>,
@@ -85,7 +87,9 @@ impl TranscriptionEngine {
             .map_err(|e| format!("failed to create session: {e}"))?;
 
         // Asking for finer than the model offers is rejected outright.
-        let caps = model.capabilities();
+        let caps = model
+            .capabilities()
+            .map_err(|e| format!("failed to read capabilities of {}: {e}", entry.display_name))?;
         let timestamps = match caps.max_timestamp_kind {
             TimestampKind::None => TimestampKind::None,
             TimestampKind::Segment => TimestampKind::Segment,
@@ -97,6 +101,7 @@ impl TranscriptionEngine {
             session,
             model,
             timestamps,
+            supports_streaming: caps.supports_streaming,
             language: None,
             languages: caps.languages,
             entry,
@@ -164,7 +169,7 @@ impl TranscriptionEngine {
 
     /// Whether the loaded model can drive its own streaming session.
     pub fn supports_streaming(&self) -> bool {
-        self.model.capabilities().supports_streaming
+        self.supports_streaming
     }
 
     /// Borrow the session mutably, for the streaming path.

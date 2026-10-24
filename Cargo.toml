@@ -1,6 +1,6 @@
 [package]
 name = "nexusvoice"
-version = "1.18.1"
+version = "1.20.0"
 edition = "2021"
 license = "MIT"
 
@@ -49,7 +49,7 @@ sha2 = "0.10"
 libloading = "0.8"
 
 # GGUF speech-to-text, single-shot and streaming.
-transcribe-cpp = { version = "0.3", default-features = false }
+transcribe-cpp = { version = "0.4", default-features = false }
 rubato = "5"
 rphonetic = "4"
 rustfft = "6.4.1"
@@ -59,14 +59,14 @@ earshot = "1.2.1"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Dxgi", "Win32_Graphics_Gdi", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Console", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Threading", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 # Backends are loaded at runtime, so one binary serves every accelerator.
-transcribe-cpp = { version = "0.3", features = ["dynamic-backends"] }
+transcribe-cpp = { version = "0.4", features = ["dynamic-backends"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = "0.33"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ash = "0.38"
-transcribe-cpp = { version = "0.3", features = ["dynamic-backends"] }
+transcribe-cpp = { version = "0.4", features = ["dynamic-backends"] }
 # The Linux tray icon needs a GTK main loop.
 gtk = "0.18"
 # Wayland has no global hotkeys; dictation is also triggered by signal.
@@ -120,11 +120,11 @@ depends = ["libxdo3", "libasound2", "libblas3", "liblapack3", "libgomp1", "libxk
 
 [package.metadata.packager.appimage]
 # Must come from the user's graphics stack.
-excluded-libs = ["libvulkan.so*", "libwayland-client.so*"]
+excluded-libraries = ["libvulkan.so*", "libwayland-client.so*"]
 
 [package.metadata.packager.nsis]
 installer-icon = "packaging/icons/icon.ico"
-install-mode = "currentUser"
+installer-mode = "currentUser"
 
 # Built by `cargo generate-rpm`.
 [package.metadata.generate-rpm]

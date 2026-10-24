@@ -390,6 +390,8 @@ pub fn apply(name: ThemeName, cx: &mut App) {
         theme.radius = R_MD;
         theme.radius_lg = R_LG;
         theme.shadow = true;
+        // Focus tints the border only; no outer glow.
+        theme.focus_ring = false;
         theme.notification.placement = gpui_kit::Anchor::BottomRight;
         theme.notification.width = px(356.);
 

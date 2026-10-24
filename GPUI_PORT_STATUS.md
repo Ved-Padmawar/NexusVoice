@@ -23,8 +23,5 @@ app is one native Rust process using GPUI Kit 0.8 with Phosphor icons.
 1. **Visual QA vs the old app**: pages were compared by eye, not pixel-diffed.
    Known deviations: no letter-spacing (GPUI lacks it), no `title=` tooltips in
    the pill, some exit animations skipped, kit DatePicker is 32px not 28px.
-2. **MSI upgrade code** differs from the Tauri one (cargo-packager has no
-   option for it; it would need a custom WiX template), so an old Tauri `.msi`
-   install won't upgrade in place. NSIS and the self-updater are unaffected.
-3. Linux/macOS `cfg` code was not compiled in the last pass (done on Windows).
-4. Delete `GPUI_PORT_STATUS.md` once the above is done.
+2. Linux/macOS `cfg` code was not compiled in the last pass (done on Windows).
+3. Delete `GPUI_PORT_STATUS.md` once the above is done.

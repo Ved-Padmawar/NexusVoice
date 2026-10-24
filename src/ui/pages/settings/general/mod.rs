@@ -27,6 +27,7 @@ pub struct GeneralTab {
     hotkeys: Entity<HotkeySection>,
     injection: Entity<TextInjectionSection>,
     _language_changed: Subscription,
+    _injection_changed: Subscription,
 }
 
 impl GeneralTab {
@@ -35,13 +36,15 @@ impl GeneralTab {
         Store::entity(cx).update(cx, Store::refresh_models);
 
         let language = cx.new(|cx| LanguageSection::new(window, cx));
+        let injection = cx.new(|cx| TextInjectionSection::new(window, cx));
         Self {
             microphone: cx.new(|cx| MicrophoneSection::new(window, cx)),
             formatting: cx.new(|cx| FormattingToggle::new(window, cx)),
             live_transcript: cx.new(|cx| LiveTranscriptToggle::new(window, cx)),
             hotkeys: cx.new(|cx| HotkeySection::new(window, cx)),
-            injection: cx.new(|cx| TextInjectionSection::new(window, cx)),
             _language_changed: cx.observe(&language, |_, _, cx| cx.notify()),
+            _injection_changed: cx.observe(&injection, |_, _, cx| cx.notify()),
+            injection,
             language,
         }
     }
@@ -59,6 +62,7 @@ impl Render for GeneralTab {
                 .p(px(16.))
         };
         let language_supported = self.language.read(cx).supported();
+        let injection_shown = self.injection.read(cx).configurable();
         div()
             .flex()
             .flex_col()
@@ -77,6 +81,7 @@ impl Render for GeneralTab {
             .child(self.formatting.clone())
             .child(self.live_transcript.clone())
             .child(card().child(self.hotkeys.clone()))
-            .child(self.injection.clone())
+            // An empty child would still add a trailing flex gap.
+            .when(injection_shown, |el| el.child(self.injection.clone()))
     }
 }

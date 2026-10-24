@@ -89,14 +89,11 @@ impl TranscriptRepository {
         .await
     }
 
-    /// Returns (`total_sessions`, `total_words`, `total_duration_seconds`) via single aggregate query.
+    /// Returns (`total_sessions`, `total_words`, `total_duration_seconds`) from `transcript_stats`.
     pub async fn get_stats(&self) -> Result<(i64, i64, f64), sqlx::Error> {
-        let row: (i64, i64, Option<f64>) = sqlx::query_as(
-            "SELECT COUNT(*), COALESCE(SUM(word_count), 0), SUM(duration_seconds) FROM transcripts",
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        Ok((row.0, row.1, row.2.unwrap_or(0.0)))
+        sqlx::query_as("SELECT sessions, words, duration_seconds FROM transcript_stats")
+            .fetch_one(&self.pool)
+            .await
     }
 
     /// Keyset-paginated fetch: returns rows strictly after `cursor`, ordered by the

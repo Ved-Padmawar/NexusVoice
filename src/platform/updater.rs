@@ -1,5 +1,4 @@
-//! Self-update from the GitHub release feed, compatible with the Tauri build's
-//! `latest.json` and minisign signatures.
+//! Self-update from the GitHub release feed: `latest.json` and minisign signatures.
 
 use std::path::PathBuf;
 

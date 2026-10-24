@@ -3,13 +3,6 @@
 use super::*;
 
 #[test]
-fn legacy_size_keywords_map_to_catalog_ids() {
-    assert_eq!(canonical_override("tiny"), Some("whisper-tiny"));
-    assert_eq!(canonical_override("large"), Some("whisper-large-turbo"));
-    assert_eq!(canonical_override("large-full"), Some("whisper-large"));
-}
-
-#[test]
 fn canonical_override_accepts_current_ids_and_trims() {
     assert_eq!(canonical_override("whisper-medium"), Some("whisper-medium"));
     assert_eq!(
@@ -25,12 +18,9 @@ fn canonical_override_rejects_unknown() {
 }
 
 #[test]
-fn every_legacy_keyword_maps_to_a_real_model() {
-    for (legacy, id) in LEGACY_OVERRIDES {
-        assert!(
-            catalog::find(id).is_some(),
-            "legacy '{legacy}' maps to missing model '{id}'"
-        );
+fn old_size_keywords_are_no_longer_overrides() {
+    for keyword in ["tiny", "base", "small", "medium", "large", "large-full"] {
+        assert_eq!(canonical_override(keyword), None, "{keyword}");
     }
 }
 

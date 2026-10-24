@@ -5,13 +5,14 @@ use std::path::Path;
 
 use super::Vendor;
 
-const ALL: [Vendor; 9] = [
+const ALL: [Vendor; 10] = [
     Vendor::OpenAi,
     Vendor::Anthropic,
     Vendor::Ollama,
     Vendor::LmStudio,
     Vendor::OpenRouter,
     Vendor::Nvidia,
+    Vendor::Ibm,
     Vendor::Qwen,
     Vendor::Moonshine,
     Vendor::Custom,

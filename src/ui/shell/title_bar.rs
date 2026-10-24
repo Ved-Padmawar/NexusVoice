@@ -28,6 +28,14 @@ impl Control {
         }
     }
 
+    /// Only Maximize is a native caption button, for the Windows 11 snap-layout
+    /// flyout. After that flyout Windows stops sending move messages for the
+    /// neighbouring caption button, so Close would miss its hover; the others are
+    /// plain buttons that take ordinary mouse events.
+    const fn is_native(self) -> bool {
+        cfg!(target_os = "windows") && matches!(self, Self::Maximize)
+    }
+
     fn act(self, window: &mut Window) {
         match self {
             Self::Minimize => window.minimize_window(),
@@ -109,10 +117,10 @@ impl RenderOnce for TitleBar {
                         }
                     });
                 })
-                .when(cfg!(target_os = "windows"), |el| {
+                .when(control.is_native(), |el| {
                     el.window_control_area(control.area())
                 })
-                .when(!cfg!(target_os = "windows"), |el| {
+                .when(!control.is_native(), |el| {
                     el.on_mouse_down(MouseButton::Left, |_, window, cx| {
                         window.prevent_default();
                         cx.stop_propagation();

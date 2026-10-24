@@ -14,6 +14,7 @@ pub enum Vendor {
     LmStudio,
     OpenRouter,
     Nvidia,
+    Ibm,
     Qwen,
     /// Publishes only a raster logo.
     Moonshine,
@@ -49,6 +50,7 @@ impl Vendor {
         match family.replace('-', "").as_str() {
             "whisper" => Some(Self::OpenAi),
             "parakeet" | "nemotron" | "canary" => Some(Self::Nvidia),
+            "granite" => Some(Self::Ibm),
             "qwen3asr" => Some(Self::Qwen),
             "moonshine" => Some(Self::Moonshine),
             _ => None,
@@ -63,6 +65,7 @@ impl Vendor {
             Self::LmStudio => "providers/lmstudio.svg",
             Self::OpenRouter => "providers/openrouter.svg",
             Self::Nvidia => "providers/nvidia.svg",
+            Self::Ibm => "providers/ibm.svg",
             Self::Qwen => "providers/qwen.svg",
             Self::Moonshine => "providers/moonshine.png",
             Self::Custom => return None,
@@ -76,6 +79,7 @@ impl Vendor {
             Self::Ollama => Tint::Brand(0xFF_FF_FF),
             Self::LmStudio => Tint::Brand(0x4B_27_E5),
             Self::Nvidia => Tint::Brand(0x76_B9_00),
+            Self::Ibm => Tint::Brand(0x0F_62_FE),
             // The file paints a violet gradient; a flat mask keeps its mean.
             Self::Qwen => Tint::Brand(0x61_5C_ED),
             Self::OpenRouter | Self::Moonshine | Self::Custom => Tint::Inherit,
