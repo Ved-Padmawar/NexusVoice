@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core'
 import {
   keepPreviousData,
   useInfiniteQuery,
@@ -8,11 +7,11 @@ import {
   type InfiniteData,
 } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { COMMANDS } from '../commands'
+import { commands, type PageQuery } from '../../bindings'
 import { extractErrorMessage } from '../errors'
 import { queryClient } from './client'
 import { queryKeys } from './keys'
-import type { Transcript, UsageStats } from '../../types'
+import type { Transcript } from '../../types'
 
 export const PAGE_SIZE = 50
 
@@ -43,7 +42,7 @@ const toPage = (rows: Transcript[]): TranscriptPage => {
 
 const getNextPageParam = (lastPage: TranscriptPage) => lastPage.next
 
-const pageArg = (filters: TranscriptFilters, cursor: Cursor, limit = PAGE_SIZE) => ({
+const pageArg = (filters: TranscriptFilters, cursor: Cursor, limit = PAGE_SIZE): PageQuery => ({
   limit,
   ...cursor,
   ...filters,
@@ -56,9 +55,7 @@ export async function fetchAllTranscripts(): Promise<Transcript[]> {
   const all: Transcript[] = []
   let cursor = NO_CURSOR
   for (;;) {
-    const rows = await invoke<Transcript[]>(COMMANDS.GET_TRANSCRIPTS, {
-      page: pageArg(NO_FILTERS, cursor, EXPORT_PAGE_SIZE),
-    })
+    const rows = await commands.getTranscripts(pageArg(NO_FILTERS, cursor, EXPORT_PAGE_SIZE))
     all.push(...rows)
     const last = rows.at(-1)
     if (!last || rows.length < EXPORT_PAGE_SIZE) return all
@@ -67,12 +64,12 @@ export async function fetchAllTranscripts(): Promise<Transcript[]> {
 }
 
 const fetchFeed = (filters: TranscriptFilters, cursor: Cursor) =>
-  invoke<Transcript[]>(COMMANDS.GET_TRANSCRIPTS, { page: pageArg(filters, cursor) }).then(toPage)
+  commands.getTranscripts(pageArg(filters, cursor)).then(toPage)
 
 const fetchSearch = (query: string, filters: TranscriptFilters, cursor: Cursor) =>
-  invoke<Transcript[]>(COMMANDS.SEARCH_TRANSCRIPTS, { query, page: pageArg(filters, cursor) }).then(toPage)
+  commands.searchTranscripts(query, pageArg(filters, cursor)).then(toPage)
 
-// Kept current by `transcript:new` and mutations, so never stale on a timer.
+// Kept current by `transcriptSaved` and mutations, so never stale on a timer.
 // Invalidations skipped while hidden refetch when the window is shown.
 const EVENT_DRIVEN = { staleTime: Infinity, refetchOnWindowFocus: true } as const
 
@@ -86,7 +83,7 @@ const feedOptions = (filters: TranscriptFilters) => ({
 
 const statsOptions = {
   queryKey: queryKeys.stats,
-  queryFn: () => invoke<UsageStats>(COMMANDS.GET_USAGE_STATS),
+  queryFn: () => commands.getUsageStats(),
   ...EVENT_DRIVEN,
 }
 
@@ -116,7 +113,7 @@ export function useStats() {
 export function useDeleteTranscript() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (id: number) => invoke<void>(COMMANDS.DELETE_TRANSCRIPT, { id }),
+    mutationFn: (id: number) => commands.deleteTranscript(id),
     // Drop the row in place rather than refetch every page. A fetch in flight
     // would restore it, so cancel and re-run those.
     onSuccess: async (_, id) => {

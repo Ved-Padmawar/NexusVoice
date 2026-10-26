@@ -64,9 +64,9 @@ describe('useEventListener', () => {
     const unlisten = vi.fn()
     vi.mocked(listen).mockResolvedValue(unlisten)
 
-    const { unmount } = renderHook(() => useEventListener('some-event', () => {}))
+    const { unmount } = renderHook(() => useEventListener('transcriptionComplete', () => {}))
     expect(listen).toHaveBeenCalledTimes(1)
-    expect(vi.mocked(listen).mock.calls[0][0]).toBe('some-event')
+    expect(vi.mocked(listen).mock.calls[0][0]).toBe('transcription-complete')
 
     unmount()
     await act(async () => { await vi.runAllTimersAsync() })
@@ -77,7 +77,7 @@ describe('useEventListener', () => {
     // The handler is held in a ref precisely so an inline arrow — a new function
     // every render — does not tear down and rebuild the subscription.
     vi.mocked(listen).mockResolvedValue(vi.fn())
-    const { rerender } = renderHook(({ n }) => useEventListener('evt', () => n), {
+    const { rerender } = renderHook(({ n }) => useEventListener('cudaDownloadProgress', () => n), {
       initialProps: { n: 1 },
     })
     rerender({ n: 2 })
@@ -89,7 +89,7 @@ describe('useEventListener', () => {
     // The flip side of the ref: a stale handler silently acts on old state.
     let received = 0
     vi.mocked(listen).mockResolvedValue(vi.fn())
-    const { rerender } = renderHook(({ n }) => useEventListener<number>('evt', () => { received = n }), {
+    const { rerender } = renderHook(({ n }) => useEventListener('cudaDownloadProgress', () => { received = n }), {
       initialProps: { n: 1 },
     })
     rerender({ n: 99 })
@@ -102,28 +102,48 @@ describe('useEventListener', () => {
   it('passes the payload through, not the whole event envelope', async () => {
     const handler = vi.fn()
     vi.mocked(listen).mockResolvedValue(vi.fn())
-    renderHook(() => useEventListener<{ pct: number }>('evt', handler))
+    renderHook(() => useEventListener('modelDownloadProgress', handler))
 
     const tauriHandler = vi.mocked(listen).mock.calls[0][1] as (e: { payload: unknown }) => void
-    act(() => tauriHandler({ payload: { pct: 42 } }))
-    expect(handler).toHaveBeenCalledWith({ pct: 42 })
+    act(() => tauriHandler({ payload: { id: 'model', pct: 42 } }))
+    expect(handler).toHaveBeenCalledWith({ id: 'model', pct: 42 })
   })
 
-  it('resubscribes when the event name changes', async () => {
+  it('resubscribes when the event changes', async () => {
     vi.mocked(listen).mockResolvedValue(vi.fn())
-    const { rerender } = renderHook(({ evt }) => useEventListener(evt, () => {}), {
-      initialProps: { evt: 'first' },
+    const { rerender } = renderHook(({ evt }: { evt: 'transcriptionComplete' | 'transcriptionError' }) => useEventListener(evt, () => {}), {
+      initialProps: { evt: 'transcriptionComplete' },
     })
-    rerender({ evt: 'second' })
+    rerender({ evt: 'transcriptionError' })
     expect(listen).toHaveBeenCalledTimes(2)
-    expect(vi.mocked(listen).mock.calls[1][0]).toBe('second')
+    expect(vi.mocked(listen).mock.calls[1][0]).toBe('transcription-error')
   })
 
   it('swallows a rejected subscription instead of an unhandled rejection', async () => {
     // `listen` can reject if the window is tearing down; that must not surface.
     vi.mocked(listen).mockRejectedValue(new Error('window gone'))
-    const { unmount } = renderHook(() => useEventListener('evt', () => {}))
+    const { unmount } = renderHook(() => useEventListener('transcriptionComplete', () => {}))
     unmount()
+    await act(async () => { await vi.runAllTimersAsync() })
+  })
+
+  it('ignores callbacks after cleanup while registration is still pending', async () => {
+    const handler = vi.fn()
+    const unlisten = vi.fn()
+    let registered!: (unlisten: () => void) => void
+    vi.mocked(listen).mockImplementation(() => new Promise(resolve => { registered = resolve }))
+    const { unmount } = renderHook(() => useEventListener('transcriptionComplete', handler))
+    const callback = vi.mocked(listen).mock.calls[0][1]
+    unmount()
+    callback({ event: 'transcription-complete', id: 1, payload: { pasteError: null } })
+    await act(async () => { registered(unlisten) })
+    expect(handler).not.toHaveBeenCalled()
+    expect(unlisten).toHaveBeenCalledOnce()
+  })
+
+  it('handles registration failure immediately while still mounted', async () => {
+    vi.mocked(listen).mockRejectedValue(new Error('window gone'))
+    renderHook(() => useEventListener('transcriptionComplete', () => {}))
     await act(async () => { await vi.runAllTimersAsync() })
   })
 })

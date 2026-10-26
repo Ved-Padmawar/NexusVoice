@@ -58,7 +58,7 @@ describe('Dictionary — add entry', () => {
     fireEvent.change(screen.getByPlaceholderText(/e.g. the/i), { target: { value: 'the' } })
     fireEvent.click(screen.getByRole('button', { name: /add to dictionary/i }))
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'teh', replacement: 'the' })
+      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'teh', replacement: 'the', previousTerm: null })
     })
   })
 
@@ -82,7 +82,7 @@ describe('Dictionary — add entry', () => {
     fireEvent.change(replacementInput, { target: { value: 'going to' } })
     fireEvent.keyDown(replacementInput, { key: 'Enter' })
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'gonna', replacement: 'going to' })
+      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'gonna', replacement: 'going to', previousTerm: null })
     })
   })
 })

@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MicrophoneSection } from '../../pages/settings/MicrophoneSection'
-import { COMMANDS } from '../../lib/commands'
 import { invoke } from '@tauri-apps/api/core'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
@@ -44,15 +43,6 @@ describe('MicrophoneSection', () => {
     )
   })
 
-  it('does not crash when the backend returns a non-array', async () => {
-    // The Tauri mock resolves undefined by default — the component must tolerate it.
-    mockInvoke.mockResolvedValue(undefined)
-    render(<MicrophoneSection />)
-    await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: /Default/ })).toBeInTheDocument()
-    )
-  })
-
   it('persists the chosen device via set_input_device', async () => {
     mockInvoke.mockResolvedValue(DEVICES)
     render(<MicrophoneSection />)
@@ -64,7 +54,7 @@ describe('MicrophoneSection', () => {
     fireEvent.click(await screen.findByText('Blue Yeti'))
 
     await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith(COMMANDS.SET_INPUT_DEVICE, { name: 'Blue Yeti' })
+      expect(mockInvoke).toHaveBeenCalledWith('set_input_device', { name: 'Blue Yeti' })
     )
   })
 })

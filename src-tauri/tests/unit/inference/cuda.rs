@@ -105,7 +105,7 @@ fn a_driver_older_than_cuda_13_never_qualifies() {
 #[test]
 fn an_idle_download_reports_no_progress_and_ignores_cancel() {
     // The UI reads `None` as "no download running".
-    let download = CudaDownload::default();
+    let download = CudaPack::new(std::env::temp_dir());
     download.cancel();
     assert_eq!(download.progress(), None);
 }

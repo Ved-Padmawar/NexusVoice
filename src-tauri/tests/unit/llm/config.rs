@@ -137,9 +137,9 @@ fn endpoint_tolerates_trailing_slash_and_whitespace() {
     );
 }
 
-// ── Persistence ────────────────────────────────────────────────────────
-// `format_config.json` is written by older builds too, so every field carries
-// `#[serde(default)]`. A missing one must load, not wipe the user's setup.
+// ── Import ─────────────────────────────────────────────────────────────
+// Older builds wrote this shape to `format_config.json`, and every version of
+// it must import: a missing field must load, not wipe the user's setup.
 
 #[test]
 fn an_empty_config_file_loads_as_the_default() {
@@ -173,28 +173,4 @@ fn a_profile_missing_its_api_key_loads_with_an_empty_key() {
     let c: FormatConfig = serde_json::from_str(json).expect("parse");
     assert_eq!(c.active().api_key, "");
     assert!(c.is_usable());
-}
-
-#[test]
-fn a_config_round_trips_through_json_unchanged() {
-    // What is saved must be what loads back, keys included.
-    let mut original = with("openai", "https://api.openai.com/v1", "gpt-4o-mini", true);
-    original.profiles.get_mut("openai").unwrap().api_key = "sk-secret".to_string();
-
-    let reloaded: FormatConfig =
-        serde_json::from_str(&serde_json::to_string(&original).expect("write")).expect("read");
-
-    assert_eq!(reloaded.enabled, original.enabled);
-    assert_eq!(reloaded.provider, original.provider);
-    assert_eq!(reloaded.active().base_url, "https://api.openai.com/v1");
-    assert_eq!(reloaded.active().model, "gpt-4o-mini");
-    assert_eq!(reloaded.active().api_key, "sk-secret");
-}
-
-#[test]
-fn the_json_keys_are_camel_case() {
-    // The frontend reads this same shape through the generated bindings.
-    let json = serde_json::to_string(&with("ollama", "http://x/v1", "m", true)).expect("write");
-    assert!(json.contains("\"baseUrl\""), "{json}");
-    assert!(json.contains("\"apiKey\""), "{json}");
 }

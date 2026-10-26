@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
 import { Check, KeyboardIcon, RefreshCw, TriangleAlert } from 'lucide-react'
-import { COMMANDS } from '../../lib/commands'
+import { commands } from '../../bindings'
 import type { InjectionStatus } from '../../types'
 
 /**
@@ -18,7 +17,7 @@ export function TextInjectionSection() {
 
   const load = useCallback(
     () =>
-      invoke<InjectionStatus>(COMMANDS.GET_INJECTION_STATUS)
+      commands.getInjectionStatus()
         .then(setStatus)
         .catch(() => setStatus(null)),
     [],

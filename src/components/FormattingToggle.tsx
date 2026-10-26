@@ -1,25 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { invoke } from '@tauri-apps/api/core'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Dialog } from 'radix-ui'
 import { Sparkles, Settings2, X, CheckCircle2, Loader2, AlertCircle, Plug, Save } from 'lucide-react'
-import { COMMANDS } from '../lib/commands'
+import { commands } from '../bindings'
 import { extractErrorMessage } from '../lib/errors'
 import { VendorMark } from './ui/VendorMark'
 import type { VendorId } from '../lib/vendors'
 import { toast } from 'sonner'
-import { isConfigured, type Profile } from '../lib/formatConfig'
+import { isConfigured, keepingKeys } from '../lib/formatConfig'
+import type { FormatterUpdate, FormatterView, ProfileView } from '../types'
 
-type FormatConfig = {
-  enabled: boolean
-  provider: string
-  profiles: Record<string, Profile>
-}
+const EMPTY_PROFILE: ProfileView = { baseUrl: '', model: '', hasApiKey: false }
 
-const EMPTY_PROFILE: Profile = { baseUrl: '', model: '', apiKey: '' }
-
-const activeProfile = (c: FormatConfig): Profile =>
-  c.profiles?.[c.provider] ?? EMPTY_PROFILE
+const activeProfile = (c: FormatterView): ProfileView =>
+  c.profiles[c.provider] ?? EMPTY_PROFILE
 
 
 type Preset = {
@@ -41,7 +35,7 @@ const PRESETS: Preset[] = [
   { id: 'custom',     label: 'Custom',            baseUrl: '',                            needsKey: false, modelHint: 'model name' },
 ]
 
-const DEFAULT_CONFIG: FormatConfig = { enabled: false, provider: 'ollama', profiles: {} }
+const DEFAULT_CONFIG: FormatterView = { enabled: false, provider: 'ollama', profiles: {} }
 
 const INPUT_CLASS =
   'nv-edge [--edge:var(--border)] focus:[--edge:var(--accent)] w-full px-3 py-2 text-[12px] text-(--fg) bg-(--surface) rounded-(--r-md) outline-none placeholder:text-muted-foreground'
@@ -49,14 +43,11 @@ const INPUT_CLASS =
 /** Smart-formatting toggle + provider config. The formatter is an HTTP call,
  *  off by default; enabling without an endpoint opens the modal. */
 export function FormattingToggle() {
-  const [config, setConfig] = useState<FormatConfig>(DEFAULT_CONFIG)
+  const [config, setConfig] = useState<FormatterView>(DEFAULT_CONFIG)
   const [modalOpen, setModalOpen] = useState(false)
 
   const refresh = useCallback(() => {
-    invoke<Partial<FormatConfig> | null>(COMMANDS.GET_FORMAT_CONFIG)
-      // A missing config must not blank out the defaults.
-      .then((c) => setConfig({ ...DEFAULT_CONFIG, ...(c ?? {}) }))
-      .catch(() => {})
+    commands.getFormatConfig().then(setConfig).catch(() => {})
   }, [])
 
   useEffect(() => { refresh() }, [refresh])
@@ -64,9 +55,9 @@ export function FormattingToggle() {
   const active = activeProfile(config)
   const configured = isConfigured(config.provider, active)
 
-  const persist = async (next: FormatConfig) => {
+  const persist = async (next: FormatterView) => {
     setConfig(next)
-    await invoke(COMMANDS.SET_FORMAT_CONFIG, { config: next }).catch(() => {
+    await commands.setFormatConfig(keepingKeys(next)).catch(() => {
       toast.error('Failed to save formatting settings')
     })
   }
@@ -154,7 +145,7 @@ export function FormattingToggle() {
               setModalOpen(false)
               if (!configured) setConfig((c) => ({ ...c, enabled: false }))
             }}
-            onSaved={(saved) => { setConfig(saved); setModalOpen(false) }}
+            onSaved={() => { refresh(); setModalOpen(false) }}
           />
         )}
       </AnimatePresence>
@@ -167,15 +158,18 @@ function ProviderModal({
   onClose,
   onSaved,
 }: {
-  initial: FormatConfig
+  initial: FormatterView
   onClose: () => void
-  onSaved: (c: FormatConfig) => void
+  onSaved: () => void
 }) {
   const [providerId, setProviderId] = useState(initial.provider || 'ollama')
   const seed = activeProfile(initial)
   const [baseUrl, setBaseUrl] = useState(seed.baseUrl)
   const [model, setModel] = useState(seed.model)
-  const [apiKey, setApiKey] = useState(seed.apiKey)
+  // The saved key never comes back from the backend: typing replaces it.
+  const [apiKey, setApiKey] = useState('')
+  const [keySaved, setKeySaved] = useState(seed.hasApiKey)
+  const [removeKey, setRemoveKey] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<'idle' | 'ok' | 'fail'>('idle')
   const [saving, setSaving] = useState(false)
@@ -198,17 +192,22 @@ function ProviderModal({
     const fallbackUrl = preset && id !== 'custom' && id !== 'anthropic' ? preset.baseUrl : ''
     setBaseUrl(saved?.baseUrl || fallbackUrl)
     setModel(saved?.model ?? '')
-    setApiKey(saved?.apiKey ?? '')
+    setApiKey('')
+    setKeySaved(saved?.hasApiKey ?? false)
+    setRemoveKey(false)
   }
 
-  const draft = (): FormatConfig => ({
-    enabled: initial.enabled,
-    provider: providerId,
-    profiles: {
-      ...initial.profiles,
-      [providerId]: { baseUrl: baseUrl.trim(), model: model.trim(), apiKey: apiKey.trim() },
-    },
-  })
+  // Only the edited provider can change its key; the rest keep theirs.
+  const draft = (): FormatterUpdate => {
+    const typed = apiKey.trim()
+    const key = typed !== '' ? typed : removeKey ? '' : null
+    const base = keepingKeys(initial)
+    return {
+      ...base,
+      provider: providerId,
+      profiles: { ...base.profiles, [providerId]: { baseUrl: baseUrl.trim(), model: model.trim(), apiKey: key } },
+    }
+  }
 
   const canSubmit = isConfigured(providerId, { baseUrl, model })
 
@@ -225,7 +224,7 @@ function ProviderModal({
     setTesting(true)
     setTestResult('idle')
     try {
-      await invoke(COMMANDS.TEST_FORMAT_CONNECTION, { config: draft() })
+      await commands.testFormatConnection(draft())
       flashResult('ok')
       toast.success('Connection successful')
     } catch (e) {
@@ -242,13 +241,12 @@ function ProviderModal({
     setSaving(true)
     // Saving from the modal also enables formatting — the user configured an
     // endpoint specifically to use it.
-    const next = { ...draft(), enabled: true }
     try {
-      await invoke(COMMANDS.SET_FORMAT_CONFIG, { config: next })
+      await commands.setFormatConfig({ ...draft(), enabled: true })
       toast.success('Smart formatting enabled')
-      onSaved(next)
-    } catch {
-      toast.error('Failed to save settings')
+      onSaved()
+    } catch (e) {
+      toast.error(extractErrorMessage(e, 'Failed to save settings'))
     } finally {
       setSaving(false)
     }
@@ -374,10 +372,21 @@ function ProviderModal({
               autoComplete="off"
               value={apiKey}
               onChange={(e) => { setApiKey(e.target.value); setTestResult('idle') }}
-              placeholder={preset.needsKey ? 'sk-…' : 'leave blank for local servers'}
+              placeholder={keySaved && !removeKey
+                ? 'Saved in your system keychain — type to replace'
+                : preset.needsKey ? 'sk-…' : 'leave blank for local servers'}
               className={INPUT_CLASS}
               spellCheck={false}
             />
+            {keySaved && !removeKey && apiKey === '' && (
+              <button
+                type="button"
+                onClick={() => { setRemoveKey(true); setTestResult('idle') }}
+                className="self-start text-[10px] text-muted-foreground bg-transparent border-none p-0 cursor-pointer hover:text-destructive"
+              >
+                Remove saved key
+              </button>
+            )}
           </Field>
         </div>
 

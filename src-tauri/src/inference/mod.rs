@@ -1,9 +1,11 @@
+pub mod cache;
 pub mod catalog;
 pub mod cuda;
 pub mod downloader;
 pub mod engine;
 pub mod idle;
 pub mod language;
+pub mod library;
 pub mod provider;
 pub mod transcript;
 

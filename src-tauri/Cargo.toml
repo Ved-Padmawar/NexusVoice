@@ -1,6 +1,6 @@
 [package]
 name = "nexusvoice"
-version = "1.19.0"
+version = "1.20.0"
 edition = "2021"
 
 [features]
@@ -51,6 +51,8 @@ rphonetic = "4"
 rustfft = "6.4.1"
 tokio-util = "0.7.19"
 earshot = "1.2.1"
+# Formatter API keys live in the OS credential store; the store crate is per platform.
+keyring-core = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_Graphics_Dxgi", "Win32_Graphics_Gdi", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
@@ -58,9 +60,11 @@ windows = { version = "0.62", features = ["Win32_Graphics_Dxgi", "Win32_Graphics
 # The Vulkan module is built only under the `gpu` feature (release builds), which
 # needs the Vulkan SDK present; without it the CPU variants still ship.
 transcribe-cpp = { version = "0.4", features = ["dynamic-backends"] }
+windows-native-keyring-store = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = "0.33"
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ash = "0.38"
@@ -69,6 +73,8 @@ transcribe-cpp = { version = "0.4", features = ["dynamic-backends"] }
 signal-hook = "0.4"
 # xdg-desktop-portal: the sanctioned way to type on Wayland, no helper tool.
 ashpd = { version = "0.13", default-features = false, features = ["tokio", "remote_desktop", "screencast"] }
+# Secret Service over zbus (pure Rust, the same zbus/tokio stack ashpd uses).
+zbus-secret-service-keyring-store = { version = "1", features = ["rt-tokio-crypto-rust"] }
 
 [dev-dependencies]
 tempfile = "3"

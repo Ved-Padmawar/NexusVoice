@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
 import { Timer } from 'lucide-react'
 import { toast } from 'sonner'
-import { COMMANDS } from '../../lib/commands'
+import { commands } from '../../bindings'
 import { extractErrorMessage } from '../../lib/errors'
 import type { ModelUnload } from '../../types'
 
@@ -22,7 +21,7 @@ export function ModelUnloadSection() {
   const [policy, setPolicy] = useState<ModelUnload | null>(null)
 
   useEffect(() => {
-    invoke<ModelUnload>(COMMANDS.GET_MODEL_UNLOAD).then(setPolicy).catch(() => setPolicy('never'))
+    commands.getModelUnload().then(setPolicy).catch(() => setPolicy('never'))
   }, [])
 
   const choose = async (next: ModelUnload) => {
@@ -30,7 +29,7 @@ export function ModelUnloadSection() {
     const previous = policy
     setPolicy(next)
     try {
-      await invoke(COMMANDS.SET_MODEL_UNLOAD, { policy: next })
+      await commands.setModelUnload(next)
     } catch (e) {
       setPolicy(previous)
       toast.error(extractErrorMessage(e, 'Could not save the unload setting'))

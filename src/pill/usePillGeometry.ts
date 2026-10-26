@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { animate, useMotionValue } from 'framer-motion'
-import { invoke } from '@tauri-apps/api/core'
-import { COMMANDS } from '../lib/commands'
+import { commands } from '../bindings'
 
 const CAPSULE_H = 32
 export const CARD_W = 332
@@ -41,7 +40,7 @@ export function usePillGeometry(wantsCard: boolean, wantsHeadroom: boolean, caps
   const resize = useCallback((large: boolean) => {
     const next = queue.current.then(async () => {
       if (windowExpanded.current === large) return
-      await invoke(COMMANDS.RESIZE_PILL, { expanded: large })
+      await commands.resizePill(large)
       windowExpanded.current = large
     })
     queue.current = next.catch(() => {})

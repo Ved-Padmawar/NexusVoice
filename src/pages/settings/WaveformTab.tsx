@@ -1,15 +1,13 @@
 import { useShallow } from 'zustand/react/shallow'
 import { memo, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { emit } from '@tauri-apps/api/event'
-import { AudioLines, Check } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { useAppStore } from '../../store/useAppStore'
-import { EVENTS } from '../../lib/events'
 import { WaveformCanvas } from '../../components/WaveformCanvas'
 import { BARS, ease } from '../../lib/waveform'
 import { subscribeWhileVisible } from '../../lib/frameClock'
 import { pillThemeDef, type PillThemeDef } from '../../lib/pillThemes'
-import type { WaveformStyle } from '../../store/uiSlice'
+import type { WaveformStyle } from '../../types'
 
 type StyleDef = {
   id: WaveformStyle
@@ -18,10 +16,10 @@ type StyleDef = {
 }
 
 const WAVEFORM_STYLES: StyleDef[] = [
-  { id: 'bars',  label: 'Bars',  hint: 'live level meter' },
-  { id: 'memo',  label: 'Memo',  hint: 'scrolling voice note' },
-  { id: 'eq',    label: 'EQ',    hint: 'retro equalizer' },
-  { id: 'spectrum', label: 'Spectrum', hint: 'analyser columns' },
+  { id: 'bars',  label: 'Bars',  hint: 'Live level meter' },
+  { id: 'memo',  label: 'Memo',  hint: 'Scrolling voice note' },
+  { id: 'eq',    label: 'EQ',    hint: 'Retro equalizer' },
+  { id: 'spectrum', label: 'Spectrum', hint: 'Analyser columns' },
 ]
 
 const MIN_H = 3
@@ -133,11 +131,10 @@ function PreviewPill({ style, levelsRef, theme }: {
       className="pill"
       style={{
         width: 80,
+        flexShrink: 0,
         background: theme.bg,
+        backgroundOrigin: 'border-box',
         borderColor: theme.border,
-        boxShadow: theme.bg === '#ffffff'
-          ? '0 2px 12px rgba(0,0,0,0.10), 0 1px 3px rgba(0,0,0,0.07)'
-          : 'inset 0 1px 0 rgba(255,255,255,0.05)',
       }}
     >
       <div className="pill__icon" style={{ color: theme.accent }}>
@@ -167,7 +164,7 @@ function StyleSwatch({ s, active, onPick, levelsRef, theme }: {
       type="button"
       onClick={onPick}
       aria-pressed={active}
-      className="flex items-center gap-2.5 rounded-(--r-md) border px-2.5 py-2 text-left cursor-pointer"
+      className="flex h-10 items-center gap-2.5 rounded-(--r-md) border px-2.5 text-left cursor-pointer"
       initial={false}
       animate={{
         borderColor: active ? 'var(--accent)' : 'var(--border-soft)',
@@ -177,16 +174,9 @@ function StyleSwatch({ s, active, onPick, levelsRef, theme }: {
       whileTap={{ scale: 0.99 }}
       transition={{ duration: 0.15 }}
     >
-      {/* The swatch runs the style itself, on the pill's own ground — the
-          motion is what's being chosen, and it must read on that colour. */}
-      <span
-        className="grid h-6 w-13 shrink-0 place-items-center overflow-hidden rounded-(--r-xs) border border-(--border-soft)"
-        style={{ background: theme.bg }}
-      >
-        {s.id === 'bars'
-          ? <BarsPreview levelsRef={levelsRef} accent={theme.accent} />
-          : <WaveformCanvas style={s.id} width={44} height={16} levelsRef={levelsRef} accent={theme.accentRgb} idleMotion preview />}
-      </span>
+      {/* The real recording pill running this style, so the motion being
+          chosen is seen on the colour it will be drawn on. */}
+      <PreviewPill style={s.id} levelsRef={levelsRef} theme={theme} />
 
       <span className="min-w-0 flex-1">
         <motion.span
@@ -211,60 +201,44 @@ function StyleSwatch({ s, active, onPick, levelsRef, theme }: {
 
 /** How the pill draws your voice while it records. */
 export const WaveformTab = memo(function WaveformTab() {
-  const { waveformStyle, setWaveformStyle, pillTheme } = useAppStore(useShallow(s => ({
-    waveformStyle: s.waveformStyle,
-    setWaveformStyle: s.setWaveformStyle,
-    pillTheme: s.pillTheme,
+  const { waveformStyle, pillTheme, updatePill } = useAppStore(useShallow(s => ({
+    waveformStyle: s.pill.waveformStyle,
+    pillTheme: s.pill.theme,
+    updatePill: s.updatePill,
   })))
   const rootRef = useRef<HTMLDivElement | null>(null)
   const levelsRef = usePreviewLevels(rootRef)
-  const current = WAVEFORM_STYLES.find((s) => s.id === waveformStyle) ?? WAVEFORM_STYLES[0]
   const theme = pillThemeDef(pillTheme)
 
-  const handleSelect = (id: WaveformStyle) => {
-    setWaveformStyle(id)
-    void emit(EVENTS.PILL_WAVEFORM_STYLE_CHANGED, id)
-  }
+  const handleSelect = (id: WaveformStyle) => { void updatePill({ waveformStyle: id }) }
 
   return (
+    <section>
+    <h2 className="mb-2 text-[13px] font-semibold text-(--fg-2)">Waveform</h2>
     <div ref={rootRef} className="flex gap-4 rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
       <div className="flex shrink-0 flex-col gap-2.5">
-        {/* Backdrop mixed from the pill's own ground, matching the theme
-            preview above it, so the pill has something to sit off. */}
         <div
           className="grid h-21.5 w-55 place-items-center rounded-(--r-md) border border-(--border-soft) shadow-(--shadow-sm)"
-          style={{
-            background: theme.bg === '#ffffff'
-              ? '#e8eaf0'
-              : `color-mix(in srgb, ${theme.bg} 60%, #111)`,
-          }}
+          style={{ background: theme.stage }}
         >
           <PreviewPill style={waveformStyle} levelsRef={levelsRef} theme={theme} />
         </div>
-        <div className="flex items-baseline gap-2">
-          <span className="text-[13px] font-bold tracking-[-0.02em] text-(--fg)">{current.label}</span>
-          <span className="min-w-0 truncate text-[11px] text-muted-foreground">{current.hint}</span>
-        </div>
+        <span className="text-[11px] text-muted-foreground">How the pill draws your voice</span>
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          <AudioLines size={11} />
-          Waveform
-        </span>
-        <div className="grid grid-cols-2 gap-1.5">
-          {WAVEFORM_STYLES.map((s) => (
-            <StyleSwatch
-              key={s.id}
-              s={s}
-              active={waveformStyle === s.id}
-              onPick={() => handleSelect(s.id)}
-              levelsRef={levelsRef}
-              theme={theme}
-            />
-          ))}
-        </div>
+      <div className="grid min-w-0 flex-1 grid-cols-2 content-center gap-1.5">
+        {WAVEFORM_STYLES.map((s) => (
+          <StyleSwatch
+            key={s.id}
+            s={s}
+            active={waveformStyle === s.id}
+            onPick={() => handleSelect(s.id)}
+            levelsRef={levelsRef}
+            theme={theme}
+          />
+        ))}
       </div>
     </div>
+    </section>
   )
 })

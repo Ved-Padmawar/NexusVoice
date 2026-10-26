@@ -4,10 +4,14 @@
 //! register a system-wide shortcut there. Instead the user binds a command in
 //! their desktop's keyboard settings, and that command reaches the running
 //! instance either as CLI arguments (via `tauri-plugin-single-instance`) or as
-//! a Unix signal. Both emit the same events the real hotkey does, so there is
-//! one downstream path regardless of how dictation was triggered.
+//! a Unix signal. Toggle and commit emit the same events the real hotkeys do,
+//! so there is one downstream path regardless of how dictation was triggered.
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Manager};
+use tauri_specta::Event;
+
+use crate::events::{DictationCommitHotkeyPressed, DictationHotkeyPressed};
+use crate::transcription::Recorder;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trigger {
@@ -17,15 +21,6 @@ pub enum Trigger {
 }
 
 impl Trigger {
-    /// Matches the event the equivalent global shortcut emits.
-    fn event(self) -> &'static str {
-        match self {
-            Self::Toggle => "dictation-hotkey-pressed",
-            Self::Commit => "dictation-commit-hotkey-pressed",
-            Self::Cancel => "dictation-cancel-requested",
-        }
-    }
-
     fn from_arg(arg: &str) -> Option<Self> {
         match arg {
             "--toggle-dictation" => Some(Self::Toggle),
@@ -36,10 +31,18 @@ impl Trigger {
     }
 }
 
-pub fn emit(app: &AppHandle, trigger: Trigger, source: &str) {
+pub fn trigger(app: &AppHandle, trigger: Trigger, source: &str) {
     log::info!("dictation {trigger:?} requested via {source}");
-    if let Err(error) = app.emit(trigger.event(), ()) {
-        log::warn!("failed to emit {}: {error}", trigger.event());
+    let emitted = match trigger {
+        Trigger::Toggle => DictationHotkeyPressed.emit(app),
+        Trigger::Commit => DictationCommitHotkeyPressed.emit(app),
+        Trigger::Cancel => {
+            app.state::<Recorder>().cancel(app);
+            Ok(())
+        }
+    };
+    if let Err(error) = emitted {
+        log::warn!("failed to forward {trigger:?}: {error}");
     }
 }
 
@@ -50,7 +53,7 @@ pub fn emit(app: &AppHandle, trigger: Trigger, source: &str) {
 pub fn handle_args(app: &AppHandle, args: &[String]) -> bool {
     let mut handled = false;
     for trigger in args.iter().filter_map(|arg| Trigger::from_arg(arg)) {
-        emit(app, trigger, "cli");
+        self::trigger(app, trigger, "cli");
         handled = true;
     }
     handled
@@ -74,7 +77,7 @@ pub fn listen_for_signals(app: AppHandle) {
 
     std::thread::spawn(move || {
         for _ in &mut signals {
-            emit(&app, Trigger::Toggle, "SIGUSR2");
+            trigger(&app, Trigger::Toggle, "SIGUSR2");
         }
     });
 }
@@ -103,20 +106,5 @@ mod tests {
     fn ignores_unknown_flags() {
         assert_eq!(Trigger::from_arg("--nope"), None);
         assert_eq!(Trigger::from_arg(""), None);
-    }
-
-    #[test]
-    fn triggers_match_hotkey_events() {
-        assert_eq!(Trigger::Toggle.event(), "dictation-hotkey-pressed");
-        assert_eq!(Trigger::Commit.event(), "dictation-commit-hotkey-pressed");
-        assert_eq!(Trigger::Cancel.event(), "dictation-cancel-requested");
-    }
-
-    /// A shared event would make one flag silently do another's job.
-    #[test]
-    fn every_trigger_has_a_distinct_event() {
-        let events = [Trigger::Toggle, Trigger::Commit, Trigger::Cancel].map(Trigger::event);
-        let unique: std::collections::HashSet<_> = events.iter().collect();
-        assert_eq!(unique.len(), events.len());
     }
 }

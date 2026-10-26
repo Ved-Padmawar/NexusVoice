@@ -1,7 +1,7 @@
-//! Hotkey validation. A hotkey that registers but cannot fire, or one that
-//! shadows another, breaks the app's primary input with no error anywhere.
+//! Hotkey validation. A hotkey that registers but cannot fire breaks the app's
+//! primary input with no error anywhere.
 
-use super::{ensure_no_conflict, normalize_hotkey};
+use super::normalize_hotkey;
 
 #[test]
 fn a_modifier_plus_a_key_is_accepted() {
@@ -63,41 +63,5 @@ fn rejection_carries_the_invalid_code_the_frontend_matches_on() {
             .expect("message")
             .contains("modifier"),
         "{json}"
-    );
-}
-
-#[test]
-fn a_hotkey_that_matches_another_is_rejected() {
-    let err = ensure_no_conflict("Ctrl+Shift+D", [Some("Ctrl+Shift+D")]).expect_err("conflict");
-    let json = serde_json::to_value(&err).expect("serialize");
-    assert_eq!(json["code"], "hotkey_conflict");
-}
-
-#[test]
-fn conflict_detection_ignores_case() {
-    // The recorder's casing varies with how the key was pressed; two hotkeys
-    // differing only in case would both register and one would never fire.
-    assert!(ensure_no_conflict("ctrl+shift+d", [Some("Ctrl+Shift+D")]).is_err());
-}
-
-#[test]
-fn unset_hotkeys_never_conflict() {
-    // `None` is "not bound", which must not collide with anything.
-    assert!(ensure_no_conflict("Ctrl+Shift+D", [None, None]).is_ok());
-    assert!(ensure_no_conflict("Ctrl+Shift+D", []).is_ok());
-}
-
-#[test]
-fn a_distinct_hotkey_is_allowed_alongside_the_others() {
-    // All three dictation hotkeys are checked against each other at once.
-    assert!(ensure_no_conflict(
-        "Ctrl+Shift+X",
-        [Some("Ctrl+Shift+D"), None, Some("Alt+Space")]
-    )
-    .is_ok());
-
-    // …and the third slot is checked too, not just the first.
-    assert!(
-        ensure_no_conflict("Alt+Space", [Some("Ctrl+Shift+D"), None, Some("Alt+Space")]).is_err()
     );
 }

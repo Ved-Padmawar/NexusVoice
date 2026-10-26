@@ -1,23 +1,19 @@
 import { useShallow } from 'zustand/react/shallow'
 import { useState, useCallback, useRef, useEffect, memo } from 'react'
-import { invoke } from '@tauri-apps/api/core'
-import { COMMANDS } from '../../lib/commands'
 import { toast } from 'sonner'
 import { Keyboard, Mic, Save, X, Pencil } from 'lucide-react'
+import { commands } from '../../bindings'
+import { extractErrorMessage } from '../../lib/errors'
 import { useAppStore } from '../../store/useAppStore'
-import { parseRegisteredHotkeys } from '../../store/modelSlice'
 import { SUPER_KEY_LABEL } from '../../lib/platform'
+import type { HotkeyBindings, HotkeyKind } from '../../types'
 import { Button } from '@/components/ui/button'
-
-type HotkeyKind = 'ptt' | 'dictation' | 'dictationCommit'
 
 type HotkeyConfig = {
   kind: HotkeyKind
   title: string
   description: string
   icon: typeof Keyboard
-  registerCommand: string
-  unregisterCommand: string
   storeFlag: 'hasHotkey' | 'hasDictationHotkey' | 'hasDictationCommitHotkey'
 }
 
@@ -89,15 +85,16 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
   const Icon = config.icon
 
   const restoreCurrentHotkey = useCallback(() => {
-    if (currentHotkey) invoke(config.registerCommand, { hotkey: currentHotkey }).catch(() => {})
-  }, [config.registerCommand, currentHotkey])
+    if (currentHotkey) commands.setHotkey(config.kind, currentHotkey).catch(() => {})
+  }, [config.kind, currentHotkey])
 
+  // Unbound while recording, or pressing the current combination would fire it.
   const startListening = useCallback(() => {
-    if (currentHotkey) invoke(config.unregisterCommand).catch(() => {})
+    if (currentHotkey) commands.setHotkey(config.kind, null).catch(() => {})
     setIsListening(true)
     setPressedKeys([])
     keysRef.current.clear()
-  }, [config.unregisterCommand, currentHotkey])
+  }, [config.kind, currentHotkey])
 
   useEffect(() => {
     if (!isListening) return
@@ -152,14 +149,14 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
     }
     setSaving(true)
     try {
-      await invoke(config.registerCommand, { hotkey: shortcut })
+      await commands.setHotkey(config.kind, shortcut)
       setCurrentHotkey(shortcut)
       useAppStore.setState({ [config.storeFlag]: true })
       setPressedKeys([])
       keysRef.current.clear()
       toast.success(`${config.title} registered`)
     } catch (e: unknown) {
-      toast.error((e as { message?: string })?.message ?? `Failed to register ${config.title.toLowerCase()}.`)
+      toast.error(extractErrorMessage(e, `Failed to register ${config.title.toLowerCase()}.`))
     } finally {
       setSaving(false)
     }
@@ -167,11 +164,11 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
 
   const handleRemoveHotkey = async () => {
     try {
-      await invoke(config.unregisterCommand)
+      await commands.setHotkey(config.kind, null)
       setCurrentHotkey(null)
       useAppStore.setState({ [config.storeFlag]: false })
     } catch (e: unknown) {
-      toast.error((e as { message?: string })?.message ?? `Failed to remove ${config.title.toLowerCase()}.`)
+      toast.error(extractErrorMessage(e, `Failed to remove ${config.title.toLowerCase()}.`))
     }
   }
 
@@ -258,12 +255,10 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
 
 const HOTKEY_CONFIGS: HotkeyConfig[] = [
   {
-    kind: 'ptt',
+    kind: 'pushToTalk',
     title: 'Recording Hotkey',
     description: 'Hold to record. Release to transcribe and paste.',
     icon: Keyboard,
-    registerCommand: COMMANDS.REGISTER_HOTKEY,
-    unregisterCommand: COMMANDS.UNREGISTER_HOTKEY,
     storeFlag: 'hasHotkey',
   },
   {
@@ -271,8 +266,6 @@ const HOTKEY_CONFIGS: HotkeyConfig[] = [
     title: 'Dictation Hotkey',
     description: 'Press to start, pause, or resume dictation.',
     icon: Mic,
-    registerCommand: COMMANDS.REGISTER_DICTATION_HOTKEY,
-    unregisterCommand: COMMANDS.UNREGISTER_DICTATION_HOTKEY,
     storeFlag: 'hasDictationHotkey',
   },
   {
@@ -280,8 +273,6 @@ const HOTKEY_CONFIGS: HotkeyConfig[] = [
     title: 'Commit Dictation Hotkey',
     description: 'Press to save the current dictation without using the pill button.',
     icon: Save,
-    registerCommand: COMMANDS.REGISTER_DICTATION_COMMIT_HOTKEY,
-    unregisterCommand: COMMANDS.UNREGISTER_DICTATION_COMMIT_HOTKEY,
     storeFlag: 'hasDictationCommitHotkey',
   },
 ]
@@ -292,24 +283,15 @@ export function HotkeySection() {
     hasDictationHotkey: s.hasDictationHotkey,
     hasDictationCommitHotkey: s.hasDictationCommitHotkey,
   })))
-  const [currentHotkeys, setCurrentHotkeys] = useState<Record<HotkeyKind, string | null>>({
-    ptt: null,
+  const [currentHotkeys, setCurrentHotkeys] = useState<HotkeyBindings>({
+    pushToTalk: null,
     dictation: null,
     dictationCommit: null,
   })
 
   useEffect(() => {
     if (!hasHotkey && !hasDictationHotkey && !hasDictationCommitHotkey) return
-    invoke<unknown>(COMMANDS.GET_REGISTERED_HOTKEYS)
-      .then(raw => {
-        const parsed = parseRegisteredHotkeys(raw)
-        setCurrentHotkeys({
-          ptt: parsed.ptt[0] ?? null,
-          dictation: parsed.dictation[0] ?? null,
-          dictationCommit: parsed.dictationCommit[0] ?? null,
-        })
-      })
-      .catch(() => {})
+    commands.getHotkeys().then(setCurrentHotkeys).catch(() => {})
   }, [hasHotkey, hasDictationHotkey, hasDictationCommitHotkey])
 
   return (

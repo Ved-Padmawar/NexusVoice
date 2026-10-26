@@ -1,14 +1,13 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { invoke } from '@tauri-apps/api/core'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Zap, Check, HardDrive, Cpu, Globe, Radio, Download, Loader2, RefreshCw } from 'lucide-react'
-import { COMMANDS } from '../lib/commands'
+import { commands } from '../bindings'
 import { extractErrorMessage } from '../lib/errors'
 import { formatModelSize, isStreaming, modelNameToId, sortForDisplay, type ModelId } from '../lib/models'
 import { useAppStore } from '../store/useAppStore'
 import { Button } from '@/components/ui/button'
-import type { HardwareProfile, ModelInfo } from '../types'
+import type { HardwareProfile } from '../types'
 
 export function ModelPickerModal() {
   const setModelChosen = useAppStore(s => s.setModelChosen)
@@ -27,7 +26,7 @@ export function ModelPickerModal() {
 
   useEffect(() => {
     // Returning user whose modelChosen got reset but model is on disk: skip the modal.
-    invoke<ModelInfo>(COMMANDS.GET_MODEL_INFO)
+    commands.getModelInfo()
       .then(info => { if (info.downloaded) setModelChosen(true) })
       .catch(() => {})
 
@@ -41,7 +40,7 @@ export function ModelPickerModal() {
 
   useEffect(() => {
     if (catalog.length === 0) return
-    invoke<HardwareProfile>(COMMANDS.GET_HARDWARE_PROFILE)
+    commands.getHardwareProfile()
       .then(p => {
         setProfile(p)
         setSelected(modelNameToId(p.recommendedModel, catalog))
@@ -56,7 +55,7 @@ export function ModelPickerModal() {
     if (!selected) return
     setConfirming(true)
     try {
-      await invoke(COMMANDS.SET_MODEL_OVERRIDE, { variant: selected })
+      await commands.setModelOverride(selected)
       await refreshModelInfo()
       // Already on disk (picked a previously-downloaded model): skip the download step.
       if (useAppStore.getState().activeModelDownloaded) {

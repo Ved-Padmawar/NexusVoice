@@ -1,14 +1,11 @@
-//! Data commands: transcripts, usage stats, and dictionary CRUD.
+//! Data commands: transcripts, usage stats and the dictionary.
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::database::dto::dictionary::CreateDictionaryEntry;
-use crate::database::repositories::{
-    dictionary::DictionaryRepository,
-    transcript::{Cursor, TranscriptRepository},
-};
-use crate::state::AppState;
+use crate::database::repositories::transcript::{Cursor, TranscriptRepository};
+use crate::database::Database;
+use crate::dictionary::Dictionary;
 
 use super::dto::{DictionaryResponse, TranscriptResponse};
 use super::error::ApiError;
@@ -24,8 +21,8 @@ pub struct UsageStatsResponse {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn get_usage_stats(state: State<'_, AppState>) -> Result<UsageStatsResponse, ApiError> {
-    let repo = TranscriptRepository::new(state.db().await?.clone());
+pub async fn get_usage_stats(db: State<'_, Database>) -> Result<UsageStatsResponse, ApiError> {
+    let repo = TranscriptRepository::new(db.pool().await?);
     let (total_sessions, total_words, total_duration_seconds) = repo.get_stats().await?;
 
     #[allow(clippy::cast_possible_truncation)] // durations and word counts fit i64
@@ -102,10 +99,10 @@ impl PageQuery {
 #[tauri::command]
 #[specta::specta]
 pub async fn get_transcripts(
-    state: State<'_, AppState>,
+    db: State<'_, Database>,
     page: PageQuery,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
-    let repo = TranscriptRepository::new(state.db().await?.clone());
+    let repo = TranscriptRepository::new(db.pool().await?);
     let to = page.end_bound();
     let items = repo
         .list_keyset(
@@ -122,7 +119,7 @@ pub async fn get_transcripts(
 #[tauri::command]
 #[specta::specta]
 pub async fn search_transcripts(
-    state: State<'_, AppState>,
+    db: State<'_, Database>,
     query: String,
     page: PageQuery,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
@@ -139,7 +136,7 @@ pub async fn search_transcripts(
     }
 
     // Propagate real DB/FTS errors instead of masking them as empty results.
-    let repo = TranscriptRepository::new(state.db().await?.clone());
+    let repo = TranscriptRepository::new(db.pool().await?);
     let to = page.end_bound();
     let items = repo
         .search(
@@ -156,67 +153,46 @@ pub async fn search_transcripts(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn delete_transcript(state: State<'_, AppState>, id: i64) -> Result<(), ApiError> {
-    let repo = TranscriptRepository::new(state.db().await?.clone());
-    repo.delete_by_id(id).await?;
+pub async fn delete_transcript(db: State<'_, Database>, id: i64) -> Result<(), ApiError> {
+    TranscriptRepository::new(db.pool().await?)
+        .delete_by_id(id)
+        .await?;
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn get_dictionary(
-    state: State<'_, AppState>,
+    dictionary: State<'_, Dictionary>,
 ) -> Result<Vec<DictionaryResponse>, ApiError> {
-    let cache = state.dict_cache.read().await;
-    let mut entries: Vec<_> = cache.values().cloned().collect();
-    // The cache is a HashMap, so sort or rows reshuffle after every edit.
-    entries.sort_unstable_by(|a, b| a.term.cmp(&b.term));
+    let entries = dictionary.entries().await;
     Ok(entries.into_iter().map(DictionaryResponse::from).collect())
 }
 
-/// The upsert keys on `term`, so a rename inserts a new row; `previous_term`
-/// names the old one to drop, or it lingers and keeps rewriting dictation.
+/// `previous_term` names the entry being renamed, if any.
 #[tauri::command]
 #[specta::specta]
 pub async fn update_dictionary(
-    state: State<'_, AppState>,
+    db: State<'_, Database>,
+    dictionary: State<'_, Dictionary>,
     term: String,
     replacement: String,
     previous_term: Option<String>,
 ) -> Result<DictionaryResponse, ApiError> {
-    let repo = DictionaryRepository::new(state.db().await?.clone());
-    let entry = repo
-        .upsert(CreateDictionaryEntry {
-            term: term.clone(),
-            replacement,
-        })
+    let entry = dictionary
+        .upsert(&db.pool().await?, term, replacement, previous_term)
         .await?;
-
-    let renamed_from = previous_term.filter(|previous| previous != &entry.term);
-    if let Some(previous) = &renamed_from {
-        repo.delete_by_term(previous).await?;
-    }
-
-    // Update in-memory cache: O(1) insert/replace via HashMap
-    let mut cache = state.dict_cache.write().await;
-    if let Some(previous) = &renamed_from {
-        cache.remove(previous);
-    }
-    cache.insert(entry.term.clone(), entry.clone());
-    drop(cache);
-
     Ok(entry.into())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn delete_dictionary_entry(state: State<'_, AppState>, id: i64) -> Result<(), ApiError> {
-    let repo = DictionaryRepository::new(state.db().await?.clone());
-    if repo.delete_by_id(id).await? {
-        let mut cache = state.dict_cache.write().await;
-        cache.retain(|_, e| e.id != id);
-    }
-    Ok(())
+pub async fn delete_dictionary_entry(
+    db: State<'_, Database>,
+    dictionary: State<'_, Dictionary>,
+    id: i64,
+) -> Result<(), ApiError> {
+    Ok(dictionary.delete(&db.pool().await?, id).await?)
 }
 
 #[cfg(test)]

@@ -1,14 +1,12 @@
-//! Formatter LLM configuration, persisted as JSON in the app data dir.
-//!
-//! Each provider keeps its own endpoint details, so switching between them and
-//! back preserves what was entered for each.
+//! The formatter as one request sees it: provider, endpoint and key. Built by
+//! `settings`, which also reads the pre-`settings.json` file in this shape.
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 /// One provider's endpoint details.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
     /// Base URL up to (not including) `/chat/completions`. Unused by
@@ -23,8 +21,7 @@ pub struct Profile {
     pub api_key: String,
 }
 
-/// Persisted formatter configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormatConfig {
     /// Whether the LLM formatting stage runs.

@@ -1,7 +1,7 @@
 import { useShallow } from 'zustand/react/shallow'
 import { memo } from 'react'
 import { motion } from 'framer-motion'
-import { Check, Moon, Sun } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { useAppStore, type ThemeName } from '../../store/useAppStore'
 
 type ThemeDef = {
@@ -31,7 +31,7 @@ const THEMES: ThemeDef[] = [
 
 function ThemePreview({ t }: { t: ThemeDef }) {
   return (
-    <div className="relative h-42 w-70 overflow-hidden rounded-(--r-md)" style={{ background: t.bg }}>
+    <div className="relative h-full w-full overflow-hidden rounded-(--r-md)" style={{ background: t.bg }}>
       {/* Rail */}
       <div className="absolute inset-y-0 left-0 w-13" style={{ background: t.panel, borderRight: `1px solid ${t.border}` }}>
         <div className="flex items-center gap-1.5 px-2 pt-2.5">
@@ -103,7 +103,7 @@ function ThemeSwatch({ t, active, onPick }: { t: ThemeDef; active: boolean; onPi
       type="button"
       onClick={onPick}
       aria-pressed={active}
-      className="flex items-center gap-2.5 rounded-(--r-md) border px-2.5 py-2 text-left cursor-pointer"
+      className="flex h-10 items-center gap-2.5 rounded-(--r-md) border px-2.5 text-left cursor-pointer"
       initial={false}
       animate={{
         borderColor: active ? 'var(--accent)' : 'var(--border-soft)',
@@ -113,20 +113,27 @@ function ThemeSwatch({ t, active, onPick }: { t: ThemeDef; active: boolean; onPi
       whileTap={{ scale: 0.99 }}
       transition={{ duration: 0.15 }}
     >
-      <span className="flex shrink-0 overflow-hidden rounded-(--r-xs) border border-(--border-soft)">
-        {[t.bg, t.panel, t.surface, t.border, t.muted, t.accent].map((c, i) => (
-          <span key={i} className="h-6 w-2.25" style={{ background: c }} />
+      <span className="flex shrink-0 -space-x-1.5" aria-hidden="true">
+        {[t.bg, t.surface, t.accent, t.muted].map((c, i) => (
+          <span
+            key={i}
+            className="size-5 rounded-full"
+            style={{ background: c, boxShadow: i < 2 ? 'inset 0 0 0 1px color-mix(in oklab, var(--fg) 25%, transparent)' : '0 0 0 2px var(--panel)' }}
+          />
         ))}
       </span>
 
-      <motion.span
-        className="min-w-0 flex-1 truncate text-[12px] font-semibold tracking-[-0.01em]"
-        initial={false}
-        animate={{ color: active ? 'var(--accent)' : 'var(--fg)' }}
-        transition={{ duration: 0.2 }}
-      >
-        {t.label}
-      </motion.span>
+      <span className="min-w-0 flex-1 truncate">
+        <motion.span
+          className="text-[12px] font-semibold tracking-[-0.01em]"
+          initial={false}
+          animate={{ color: active ? 'var(--accent)' : 'var(--fg)' }}
+          transition={{ duration: 0.2 }}
+        >
+          {t.label}
+        </motion.span>
+        <span className="ml-2 text-[10px] text-muted-foreground">{t.blurb}</span>
+      </span>
 
       {active && (
         <span className="grid size-4 shrink-0 place-items-center rounded-full bg-(--accent)">
@@ -147,40 +154,25 @@ export const AppearanceTab = memo(function AppearanceTab() {
   const current = THEMES.find((t) => t.name === theme) ?? THEMES[0]
 
   return (
+    <section>
+    <h2 className="mb-2 text-[13px] font-semibold text-(--fg-2)">Window theme</h2>
     <div className="flex gap-4 rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
-      <div className="flex shrink-0 flex-col gap-2.5">
-        <div className="overflow-hidden rounded-(--r-md) border border-(--border-soft) shadow-(--shadow-sm)">
-          <ThemePreview t={current} />
-        </div>
-        <div className="flex items-baseline gap-2">
-          <span className="text-[13px] font-bold tracking-[-0.02em] text-(--fg)">{current.label}</span>
-          <span className="min-w-0 truncate text-[11px] text-muted-foreground">{current.blurb}</span>
-        </div>
+      <div className="w-55 shrink-0 overflow-hidden rounded-(--r-md) border border-(--border-soft) shadow-(--shadow-sm)">
+        <ThemePreview t={current} />
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        {([
-          { icon: <Moon size={11} />, label: 'Dark', mode: 'dark' as const },
-          { icon: <Sun size={11} />, label: 'Light', mode: 'light' as const },
-        ]).map((group) => (
-          <div key={group.mode} className="flex flex-col gap-1.5">
-            <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              {group.icon}
-              {group.label}
-            </span>
-            <div className="grid grid-cols-2 gap-1.5">
-              {THEMES.filter((t) => t.mode === group.mode).map((t) => (
-                <ThemeSwatch
-                  key={t.name}
-                  t={t}
-                  active={theme === t.name}
-                  onPick={() => setTheme(t.name)}
-                />
-              ))}
-            </div>
-          </div>
+      {/* Dark themes down the left column, light down the right. */}
+      <div className="grid min-w-0 flex-1 grid-flow-col grid-cols-2 grid-rows-4 gap-1.5">
+        {THEMES.map((t) => (
+          <ThemeSwatch
+            key={t.name}
+            t={t}
+            active={theme === t.name}
+            onPick={() => setTheme(t.name)}
+          />
         ))}
       </div>
     </div>
+    </section>
   )
 })

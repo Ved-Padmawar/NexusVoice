@@ -1,17 +1,11 @@
 import { useState, useEffect, useCallback, memo } from 'react'
-import { invoke } from '@tauri-apps/api/core'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Select } from 'radix-ui'
 import { Mic, RefreshCw, Check, ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
-import { COMMANDS } from '../../lib/commands'
+import { commands } from '../../bindings'
 import { extractErrorMessage } from '../../lib/errors'
-
-type InputDevice = {
-  name: string
-  isDefault: boolean
-  isSelected: boolean
-}
+import type { InputDevice } from '../../types'
 
 /** Sentinel for the "Default" option — maps to no saved preference. */
 const DEFAULT_VALUE = '__default__'
@@ -24,8 +18,7 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
   const [open, setOpen] = useState(false)
 
   const fetchDevices = useCallback(async () => {
-    const list = await invoke<InputDevice[]>(COMMANDS.LIST_INPUT_DEVICES)
-    const devices = Array.isArray(list) ? list : []
+    const devices = await commands.listInputDevices()
     setDevices(devices)
     const active = devices.find(d => d.isSelected && !d.isDefault)
     setSelected(active ? active.name : DEFAULT_VALUE)
@@ -54,9 +47,7 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
     const previous = selected
     setSelected(value)
     try {
-      await invoke<void>(COMMANDS.SET_INPUT_DEVICE, {
-        name: value === DEFAULT_VALUE ? null : value,
-      })
+      await commands.setInputDevice(value === DEFAULT_VALUE ? null : value)
     } catch (e) {
       setSelected(previous)
       toast.error(extractErrorMessage(e, 'Could not set microphone'))

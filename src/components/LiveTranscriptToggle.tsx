@@ -1,19 +1,13 @@
-import { emit } from '@tauri-apps/api/event'
 import { motion } from 'framer-motion'
 import { Captions } from 'lucide-react'
-import { EVENTS } from '../lib/events'
 import { useAppStore } from '../store/useAppStore'
 
 /** Expand the pill into a live transcript card as you speak. */
 export function LiveTranscriptToggle() {
-  const liveTranscript = useAppStore((s) => s.liveTranscript)
-  const setLiveTranscript = useAppStore((s) => s.setLiveTranscript)
+  const liveTranscript = useAppStore((s) => s.pill.liveTranscript)
+  const updatePill = useAppStore((s) => s.updatePill)
 
-  const toggle = () => {
-    const next = !liveTranscript
-    setLiveTranscript(next)
-    void emit(EVENTS.PILL_LIVE_TRANSCRIPT_CHANGED, next)
-  }
+  const toggle = () => { void updatePill({ liveTranscript: !liveTranscript }) }
 
   return (
     <div className="nv-edge [--edge:var(--border-soft)] flex items-center justify-between gap-4 rounded-(--r-lg) bg-(--panel) px-4 py-3">

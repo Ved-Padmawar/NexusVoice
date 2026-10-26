@@ -7,8 +7,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { useAppStore } from '../../store/useAppStore'
-import { COMMANDS } from '../../lib/commands'
-import { EVENTS } from '../../lib/events'
 import type { CudaStatus } from '../../types'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
@@ -33,7 +31,7 @@ afterEach(() => {
 describe('cuda slice', () => {
   it('surfaces a failed start and restores the real status', async () => {
     mockInvoke.mockImplementation(async (cmd) => {
-      if (cmd === COMMANDS.START_CUDA_DOWNLOAD) throw { code: 'unsupported', message: 'CUDA needs an NVIDIA GPU' }
+      if (cmd === 'start_cuda_download') throw { code: 'unsupported', message: 'CUDA needs an NVIDIA GPU' }
       return absent
     })
 
@@ -52,10 +50,10 @@ describe('cuda slice', () => {
     mockInvoke.mockResolvedValue(absent)
     await state().listenForCudaEvents()
 
-    handlers.get(EVENTS.CUDA_DOWNLOAD_PROGRESS)?.({ payload: 42 })
+    handlers.get('cuda-download-progress')?.({ payload: 42 })
     expect(state().cuda?.downloadProgress).toBe(42)
 
-    handlers.get(EVENTS.CUDA_DOWNLOAD_ERROR)?.({ payload: 'checksum mismatch' })
+    handlers.get('cuda-download-error')?.({ payload: 'checksum mismatch' })
     expect(state().cudaError).toBe('checksum mismatch')
   })
 

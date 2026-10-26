@@ -1,17 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { invoke } from '@tauri-apps/api/core'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Dialog } from 'radix-ui'
 import { HardDrive, Trash2, X, Database } from 'lucide-react'
-import { COMMANDS } from '../lib/commands'
 import { toast } from 'sonner'
-
-type DownloadedModel = {
-  variant: string
-  displayName: string
-  sizeBytes: number
-  isActive: boolean
-}
+import { commands } from '../bindings'
+import type { DownloadedModel } from '../types'
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -30,7 +23,7 @@ export function ModelManagerModal({ onClose }: Props) {
   const [deleting, setDeleting] = useState<string | null>(null)
 
   const load = useCallback(() => {
-    invoke<DownloadedModel[]>(COMMANDS.GET_DOWNLOADED_MODELS)
+    commands.getDownloadedModels()
       .then(setModels)
       .catch(() => {})
   }, [])
@@ -40,7 +33,7 @@ export function ModelManagerModal({ onClose }: Props) {
   const handleDelete = async (variant: string, displayName: string) => {
     setDeleting(variant)
     try {
-      await invoke(COMMANDS.DELETE_MODEL, { variant })
+      await commands.deleteModel(variant)
       toast.success(`${displayName} deleted`)
       load()
     } catch {

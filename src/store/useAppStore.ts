@@ -1,11 +1,14 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import type { PillSettings } from '../bindings'
 import { createAppSlice, type AppSlice } from './appSlice'
 import { createCudaSlice, type CudaSlice } from './cudaSlice'
 import { createModelSlice, type ModelSlice } from './modelSlice'
 import { createUiSlice, type UiSlice } from './uiSlice'
 import { createUpdateSlice, type UpdateSlice } from './updateSlice'
-import { STORE_PERSIST_KEY } from './persistKey'
+import { stashLegacyPill } from './legacyPill'
+
+export const STORE_PERSIST_KEY = 'nexus-voice-storage'
 
 export type ThemeName =
   | 'abyss'
@@ -19,8 +22,6 @@ export type ThemeName =
 
 export type AppState = AppSlice & ModelSlice & UiSlice & UpdateSlice & CudaSlice
 
-export type { PillTheme } from './uiSlice'
-
 export const useAppStore = create<AppState>()(
   persist(
     (...args) => ({
@@ -32,15 +33,20 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: STORE_PERSIST_KEY,
-      // UI-only prefs. Model selection is not persisted here — the Rust
-      // `model_override` file is its single source of truth.
-      partialize: (state) => ({ theme: state.theme, pillTheme: state.pillTheme, waveformStyle: state.waveformStyle, activeRoute: state.activeRoute, activeSettingsTab: state.activeSettingsTab, modelChosen: state.modelChosen, liveTranscript: state.liveTranscript, cudaOfferSeen: state.cudaOfferSeen }),
-      version: 1,
+      // Main-window prefs only. The backend owns the model selection and the
+      // pill's preferences, which the pill window reads too.
+      partialize: (state) => ({ theme: state.theme, activeRoute: state.activeRoute, activeSettingsTab: state.activeSettingsTab, modelChosen: state.modelChosen, cudaOfferSeen: state.cudaOfferSeen }),
+      version: 2,
       migrate: (persisted, from) => {
-        const s = persisted as Partial<AppState>
-        // `steps` was replaced by `spectrum`; leaving it set renders nothing.
-        if (from < 1 && (s.waveformStyle as string) === 'steps') s.waveformStyle = 'spectrum'
-        return s as AppState
+        const { pillTheme, waveformStyle, liveTranscript, ...rest } = (persisted ?? {}) as Record<string, unknown>
+        if (from < 2) {
+          // `steps` was replaced by `spectrum`.
+          const style = waveformStyle === 'steps' ? 'spectrum' : waveformStyle
+          const pill = { theme: pillTheme, waveformStyle: style, liveTranscript }
+          const set = Object.entries(pill).filter(([, v]) => v !== undefined)
+          if (set.length > 0) stashLegacyPill(Object.fromEntries(set) as Partial<PillSettings>)
+        }
+        return rest as unknown as AppState
       },
     }
   )

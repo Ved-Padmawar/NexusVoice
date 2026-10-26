@@ -2,7 +2,7 @@
 
 use tauri::{AppHandle, Manager, State};
 
-use crate::state::AppState;
+use crate::database::Database;
 
 use super::error::ApiError;
 
@@ -10,8 +10,8 @@ use super::error::ApiError;
 /// before the webview attaches its listener would be missed, wedging startup.
 #[tauri::command]
 #[specta::specta]
-pub async fn wait_for_app_ready(state: State<'_, AppState>) -> Result<(), ApiError> {
-    state.db().await?;
+pub async fn wait_for_app_ready(db: State<'_, Database>) -> Result<(), ApiError> {
+    db.pool().await?;
     Ok(())
 }
 

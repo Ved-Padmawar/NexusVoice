@@ -1,14 +1,9 @@
-import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
-import { COMMANDS } from '../lib/commands'
-import { EVENTS } from '../lib/events'
-import { fetchModelCatalog, modelNameToId, type CatalogModel, type ModelId } from '../lib/models'
 import { toast } from 'sonner'
-import type { ModelInfo } from '../types'
+import { commands, events } from '../bindings'
+import { modelNameToId, type CatalogModel, type ModelId } from '../lib/models'
+import type { DownloadStatus } from '../types'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
-
-export type DownloadStatus = 'queued' | 'running' | 'error'
 
 export type Download = {
   status: DownloadStatus
@@ -55,17 +50,17 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
     // Static for the app's lifetime; empty means retry.
     if (get().catalog.length > 0) return
     try {
-      set({ catalog: await fetchModelCatalog() })
+      set({ catalog: await commands.getModelCatalog() })
     } catch { /* ignore */ }
   },
 
   refreshModelInfo: async () => {
     try {
-      const info = await invoke<ModelInfo>(COMMANDS.GET_MODEL_INFO)
+      const info = await commands.getModelInfo()
       // The catalog resolves display names to ids; fetch it if not yet loaded.
       let catalog = get().catalog
       if (catalog.length === 0) {
-        catalog = await fetchModelCatalog().catch(() => [])
+        catalog = await commands.getModelCatalog().catch(() => [])
       }
       set({
         activeModelName: info.modelName,
@@ -80,7 +75,7 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
 
   refreshDownloads: async () => {
     try {
-      const active = await invoke<(Download & { id: string })[]>(COMMANDS.GET_ACTIVE_DOWNLOADS)
+      const active = await commands.getActiveDownloads()
       set({
         downloads: Object.fromEntries(
           active.map(({ id, status, progress, error }) => [id, { status, progress, error }]),
@@ -92,7 +87,7 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
   startDownload: async (id: ModelId) => {
     set({ downloads: { ...get().downloads, [id]: { status: 'queued', progress: 0 } } })
     try {
-      await invoke(COMMANDS.START_MODEL_DOWNLOAD, { id })
+      await commands.startModelDownload(id)
     } catch {
       set(dropDownload(get(), id))
     }
@@ -100,18 +95,17 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
 
   cancelDownload: async (id: ModelId) => {
     try {
-      await invoke<void>(COMMANDS.CANCEL_MODEL_DOWNLOAD, { id })
+      await commands.cancelModelDownload(id)
     } catch { /* ignore */ }
   },
 
   listenForModelEvents: async () => {
     try {
-      const hotkeys = await invoke<unknown>(COMMANDS.GET_REGISTERED_HOTKEYS)
-      const parsed = parseRegisteredHotkeys(hotkeys)
+      const hotkeys = await commands.getHotkeys()
       set({
-        hasHotkey: parsed.ptt.length > 0,
-        hasDictationHotkey: parsed.dictation.length > 0,
-        hasDictationCommitHotkey: parsed.dictationCommit.length > 0,
+        hasHotkey: hotkeys.pushToTalk !== null,
+        hasDictationHotkey: hotkeys.dictation !== null,
+        hasDictationCommitHotkey: hotkeys.dictationCommit !== null,
       })
     } catch { /* ignore */ }
 
@@ -125,32 +119,32 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
       })
 
     const unlisteners = await Promise.all([
-      listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_START, (e) => {
+      events.modelDownloadStart.listen((e) => {
         setStatus(e.payload.id, { status: 'queued', progress: 0, error: null })
       }),
-      listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_RUNNING, (e) => {
+      events.modelDownloadRunning.listen((e) => {
         setStatus(e.payload.id, { status: 'running' })
       }),
-      listen<{ id: string; pct: number }>(EVENTS.MODEL_DOWNLOAD_PROGRESS, (e) => {
+      events.modelDownloadProgress.listen((e) => {
         setStatus(e.payload.id, { status: 'running', progress: e.payload.pct })
       }),
-      listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_COMPLETE, (e) => {
+      events.modelDownloadComplete.listen((e) => {
         set(dropDownload(get(), e.payload.id))
         void get().refreshModelInfo()
       }),
-      listen<{ id: string; error: string }>(EVENTS.MODEL_DOWNLOAD_ERROR, (e) => {
+      events.modelDownloadError.listen((e) => {
         setStatus(e.payload.id, { status: 'error', error: e.payload.error || 'Download failed' })
       }),
-      listen<DownloadEvent>(EVENTS.MODEL_DOWNLOAD_CANCELLED, (e) => {
+      events.modelDownloadCancelled.listen((e) => {
         set(dropDownload(get(), e.payload.id))
       }),
       // Deleted active model: clear selection; keep modelChosen so the picker stays closed.
-      listen(EVENTS.MODEL_EVICTED, () => {
+      events.modelEvicted.listen(() => {
         set({ modelReady: false, selectedModel: null, activeModelDownloaded: false })
       }),
       // Deleted the active model but another is on disk: backend switched to it.
-      listen(EVENTS.MODEL_SWITCHED, () => { void get().refreshModelInfo() }),
-      listen(EVENTS.LANGUAGE_RESET, () => {
+      events.modelSwitched.listen(() => { void get().refreshModelInfo() }),
+      events.languageReset.listen(() => {
         toast.info('This model does not support your dictation language. Switched to English.')
       }),
     ])
@@ -158,40 +152,9 @@ export const createModelSlice: StateCreator<AppState, [], [], ModelSlice> = (set
   },
 })
 
-type DownloadEvent = { id: string }
-
 /** Removes one download from the map, leaving the rest untouched. */
 function dropDownload(state: { downloads: Record<string, Download> }, id: string) {
   const rest = { ...state.downloads }
   delete rest[id]
   return { downloads: rest }
-}
-
-type ParsedHotkeys = {
-  ptt: string[]
-  dictation: string[]
-  dictationCommit: string[]
-}
-
-function asHotkeyList(value: unknown): string[] {
-  if (typeof value === 'string' && value.length > 0) return [value]
-  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item.length > 0)
-  return []
-}
-
-export function parseRegisteredHotkeys(value: unknown): ParsedHotkeys {
-  if (Array.isArray(value)) {
-    return { ptt: asHotkeyList(value), dictation: [], dictationCommit: [] }
-  }
-
-  if (!value || typeof value !== 'object') {
-    return { ptt: [], dictation: [], dictationCommit: [] }
-  }
-
-  const record = value as Record<string, unknown>
-  return {
-    ptt: asHotkeyList(record.ptt ?? record.pushToTalk ?? record.recording ?? record.hotkey ?? record.primary),
-    dictation: asHotkeyList(record.dictation ?? record.dictationHotkey ?? record.dictation_hotkey),
-    dictationCommit: asHotkeyList(record.dictationCommit ?? record.dictation_commit ?? record.dictationCommitHotkey ?? record.dictation_commit_hotkey),
-  }
 }

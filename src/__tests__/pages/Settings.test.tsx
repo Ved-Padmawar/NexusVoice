@@ -10,6 +10,15 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 const mockInvoke = vi.mocked(invoke)
 
+/** What the General tab's sections load on mount, plus the saved hotkeys. */
+const respond = (hotkeys = { pushToTalk: null as string | null, dictation: null, dictationCommit: null }) =>
+  mockInvoke.mockImplementation((cmd) => Promise.resolve(({
+    get_hotkeys: hotkeys,
+    list_input_devices: [],
+    get_language_options: { supported: false, options: [] },
+    get_format_config: { enabled: false, provider: 'ollama', profiles: {} },
+  } as Record<string, unknown>)[cmd]))
+
 // The Recording (push-to-talk) row's recorder — uniquely identified by its aria-label.
 const recordingRecorder = () => screen.getByRole('button', { name: /click to record recording hotkey/i })
 
@@ -30,7 +39,7 @@ async function renderSettings() {
 
 beforeEach(() => {
   mockInvoke.mockReset()
-  mockInvoke.mockResolvedValue(undefined)
+  respond()
   useAppStore.setState({ hasHotkey: false, hasDictationHotkey: false, hasDictationCommitHotkey: false })
 })
 
@@ -65,15 +74,14 @@ describe('HotkeySection', () => {
     expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument()
   })
 
-  it('calls register_hotkey and shows current hotkey on save', async () => {
-    mockInvoke.mockResolvedValue(undefined)
+  it('binds the recorded hotkey on save', async () => {
     await renderSettings()
     fireEvent.click(recordingRecorder())
     fireEvent.keyDown(window, { key: 'Control', code: 'ControlLeft' })
     fireEvent.keyDown(window, { key: 'A', code: 'KeyA' })
     fireEvent.click(screen.getByRole('button', { name: /save/i }))
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('register_hotkey', { hotkey: 'Ctrl+A' })
+      expect(mockInvoke).toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+A' })
     })
     expect(useAppStore.getState().hasHotkey).toBe(true)
   })
@@ -87,28 +95,22 @@ describe('HotkeySection', () => {
   })
 
   it('loads existing hotkey on mount when hasHotkey is true', async () => {
-    mockInvoke.mockImplementation((cmd) => {
-      if (cmd === 'get_registered_hotkeys') return Promise.resolve({ ptt: ['Ctrl+Space'], dictation: [], dictation_commit: [] })
-      return Promise.resolve(undefined)
-    })
+    respond({ pushToTalk: 'Ctrl+Space', dictation: null, dictationCommit: null })
     useAppStore.setState({ hasHotkey: true })
     await renderSettings()
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('get_registered_hotkeys')
+      expect(mockInvoke).toHaveBeenCalledWith('get_hotkeys')
     })
   })
 
-  it('calls unregister_hotkey and clears hotkey on remove', async () => {
-    mockInvoke.mockImplementation((cmd) => {
-      if (cmd === 'get_registered_hotkeys') return Promise.resolve({ ptt: ['Ctrl+A'], dictation: [], dictation_commit: [] })
-      return Promise.resolve(undefined)
-    })
+  it('unbinds the hotkey on remove', async () => {
+    respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
     useAppStore.setState({ hasHotkey: true })
     await renderSettings()
     const removeBtn = await screen.findByRole('button', { name: /remove recording hotkey/i })
     fireEvent.click(removeBtn)
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('unregister_hotkey')
+      expect(mockInvoke).toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: null })
     })
     expect(useAppStore.getState().hasHotkey).toBe(false)
   })

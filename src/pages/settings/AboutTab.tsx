@@ -1,23 +1,15 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { invoke } from '@tauri-apps/api/core'
 import {
   AlertCircle, CheckCircle2, HardDrive, MemoryStick, Mic, Monitor,
   RefreshCw, Download, ArrowUpCircle, Cpu, Shield, RotateCcw, Trash2, Zap, X,
 } from 'lucide-react'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { Button } from '@/components/ui/button'
-import { COMMANDS } from '../../lib/commands'
-import type { HardwareProfile } from '../../types'
+import { commands } from '../../bindings'
+import type { DownloadedModel, HardwareProfile } from '../../types'
 import { useAppStore } from '../../store/useAppStore'
 import type { UpdateStatus } from '../../store/updateSlice'
-
-type DownloadedModel = {
-  variant: string
-  displayName: string
-  sizeBytes: number
-  isActive: boolean
-}
 
 function formatBytes(bytes: number): string {
   if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GB`
@@ -248,8 +240,8 @@ export function AboutTab() {
   const [onDisk, setOnDisk] = useState<DownloadedModel[]>([])
 
   useEffect(() => {
-    invoke<HardwareProfile>(COMMANDS.GET_HARDWARE_PROFILE).then(setProfile).catch(() => {})
-    invoke<DownloadedModel[]>(COMMANDS.GET_DOWNLOADED_MODELS).then(setOnDisk).catch(() => {})
+    commands.getHardwareProfile().then(setProfile).catch(() => {})
+    commands.getDownloadedModels().then(setOnDisk).catch(() => {})
   }, [])
 
   const modelBytes = onDisk.reduce((acc, m) => acc + m.sizeBytes, 0)

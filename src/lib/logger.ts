@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
-import { COMMANDS } from './commands'
+import { commands } from '../bindings'
 
 type LogLevel = 'error' | 'warn' | 'info' | 'debug'
 
@@ -17,7 +16,7 @@ function forward(level: LogLevel, message: string, context?: unknown): void {
       ctx = String(context)
     }
   }
-  invoke(COMMANDS.LOG_FRONTEND, { level, message, context: ctx ?? null }).catch(() => {})
+  commands.logFrontend(level, message, ctx ?? null).catch(() => {})
 }
 
 export const logger = {

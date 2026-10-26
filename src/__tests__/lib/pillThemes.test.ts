@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { PILL_THEMES, pillThemeDef } from '../../lib/pillThemes'
-import type { PillTheme } from '../../store/uiSlice'
+import type { PillTheme } from '../../types'
 
 /** Every member of the PillTheme union. Listed so adding one to the type
  *  without adding its values here fails a test instead of rendering Steel. */
-const ALL_THEMES: PillTheme[] = ['steel', 'midnight', 'canvas', 'dawn']
+const ALL_THEMES: PillTheme[] = ['steel', 'midnight', 'aurora', 'canvas', 'dawn', 'glass']
 
 describe('pillThemeDef', () => {
   it('resolves every theme in the union to its own definition', () => {
@@ -41,16 +41,16 @@ describe('pill theme values', () => {
       }
     }
     // One known value end-to-end, so a broken parse cannot pass the shape check.
-    expect(pillThemeDef('dawn').accentRgb).toBe('228,56,0')
+    expect(pillThemeDef('dawn').accentRgb).toBe('194,65,12')
   })
 
   it('gives every theme a complete, well-formed set of values', () => {
     for (const t of PILL_THEMES) {
       expect(t.label, `${t.id} has no label`).toBeTruthy()
       expect(t.accent, `${t.id} accent`).toMatch(/^#[0-9a-fA-F]{6}$/)
-      expect(t.bg, `${t.id} bg`).toMatch(/^#[0-9a-fA-F]{6}$/)
-      expect(t.border, `${t.id} border`).toMatch(/^rgba?\(/)
-      expect(t.brand, `${t.id} brand`).toMatch(/^rgba?\(/)
+      expect(t.bg, `${t.id} bg`).toMatch(/^(#[0-9a-fA-F]{6}|linear-gradient\()/)
+      expect(t.border, `${t.id} border`).toMatch(/^(#[0-9a-fA-F]{6}|rgba?\()/)
+      expect(t.brand, `${t.id} brand`).toMatch(/^(#[0-9a-fA-F]{6}|rgba?\()/)
     }
   })
 

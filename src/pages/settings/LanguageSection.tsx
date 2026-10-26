@@ -1,22 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react'
-import { invoke } from '@tauri-apps/api/core'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Select } from 'radix-ui'
 import { Languages, Check, ChevronDown, Search } from 'lucide-react'
 import { toast } from 'sonner'
-import { COMMANDS } from '../../lib/commands'
+import { commands } from '../../bindings'
 import { extractErrorMessage } from '../../lib/errors'
-
-type LanguageOption = {
-  code: string
-  name: string
-  isSelected: boolean
-}
-
-type LanguageSettings = {
-  supported: boolean
-  options: LanguageOption[]
-}
+import type { LanguageOption } from '../../types'
 
 type Props = {
   /** Active model id — a change refetches, since support is per-model. */
@@ -39,15 +28,14 @@ export const LanguageSection = memo(function LanguageSection({ modelId, onSuppor
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    invoke<LanguageSettings>(COMMANDS.GET_LANGUAGE_OPTIONS)
+    commands.getLanguageOptions()
       .then(res => {
         if (cancelled) return
-        const opts = Array.isArray(res?.options) ? res.options : []
-        setSupported(Boolean(res?.supported))
-        setOptions(opts)
-        const active = opts.find(o => o.isSelected)
+        setSupported(res.supported)
+        setOptions(res.options)
+        const active = res.options.find(o => o.isSelected)
         if (active) setSelected(active.code)
-        onSupportedChange?.(Boolean(res?.supported))
+        onSupportedChange?.(res.supported)
       })
       .catch(e => {
         if (cancelled) return
@@ -85,7 +73,7 @@ export const LanguageSection = memo(function LanguageSection({ modelId, onSuppor
     const previous = selected
     setSelected(code)
     try {
-      await invoke<void>(COMMANDS.SET_LANGUAGE, { code })
+      await commands.setLanguage(code)
     } catch (e) {
       setSelected(previous)
       toast.error(extractErrorMessage(e, 'Could not set language'))

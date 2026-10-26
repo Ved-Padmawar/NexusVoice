@@ -9,8 +9,6 @@ import { QueryClientProvider } from '@tanstack/react-query'
 
 import { useAppStore } from './store/useAppStore'
 import { queryClient, addTranscript } from './lib/queries'
-import type { Transcript } from './types'
-import { EVENTS } from './lib/events'
 import { ROUTES } from './lib/routes'
 import { useEventListener, useDelayedFlag } from './lib/hooks'
 import { Layout } from './components/Layout'
@@ -111,7 +109,9 @@ function App() {
     return () => clearTimeout(t)
   }, [])
 
-  useEventListener<Transcript>(EVENTS.TRANSCRIPT_NEW, addTranscript)
+  useEventListener('transcriptSaved', addTranscript)
+
+  useEffect(() => useAppStore.getState().followPillSettings(), [])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme

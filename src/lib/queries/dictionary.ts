@@ -1,15 +1,13 @@
-import { invoke } from '@tauri-apps/api/core'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { COMMANDS } from '../commands'
+import { commands } from '../../bindings'
 import { extractErrorMessage } from '../errors'
 import { queryClient } from './client'
 import { queryKeys } from './keys'
-import type { DictionaryEntry } from '../../types'
 
 const dictionaryOptions = {
   queryKey: queryKeys.dictionary,
-  queryFn: () => invoke<DictionaryEntry[]>(COMMANDS.GET_DICTIONARY),
+  queryFn: () => commands.getDictionary(),
 }
 
 export type UpdateDictionaryArgs = {
@@ -25,8 +23,8 @@ export function useDictionary() {
 export function useUpdateDictionary() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (args: UpdateDictionaryArgs) =>
-      invoke<DictionaryEntry>(COMMANDS.UPDATE_DICTIONARY, args),
+    mutationFn: ({ term, replacement, previousTerm }: UpdateDictionaryArgs) =>
+      commands.updateDictionary(term, replacement, previousTerm ?? null),
     onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.dictionary }),
     onError: (e) => toast.error(extractErrorMessage(e, 'Failed to update dictionary')),
   })
@@ -35,7 +33,7 @@ export function useUpdateDictionary() {
 export function useDeleteDictionaryEntry() {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (id: number) => invoke<void>(COMMANDS.DELETE_DICTIONARY_ENTRY, { id }),
+    mutationFn: (id: number) => commands.deleteDictionaryEntry(id),
     onSuccess: () => void client.invalidateQueries({ queryKey: queryKeys.dictionary }),
     onError: (e) => toast.error(extractErrorMessage(e, 'Failed to delete entry')),
   })

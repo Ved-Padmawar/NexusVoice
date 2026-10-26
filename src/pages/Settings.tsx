@@ -1,9 +1,8 @@
 import { useShallow } from 'zustand/react/shallow'
 import { useRef, useEffect } from 'react'
 import { useLocation } from 'react-router'
-import { invoke } from '@tauri-apps/api/core'
 import { motion } from 'framer-motion'
-import { COMMANDS } from '../lib/commands'
+import { commands } from '../bindings'
 import { Palette, Info, FolderOpen, SlidersHorizontal, Mic, Settings as SettingsIcon } from 'lucide-react'
 import { useAppStore } from '../store/useAppStore'
 import { SETTINGS_TABS, type SettingsTab } from '../lib/routes'
@@ -90,7 +89,7 @@ export function Settings() {
               <motion.button
                 type="button"
                 className="inline-flex items-center gap-1.25 px-2.5 h-9 rounded-(--r-md) bg-(--surface) border-none text-(--fg-2) text-[12px] font-medium cursor-pointer"
-                onClick={() => invoke<void>(COMMANDS.OPEN_LOGS_FOLDER)}
+                onClick={() => { void commands.openLogsFolder() }}
                 title="Open logs folder"
                 whileHover={{ color: 'var(--fg)' }}
                 whileTap={{ scale: 0.96 }}

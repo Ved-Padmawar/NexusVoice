@@ -5,281 +5,121 @@
 
 
 export const commands = {
-async startTranscription() : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("start_transcription") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async startTranscription() : Promise<null> {
+    return await TAURI_INVOKE("start_transcription");
 },
-async stopTranscription() : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("stop_transcription") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async stopTranscription() : Promise<null> {
+    return await TAURI_INVOKE("stop_transcription");
 },
 /**
- * List usable input devices, excluding loopback/virtual endpoints. The first
- * entry the UI shows is "Default"; these are the named alternatives.
+ * Usable input devices, excluding loopback and virtual endpoints. The UI
+ * lists "Default" first; these are the named alternatives.
  */
 async listInputDevices() : Promise<InputDeviceInfo[]> {
     return await TAURI_INVOKE("list_input_devices");
 },
 /**
- * Choose an input device by name. Pass `None` (or omit) to follow the OS
- * default. Takes effect on the next recording — the current one is unaffected.
+ * Choose an input device by name; `None` follows the OS default. Takes
+ * effect on the next recording.
  */
-async setInputDevice(name: string | null) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("set_input_device", { name }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async setInputDevice(name: string | null) : Promise<null> {
+    return await TAURI_INVOKE("set_input_device", { name });
 },
-async startDictation() : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("start_dictation") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async startDictation() : Promise<null> {
+    return await TAURI_INVOKE("start_dictation");
 },
-async pauseDictation() : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("pause_dictation") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async pauseDictation() : Promise<null> {
+    return await TAURI_INVOKE("pause_dictation");
 },
-async resumeDictation() : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("resume_dictation") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async resumeDictation() : Promise<null> {
+    return await TAURI_INVOKE("resume_dictation");
 },
-async commitDictation() : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("commit_dictation") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async commitDictation() : Promise<null> {
+    return await TAURI_INVOKE("commit_dictation");
 },
-async getUsageStats() : Promise<Result<UsageStatsResponse, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_usage_stats") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async getUsageStats() : Promise<UsageStatsResponse> {
+    return await TAURI_INVOKE("get_usage_stats");
 },
-async getTranscripts(page: PageQuery) : Promise<Result<TranscriptResponse[], ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_transcripts", { page }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async getTranscripts(page: PageQuery) : Promise<TranscriptResponse[]> {
+    return await TAURI_INVOKE("get_transcripts", { page });
 },
-async searchTranscripts(query: string, page: PageQuery) : Promise<Result<TranscriptResponse[], ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("search_transcripts", { query, page }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async searchTranscripts(query: string, page: PageQuery) : Promise<TranscriptResponse[]> {
+    return await TAURI_INVOKE("search_transcripts", { query, page });
 },
-async getDictionary() : Promise<Result<DictionaryResponse[], ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_dictionary") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async getDictionary() : Promise<DictionaryResponse[]> {
+    return await TAURI_INVOKE("get_dictionary");
 },
-async deleteTranscript(id: number) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_transcript", { id }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async deleteTranscript(id: number) : Promise<null> {
+    return await TAURI_INVOKE("delete_transcript", { id });
 },
 /**
- * The upsert keys on `term`, so a rename inserts a new row; `previous_term`
- * names the old one to drop, or it lingers and keeps rewriting dictation.
+ * `previous_term` names the entry being renamed, if any.
  */
-async updateDictionary(term: string, replacement: string, previousTerm: string | null) : Promise<Result<DictionaryResponse, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("update_dictionary", { term, replacement, previousTerm }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async updateDictionary(term: string, replacement: string, previousTerm: string | null) : Promise<DictionaryResponse> {
+    return await TAURI_INVOKE("update_dictionary", { term, replacement, previousTerm });
 },
-async deleteDictionaryEntry(id: number) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_dictionary_entry", { id }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async typeText(text: string) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("type_text", { text }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async deleteDictionaryEntry(id: number) : Promise<null> {
+    return await TAURI_INVOKE("delete_dictionary_entry", { id });
 },
 /**
  * Linux-only; the clipboard platforms have nothing to configure.
  */
-async getInjectionStatus() : Promise<Result<InjectionStatus, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_injection_status") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async getInjectionStatus() : Promise<InjectionStatus> {
+    return await TAURI_INVOKE("get_injection_status");
 },
-async registerHotkey(hotkey: string) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("register_hotkey", { hotkey }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async unregisterHotkey() : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("unregister_hotkey") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async registerDictationHotkey(hotkey: string) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("register_dictation_hotkey", { hotkey }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async unregisterDictationHotkey() : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("unregister_dictation_hotkey") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async registerDictationCommitHotkey(hotkey: string) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("register_dictation_commit_hotkey", { hotkey }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async unregisterDictationCommitHotkey() : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("unregister_dictation_commit_hotkey") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async getRegisteredHotkeys() : Promise<Result<RegisteredHotkeys, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_registered_hotkeys") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
-},
-async getModelInfo() : Promise<Result<ModelInfoResponse, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_model_info") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async getHotkeys() : Promise<HotkeyBindings> {
+    return await TAURI_INVOKE("get_hotkeys");
 },
 /**
- * Fetch a model by id. Never changes the active model, so a failed or
- * cancelled download can't leave the override pointing at a missing file.
- * Beyond `MAX_CONCURRENT_DOWNLOADS` it waits in `Queued`.
+ * Bind `hotkey` to `kind`, or unbind it with `None`.
  */
-async startModelDownload(id: string) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("start_model_download", { id }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async setHotkey(kind: HotkeyKind, hotkey: string | null) : Promise<null> {
+    return await TAURI_INVOKE("set_hotkey", { kind, hotkey });
+},
+async getPillSettings() : Promise<PillSettingsSnapshot> {
+    return await TAURI_INVOKE("get_pill_settings");
 },
 /**
- * Every download queued, running, or holding an error, so the UI can rehydrate
- * after a reload without waiting for the next event.
+ * Save the pill's preferences and tell both windows.
+ */
+async setPillSettings(pill: PillSettings) : Promise<PillSettingsSnapshot> {
+    return await TAURI_INVOKE("set_pill_settings", { pill });
+},
+async getModelInfo() : Promise<ModelInfoResponse> {
+    return await TAURI_INVOKE("get_model_info");
+},
+async startModelDownload(id: string) : Promise<null> {
+    return await TAURI_INVOKE("start_model_download", { id });
+},
+/**
+ * Every download queued, running or holding an error, so the UI can
+ * rehydrate after a reload without waiting for the next event.
  */
 async getActiveDownloads() : Promise<ActiveDownload[]> {
     return await TAURI_INVOKE("get_active_downloads");
 },
 /**
- * Cancel a queued or running download. A cancel pressed in the last moments of
- * a transfer arrives after the file is published; the download then stands and
- * the caller learns that from `model-download-complete`.
+ * A cancel pressed in the last moments of a transfer arrives after the file
+ * is published; the download then stands, reported by its complete event.
  */
 async cancelModelDownload(id: string) : Promise<void> {
     await TAURI_INVOKE("cancel_model_download", { id });
 },
 /**
- * Set the active model by catalog id. Evicts the cached engine and eagerly
- * warms the newly selected model in the background, so the first transcription
- * after a switch isn't stalled by load.
+ * Make a model the active one.
  */
-async setModelOverride(variant: string) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("set_model_override", { variant }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async setModelOverride(variant: string) : Promise<null> {
+    return await TAURI_INVOKE("set_model_override", { variant });
 },
 /**
  * The picker's list with the active choice marked, `auto` first. Codes come
- * from the loaded model itself; an English-only model reports
- * `supported: false` and no options.
+ * from the catalog, so the list is complete whether or not a model has loaded.
  */
-async getLanguageOptions() : Promise<Result<LanguageSettings, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_language_options") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async getLanguageOptions() : Promise<LanguageSettings> {
+    return await TAURI_INVOKE("get_language_options");
 },
-/**
- * Set the dictation language. The loaded engine is repointed rather than
- * evicted — language is a per-run option, so a reload would be pure cost.
- */
-async setLanguage(code: string | null) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("set_language", { code }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async setLanguage(code: string | null) : Promise<null> {
+    return await TAURI_INVOKE("set_language", { code });
 },
 async getModelUnload() : Promise<ModelUnload> {
     return await TAURI_INVOKE("get_model_unload");
@@ -287,61 +127,32 @@ async getModelUnload() : Promise<ModelUnload> {
 /**
  * Takes effect at the idle watcher's next check.
  */
-async setModelUnload(policy: ModelUnload) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("set_model_unload", { policy }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async setModelUnload(policy: ModelUnload) : Promise<null> {
+    return await TAURI_INVOKE("set_model_unload", { policy });
 },
-async getHardwareProfile() : Promise<Result<HardwareProfileResponse, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_hardware_profile") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async getHardwareProfile() : Promise<HardwareProfileResponse> {
+    return await TAURI_INVOKE("get_hardware_profile");
 },
 /**
- * The catalog with per-model download state, so the picker renders from one
- * source of truth instead of a hardcoded frontend list.
+ * The catalog with per-model download state, for the model picker.
  */
 async getModelCatalog() : Promise<CatalogModel[]> {
     return await TAURI_INVOKE("get_model_catalog");
 },
-/**
- * List all model files currently on disk.
- */
 async getDownloadedModels() : Promise<DownloadedModel[]> {
     return await TAURI_INVOKE("get_downloaded_models");
 },
 /**
- * Delete a downloaded model file by catalog id. Any model may be deleted,
- * including the active one — transcription then surfaces a "no model" error
- * until another is downloaded.
+ * Delete a downloaded model, the active one included.
  */
-async deleteModel(variant: string) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_model", { variant }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async deleteModel(variant: string) : Promise<null> {
+    return await TAURI_INVOKE("delete_model", { variant });
 },
 async getCudaStatus() : Promise<CudaStatus> {
     return await TAURI_INVOKE("get_cuda_status");
 },
-/**
- * Fetch the CUDA pack in the background, reported through `cuda-download-*` events.
- */
-async startCudaDownload() : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("start_cuda_download") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async startCudaDownload() : Promise<null> {
+    return await TAURI_INVOKE("start_cuda_download");
 },
 async cancelCudaDownload() : Promise<void> {
     await TAURI_INVOKE("cancel_cuda_download");
@@ -349,61 +160,31 @@ async cancelCudaDownload() : Promise<void> {
 /**
  * Remove the pack; one in use is deleted at the next start.
  */
-async removeCudaPack() : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("remove_cuda_pack") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async removeCudaPack() : Promise<null> {
+    return await TAURI_INVOKE("remove_cuda_pack");
 },
-async getFormatConfig() : Promise<Result<FormatConfig, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("get_format_config") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async getFormatConfig() : Promise<FormatterView> {
+    return await TAURI_INVOKE("get_format_config");
 },
-async setFormatConfig(config: FormatConfig) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("set_format_config", { config }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async setFormatConfig(config: FormatterUpdate) : Promise<null> {
+    return await TAURI_INVOKE("set_format_config", { config });
 },
 /**
- * Validate a candidate config (from the provider modal's "Test" button) by
- * sending one trivial formatting request. Does not persist anything.
+ * Send one trivial request with a draft from the provider modal. Saves
+ * nothing.
  */
-async testFormatConnection(config: FormatConfig) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("test_format_connection", { config }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async testFormatConnection(config: FormatterUpdate) : Promise<null> {
+    return await TAURI_INVOKE("test_format_connection", { config });
 },
-async openLogsFolder() : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("open_logs_folder") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async openLogsFolder() : Promise<null> {
+    return await TAURI_INVOKE("open_logs_folder");
 },
 /**
  * Resize the pill window to one of its two shapes, keeping its bottom-centre
  * fixed so the capsule stays put while the card grows above it.
  */
-async resizePill(expanded: boolean) : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("resize_pill", { expanded }) };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async resizePill(expanded: boolean) : Promise<null> {
+    return await TAURI_INVOKE("resize_pill", { expanded });
 },
 /**
  * Forward a log record from the webview into the unified backend log file,
@@ -417,19 +198,69 @@ async logFrontend(level: string, message: string, context: string | null) : Prom
  * Resolves once the database is open. A command, not an event — an event fired
  * before the webview attaches its listener would be missed, wedging startup.
  */
-async waitForAppReady() : Promise<Result<null, ApiError>> {
-    try {
-    return { status: "ok", data: await TAURI_INVOKE("wait_for_app_ready") };
-} catch (e) {
-    if(e instanceof Error) throw e;
-    else return { status: "error", error: e  as any };
-}
+async waitForAppReady() : Promise<null> {
+    return await TAURI_INVOKE("wait_for_app_ready");
 }
 }
 
 /** user-defined events **/
 
 
+export const events = __makeEvents__<{
+cudaDownloadCancelled: CudaDownloadCancelled,
+cudaDownloadComplete: CudaDownloadComplete,
+cudaDownloadError: CudaDownloadError,
+cudaDownloadProgress: CudaDownloadProgress,
+dictationCommitHotkeyPressed: DictationCommitHotkeyPressed,
+dictationHotkeyPressed: DictationHotkeyPressed,
+hotkeyPressed: HotkeyPressed,
+hotkeyReleased: HotkeyReleased,
+languageReset: LanguageReset,
+modelDownloadCancelled: ModelDownloadCancelled,
+modelDownloadComplete: ModelDownloadComplete,
+modelDownloadError: ModelDownloadError,
+modelDownloadProgress: ModelDownloadProgress,
+modelDownloadRunning: ModelDownloadRunning,
+modelDownloadStart: ModelDownloadStart,
+modelEvicted: ModelEvicted,
+modelSwitched: ModelSwitched,
+pillSettingsChanged: PillSettingsChanged,
+pillWaveform: PillWaveform,
+recordingCancelled: RecordingCancelled,
+transcriptSaved: TranscriptSaved,
+transcriptionComplete: TranscriptionComplete,
+transcriptionError: TranscriptionError,
+transcriptionPartial: TranscriptionPartial,
+transcriptionPartialEnd: TranscriptionPartialEnd,
+transcriptionWarning: TranscriptionWarning
+}>({
+cudaDownloadCancelled: "cuda-download-cancelled",
+cudaDownloadComplete: "cuda-download-complete",
+cudaDownloadError: "cuda-download-error",
+cudaDownloadProgress: "cuda-download-progress",
+dictationCommitHotkeyPressed: "dictation-commit-hotkey-pressed",
+dictationHotkeyPressed: "dictation-hotkey-pressed",
+hotkeyPressed: "hotkey-pressed",
+hotkeyReleased: "hotkey-released",
+languageReset: "language-reset",
+modelDownloadCancelled: "model-download-cancelled",
+modelDownloadComplete: "model-download-complete",
+modelDownloadError: "model-download-error",
+modelDownloadProgress: "model-download-progress",
+modelDownloadRunning: "model-download-running",
+modelDownloadStart: "model-download-start",
+modelEvicted: "model-evicted",
+modelSwitched: "model-switched",
+pillSettingsChanged: "pill-settings-changed",
+pillWaveform: "pill-waveform",
+recordingCancelled: "recording-cancelled",
+transcriptSaved: "transcript-saved",
+transcriptionComplete: "transcription-complete",
+transcriptionError: "transcription-error",
+transcriptionPartial: "transcription-partial",
+transcriptionPartialEnd: "transcription-partial-end",
+transcriptionWarning: "transcription-warning"
+})
 
 /** user-defined constants **/
 
@@ -437,16 +268,17 @@ async waitForAppReady() : Promise<Result<null, ApiError>> {
 
 /** user-defined types **/
 
-export type ActiveDownload = { id: string; status: string; progress: number; error: string | null }
+export type ActiveDownload = { id: string; status: DownloadStatus; progress: number; error: string | null }
 export type ApiError = { code: string; message: string }
-/**
- * The full catalog, for the model picker.
- */
 export type CatalogModel = { id: string; displayName: string; family: string; 
 /**
- * Every decode path this model supports (`streaming`, `single-shot`).
+ * Every decode path this model supports.
  */
-pipelines: string[]; defaultPipeline: string; sizeBytes: number; multilingual: boolean; description: string; detail: string; downloaded: boolean; isActive: boolean }
+pipelines: Pipeline[]; defaultPipeline: Pipeline; sizeBytes: number; multilingual: boolean; description: string; detail: string; downloaded: boolean; isActive: boolean }
+export type CudaDownloadCancelled = null
+export type CudaDownloadComplete = null
+export type CudaDownloadError = string
+export type CudaDownloadProgress = number
 export type CudaStatus = { 
 /**
  * An NVIDIA GPU on a platform the pack is built for; CUDA is hidden otherwise.
@@ -456,29 +288,49 @@ supported: boolean; pack: PackState;
  * Percent of the running download; `None` when idle.
  */
 downloadProgress: number | null }
+/**
+ * Dictation commit: finishes the dictation and delivers it.
+ */
+export type DictationCommitHotkeyPressed = null
+/**
+ * Dictation toggle: starts, pauses or resumes hands-free dictation.
+ */
+export type DictationHotkeyPressed = null
 export type DictionaryResponse = { id: number; term: string; replacement: string; hits: number; createdAt: string }
+export type DownloadStatus = "queued" | "running" | "error"
 export type DownloadedModel = { variant: string; displayName: string; sizeBytes: number; isActive: boolean }
 /**
- * Persisted formatter configuration.
+ * A change from the settings screen.
  */
-export type FormatConfig = { 
+export type FormatterUpdate = { enabled: boolean; provider: string; profiles: Partial<{ [key in string]: ProfileUpdate }> }
 /**
- * Whether the LLM formatting stage runs.
+ * The settings screen's view: whether a key is saved, never the key.
  */
-enabled?: boolean; 
-/**
- * Preset id of the active provider (`"ollama"`, `"openai"`, …).
- */
-provider?: string; 
-/**
- * Endpoint details per provider id.
- */
-profiles?: Partial<{ [key in string]: Profile }> }
+export type FormatterView = { enabled: boolean; provider: string; profiles: Partial<{ [key in string]: ProfileView }> }
 export type HardwareProfileResponse = { gpuName: string; 
 /**
  * Backend in use: the loaded model's, else the one it is expected to get.
  */
 executionProvider: string; vramGb: number; ramGb: number; recommendedModel: string }
+/**
+ * The global shortcuts, by role. `None` leaves a role unbound.
+ */
+export type HotkeyBindings = { pushToTalk: string | null; dictation: string | null; dictationCommit: string | null }
+export type HotkeyKind = 
+/**
+ * Records while held.
+ */
+"pushToTalk" | 
+/**
+ * Starts, pauses and resumes hands-free dictation.
+ */
+"dictation" | 
+/**
+ * Finishes hands-free dictation.
+ */
+"dictationCommit"
+export type HotkeyPressed = null
+export type HotkeyReleased = null
 export type InjectionStatus = { 
 /**
  * `true` where injection needs external tools the user must install.
@@ -495,7 +347,7 @@ tools: InjectionTool[] }
 export type InjectionTool = { name: string; available: boolean; preferred: boolean; installHint: string }
 /**
  * A selectable microphone. `is_default` marks the OS default; `is_selected`
- * marks the user's saved preference (or the default when none is saved).
+ * marks the saved preference.
  */
 export type InputDeviceInfo = { name: string; isDefault: boolean; isSelected: boolean }
 export type LanguageOption = { 
@@ -503,6 +355,10 @@ export type LanguageOption = {
  * ISO code, or `auto` for the detect-per-decode sentinel.
  */
 code: string; name: string; isSelected: boolean }
+/**
+ * The new model cannot speak the saved dictation language, so it was reset.
+ */
+export type LanguageReset = null
 export type LanguageSettings = { 
 /**
  * Whether the active model handles anything but English.
@@ -512,9 +368,26 @@ supported: boolean;
  * Empty when `supported` is false.
  */
 options: LanguageOption[] }
+export type ModelDownloadCancelled = { id: string }
+export type ModelDownloadComplete = { id: string }
+export type ModelDownloadError = { id: string; error: string }
+export type ModelDownloadProgress = { id: string; pct: number }
+/**
+ * A queued download got a transfer slot.
+ */
+export type ModelDownloadRunning = { id: string }
+export type ModelDownloadStart = { id: string }
+/**
+ * The active model was deleted and no other is on disk.
+ */
+export type ModelEvicted = null
 export type ModelInfoResponse = { downloaded: boolean; downloading: boolean; modelName: string }
 /**
- * When an idle model is unloaded. Persisted as the `model_unload` file.
+ * The active model was deleted and another on disk took its place.
+ */
+export type ModelSwitched = null
+/**
+ * When an idle model is unloaded.
  */
 export type ModelUnload = "never" | "after2Minutes" | "after5Minutes" | "after10Minutes" | "after15Minutes" | "after1Hour"
 export type PackState = "absent" | 
@@ -535,29 +408,76 @@ export type PackState = "absent" |
  */
 export type PageQuery = { limit: number | null; cursorCreatedAt: string | null; cursorId: number | null; from: string | null; to: string | null; sortAsc: boolean | null }
 /**
- * One provider's endpoint details.
+ * Preferences both windows read: the settings screen edits them, the pill
+ * draws with them.
  */
-export type Profile = { 
+export type PillSettings = { theme: PillTheme; waveformStyle: WaveformStyle; 
 /**
- * Base URL up to (not including) `/chat/completions`. Unused by
- * `anthropic`, which pins its own endpoint.
+ * Expand the pill into a card that fills in while recording.
  */
-baseUrl?: string; 
+liveTranscript: boolean }
 /**
- * Model name/id, e.g. `qwen3:0.6b` or `gpt-4o-mini`.
+ * The pill's preferences changed. Carries the revision so a window can drop
+ * an update older than the snapshot it already holds.
  */
-model?: string; 
+export type PillSettingsChanged = PillSettingsSnapshot
 /**
- * API key. Empty → no `Authorization` header sent (local Ollama default).
+ * `PillSettings` as of a revision. Revisions only grow, so a window can drop
+ * an event older than the snapshot it already holds.
  */
-apiKey?: string }
-export type RegisteredHotkeys = { ptt: string[]; dictation: string[]; dictation_commit: string[] }
+export type PillSettingsSnapshot = { revision: number; settings: PillSettings }
+export type PillTheme = "steel" | "midnight" | "aurora" | "canvas" | "dawn" | "glass"
+/**
+ * Capture levels for the pill waveform, one per band, 0–1.
+ */
+export type PillWaveform = [number, number, number, number, number, number, number, number]
+/**
+ * Which decode path a model runs through: [`Self::SingleShot`] decodes a whole
+ * buffer per call, [`Self::Streaming`] is fed incrementally.
+ */
+export type Pipeline = "single-shot" | "streaming"
+export type ProfileUpdate = { baseUrl: string; model: string; 
+/**
+ * `None` keeps the saved key, an empty string removes it.
+ */
+apiKey: string | null }
+export type ProfileView = { baseUrl: string; model: string; hasApiKey: boolean }
+export type RecordingCancelled = null
 export type TranscriptResponse = { id: number; content: string; wordCount: number; durationSeconds: number | null; 
 /**
  * App the transcript was dictated into; `None` when it wasn't determined.
  */
 targetApp: string | null; createdAt: string }
+export type TranscriptSaved = TranscriptResponse
+/**
+ * A recording finished. Saving and pasting are reported separately: a failed
+ * paste leaves the transcript in history, a failed save still pastes.
+ */
+export type TranscriptionComplete = { 
+/**
+ * Why the transcript could not be pasted; `None` when it was, or when
+ * there was nothing to paste.
+ */
+pasteError: string | null }
+/**
+ * A recording produced no transcript. The message is for the user.
+ */
+export type TranscriptionError = string
+/**
+ * Live transcript while recording. Both decode paths produce the same split,
+ * so the pill never needs to know which one ran.
+ */
+export type TranscriptionPartial = { committed: string; tentative: string }
+export type TranscriptionPartialEnd = null
+/**
+ * Something the user should know about while the recording carries on.
+ */
+export type TranscriptionWarning = string
 export type UsageStatsResponse = { totalWords: number; speakingTimeSeconds: number; totalSessions: number; avgPaceWpm: number }
+/**
+ * How the pill draws the capture levels. All four read the same frame.
+ */
+export type WaveformStyle = "bars" | "memo" | "eq" | "spectrum"
 
 /** tauri-specta globals **/
 

@@ -9,21 +9,17 @@ use std::path::Path;
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
+use tauri_specta::Event;
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
+use crate::events::ModelDownloadProgress;
 use crate::inference::catalog::ModelEntry;
-use crate::state::Downloads;
+use crate::inference::library::Downloads;
 
 /// Error string the caller matches on to detect a user-initiated cancel.
 pub const CANCELLED: &str = "download_cancelled";
-
-#[derive(Clone, serde::Serialize)]
-struct DownloadProgress<'a> {
-    id: &'a str,
-    pct: u8,
-}
 
 /// Attempts per file before giving up; each retry resumes rather than restarts.
 const MAX_ATTEMPTS: u32 = 4;
@@ -54,7 +50,11 @@ pub async fn download_model(
     let id = entry.id.as_str();
     download_file(&entry.url, &dest, &cancel, |pct| {
         downloads.set_progress(id, pct);
-        let _ = app.emit("model-download-progress", DownloadProgress { id, pct });
+        let _ = ModelDownloadProgress {
+            id: id.to_string(),
+            pct,
+        }
+        .emit(app);
     })
     .await
 }

@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { invoke } from '@tauri-apps/api/core'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { motion } from 'framer-motion'
 import { AlertCircle, CheckCircle2, Download, HardDrive, RefreshCw, RotateCcw, X, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { COMMANDS } from '../lib/commands'
+import { commands } from '../bindings'
 import { useAppStore } from '../store/useAppStore'
-import type { HardwareProfile } from '../types'
 
 const ICON_BUTTON =
   'flex items-center justify-center w-6 h-6 shrink-0 rounded-(--r-sm) text-muted-foreground bg-transparent border-none cursor-pointer transition-colors duration-(--t-fast) hover:text-destructive hover:bg-(--danger-soft)'
@@ -22,7 +20,7 @@ export function CudaOfferModal() {
   const [gpuName, setGpuName] = useState<string | null>(null)
 
   useEffect(() => {
-    invoke<HardwareProfile>(COMMANDS.GET_HARDWARE_PROFILE).then(p => setGpuName(p.gpuName)).catch(() => {})
+    commands.getHardwareProfile().then(p => setGpuName(p.gpuName)).catch(() => {})
   }, [])
 
   const progress = cuda?.downloadProgress ?? null

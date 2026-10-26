@@ -1,20 +1,10 @@
-//! Text injection commands. The platform strategies live in `crate::injection`.
+//! Text injection status. Pasting itself happens in finalize.
 
-use tauri::AppHandle;
-
-use super::error::ApiError;
-
-#[tauri::command]
-#[specta::specta]
-pub async fn type_text(app: AppHandle, text: String) -> Result<(), ApiError> {
-    crate::injection::type_text(&app, &text)
-        .await
-        .map_err(|e| ApiError::new("injection_failed", e))
-}
+use super::dto::InjectionStatus;
 
 /// Linux-only; the clipboard platforms have nothing to configure.
 #[tauri::command]
 #[specta::specta]
-pub async fn get_injection_status() -> Result<super::dto::InjectionStatus, ApiError> {
-    Ok(super::dto::InjectionStatus::detect().await)
+pub async fn get_injection_status() -> InjectionStatus {
+    InjectionStatus::detect().await
 }

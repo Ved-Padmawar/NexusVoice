@@ -1,12 +1,8 @@
-//! Transcription orchestration service.
-//!
-//! Owns the recording lifecycle: starting microphone capture and transcribing
-//! on stop (preprocess → whisper → dictionary post-process → persist → emit).
-//!
-//! The command layer (`commands::transcription`) only validates the running
-//! state and delegates here, so all the heavy logic lives in one place and is
-//! ready for a future LLM-formatting stage to slot in after `finalize`.
+//! Recording and delivery: capture while the user speaks, then decode, clean
+//! up, save and paste the transcript.
 
-pub mod service;
+mod finalize;
+pub mod recorder;
+mod workers;
 
-pub use service::{spawn_finalize, start_capture};
+pub use recorder::{Mode, RecordError, Recorder};

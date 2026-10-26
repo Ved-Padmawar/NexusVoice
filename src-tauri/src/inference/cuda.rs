@@ -4,15 +4,20 @@
 
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Manager};
+use tauri_specta::Event;
 use tokio_util::sync::CancellationToken;
 
+use crate::events::{
+    CudaDownloadCancelled, CudaDownloadComplete, CudaDownloadError, CudaDownloadProgress,
+};
 use crate::inference::downloader::{download_file, CANCELLED};
+use crate::sync::lock_recovering;
 
 const PACK_DIR: &str = "cuda";
 const STAGING_DIR: &str = "cuda.next";
@@ -248,18 +253,35 @@ pub fn remove(app_data_dir: &Path) -> std::io::Result<()> {
     std::fs::remove_dir_all(&dir).or_else(|_| File::create(dir.join(REMOVE_MARKER)).map(drop))
 }
 
-/// The one CUDA download allowed at a time, with its progress.
-#[derive(Default)]
-pub struct CudaDownload {
+/// The pack in the app data dir, and the one download of it allowed at a time.
+pub struct CudaPack {
+    app_data_dir: PathBuf,
     cancel: Mutex<Option<CancellationToken>>,
     progress: AtomicU8,
 }
 
-impl CudaDownload {
-    fn lock(&self) -> std::sync::MutexGuard<'_, Option<CancellationToken>> {
-        self.cancel
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+impl CudaPack {
+    pub fn new(app_data_dir: PathBuf) -> Self {
+        Self {
+            app_data_dir,
+            cancel: Mutex::new(None),
+            progress: AtomicU8::new(0),
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Option<CancellationToken>> {
+        lock_recovering(&self.cancel)
+    }
+
+    pub fn state(&self) -> PackState {
+        pack_state(&self.app_data_dir)
+    }
+
+    /// Cancel any download, then delete the pack; one in use goes at the next
+    /// start.
+    pub fn remove(&self) -> std::io::Result<()> {
+        self.cancel();
+        remove(&self.app_data_dir)
     }
 
     /// Progress of the running download, or `None` when idle.
@@ -275,9 +297,29 @@ impl CudaDownload {
         }
     }
 
+    /// Fetch the pack in the background, reported through the `CudaDownload*`
+    /// events.
+    pub fn start_download(app: &AppHandle) {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            match app.state::<Self>().run(&app).await {
+                Ok(()) => {
+                    let _ = CudaDownloadComplete.emit(&app);
+                }
+                Err(e) if e == CANCELLED => {
+                    let _ = CudaDownloadCancelled.emit(&app);
+                }
+                Err(e) => {
+                    log::warn!("CUDA pack download failed: {e}");
+                    let _ = CudaDownloadError(e).emit(&app);
+                }
+            }
+        });
+    }
+
     /// Fetch the pack into the staging dir. `Err(CANCELLED)` on cancel; a
     /// download already running is left alone.
-    pub async fn run(&self, app: &AppHandle, app_data_dir: &Path) -> Result<(), String> {
+    async fn run(&self, app: &AppHandle) -> Result<(), String> {
         let cancel = {
             let mut slot = self.lock();
             if slot.is_some() {
@@ -286,17 +328,13 @@ impl CudaDownload {
             self.progress.store(0, Ordering::Relaxed);
             slot.insert(CancellationToken::new()).clone()
         };
-        let result = self.fetch(app, app_data_dir, &cancel).await;
+        let result = self.fetch(app, &cancel).await;
         *self.lock() = None;
         result
     }
 
-    async fn fetch(
-        &self,
-        app: &AppHandle,
-        app_data_dir: &Path,
-        cancel: &CancellationToken,
-    ) -> Result<(), String> {
+    async fn fetch(&self, app: &AppHandle, cancel: &CancellationToken) -> Result<(), String> {
+        let app_data_dir = &self.app_data_dir;
         let platform = PLATFORM.ok_or("CUDA is not available on this platform")?;
         let manifest = fetch_manifest(platform).await?;
         if !matches_engine(&manifest) {
@@ -348,7 +386,7 @@ impl CudaDownload {
     fn report(&self, app: &AppHandle, pct: u64) {
         let pct = u8::try_from(pct.min(100)).unwrap_or(100);
         if self.progress.swap(pct, Ordering::Relaxed) != pct {
-            let _ = app.emit("cuda-download-progress", pct);
+            let _ = CudaDownloadProgress(pct).emit(app);
         }
     }
 }

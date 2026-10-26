@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { invoke } from '@tauri-apps/api/core'
-import { COMMANDS } from '../../lib/commands'
+import { commands } from '../../bindings'
 import {
   formatModelSize, isStreaming, modelNameToId, sortForDisplay,
   type CatalogModel, type ModelId,
@@ -14,7 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Tooltip } from '@/components/ui/tooltip'
 import { VendorMark } from '../../components/ui/VendorMark'
 import { vendorForFamily } from '../../lib/vendors'
-import type { HardwareProfile } from '../../types'
+import type { DownloadedModel, HardwareProfile } from '../../types'
 import { useAppStore } from '../../store/useAppStore'
 import type { Download as ModelDownload } from '../../store/modelSlice'
 import { ModelUnloadSection } from './ModelUnloadSection'
@@ -24,12 +23,6 @@ const ModelManagerModal = lazy(() =>
   import('../../components/ModelManagerModal').then(m => ({ default: m.ModelManagerModal }))
 )
 
-type DownloadedModel = {
-  variant: string
-  displayName: string
-  sizeBytes: number
-  isActive: boolean
-}
 
 /** Quantised — a proportional bar made small models invisible slivers. */
 function weightTier(bytes: number): 0 | 1 | 2 | 3 {
@@ -252,11 +245,11 @@ export function VoiceTab() {
   const cancelDownload = useAppStore(s => s.cancelDownload)
 
   const refreshOnDisk = useCallback(() => {
-    invoke<DownloadedModel[]>(COMMANDS.GET_DOWNLOADED_MODELS).then(setOnDisk).catch(() => setOnDisk([]))
+    commands.getDownloadedModels().then(setOnDisk).catch(() => setOnDisk([]))
   }, [])
 
   useEffect(() => {
-    invoke<HardwareProfile>(COMMANDS.GET_HARDWARE_PROFILE).then(setProfile).catch(() => {})
+    commands.getHardwareProfile().then(setProfile).catch(() => {})
     void refreshModelInfo()
     void refreshCatalog()
     void refreshDownloads()
@@ -299,7 +292,7 @@ export function VoiceTab() {
     setSelectedModel(v)
     setModelSaving(true)
     try {
-      await invoke(COMMANDS.SET_MODEL_OVERRIDE, { variant: v })
+      await commands.setModelOverride(v)
       await refreshModelInfo()
       toast.success('Model updated')
     } catch { /* ignore */ }

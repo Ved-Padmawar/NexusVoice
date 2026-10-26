@@ -1,9 +1,6 @@
-import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { toast } from 'sonner'
-import { COMMANDS } from '../lib/commands'
-import { EVENTS } from '../lib/events'
+import { commands, events } from '../bindings'
 import { extractErrorMessage } from '../lib/errors'
 import type { CudaStatus } from '../types'
 import type { StateCreator } from 'zustand'
@@ -57,7 +54,7 @@ export const createCudaSlice: StateCreator<AppState, [], [], CudaSlice> = (set, 
 
   refreshCuda: async () => {
     try {
-      const cuda = await invoke<CudaStatus>(COMMANDS.GET_CUDA_STATUS)
+      const cuda = await commands.getCudaStatus()
       // CUDA added from About counts too: removing it later must not re-offer it.
       set(cuda.pack === 'absent' ? { cuda } : { cuda, cudaOfferSeen: true })
     } catch { /* keep the last status */ }
@@ -68,7 +65,7 @@ export const createCudaSlice: StateCreator<AppState, [], [], CudaSlice> = (set, 
     if (!cuda) return
     set({ cuda: { ...cuda, downloadProgress: 0 }, cudaError: null })
     try {
-      await invoke(COMMANDS.START_CUDA_DOWNLOAD)
+      await commands.startCudaDownload()
     } catch (e) {
       set({ cudaError: extractErrorMessage(e, 'Could not start the download') })
       await get().refreshCuda()
@@ -77,13 +74,13 @@ export const createCudaSlice: StateCreator<AppState, [], [], CudaSlice> = (set, 
 
   cancelCudaDownload: async () => {
     try {
-      await invoke(COMMANDS.CANCEL_CUDA_DOWNLOAD)
+      await commands.cancelCudaDownload()
     } catch { /* the cancelled event refreshes */ }
   },
 
   removeCuda: async () => {
     try {
-      await invoke(COMMANDS.REMOVE_CUDA_PACK)
+      await commands.removeCudaPack()
       set({ cudaError: null })
     } catch (e) {
       set({ cudaError: extractErrorMessage(e, 'Could not remove CUDA') })
@@ -94,19 +91,19 @@ export const createCudaSlice: StateCreator<AppState, [], [], CudaSlice> = (set, 
   listenForCudaEvents: async () => {
     await get().refreshCuda()
     const unlisteners = await Promise.all([
-      listen<number>(EVENTS.CUDA_DOWNLOAD_PROGRESS, (e) => {
+      events.cudaDownloadProgress.listen((e) => {
         const cuda = get().cuda
         if (cuda) set({ cuda: { ...cuda, downloadProgress: e.payload } })
       }),
-      listen(EVENTS.CUDA_DOWNLOAD_COMPLETE, () => {
+      events.cudaDownloadComplete.listen(() => {
         void get().refreshCuda()
         // The open dialog shows its own Restart.
         if (!get().cudaOfferOpen) toast.success('CUDA is ready. Restart NexusVoice to use it.', {
           action: { label: 'Restart', onClick: () => { void relaunch() } },
         })
       }),
-      listen(EVENTS.CUDA_DOWNLOAD_CANCELLED, () => { void get().refreshCuda() }),
-      listen<string>(EVENTS.CUDA_DOWNLOAD_ERROR, (e) => {
+      events.cudaDownloadCancelled.listen(() => { void get().refreshCuda() }),
+      events.cudaDownloadError.listen((e) => {
         set({ cudaError: e.payload || 'Download failed' })
         void get().refreshCuda()
       }),

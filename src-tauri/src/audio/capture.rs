@@ -17,7 +17,7 @@ use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{ErrorKind, SampleFormat};
 
 use crate::audio::WaveformMeter;
-use crate::state::lock_recovering;
+use crate::sync::lock_recovering;
 
 /// How long a warm stream is kept with nothing recording. Long enough to cover
 /// back-to-back dictation, short enough that the OS mic indicator doesn't stay
@@ -168,7 +168,7 @@ struct Shared {
     dead: AtomicBool,
 }
 
-/// The persistent capture stream. One lives in `AppState` for the app's life.
+/// The persistent capture stream. The recorder holds one for the app's life.
 pub struct MicStream {
     shared: Arc<Shared>,
     tx: Mutex<Option<mpsc::Sender<Command>>>,

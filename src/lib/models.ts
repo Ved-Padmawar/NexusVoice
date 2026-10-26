@@ -1,32 +1,9 @@
-import { invoke } from '@tauri-apps/api/core'
-import { COMMANDS } from './commands'
+import type { CatalogModel } from '../types'
+
+export type { CatalogModel }
 
 /** Catalog id, e.g. `whisper-medium` or `parakeet-unified-en-0.6b`. */
 export type ModelId = string
-
-/** Which decode path a model runs through. */
-export type PipelineKind = 'single-shot' | 'streaming'
-
-/** One catalog entry, as served by `get_model_catalog`. */
-export type CatalogModel = {
-  id: ModelId
-  displayName: string
-  family: string
-  /** Every path this model supports; some support both. */
-  pipelines: PipelineKind[]
-  defaultPipeline: PipelineKind
-  sizeBytes: number
-  multilingual: boolean
-  description: string
-  detail: string
-  downloaded: boolean
-  isActive: boolean
-}
-
-/** The full model catalog, ascending by capability. */
-export async function fetchModelCatalog(): Promise<CatalogModel[]> {
-  return invoke<CatalogModel[]>(COMMANDS.GET_MODEL_CATALOG)
-}
 
 /** Human-readable download size, e.g. "886 MB". */
 export function formatModelSize(bytes: number): string {
