@@ -11,21 +11,7 @@ use crate::commands::dto::TranscriptResponse;
 use crate::settings::PillSettingsSnapshot;
 
 #[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct HotkeyPressed;
-
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct HotkeyReleased;
-
-/// Dictation toggle: starts, pauses or resumes hands-free dictation.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct DictationHotkeyPressed;
-
-/// Dictation commit: finishes the dictation and delivers it.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct DictationCommitHotkeyPressed;
-
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct RecordingCancelled;
+pub struct RecordingStateChanged(pub crate::transcription::recorder::RecordingSnapshot);
 
 /// Live transcript while recording. Both decode paths produce the same split,
 /// so the pill never needs to know which one ran.
@@ -47,6 +33,9 @@ pub struct TranscriptionComplete {
     /// Why the transcript could not be pasted; `None` when it was, or when
     /// there was nothing to paste.
     pub paste_error: Option<String>,
+    /// The transcript is in history. A failed paste may only point there
+    /// when this is set.
+    pub saved: bool,
 }
 
 /// A recording produced no transcript. The message is for the user.
@@ -116,6 +105,10 @@ pub struct LanguageReset;
 
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct CudaDownloadProgress(pub u8);
+
+/// Every file is downloaded; the pack is being unpacked and checked.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct CudaDownloadVerifying;
 
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct CudaDownloadComplete;

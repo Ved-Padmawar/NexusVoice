@@ -15,6 +15,8 @@ pub struct CudaStatus {
     pub pack: cuda::PackState,
     /// Percent of the running download; `None` when idle.
     pub download_progress: Option<u8>,
+    /// The running download is unpacking and checking the pack.
+    pub verifying: bool,
 }
 
 #[tauri::command]
@@ -24,6 +26,7 @@ pub fn get_cuda_status(pack: State<'_, CudaPack>) -> CudaStatus {
         supported: cuda::supported(),
         pack: pack.state(),
         download_progress: pack.progress(),
+        verifying: pack.verifying(),
     }
 }
 

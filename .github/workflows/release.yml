@@ -382,11 +382,24 @@ jobs:
                   "asset": asset,
                   "sha256": hashlib.sha256(src.read_bytes()).hexdigest(),
                   "size": (out / asset).stat().st_size,
+                  "unpacked_size": src.stat().st_size,
               })
               print(f"{src.name}: {files[-1]['size'] // 1048576} MB packed")
 
-          manifest = {"engine": os.environ["ENGINE_VERSION"], "files": files}
+          manifest = {"platform": platform, "release": os.environ["GITHUB_REF_NAME"], "engine": os.environ["ENGINE_VERSION"], "files": files}
           (out / f"cuda-pack-{platform}.json").write_text(json.dumps(manifest, indent=2))
+
+      - name: Setup Bun for manifest signing
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install signing CLI
+        run: bun install --frozen-lockfile
+
+      - name: Sign CUDA manifest with updater key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: bun run tauri signer sign cuda-pack/cuda-pack-${{ matrix.platform }}.json
 
       - name: Upload the CUDA pack
         uses: softprops/action-gh-release@v3.0.3

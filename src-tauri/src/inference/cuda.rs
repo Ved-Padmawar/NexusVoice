@@ -5,7 +5,7 @@
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::events::{
     CudaDownloadCancelled, CudaDownloadComplete, CudaDownloadError, CudaDownloadProgress,
+    CudaDownloadVerifying,
 };
 use crate::inference::downloader::{download_file, CANCELLED};
 use crate::sync::lock_recovering;
@@ -23,6 +24,9 @@ const PACK_DIR: &str = "cuda";
 const STAGING_DIR: &str = "cuda.next";
 /// Written last, so its presence marks a complete pack.
 const MANIFEST: &str = "manifest.json";
+const SIGNATURE: &str = "manifest.json.sig";
+const MAX_MANIFEST_BYTES: u64 = 16 * 1024;
+const MAX_LIBRARY_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 /// Asks the next start to delete a pack that is loaded and so locked now.
 const REMOVE_MARKER: &str = "remove";
 
@@ -44,6 +48,8 @@ const PLATFORM: Option<&str> = None;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
+    pub platform: String,
+    pub release: String,
     /// transcribe-cpp version the module was built from; it must match ours.
     pub engine: String,
     /// In load order: runtime libraries first, the ggml module last.
@@ -59,6 +65,7 @@ pub struct PackFile {
     pub sha256: String,
     /// Of the gzipped asset, for progress.
     pub size: u64,
+    pub unpacked_size: u64,
 }
 
 /// A platform we build the pack for, with a GPU and driver NVML says can run it.
@@ -179,6 +186,8 @@ pub fn registered() -> bool {
 #[serde(rename_all = "camelCase")]
 pub enum PackState {
     Absent,
+    /// Unsigned, so never loaded: installed before verification existed.
+    Unverified,
     /// Usable by this build; loaded unless the driver is missing or too old.
     Installed,
     /// Downloaded; applied at the next start.
@@ -189,14 +198,16 @@ pub enum PackState {
 
 pub fn pack_state(app_data_dir: &Path) -> PackState {
     let dir = app_data_dir.join(PACK_DIR);
-    if app_data_dir.join(STAGING_DIR).join(MANIFEST).exists() {
+    if read_manifest(&app_data_dir.join(STAGING_DIR)).is_some_and(|m| matches_engine(&m)) {
         PackState::PendingInstall
     } else if dir.join(REMOVE_MARKER).exists() {
         PackState::PendingRemoval
-    } else if read_manifest(&dir).is_some_and(|m| matches_engine(&m)) {
-        PackState::Installed
     } else {
-        PackState::Absent
+        match read_manifest(&dir) {
+            Some(manifest) if matches_engine(&manifest) => PackState::Installed,
+            None if dir.join(MANIFEST).exists() => PackState::Unverified,
+            _ => PackState::Absent,
+        }
     }
 }
 
@@ -206,10 +217,13 @@ pub fn activate(app_data_dir: &Path) {
     let dir = app_data_dir.join(PACK_DIR);
     let staging = app_data_dir.join(STAGING_DIR);
 
-    if dir.join(REMOVE_MARKER).exists() {
+    if safe_directory(&dir).is_ok() && dir.join(REMOVE_MARKER).exists() {
         let _ = std::fs::remove_dir_all(&dir);
     }
-    if staging.join(MANIFEST).exists() {
+    if safe_directory(&dir).is_ok()
+        && read_manifest(&staging)
+            .is_some_and(|m| matches_engine(&m) && files_verified(&staging, &m))
+    {
         let _ = std::fs::remove_dir_all(&dir);
         if let Err(e) = std::fs::rename(&staging, &dir) {
             log::warn!("CUDA pack: could not install the staged download: {e}");
@@ -219,6 +233,10 @@ pub fn activate(app_data_dir: &Path) {
     let Some(manifest) = read_manifest(&dir) else {
         return;
     };
+    if !files_verified(&dir, &manifest) {
+        log::warn!("CUDA pack: library integrity verification failed; download it again");
+        return;
+    }
     if !matches_engine(&manifest) {
         log::warn!(
             "CUDA pack built for engine {}, this build runs {}; download it again",
@@ -245,6 +263,9 @@ pub fn activate(app_data_dir: &Path) {
 
 /// Delete the pack, or mark it for deletion at the next start when loaded.
 pub fn remove(app_data_dir: &Path) -> std::io::Result<()> {
+    for name in [PACK_DIR, STAGING_DIR] {
+        safe_directory(&app_data_dir.join(name)).map_err(std::io::Error::other)?;
+    }
     let _ = std::fs::remove_dir_all(app_data_dir.join(STAGING_DIR));
     let dir = app_data_dir.join(PACK_DIR);
     if !dir.exists() {
@@ -258,6 +279,7 @@ pub struct CudaPack {
     app_data_dir: PathBuf,
     cancel: Mutex<Option<CancellationToken>>,
     progress: AtomicU8,
+    verifying: AtomicBool,
 }
 
 impl CudaPack {
@@ -266,6 +288,7 @@ impl CudaPack {
             app_data_dir,
             cancel: Mutex::new(None),
             progress: AtomicU8::new(0),
+            verifying: AtomicBool::new(false),
         }
     }
 
@@ -291,18 +314,31 @@ impl CudaPack {
             .then(|| self.progress.load(Ordering::Relaxed))
     }
 
+    /// A finished download is being unpacked and checked.
+    pub fn verifying(&self) -> bool {
+        self.lock().is_some() && self.verifying.load(Ordering::Relaxed)
+    }
+
     pub fn cancel(&self) {
         if let Some(token) = self.lock().as_ref() {
             token.cancel();
         }
     }
 
-    /// Fetch the pack in the background, reported through the `CudaDownload*`
-    /// events.
+    /// Fetch the pack into staging in the background, reported through the
+    /// `CudaDownload*` events. A running download is left alone.
     pub fn start_download(app: &AppHandle) {
+        // Claimed before returning, so a status read right after reports it.
+        let Some(cancel) = app.state::<Self>().claim() else {
+            return;
+        };
+        let _ = CudaDownloadProgress(0).emit(app);
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            match app.state::<Self>().run(&app).await {
+            let pack = app.state::<Self>();
+            let result = pack.fetch(&app, &cancel).await;
+            *pack.lock() = None;
+            match result {
                 Ok(()) => {
                     let _ = CudaDownloadComplete.emit(&app);
                 }
@@ -317,39 +353,51 @@ impl CudaPack {
         });
     }
 
-    /// Fetch the pack into the staging dir. `Err(CANCELLED)` on cancel; a
-    /// download already running is left alone.
-    async fn run(&self, app: &AppHandle) -> Result<(), String> {
-        let cancel = {
-            let mut slot = self.lock();
-            if slot.is_some() {
-                return Ok(());
+    /// Re-download a pack installed before verification existed.
+    pub fn replace_unverified(app: &AppHandle) {
+        let app = app.clone();
+        // NVML loads the driver library: keep it off the startup path.
+        tauri::async_runtime::spawn_blocking(move || {
+            if app.state::<Self>().state() == PackState::Unverified && supported() {
+                log::info!("CUDA pack predates verification; downloading a verified copy");
+                Self::start_download(&app);
             }
-            self.progress.store(0, Ordering::Relaxed);
-            slot.insert(CancellationToken::new()).clone()
-        };
-        let result = self.fetch(app, &cancel).await;
-        *self.lock() = None;
-        result
+        });
+    }
+
+    fn claim(&self) -> Option<CancellationToken> {
+        let mut slot = self.lock();
+        if slot.is_some() {
+            return None;
+        }
+        self.progress.store(0, Ordering::Relaxed);
+        self.verifying.store(false, Ordering::Relaxed);
+        Some(slot.insert(CancellationToken::new()).clone())
     }
 
     async fn fetch(&self, app: &AppHandle, cancel: &CancellationToken) -> Result<(), String> {
         let app_data_dir = &self.app_data_dir;
         let platform = PLATFORM.ok_or("CUDA is not available on this platform")?;
-        let manifest = fetch_manifest(platform).await?;
+        let (manifest, json, signature) = fetch_manifest(platform).await?;
         if !matches_engine(&manifest) {
             return Err("the published CUDA pack does not match this version".to_string());
         }
 
         let dir = app_data_dir.join(PACK_DIR);
         let staging = app_data_dir.join(STAGING_DIR);
+        safe_directory(&dir)?;
+        safe_directory(&staging)?;
         std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+        // Invalidate the completion marker before changing any staged files.
+        let _ = std::fs::remove_file(staging.join(MANIFEST));
         let current = read_manifest(&dir).filter(|_| !dir.join(REMOVE_MARKER).exists());
 
+        // Download everything, then unpack and check the pack in one step.
         let total: u64 = manifest.files.iter().map(|f| f.size).sum::<u64>().max(1);
         let mut done = 0;
+        let mut downloaded = Vec::new();
         for file in &manifest.files {
-            let dest = staging.join(&file.name);
+            let dest = confined_file(&staging, &file.name)?;
             let unchanged = current.as_ref().is_some_and(|m| {
                 m.files
                     .iter()
@@ -357,30 +405,50 @@ impl CudaPack {
             });
 
             // Unchanged files (often the large runtime) are copied, not refetched.
-            if unchanged {
+            if unchanged && verified(&confined_file(&dir, &file.name)?, &file.sha256) {
                 std::fs::copy(dir.join(&file.name), &dest).map_err(|e| e.to_string())?;
             } else if !verified(&dest, &file.sha256) {
-                let gz = staging.join(format!("{}.gz", file.name));
+                let gz = confined_file(&staging, &format!("{}.gz", file.name))?;
+                confined_file(&staging, &format!("{}.part", file.name))?;
                 let url = format!("{RELEASES_URL}/{RELEASE_TAG}/{}", file.asset);
-                download_file(&url, &gz, cancel, |pct| {
-                    let overall = (done + file.size * u64::from(pct) / 100) * 100 / total;
-                    self.report(app, overall);
-                })
-                .await?;
-                let (gz, dest, sha256) = (gz.clone(), dest.clone(), file.sha256.clone());
-                tokio::task::spawn_blocking(move || unpack(&gz, &dest, &sha256))
-                    .await
-                    .map_err(|e| e.to_string())??;
+                if !archive_complete(&gz, file.size) {
+                    download_file(&url, &gz, cancel, file.size, |pct| {
+                        let overall = (done + file.size * u64::from(pct) / 100) * 100 / total;
+                        self.report(app, overall);
+                    })
+                    .await?;
+                }
+                downloaded.push((gz, dest, file.sha256.clone(), file.unpacked_size));
             }
             done += file.size;
             self.report(app, done * 100 / total);
         }
 
+        self.verifying.store(true, Ordering::Relaxed);
+        let _ = CudaDownloadVerifying.emit(app);
+        let (staged, expected) = (staging.clone(), manifest.clone());
+        let cancelled = cancel.clone();
+        tokio::task::spawn_blocking(move || {
+            for (gz, dest, sha256, size) in downloaded {
+                if cancelled.is_cancelled() {
+                    return Err(CANCELLED.to_string());
+                }
+                unpack(&gz, &dest, &sha256, size)?;
+            }
+            if files_verified(&staged, &expected) {
+                Ok(())
+            } else {
+                Err("CUDA pack integrity check failed".to_string())
+            }
+        })
+        .await
+        .map_err(|e| e.to_string())??;
         if cancel.is_cancelled() {
             return Err(CANCELLED.to_string());
         }
-        let json = serde_json::to_vec(&manifest).map_err(|e| e.to_string())?;
-        std::fs::write(staging.join(MANIFEST), json).map_err(|e| e.to_string())
+        std::fs::write(confined_file(&staging, SIGNATURE)?, signature)
+            .map_err(|e| e.to_string())?;
+        std::fs::write(confined_file(&staging, MANIFEST)?, json).map_err(|e| e.to_string())
     }
 
     fn report(&self, app: &AppHandle, pct: u64) {
@@ -391,29 +459,200 @@ impl CudaPack {
     }
 }
 
-async fn fetch_manifest(platform: &str) -> Result<Manifest, String> {
+async fn fetch_manifest(platform: &str) -> Result<(Manifest, Vec<u8>, Vec<u8>), String> {
     let url = format!("{RELEASES_URL}/{RELEASE_TAG}/cuda-pack-{platform}.json");
-    let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return Err(format!("no CUDA pack is published for {RELEASE_TAG}"));
-    }
-    let manifest: Manifest = response
-        .error_for_status()
+    let json = fetch_small(&url).await?;
+    let signature = fetch_small(&format!("{url}.sig")).await.map_err(|e| {
+        format!("CUDA pack signature unavailable; only signed packs are supported: {e}")
+    })?;
+    let manifest = authenticated_manifest(&json, &signature)?;
+    Ok((manifest, json, signature))
+}
+
+async fn fetch_small(url: &str) -> Result<Vec<u8>, String> {
+    use futures_util::StreamExt;
+    let response = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
         .map_err(|e| e.to_string())?
-        .json()
+        .get(url)
+        .send()
         .await
-        .map_err(|e| format!("bad CUDA pack manifest: {e}"))?;
-    if manifest.files.is_empty() {
-        return Err("the CUDA pack manifest lists no files".to_string());
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    let mut chunks = response.bytes_stream();
+    while let Some(chunk) = chunks.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        if bytes.len() + chunk.len() > usize::try_from(MAX_MANIFEST_BYTES).unwrap_or(16_384) {
+            return Err("CUDA manifest/signature exceeds size limit".to_string());
+        }
+        bytes.extend_from_slice(&chunk);
     }
+    Ok(bytes)
+}
+
+fn authenticated_manifest(json: &[u8], signature: &[u8]) -> Result<Manifest, String> {
+    let config: serde_json::Value =
+        serde_json::from_str(include_str!("../../tauri.conf.json")).map_err(|e| e.to_string())?;
+    let key = config["plugins"]["updater"]["pubkey"]
+        .as_str()
+        .ok_or("updater public key missing")?;
+    verify_signature(json, signature, key)?;
+    let manifest: Manifest =
+        serde_json::from_slice(json).map_err(|e| format!("bad CUDA manifest: {e}"))?;
+    validate_manifest(&manifest, PLATFORM.ok_or("CUDA platform unsupported")?)?;
     Ok(manifest)
 }
 
+fn verify_signature(json: &[u8], signature: &[u8], key: &str) -> Result<(), String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    if json.len() > 16_384 || signature.len() > 16_384 {
+        return Err("CUDA manifest/signature too large".to_string());
+    }
+    let decode = |bytes: &[u8]| -> Result<String, String> {
+        let decoded = STANDARD
+            .decode(bytes.trim_ascii())
+            .map_err(|e| e.to_string())?;
+        String::from_utf8(decoded).map_err(|e| e.to_string())
+    };
+    let public_key =
+        minisign_verify::PublicKey::decode(&decode(key.as_bytes())?).map_err(|e| e.to_string())?;
+    let signature =
+        minisign_verify::Signature::decode(&decode(signature)?).map_err(|e| e.to_string())?;
+    public_key
+        .verify(json, &signature, true)
+        .map_err(|e| format!("CUDA manifest signature invalid: {e}"))
+}
+
+fn validate_manifest(manifest: &Manifest, platform: &str) -> Result<(), String> {
+    let expected = match platform {
+        "windows-x86_64" => [
+            "cudart64_13.dll",
+            "cublasLt64_13.dll",
+            "cublas64_13.dll",
+            "ggml-cuda.dll",
+        ],
+        "linux-x86_64" => [
+            "libcudart.so.13",
+            "libcublasLt.so.13",
+            "libcublas.so.13",
+            "libggml-cuda.so",
+        ],
+        _ => return Err("unsupported CUDA platform".to_string()),
+    };
+    if manifest.platform != platform
+        || manifest.release != RELEASE_TAG
+        || manifest.files.len() != expected.len()
+    {
+        return Err("CUDA manifest platform, release or file set mismatch".to_string());
+    }
+    for (file, name) in manifest.files.iter().zip(expected) {
+        // Exact basenames also reject separators, ADS, prefixes, reserved names,
+        // duplicate modules and an unsafe preload order on every platform.
+        if file.name != name
+            || file.asset != format!("cuda-{platform}-{name}.gz")
+            || file.size == 0
+            || file.size > MAX_LIBRARY_BYTES
+            || file.unpacked_size == 0
+            || file.unpacked_size > MAX_LIBRARY_BYTES
+            || file.sha256.len() != 64
+            || !file
+                .sha256
+                .bytes()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        {
+            return Err(format!("invalid CUDA library entry: {}", file.name));
+        }
+    }
+    Ok(())
+}
+
+fn is_link(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        metadata.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    {
+        metadata.is_symlink()
+    }
+}
+
+fn safe_directory(dir: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(dir) {
+        Ok(m) if !m.is_dir() || is_link(&m) => {
+            Err(format!("unsafe CUDA directory: {}", dir.display()))
+        }
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn confined_file(dir: &Path, name: &str) -> Result<PathBuf, String> {
+    safe_directory(dir)?;
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'-' | b'_'))
+        || name.starts_with('.')
+        || name.ends_with('.')
+        || name.contains("..")
+    {
+        return Err("unsafe CUDA filename".to_string());
+    }
+    let path = dir.join(name);
+    match std::fs::symlink_metadata(&path) {
+        Ok(m) if !m.is_file() || is_link(&m) => {
+            Err(format!("unsafe CUDA file: {}", path.display()))
+        }
+        Ok(_) => Ok(path),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(path),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 fn read_manifest(dir: &Path) -> Option<Manifest> {
-    let text = std::fs::read(dir.join(MANIFEST)).ok()?;
-    serde_json::from_slice::<Manifest>(&text)
-        .ok()
-        .filter(|m| !m.files.is_empty())
+    let read = |name: &str| {
+        let path = confined_file(dir, name).ok()?;
+        let file = File::open(path).ok()?;
+        if file.metadata().ok()?.len() > MAX_MANIFEST_BYTES {
+            return None;
+        }
+        let mut bytes = Vec::new();
+        file.take(MAX_MANIFEST_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        Some(bytes)
+    };
+    authenticated_manifest(&read(MANIFEST)?, &read(SIGNATURE)?).ok()
+}
+
+fn files_verified(dir: &Path, manifest: &Manifest) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    if !entries.into_iter().all(|entry| {
+        entry.is_ok_and(|entry| {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                return false;
+            };
+            matches!(name, MANIFEST | SIGNATURE | REMOVE_MARKER)
+                || manifest.files.iter().any(|file| file.name == name)
+        })
+    }) {
+        return false;
+    }
+    manifest.files.iter().all(|file| {
+        confined_file(dir, &file.name).is_ok_and(|path| {
+            path.metadata().is_ok_and(|m| m.len() == file.unpacked_size)
+                && verified(&path, &file.sha256)
+        })
+    })
 }
 
 fn matches_engine(manifest: &Manifest) -> bool {
@@ -421,9 +660,21 @@ fn matches_engine(manifest: &Manifest) -> bool {
 }
 
 /// Gunzip `gz` into `dest`, keeping it only if it matches `sha256`.
-fn unpack(gz: &Path, dest: &Path, sha256: &str) -> Result<(), String> {
-    let tmp = dest.with_extension("tmp");
-    let result = gunzip_hashed(gz, &tmp);
+/// Fully downloaded by an interrupted run. Unpacking rechecks it and deletes a
+/// bad one, so it is refetched.
+fn archive_complete(gz: &Path, size: u64) -> bool {
+    std::fs::metadata(gz).is_ok_and(|m| m.is_file() && m.len() == size)
+}
+
+fn unpack(gz: &Path, dest: &Path, sha256: &str, size: u64) -> Result<(), String> {
+    let parent = dest.parent().ok_or("CUDA destination has no parent")?;
+    let name = dest
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("bad CUDA filename")?;
+    let dest = confined_file(parent, name)?;
+    let tmp = confined_file(parent, &format!("{name}.tmp"))?;
+    let result = gunzip_hashed(gz, &tmp, size);
     let _ = std::fs::remove_file(gz);
 
     match result {
@@ -439,11 +690,17 @@ fn unpack(gz: &Path, dest: &Path, sha256: &str) -> Result<(), String> {
     }
 }
 
-fn gunzip_hashed(gz: &Path, out: &Path) -> std::io::Result<String> {
+fn gunzip_hashed(gz: &Path, out: &Path, size: u64) -> std::io::Result<String> {
     let reader = flate2::read::GzDecoder::new(BufReader::new(File::open(gz)?));
     let mut writer = BufWriter::new(File::create(out)?);
-    let hash = copy_hashed(reader, &mut writer)?;
+    let hash = copy_hashed(reader.take(size + 1), &mut writer)?;
+    if writer.get_ref().metadata()?.len() > size {
+        return Err(std::io::Error::other("CUDA library exceeds size limit"));
+    }
     writer.flush()?;
+    if writer.get_ref().metadata()?.len() != size {
+        return Err(std::io::Error::other("CUDA library size mismatch"));
+    }
     Ok(hash)
 }
 
@@ -457,6 +714,7 @@ fn verified(path: &Path, sha256: &str) -> bool {
 /// Copy `reader` into `writer`, returning the hex SHA-256 of the bytes.
 fn copy_hashed(mut reader: impl Read, mut writer: impl Write) -> std::io::Result<String> {
     use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
 
     let mut hasher = Sha256::new();
     let mut buf = vec![0; 1 << 20];
@@ -468,7 +726,13 @@ fn copy_hashed(mut reader: impl Read, mut writer: impl Write) -> std::io::Result
         hasher.update(&buf[..n]);
         writer.write_all(&buf[..n])?;
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hasher
+        .finalize()
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        }))
 }
 
 /// Load a library for the life of the process.

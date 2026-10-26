@@ -6,6 +6,7 @@ import { commands, type PillSettings, type TranscriptionPartial } from '../bindi
 import { extractErrorMessage } from '../lib/errors'
 import { useEventListener } from '../lib/hooks'
 import { subscribePillSettings } from '../lib/pillSettings'
+import { subscribeRecordingState } from '../lib/recordingState'
 import { WaveformCanvas } from '../components/WaveformCanvas'
 import { pillThemeDef } from '../lib/pillThemes'
 import { CARD_W, usePillGeometry } from './usePillGeometry'
@@ -93,7 +94,6 @@ export function PillApp() {
   const [state, setState] = useState<PillState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [downloadPct, setDownloadPct] = useState(0)
-  const modelReadyRef = useRef(false)
   const [tooltip, setTooltip] = useState('')
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -103,7 +103,6 @@ export function PillApp() {
   const hasPartial = useSyncExternalStore(subscribePartial, getHasPartial)
   // Canvas styles read levels off a ref so a 30 Hz stream never re-renders.
   const levelsRef = useRef<number[]>(new Array(FLAT_BARS.length).fill(0))
-  const stateRef = useRef<PillState>('idle')
   const textRef = useRef<HTMLDivElement | null>(null)
   const innerRef = useRef<HTMLSpanElement | null>(null)
   const reduceMotion = useReducedMotion()
@@ -117,10 +116,6 @@ export function PillApp() {
   const { roomy, expanded, width, height, radius, headroom } = usePillGeometry(
     wantsCard, tooltip !== '', PILL_WIDTH[state], reduceMotion, innerRef, textRef,
   )
-
-  useEffect(() => {
-    stateRef.current = state
-  }, [state])
 
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('button')) return
@@ -146,20 +141,6 @@ export function PillApp() {
     void getCurrentWindow().setAlwaysOnTop(true)
   }, [])
 
-  const isRecordingRef = useRef(false)
-  const isDictationRef = useRef(false)
-  // Serializes start/stop so a fast press-and-release can't invoke
-  // stop_transcription while start_transcription is still awaiting.
-  const inFlightRef = useRef<Promise<unknown>>(Promise.resolve())
-
-  /** Queue `fn` behind any in-flight start/stop and await the result. */
-  const serialize = useCallback(<T,>(fn: () => Promise<T>): Promise<T> => {
-    const next = inFlightRef.current.then(fn, fn)
-    // Keep the chain alive when a link rejects; callers handle their own errors.
-    inFlightRef.current = next.catch(() => {})
-    return next
-  }, [])
-
   const showTooltip = useCallback((msg: string) => {
     setTooltip(msg)
     if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current)
@@ -172,7 +153,7 @@ export function PillApp() {
     setState('error')
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
     errorTimerRef.current = setTimeout(() => {
-      if (stateRef.current === 'error') setState('idle')
+      setState(current => current === 'error' ? 'idle' : current)
     }, 3000)
   }, [])
 
@@ -189,11 +170,9 @@ export function PillApp() {
         if (cancelled) return
         setState(current => {
           if (current === 'downloading') return current
-          if (info.downloading) {
-            modelReadyRef.current = false
+          if (info.downloading && current === 'idle') {
             return 'downloading'
           }
-          if (info.downloaded) modelReadyRef.current = true
           return current
         })
       })
@@ -202,7 +181,6 @@ export function PillApp() {
   }, [])
 
   useEventListener('modelDownloadStart', () => {
-    modelReadyRef.current = false
     setDownloadPct(0)
     setState(s => s === 'idle' ? 'downloading' : s)
   })
@@ -211,144 +189,47 @@ export function PillApp() {
     setState(s => s === 'idle' || s === 'downloading' ? 'downloading' : s)
   })
   useEventListener('modelDownloadComplete', () => {
-    modelReadyRef.current = true
-    setState('idle')
+    setState(current => current === 'downloading' ? 'idle' : current)
   })
-  useEventListener('modelDownloadError', () => setState('idle'))
+  useEventListener('modelDownloadError', () => setState(current => current === 'downloading' ? 'idle' : current))
   useEventListener('modelDownloadCancelled', () => {
-    setState('idle')
+    setState(current => current === 'downloading' ? 'idle' : current)
     setDownloadPct(0)
   })
-  // Active model deleted: block recording until one is downloaded again.
-  useEventListener('modelEvicted', () => {
-    modelReadyRef.current = false
-    setState(s => (s === 'recording' || s === 'dictation') ? s : 'idle')
-  })
-  // Deleted the active model but another is on disk: that one is ready.
-  useEventListener('modelSwitched', () => { modelReadyRef.current = true })
-
   useEventListener('transcriptionPartial', (p) => {
     if (p.committed || p.tentative) setPartial(p)
   })
   useEventListener('transcriptionPartialEnd', () => setPartial(null))
   useEffect(() => () => { livePartial = null; setPartial(null) }, [])
 
-  const resetRecording = useCallback(() => {
-    setPartial(null)
-    isRecordingRef.current = false
-    isDictationRef.current = false
-  }, [])
+  useEffect(() => subscribeRecordingState(snapshot => {
+    const next = snapshot.status
+    if (next !== 'recording' && next !== 'dictation' && next !== 'dictation-paused') setPartial(null)
+    setState(current => next === 'idle' && (current === 'error' || current === 'downloading') ? current : next)
+  }), [])
 
-  useEventListener('hotkeyPressed', async () => {
-    if (isRecordingRef.current || isDictationRef.current) return
-    // A finalize is still running — starting now would race it.
-    if (stateRef.current === 'processing') return
-    if (!modelReadyRef.current) {
-      showTooltip(stateRef.current === 'downloading' ? 'Model downloading… please wait' : 'No model installed — download one in Settings')
-      return
-    }
-    isRecordingRef.current = true
-    setState('recording')
-    try {
-      await serialize(() => commands.startTranscription())
-    } catch (err: unknown) {
-      showError(captureErrorLabel(extractErrorMessage(err, String(err))))
-      isRecordingRef.current = false
-    }
+  useEventListener('transcriptionComplete', ({ pasteError, saved }) => {
+    if (pasteError) showTooltip(saved ? "Couldn't paste — it's saved in your history" : "Couldn't paste or save this dictation")
   })
-
-  useEventListener('hotkeyReleased', async () => {
-    if (!isRecordingRef.current) return
-    setPartial(null)
-    setState('processing')
-    try {
-      await serialize(() => commands.stopTranscription())
-    } catch (err: unknown) {
-      showError(extractErrorMessage(err, String(err)))
-    } finally {
-      isRecordingRef.current = false
-    }
-  })
-
-  // The backend saves and pastes the text itself; this only resets the pill.
-  useEventListener('transcriptionComplete', ({ pasteError }) => {
-    resetRecording()
-    setState('idle')
-    if (pasteError) showTooltip("Couldn't paste — it's saved in your history")
-  })
-
-  useEventListener('transcriptionError', (message) => {
-    resetRecording()
-    showError(message)
-  })
-
-  useEventListener('recordingCancelled', () => {
-    resetRecording()
-    setState('idle')
-  })
-
-  // Not an error: the recording carries on and keeps what it captured.
+  useEventListener('transcriptionError', message => showError(captureErrorLabel(message)))
   useEventListener('transcriptionWarning', showTooltip)
 
-  useEventListener('dictationHotkeyPressed', async () => {
-    if (isRecordingRef.current || stateRef.current === 'processing' || stateRef.current === 'downloading') return
-    if (!modelReadyRef.current && !isDictationRef.current) {
-      showTooltip('No model installed — download one in Settings')
-      return
-    }
-
-    try {
-      if (!isDictationRef.current) {
-        isDictationRef.current = true
-        setState('dictation')
-        await commands.startDictation()
-        return
-      }
-
-      if (stateRef.current === 'dictation') {
-        await commands.pauseDictation()
-        setState('dictation-paused')
-        return
-      }
-
-      if (stateRef.current === 'dictation-paused') {
-        await commands.resumeDictation()
-        setState('dictation')
-      }
-    } catch (err: unknown) {
-      showError(extractErrorMessage(err, String(err)))
-      isDictationRef.current = false
-    }
-  })
-
   const handleCommitDictation = useCallback(async () => {
-    if (!isDictationRef.current || isRecordingRef.current || stateRef.current === 'processing') return
-    setPartial(null)
-    setState('processing')
     try {
       await commands.commitDictation()
     } catch (err: unknown) {
-      showError(extractErrorMessage(err, String(err)))
-      isDictationRef.current = false
+      showTooltip(extractErrorMessage(err, 'Could not finish dictation'))
     }
-  }, [showError])
-
-  useEventListener('dictationCommitHotkeyPressed', handleCommitDictation)
+  }, [showTooltip])
 
   const handleToggleDictationPause = useCallback(async () => {
     try {
-      if (state === 'dictation') {
-        await commands.pauseDictation()
-        setState('dictation-paused')
-      } else if (state === 'dictation-paused') {
-        await commands.resumeDictation()
-        setState('dictation')
-      }
+      if (state === 'dictation') await commands.pauseDictation()
+      else if (state === 'dictation-paused') await commands.resumeDictation()
     } catch (err: unknown) {
-      showError(extractErrorMessage(err, String(err)))
-      isDictationRef.current = false
+      showTooltip(extractErrorMessage(err, 'Could not change dictation'))
     }
-  }, [state, showError])
+  }, [state, showTooltip])
 
   const theme = useMemo(() => pillThemeDef(pillTheme), [pillTheme])
 

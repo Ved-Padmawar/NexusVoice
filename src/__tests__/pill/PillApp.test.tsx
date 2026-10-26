@@ -16,13 +16,16 @@ const emit = async (event: string, payload: unknown = null) => {
 
 const DEFAULT_PILL: PillSettings = { theme: 'steel', waveformStyle: 'bars', liveTranscript: false }
 let revision = 0
+let recordingRevision = 0
+const record = (status: string) => emit('recording-state-changed', { revision: ++recordingRevision, status })
 /** A saved change to the pill's preferences, as the backend announces it. */
 const setPill = (change: Partial<PillSettings>) =>
   emit('pill-settings-changed', { revision: ++revision, settings: { ...DEFAULT_PILL, ...change } })
 
-const DELIVERED = { pasteError: null }
+const DELIVERED = { pasteError: null, saved: true }
 
 const RESPONSES: Record<string, unknown> = {
+  get_recording_state: { revision: 0, status: 'idle' },
   get_model_info: { downloaded: true, downloading: false },
   get_pill_settings: { revision: 0, settings: DEFAULT_PILL },
 }
@@ -32,6 +35,7 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   revision = 0
+  recordingRevision = 0
   vi.mocked(invoke).mockReset().mockImplementation(cmd => Promise.resolve(RESPONSES[cmd]))
   vi.mocked(listen).mockReset().mockImplementation(async (event, handler) => {
     const callbacks = listeners.get(event) ?? new Set()
@@ -45,14 +49,14 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 it.each([44, 200])('keeps a transcript of height %i in its card layout until collapse finishes', async innerHeight => {
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(innerHeight)
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('hotkey-released')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
   await setPill({ liveTranscript: true })
-  await emit('hotkey-pressed')
+  await record('recording')
   await emit('transcription-partial', { committed: 'Live transcript', tentative: '' })
   const pill = view.getByRole('status')
   await waitFor(() => expect(parseFloat(pill.style.height)).toBeGreaterThan(50))
   vi.mocked(invoke).mockClear()
-  await emit('hotkey-released')
+  await record('processing')
   expect(pill).toHaveAttribute('aria-label', 'NexusVoice: processing')
   expect(pill).toHaveClass('pill--expanded')
   expect(pill.querySelector('.pill__strip')).toHaveAttribute('aria-hidden', 'true')
@@ -65,13 +69,13 @@ it.each([44, 200])('keeps a transcript of height %i in its card layout until col
 it('keeps outgoing words available during the transcript exit fade', async () => {
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(44)
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('hotkey-released')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
   await setPill({ liveTranscript: true })
-  await emit('hotkey-pressed')
+  await record('recording')
   await emit('transcription-partial', { committed: 'Keep these words', tentative: 'visible' })
   await waitFor(() => expect(view.getByText('Keep these words')).toBeInTheDocument())
   await waitFor(() => expect(view.container.querySelector('.pill__transcript')).toHaveStyle({ opacity: '1' }))
-  await emit('hotkey-released')
+  await record('processing')
   expect(view.getByText('Keep these words')).toBeInTheDocument()
   expect(view.getByText('visible')).toBeInTheDocument()
 })
@@ -79,7 +83,7 @@ it('keeps outgoing words available during the transcript exit fade', async () =>
 it('shows a microphone warning without ending the recording', async () => {
   const view = render(<PillApp />)
   await waitFor(() => expect(listeners.get('transcription-warning')?.size).toBe(1))
-  await emit('hotkey-pressed')
+  await record('recording')
   vi.mocked(invoke).mockClear()
   await emit('transcription-warning', 'Your microphone stopped.')
   // The capsule window has no room above the pill, so it grows first.
@@ -93,10 +97,11 @@ it('shows a microphone warning without ending the recording', async () => {
 it('leaves pasting to the backend and returns to idle when it is done', async () => {
   const view = render(<PillApp />)
   await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
-  await emit('hotkey-pressed')
-  await emit('hotkey-released')
+  await record('recording')
+  await record('processing')
   vi.mocked(invoke).mockClear()
   await emit('transcription-complete', DELIVERED)
+  await record('idle')
   expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: idle')
   expect(invoke).not.toHaveBeenCalledWith('type_text', expect.anything())
 })
@@ -116,11 +121,12 @@ it.each(['push-to-talk', 'dictation'])('receives %s completion during renders ev
   const view = render(<PillApp />)
   try {
     await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
-    await emit(mode === 'dictation' ? 'dictation-hotkey-pressed' : 'hotkey-pressed')
-    await emit(mode === 'dictation' ? 'dictation-commit-hotkey-pressed' : 'hotkey-released')
+    await record(mode === 'dictation' ? 'dictation' : 'recording')
+    await record('processing')
     expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: processing')
     // Rust has delivered the text; its one-shot event cannot wait for listen IPC.
     await emit('transcription-complete', DELIVERED)
+  await record('idle')
     expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: idle')
     expect(completions).toBe(1)
   } finally {
@@ -131,58 +137,49 @@ it.each(['push-to-talk', 'dictation'])('receives %s completion during renders ev
 it.each([
   ['transcription-complete', DELIVERED, 'idle'],
   ['transcription-error', 'Decode failed', 'error'],
-  ['recording-cancelled', null, 'idle'],
 ])('keeps %s subscribed across repeated recordings and live preference renders', async (event, payload, expected) => {
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('hotkey-pressed')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
   for (let i = 0; i < 20; i++) {
-    await emit('hotkey-pressed')
+    await record('recording')
     await setPill({ theme: i % 2 ? 'steel' : 'dawn' })
-    await emit('hotkey-released')
+    await record('processing')
     await emit(event as string, payload)
+    if (event === 'transcription-complete') await record('idle')
     expect(view.getByRole('status')).toHaveAttribute('aria-label', `NexusVoice: ${expected}`)
   }
   expect(vi.mocked(listen).mock.calls.filter(([name]) => name === event)).toHaveLength(1)
 })
 
-it('keeps completion when it arrives before stop command IPC resolves', async () => {
-  let finishStop!: () => void
-  vi.mocked(invoke).mockImplementation(cmd => cmd === 'stop_transcription'
-    ? new Promise<void>(resolve => { finishStop = resolve })
-    : Promise.resolve(RESPONSES[cmd]))
+it('ignores a delayed snapshot after newer backend events and survives a renderer reload', async () => {
+  let resolveSnapshot!: (value: unknown) => void
+  vi.mocked(invoke).mockImplementation(cmd => cmd === 'get_recording_state'
+    ? new Promise(resolve => { resolveSnapshot = resolve }) : Promise.resolve(RESPONSES[cmd]))
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('hotkey-released')?.size).toBe(1))
-  await emit('hotkey-pressed')
-  let stop!: Promise<unknown>
-  await act(async () => {
-    for (const callback of listeners.get('hotkey-released') ?? []) {
-      stop = Promise.resolve(callback({ event: 'hotkey-released', id: 1, payload: null }))
-    }
-  })
-  expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: processing')
-  await emit('transcription-complete', DELIVERED)
-  await act(async () => { finishStop(); await stop })
-  expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: idle')
-  await emit('hotkey-pressed')
-  expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: recording')
+  await waitFor(() => expect(resolveSnapshot).toBeTypeOf('function'))
+  await record('dictation-paused')
+  await act(async () => resolveSnapshot({ revision: 0, status: 'idle' }))
+  expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: dictation-paused')
+  view.unmount()
+  vi.mocked(invoke).mockImplementation(cmd => Promise.resolve(cmd === 'get_recording_state'
+    ? { revision: recordingRevision, status: 'dictation-paused' } : RESPONSES[cmd]))
+  const reloaded = render(<PillApp />)
+  await waitFor(() => expect(reloaded.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: dictation-paused'))
+  await record('processing')
+  await record('idle')
+  expect(reloaded.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: idle')
 })
 
-it('says where the text went when the paste failed', async () => {
+it.each([
+  [true, "Couldn't paste — it's saved in your history"],
+  [false, "Couldn't paste or save this dictation"],
+])('points to history after a failed paste only when saved is %s', async (saved, message) => {
   const view = render(<PillApp />)
   await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
-  await emit('hotkey-pressed')
-  await emit('hotkey-released')
-  await emit('transcription-complete', { pasteError: 'clipboard locked' })
-  expect(await view.findByText("Couldn't paste — it's saved in your history")).toBeInTheDocument()
-})
-
-it('returns to idle when the recording is cancelled', async () => {
-  const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('recording-cancelled')?.size).toBe(1))
-  await emit('dictation-hotkey-pressed')
-  expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: dictation')
-  await emit('recording-cancelled')
-  expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: idle')
+  await record('recording')
+  await record('processing')
+  await emit('transcription-complete', { pasteError: 'clipboard locked', saved })
+  expect(await view.findByText(message)).toBeInTheDocument()
 })
 
 it('ignores a preferences update older than the one it shows', async () => {
@@ -200,17 +197,18 @@ it('shrinks the window even when recording ends before expansion IPC resolves', 
     if (cmd === 'resize_pill' && (args as { expanded: boolean }).expanded) {
       return new Promise<void>(resolve => { finishExpansion = resolve })
     }
-    return Promise.resolve()
+    return Promise.resolve(RESPONSES[cmd])
   })
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('hotkey-released')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
   await setPill({ liveTranscript: true })
-  await emit('hotkey-pressed')
+  await record('recording')
   await emit('transcription-partial', { committed: 'Short recording', tentative: '' })
   await waitFor(() => expect(finishExpansion).toBeTypeOf('function'))
   vi.mocked(invoke).mockClear()
-  await emit('hotkey-released')
+  await record('processing')
   await emit('transcription-complete', DELIVERED)
+  await record('idle')
   await act(async () => finishExpansion!())
   await waitFor(() => expect(invoke).toHaveBeenCalledWith('resize_pill', { expanded: false }))
   expect(view.getByRole('status')).not.toHaveClass('pill--expanded')
@@ -219,19 +217,20 @@ it('shrinks the window even when recording ends before expansion IPC resolves', 
 it('does not let a cancelled close shrink a reopened card', async () => {
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(100)
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('hotkey-released')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
   await setPill({ liveTranscript: true })
-  await emit('hotkey-pressed')
+  await record('recording')
   await emit('transcription-partial', { committed: 'First recording', tentative: '' })
   await waitFor(() => expect(parseFloat(view.getByRole('status').style.height)).toBeGreaterThan(60))
   vi.mocked(invoke).mockClear()
-  await emit('hotkey-released')
+  await record('processing')
   await emit('transcription-complete', DELIVERED)
-  await emit('hotkey-pressed')
+  await record('idle')
+  await record('recording')
   await emit('transcription-partial', { committed: 'Second recording', tentative: '' })
   await waitFor(() => expect(parseFloat(view.getByRole('status').style.width)).toBeCloseTo(332, 0))
   expect(invoke).not.toHaveBeenCalledWith('resize_pill', { expanded: false })
-  await emit('hotkey-released')
+  await record('processing')
   await waitFor(() => expect(invoke).toHaveBeenCalledWith('resize_pill', { expanded: false }))
 })
 
@@ -245,11 +244,12 @@ it('stages idle content when a card returns directly to idle without processing'
   const view = render(<PillApp />)
   await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
   await setPill({ liveTranscript: true })
-  await emit('hotkey-pressed')
+  await record('recording')
   await emit('transcription-partial', { committed: 'Direct result', tentative: '' })
   const pill = view.getByRole('status')
   await waitFor(() => expect(parseFloat(pill.style.height)).toBeGreaterThan(100))
   await emit('transcription-complete', DELIVERED)
+  await record('idle')
   expect(pill).toHaveAttribute('aria-label', 'NexusVoice: idle')
   expect(pill.querySelector('.pill__spinner')).not.toBeInTheDocument()
   expect(pill.querySelector('.pill__strip')).toHaveClass('pill__strip--returning')
@@ -260,7 +260,7 @@ it('stages idle content when a card returns directly to idle without processing'
 
 it('has one subscription per event after StrictMode remounts and cleans them all up', async () => {
   const view = render(<StrictMode><PillApp /></StrictMode>)
-  await waitFor(() => expect(listeners.get('dictation-commit-hotkey-pressed')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
   for (const callbacks of listeners.values()) expect(callbacks.size).toBe(1)
   view.unmount()
   // Each subscription resolves to its unlisten; let those run.
@@ -282,9 +282,9 @@ it('unsubscribes registrations that resolve after unmount', async () => {
 it.each(['bars', 'memo'] as const)('updates %s audio levels without rendering the pill or invoking commands', async style => {
   const onRender = vi.fn()
   const view = render(<Profiler id="pill" onRender={onRender}><PillApp /></Profiler>)
-  await waitFor(() => expect(listeners.get('hotkey-pressed')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
   await setPill({ waveformStyle: style })
-  await emit('hotkey-pressed')
+  await record('recording')
   onRender.mockClear()
   vi.mocked(invoke).mockClear()
   await emit('pill-waveform', Array(8).fill(1))
@@ -292,4 +292,26 @@ it.each(['bars', 'memo'] as const)('updates %s audio levels without rendering th
   expect(onRender).not.toHaveBeenCalled()
   expect(invoke).not.toHaveBeenCalled()
   if (style === 'bars') for (const bar of view.container.querySelectorAll('.pill__bar')) expect(bar).toHaveStyle({ height: '16px' })
+})
+
+it('keeps a newer recording visible when late delivery or model events arrive', async () => {
+  const view = render(<PillApp />)
+  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
+  await record('recording')
+  await record('processing')
+  await record('idle')
+  await record('recording')
+  await emit('transcription-complete', DELIVERED)
+  await emit('model-download-complete')
+  expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: recording')
+})
+
+it('clears a capture error after the backend returns to idle', async () => {
+  const view = render(<PillApp />)
+  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
+  await record('recording')
+  await emit('transcription-error', 'Mic access denied')
+  await record('idle')
+  expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: error')
+  await waitFor(() => expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: idle'), { timeout: 4000 })
 })

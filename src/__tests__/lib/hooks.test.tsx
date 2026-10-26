@@ -135,7 +135,7 @@ describe('useEventListener', () => {
     const { unmount } = renderHook(() => useEventListener('transcriptionComplete', handler))
     const callback = vi.mocked(listen).mock.calls[0][1]
     unmount()
-    callback({ event: 'transcription-complete', id: 1, payload: { pasteError: null } })
+    callback({ event: 'transcription-complete', id: 1, payload: { pasteError: null, saved: true } })
     await act(async () => { registered(unlisten) })
     expect(handler).not.toHaveBeenCalled()
     expect(unlisten).toHaveBeenCalledOnce()

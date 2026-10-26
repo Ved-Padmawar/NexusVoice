@@ -2,15 +2,12 @@
 
 use serde::Deserialize;
 use specta::Type;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-use tauri_specta::Event;
 use tokio::sync::Mutex;
 
-use crate::events::{
-    DictationCommitHotkeyPressed, DictationHotkeyPressed, HotkeyPressed, HotkeyReleased,
-};
 use crate::settings::{HotkeyBindings, Settings};
+use crate::transcription::{recorder::Action, Recorder};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -142,15 +139,14 @@ fn bind(app: &AppHandle, hotkey: &str, kind: HotkeyKind) -> Result<(), HotkeyErr
     app.global_shortcut()
         .on_shortcut(hotkey, move |_app, _shortcut, event| {
             let pressed = event.state == ShortcutState::Pressed;
-            let _ = match kind {
-                HotkeyKind::PushToTalk if pressed => HotkeyPressed.emit(&handle),
-                HotkeyKind::PushToTalk => HotkeyReleased.emit(&handle),
-                HotkeyKind::Dictation if pressed => DictationHotkeyPressed.emit(&handle),
-                HotkeyKind::DictationCommit if pressed => {
-                    DictationCommitHotkeyPressed.emit(&handle)
-                }
-                HotkeyKind::Dictation | HotkeyKind::DictationCommit => Ok(()),
+            let action = match kind {
+                HotkeyKind::PushToTalk if pressed => Action::Press,
+                HotkeyKind::PushToTalk => Action::Release,
+                HotkeyKind::Dictation if pressed => Action::ToggleDictation,
+                HotkeyKind::DictationCommit if pressed => Action::Commit,
+                HotkeyKind::Dictation | HotkeyKind::DictationCommit => return,
             };
+            handle.state::<Recorder>().dispatch(&handle, action);
         })
         .map_err(|e| register_error(&e))
 }

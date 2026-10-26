@@ -4,14 +4,12 @@
 //! register a system-wide shortcut there. Instead the user binds a command in
 //! their desktop's keyboard settings, and that command reaches the running
 //! instance either as CLI arguments (via `tauri-plugin-single-instance`) or as
-//! a Unix signal. Toggle and commit emit the same events the real hotkeys do,
+//! a Unix signal. Toggle and commit use the same backend lifecycle as real hotkeys,
 //! so there is one downstream path regardless of how dictation was triggered.
 
 use tauri::{AppHandle, Manager};
-use tauri_specta::Event;
 
-use crate::events::{DictationCommitHotkeyPressed, DictationHotkeyPressed};
-use crate::transcription::Recorder;
+use crate::transcription::{recorder::Action, Recorder};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trigger {
@@ -33,17 +31,12 @@ impl Trigger {
 
 pub fn trigger(app: &AppHandle, trigger: Trigger, source: &str) {
     log::info!("dictation {trigger:?} requested via {source}");
-    let emitted = match trigger {
-        Trigger::Toggle => DictationHotkeyPressed.emit(app),
-        Trigger::Commit => DictationCommitHotkeyPressed.emit(app),
-        Trigger::Cancel => {
-            app.state::<Recorder>().cancel(app);
-            Ok(())
-        }
+    let action = match trigger {
+        Trigger::Toggle => Action::ToggleDictation,
+        Trigger::Commit => Action::Commit,
+        Trigger::Cancel => Action::Cancel,
     };
-    if let Err(error) = emitted {
-        log::warn!("failed to forward {trigger:?}: {error}");
-    }
+    app.state::<Recorder>().dispatch(app, action);
 }
 
 /// Handles the arguments a second launch passed to the running instance.

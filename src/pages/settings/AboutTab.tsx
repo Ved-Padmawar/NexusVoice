@@ -106,7 +106,7 @@ function CudaSection({ activeBackend }: { activeBackend: string | null }) {
   const active = activeBackend === 'cuda'
   const icon = <Zap size={15} strokeWidth={2} />
   const restart = (
-    <Button size="sm" onClick={() => relaunch()}>
+    <Button size="sm" variant="tinted" onClick={() => relaunch()}>
       <RotateCcw size={11} strokeWidth={2} />
       Restart
     </Button>
@@ -116,7 +116,7 @@ function CudaSection({ activeBackend }: { activeBackend: string | null }) {
   return (
     <Section label="GPU acceleration">
       {progress !== null ? (
-        <StatusTile icon={icon} tone="accent" title="Downloading CUDA" progress={progress} onCancel={cancelDownload} />
+        <StatusTile icon={icon} tone="accent" title={cuda.verifying ? 'Verifying CUDA' : 'Downloading CUDA'} progress={progress} onCancel={cancelDownload} />
       ) : cuda.pack === 'pendingInstall' ? (
         <StatusTile icon={icon} tone="accent" title="CUDA downloaded" detail="Restart to start using it" action={restart} />
       ) : cuda.pack === 'pendingRemoval' ? (
@@ -139,6 +139,19 @@ function CudaSection({ activeBackend }: { activeBackend: string | null }) {
             </Button>
           }
         />
+      ) : cuda.pack === 'unverified' ? (
+        <StatusTile
+          icon={icon}
+          tone="accent"
+          title="CUDA needs a fresh download"
+          {...detail('Your copy predates verification, so NexusVoice uses Vulkan')}
+          action={
+            <Button size="sm" variant="tinted" onClick={downloadCuda}>
+              <Download size={11} strokeWidth={2} />
+              Download
+            </Button>
+          }
+        />
       ) : (
         <StatusTile
           icon={icon}
@@ -146,7 +159,7 @@ function CudaSection({ activeBackend }: { activeBackend: string | null }) {
           title="CUDA acceleration"
           {...detail('Faster on NVIDIA GPUs · about 500 MB download')}
           action={
-            <Button size="sm" onClick={downloadCuda}>
+            <Button size="sm" variant="tinted" onClick={downloadCuda}>
               <Download size={11} strokeWidth={2} />
               Download
             </Button>

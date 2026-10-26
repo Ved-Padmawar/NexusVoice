@@ -5,4 +5,4 @@ mod finalize;
 pub mod recorder;
 mod workers;
 
-pub use recorder::{Mode, RecordError, Recorder};
+pub use recorder::{RecordError, Recorder};

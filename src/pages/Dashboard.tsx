@@ -367,6 +367,11 @@ export function Dashboard() {
   const active = isSearchMode ? search : feed
   const stats = useStats()
   const deleteTranscript = useDeleteTranscript()
+  // Both read the same database: when both fail, one error says it once.
+  const bothFailed = stats.status === 'error' && stats.data == null && active.status === 'error'
+  const retryFeed = bothFailed
+    ? () => { void stats.refetch(); void active.refetch() }
+    : active.refetch
 
   const displayItems = useMemo(() => {
     const rows = active.data?.pages.flatMap(page => page.rows) ?? []
@@ -428,6 +433,7 @@ export function Dashboard() {
       </AnimatePresence>
 
       {/* Stats */}
+      {!bothFailed && (
       <SectionState status={stats.status} error={stats.error?.message} onRetry={stats.refetch} skeleton={<StatsSkeleton />} hasData={stats.data != null}>
       <div className="grid grid-cols-4 gap-2.5">
         {STATS.map(({ key, label, fmt, Icon }) => {
@@ -449,6 +455,7 @@ export function Dashboard() {
         })}
       </div>
       </SectionState>
+      )}
 
       {/* Activity feed */}
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -469,7 +476,7 @@ export function Dashboard() {
         <SectionState
           status={active.status}
           error={active.error?.message}
-          onRetry={active.refetch}
+          onRetry={retryFeed}
           skeleton={<FeedSkeleton />}
         >
         {displayItems.length === 0 ? (

@@ -2,7 +2,6 @@ use std::path::Path;
 use std::time::Duration;
 
 use sqlx::{
-    migrate::MigrateError,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteSynchronous},
     SqlitePool,
 };
@@ -160,60 +159,21 @@ async fn adopt_legacy_history(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     tx.commit().await
 }
 
-/// Open the database at `db_path` and run migrations.
-///
-/// If the migration history is inconsistent (e.g. after a partial upgrade),
-/// backs up the existing file to `<db_path>.bak`, deletes it, and starts
-/// fresh. All migrations are replayed on the clean DB.
-///
-/// Returns the ready pool.
+/// Open and migrate without ever replacing a user's history. An incompatible
+/// ledger needs an explicit supported upgrade (or a newer application), not a
+/// fresh empty database. Closing on error also checkpoints the WAL safely.
 pub async fn open_database(db_path: &Path) -> Result<SqlitePool, String> {
     let db_url = format!("sqlite://{}", db_path.to_string_lossy().replace('\\', "/"));
-
     let pool = create_pool(&db_url)
         .await
         .map_err(|e| format!("database init failed: {e}"))?;
-
-    match init_database(&pool).await {
-        Ok(()) => Ok(pool),
-        Err(sqlx::Error::Migrate(ref migrate_err)) if is_inconsistent(migrate_err) => {
-            log::warn!(
-                "migration state inconsistent: {migrate_err} — backing up and recreating database"
-            );
-            pool.close().await;
-
-            // Timestamped, so a second recovery cannot overwrite the first backup.
-            let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-            let bak = db_path.with_extension(format!("db.{stamp}.bak"));
-            if let Err(e) = std::fs::copy(db_path, &bak) {
-                log::warn!("could not write backup to {}: {e}", bak.display());
-            } else {
-                log::info!("database backed up to {}", bak.display());
-            }
-
-            // Remove the corrupted DB and start fresh
-            std::fs::remove_file(db_path)
-                .map_err(|e| format!("could not remove corrupted database: {e}"))?;
-
-            let fresh_pool = create_pool(&db_url)
-                .await
-                .map_err(|e| format!("database recreate failed: {e}"))?;
-
-            init_database(&fresh_pool)
-                .await
-                .map_err(|e| format!("migrations failed on fresh database: {e}"))?;
-
-            Ok(fresh_pool)
-        }
-        Err(e) => Err(format!("database migrations failed: {e}")),
+    if let Err(e) = init_database(&pool).await {
+        pool.close().await;
+        return Err(format!(
+            "database migrations failed; original history retained: {e}"
+        ));
     }
-}
-
-const fn is_inconsistent(err: &MigrateError) -> bool {
-    matches!(
-        err,
-        MigrateError::VersionMissing(_) | MigrateError::VersionMismatch(_)
-    )
+    Ok(pool)
 }
 
 #[cfg(test)]
@@ -520,5 +480,34 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(versions, migration_count());
+    }
+
+    #[tokio::test]
+    async fn a_failed_migration_never_replaces_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        let pool = open_database(&path).await.unwrap();
+        sqlx::query("INSERT INTO transcripts(content) VALUES ('sentinel')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        // A ledger row this build has never seen, as a newer build leaves it.
+        sqlx::query(
+            "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+             VALUES (999, 'future', 1, X'00', 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool.close().await;
+
+        let _ = open_database(&path).await;
+
+        let pool = create_pool(&path.to_string_lossy()).await.unwrap();
+        let (content,): (String,) = sqlx::query_as("SELECT content FROM transcripts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(content, "sentinel");
     }
 }

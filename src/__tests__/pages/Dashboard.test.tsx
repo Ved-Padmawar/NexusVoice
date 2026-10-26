@@ -271,3 +271,19 @@ describe('Dashboard — infinite scroll sentinel', () => {
     expect(await screen.findAllByText('row 50')).toHaveLength(1)
   })
 })
+
+describe('Dashboard — database failure', () => {
+  it('shows one error when stats and activity both fail, and retries both', async () => {
+    mockInvoke.mockRejectedValue({ code: 'database', message: 'database unavailable' })
+    renderDashboard()
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(1))
+
+    const statsCalls = () => mockInvoke.mock.calls.filter(([cmd]) => cmd === 'get_usage_stats').length
+    const before = statsCalls()
+    mockBackend({ transcripts: sampleTranscripts })
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }))
+    expect(await screen.findByText('Hello world')).toBeInTheDocument()
+    expect(statsCalls()).toBeGreaterThan(before)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})

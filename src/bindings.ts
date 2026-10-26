@@ -5,11 +5,8 @@
 
 
 export const commands = {
-async startTranscription() : Promise<null> {
-    return await TAURI_INVOKE("start_transcription");
-},
-async stopTranscription() : Promise<null> {
-    return await TAURI_INVOKE("stop_transcription");
+async getRecordingState() : Promise<RecordingSnapshot> {
+    return await TAURI_INVOKE("get_recording_state");
 },
 /**
  * Usable input devices, excluding loopback and virtual endpoints. The UI
@@ -24,9 +21,6 @@ async listInputDevices() : Promise<InputDeviceInfo[]> {
  */
 async setInputDevice(name: string | null) : Promise<null> {
     return await TAURI_INVOKE("set_input_device", { name });
-},
-async startDictation() : Promise<null> {
-    return await TAURI_INVOKE("start_dictation");
 },
 async pauseDictation() : Promise<null> {
     return await TAURI_INVOKE("pause_dictation");
@@ -211,10 +205,7 @@ cudaDownloadCancelled: CudaDownloadCancelled,
 cudaDownloadComplete: CudaDownloadComplete,
 cudaDownloadError: CudaDownloadError,
 cudaDownloadProgress: CudaDownloadProgress,
-dictationCommitHotkeyPressed: DictationCommitHotkeyPressed,
-dictationHotkeyPressed: DictationHotkeyPressed,
-hotkeyPressed: HotkeyPressed,
-hotkeyReleased: HotkeyReleased,
+cudaDownloadVerifying: CudaDownloadVerifying,
 languageReset: LanguageReset,
 modelDownloadCancelled: ModelDownloadCancelled,
 modelDownloadComplete: ModelDownloadComplete,
@@ -226,7 +217,7 @@ modelEvicted: ModelEvicted,
 modelSwitched: ModelSwitched,
 pillSettingsChanged: PillSettingsChanged,
 pillWaveform: PillWaveform,
-recordingCancelled: RecordingCancelled,
+recordingStateChanged: RecordingStateChanged,
 transcriptSaved: TranscriptSaved,
 transcriptionComplete: TranscriptionComplete,
 transcriptionError: TranscriptionError,
@@ -238,10 +229,7 @@ cudaDownloadCancelled: "cuda-download-cancelled",
 cudaDownloadComplete: "cuda-download-complete",
 cudaDownloadError: "cuda-download-error",
 cudaDownloadProgress: "cuda-download-progress",
-dictationCommitHotkeyPressed: "dictation-commit-hotkey-pressed",
-dictationHotkeyPressed: "dictation-hotkey-pressed",
-hotkeyPressed: "hotkey-pressed",
-hotkeyReleased: "hotkey-released",
+cudaDownloadVerifying: "cuda-download-verifying",
 languageReset: "language-reset",
 modelDownloadCancelled: "model-download-cancelled",
 modelDownloadComplete: "model-download-complete",
@@ -253,7 +241,7 @@ modelEvicted: "model-evicted",
 modelSwitched: "model-switched",
 pillSettingsChanged: "pill-settings-changed",
 pillWaveform: "pill-waveform",
-recordingCancelled: "recording-cancelled",
+recordingStateChanged: "recording-state-changed",
 transcriptSaved: "transcript-saved",
 transcriptionComplete: "transcription-complete",
 transcriptionError: "transcription-error",
@@ -279,6 +267,10 @@ export type CudaDownloadCancelled = null
 export type CudaDownloadComplete = null
 export type CudaDownloadError = string
 export type CudaDownloadProgress = number
+/**
+ * Every file is downloaded; the pack is being unpacked and checked.
+ */
+export type CudaDownloadVerifying = null
 export type CudaStatus = { 
 /**
  * An NVIDIA GPU on a platform the pack is built for; CUDA is hidden otherwise.
@@ -287,15 +279,11 @@ supported: boolean; pack: PackState;
 /**
  * Percent of the running download; `None` when idle.
  */
-downloadProgress: number | null }
+downloadProgress: number | null; 
 /**
- * Dictation commit: finishes the dictation and delivers it.
+ * The running download is unpacking and checking the pack.
  */
-export type DictationCommitHotkeyPressed = null
-/**
- * Dictation toggle: starts, pauses or resumes hands-free dictation.
- */
-export type DictationHotkeyPressed = null
+verifying: boolean }
 export type DictionaryResponse = { id: number; term: string; replacement: string; hits: number; createdAt: string }
 export type DownloadStatus = "queued" | "running" | "error"
 export type DownloadedModel = { variant: string; displayName: string; sizeBytes: number; isActive: boolean }
@@ -329,8 +317,6 @@ export type HotkeyKind =
  * Finishes hands-free dictation.
  */
 "dictationCommit"
-export type HotkeyPressed = null
-export type HotkeyReleased = null
 export type InjectionStatus = { 
 /**
  * `true` where injection needs external tools the user must install.
@@ -392,6 +378,10 @@ export type ModelSwitched = null
 export type ModelUnload = "never" | "after2Minutes" | "after5Minutes" | "after10Minutes" | "after15Minutes" | "after1Hour"
 export type PackState = "absent" | 
 /**
+ * Unsigned, so never loaded: installed before verification existed.
+ */
+"unverified" | 
+/**
  * Usable by this build; loaded unless the driver is missing or too old.
  */
 "installed" | 
@@ -442,7 +432,9 @@ export type ProfileUpdate = { baseUrl: string; model: string;
  */
 apiKey: string | null }
 export type ProfileView = { baseUrl: string; model: string; hasApiKey: boolean }
-export type RecordingCancelled = null
+export type RecordingSnapshot = { revision: number; status: RecordingStatus }
+export type RecordingStateChanged = RecordingSnapshot
+export type RecordingStatus = "idle" | "recording" | "dictation" | "dictation-paused" | "processing"
 export type TranscriptResponse = { id: number; content: string; wordCount: number; durationSeconds: number | null; 
 /**
  * App the transcript was dictated into; `None` when it wasn't determined.
@@ -458,7 +450,12 @@ export type TranscriptionComplete = {
  * Why the transcript could not be pasted; `None` when it was, or when
  * there was nothing to paste.
  */
-pasteError: string | null }
+pasteError: string | null; 
+/**
+ * The transcript is in history. A failed paste may only point there
+ * when this is set.
+ */
+saved: boolean }
 /**
  * A recording produced no transcript. The message is for the user.
  */

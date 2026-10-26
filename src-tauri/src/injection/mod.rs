@@ -20,3 +20,6 @@ mod clipboard;
 pub use clipboard::type_text;
 #[cfg(target_os = "linux")]
 pub use linux::type_text;
+
+#[cfg(any(target_os = "linux", test))]
+mod dotool;

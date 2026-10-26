@@ -39,52 +39,54 @@ pub struct Recording {
     pub focus: Option<FocusTarget>,
 }
 
-pub fn spawn(app: AppHandle, recording: Recording) {
-    tauri::async_runtime::spawn(async move {
-        let Recording {
-            engine,
-            lease,
-            session,
-            streamed,
-            samples,
-            sample_rate,
-            duration_seconds,
-            focus,
-        } = recording;
+pub async fn run(app: &AppHandle, recording: Recording) {
+    let Recording {
+        engine,
+        lease,
+        session,
+        streamed,
+        samples,
+        sample_rate,
+        duration_seconds,
+        focus,
+    } = recording;
 
-        let decoded = decode(&app, engine, session, streamed, samples, sample_rate).await;
-        // A long dictation is use too: the idle clock starts when it ends.
-        app.state::<EngineCache>().touch();
-        drop(lease);
+    let decoded = decode(app, engine, session, streamed, samples, sample_rate).await;
+    // A long dictation is use too: the idle clock starts when it ends.
+    app.state::<EngineCache>().touch();
+    drop(lease);
 
-        let (raw, language) = match decoded {
-            Ok(decoded) => decoded,
-            Err(message) => {
-                let _ = TranscriptionError(message.to_string()).emit(&app);
-                return;
-            }
-        };
-        // Whisper emits "- " at the start of short utterances.
-        let text = remove_fillers(strip_leading_dashes(&raw), language.as_deref());
-        if text.is_empty() {
-            let _ = TranscriptionComplete { paste_error: None }.emit(&app);
+    let (raw, language) = match decoded {
+        Ok(decoded) => decoded,
+        Err(message) => {
+            let _ = TranscriptionError(message.to_string()).emit(app);
             return;
         }
-
-        let text = format(&app, text, focus.as_ref()).await;
-        let pool = app.state::<Database>().pool().await;
-        let text = match &pool {
-            Ok(pool) => app.state::<Dictionary>().correct(pool, &text).await,
-            Err(_) => text,
-        };
-
-        save(&app, pool.ok(), &text, duration_seconds, focus).await;
-        let paste_error = crate::injection::type_text(&app, &text).await.err();
-        if let Some(e) = &paste_error {
-            log::warn!("paste failed: {e}");
+    };
+    // Whisper emits "- " at the start of short utterances.
+    let text = remove_fillers(strip_leading_dashes(&raw), language.as_deref());
+    if text.is_empty() {
+        let _ = TranscriptionComplete {
+            paste_error: None,
+            saved: false,
         }
-        let _ = TranscriptionComplete { paste_error }.emit(&app);
-    });
+        .emit(app);
+        return;
+    }
+
+    let text = format(app, text, focus.as_ref()).await;
+    let pool = app.state::<Database>().pool().await;
+    let text = match &pool {
+        Ok(pool) => app.state::<Dictionary>().correct(pool, &text).await,
+        Err(_) => text,
+    };
+
+    let saved = save(app, pool.ok(), &text, duration_seconds, focus).await;
+    let paste_error = crate::injection::type_text(app, &text).await.err();
+    if let Some(e) = &paste_error {
+        log::warn!("paste failed: {e}");
+    }
+    let _ = TranscriptionComplete { paste_error, saved }.emit(app);
 }
 
 /// The transcript and the language it came out in. Engine failures discard
@@ -164,7 +166,7 @@ async fn save(
     text: &str,
     duration_seconds: Option<f64>,
     focus: Option<FocusTarget>,
-) {
+) -> bool {
     #[allow(clippy::cast_possible_wrap)] // word count never exceeds i64::MAX
     let word_count = text.split_whitespace().count() as i64;
     let saved = match pool {
@@ -182,6 +184,7 @@ async fn save(
     match saved {
         Ok(saved) => {
             let _ = TranscriptSaved(TranscriptResponse::from(saved)).emit(app);
+            true
         }
         Err(e) => {
             log::error!("could not save the transcript: {e}");
@@ -189,6 +192,7 @@ async fn save(
                 "This dictation couldn't be saved to your history.".to_string(),
             )
             .emit(app);
+            false
         }
     }
 }

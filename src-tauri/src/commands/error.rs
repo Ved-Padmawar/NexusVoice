@@ -69,6 +69,7 @@ impl From<RecordError> for ApiError {
             RecordError::Finalizing => {
                 Self::new("dictation_finalizing", "dictation is already finalizing")
             }
+            RecordError::Unavailable(e) => Self::new("model_unavailable", e),
             RecordError::Capture(e) => Self::new("capture_failed", e),
         }
     }

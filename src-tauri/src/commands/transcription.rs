@@ -3,47 +3,29 @@
 use tauri::{AppHandle, State};
 
 use crate::settings::Settings;
-use crate::transcription::{Mode, Recorder};
+use crate::transcription::{
+    recorder::{Action, RecordingSnapshot},
+    Recorder,
+};
 
 use super::error::ApiError;
 
 #[tauri::command]
 #[specta::specta]
-pub async fn start_transcription(
+pub async fn pause_dictation(
     app: AppHandle,
     recorder: State<'_, Recorder>,
 ) -> Result<(), ApiError> {
-    Ok(recorder.start(&app, Mode::PushToTalk).await?)
+    Ok(recorder.request(&app, Action::Pause).await?)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn stop_transcription(
+pub async fn resume_dictation(
     app: AppHandle,
     recorder: State<'_, Recorder>,
 ) -> Result<(), ApiError> {
-    Ok(recorder.stop(&app).await?)
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn start_dictation(
-    app: AppHandle,
-    recorder: State<'_, Recorder>,
-) -> Result<(), ApiError> {
-    Ok(recorder.start(&app, Mode::Dictation).await?)
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn pause_dictation(recorder: State<'_, Recorder>) -> Result<(), ApiError> {
-    Ok(recorder.pause()?)
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn resume_dictation(recorder: State<'_, Recorder>) -> Result<(), ApiError> {
-    Ok(recorder.resume()?)
+    Ok(recorder.request(&app, Action::Resume).await?)
 }
 
 #[tauri::command]
@@ -52,7 +34,7 @@ pub async fn commit_dictation(
     app: AppHandle,
     recorder: State<'_, Recorder>,
 ) -> Result<(), ApiError> {
-    Ok(recorder.commit(&app).await?)
+    Ok(recorder.request(&app, Action::Commit).await?)
 }
 
 /// A selectable microphone. `is_default` marks the OS default; `is_selected`
@@ -94,4 +76,10 @@ pub fn set_input_device(
     settings.set_input_device(name)?;
     recorder.close_mic_if_idle();
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_recording_state(recorder: State<'_, Recorder>) -> RecordingSnapshot {
+    recorder.snapshot()
 }

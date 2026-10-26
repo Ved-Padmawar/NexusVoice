@@ -75,11 +75,9 @@ fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .commands(tauri_specta::collect_commands![
-            commands::start_transcription,
-            commands::stop_transcription,
+            commands::get_recording_state,
             commands::list_input_devices,
             commands::set_input_device,
-            commands::start_dictation,
             commands::pause_dictation,
             commands::resume_dictation,
             commands::commit_dictation,
@@ -121,11 +119,7 @@ fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::wait_for_app_ready,
         ])
         .events(tauri_specta::collect_events![
-            events::HotkeyPressed,
-            events::HotkeyReleased,
-            events::DictationHotkeyPressed,
-            events::DictationCommitHotkeyPressed,
-            events::RecordingCancelled,
+            events::RecordingStateChanged,
             events::TranscriptionPartial,
             events::TranscriptionPartialEnd,
             events::TranscriptionComplete,
@@ -144,6 +138,7 @@ fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             events::ModelSwitched,
             events::LanguageReset,
             events::CudaDownloadProgress,
+            events::CudaDownloadVerifying,
             events::CudaDownloadComplete,
             events::CudaDownloadCancelled,
             events::CudaDownloadError,
@@ -308,6 +303,7 @@ fn main() {
             app.manage(EngineCache::new(models_dir.clone()));
             app.manage(ModelLibrary::new(models_dir));
             app.manage(CudaPack::new(app_data_dir.clone()));
+            CudaPack::replace_unverified(app.handle());
             app.manage(Recorder::new());
             app.manage(Hotkeys::default());
 

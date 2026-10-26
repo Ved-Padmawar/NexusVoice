@@ -145,6 +145,7 @@ impl Tool {
 
     /// `dotool` reads commands from stdin rather than argv.
     fn type_via_dotool(text: &str) -> Result<(), String> {
+        let protocol = super::dotool::encode(text)?;
         let mut child = Command::new(Self::Dotool.binary())
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
@@ -156,7 +157,9 @@ impl Tool {
             .stdin
             .as_mut()
             .ok_or_else(|| "dotool stdin unavailable".to_string())?;
-        writeln!(stdin, "type {text}").map_err(|e| format!("failed to write to dotool: {e}"))?;
+        stdin
+            .write_all(protocol.as_bytes())
+            .map_err(|e| format!("failed to write to dotool: {e}"))?;
 
         let output = child
             .wait_with_output()

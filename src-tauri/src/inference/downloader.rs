@@ -48,7 +48,7 @@ pub async fn download_model(
     }
 
     let id = entry.id.as_str();
-    download_file(&entry.url, &dest, &cancel, |pct| {
+    download_file(&entry.url, &dest, &cancel, entry.size_bytes, |pct| {
         downloads.set_progress(id, pct);
         let _ = ModelDownloadProgress {
             id: id.to_string(),
@@ -60,37 +60,61 @@ pub async fn download_model(
 }
 
 /// Download `url` to `dest`, calling `on_progress` with each new percentage.
+/// `size` is the exact expected length; anything longer is refused.
 /// Returns `Err(CANCELLED)` on cancel.
 pub async fn download_file(
     url: &str,
     dest: &Path,
     cancel: &CancellationToken,
+    size: u64,
     mut on_progress: impl FnMut(u8),
 ) -> Result<(), String> {
     let part = dest.with_extension("part");
 
-    for attempt in 1..=MAX_ATTEMPTS {
-        if cancel.is_cancelled() {
-            return Err(CANCELLED.to_string());
-        }
-
-        match transfer(url, &part, cancel, &mut on_progress).await {
-            Ok(()) => break,
-            // Keep the .part file: the bytes let a later attempt resume, and
-            // startup sweeps whatever is left behind.
-            Err(e) if e == CANCELLED => return Err(CANCELLED.to_string()),
-            Err(e) if attempt == MAX_ATTEMPTS => {
-                return Err(format!("download failed after {attempt} attempts: {e}"));
+    if cancel.is_cancelled() {
+        return Err(CANCELLED.to_string());
+    }
+    let have = tokio::fs::metadata(&part).await.map_or(0, |m| m.len());
+    if have > size {
+        tokio::fs::remove_file(&part)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    // A complete partial needs no HTTP range request at EOF.
+    if have != size {
+        for attempt in 1..=MAX_ATTEMPTS {
+            if cancel.is_cancelled() {
+                return Err(CANCELLED.to_string());
             }
-            Err(_) => {
-                let backoff = RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
-                // Cancelling must not sit out the whole backoff.
-                tokio::select! {
-                    () = cancel.cancelled() => return Err(CANCELLED.to_string()),
-                    () = tokio::time::sleep(backoff) => {}
+
+            match transfer(url, &part, cancel, size, &mut on_progress).await {
+                Ok(()) => break,
+                // Keep the .part file: the bytes let a later attempt resume, and
+                // startup sweeps whatever is left behind.
+                Err(e) if e == CANCELLED => return Err(CANCELLED.to_string()),
+                Err(e) if attempt == MAX_ATTEMPTS => {
+                    return Err(format!("download failed after {attempt} attempts: {e}"));
+                }
+                Err(_) => {
+                    let backoff = RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
+                    // Cancelling must not sit out the whole backoff.
+                    tokio::select! {
+                        () = cancel.cancelled() => return Err(CANCELLED.to_string()),
+                        () = tokio::time::sleep(backoff) => {}
+                    }
                 }
             }
         }
+    }
+
+    if tokio::fs::metadata(&part)
+        .await
+        .map_err(|e| e.to_string())?
+        .len()
+        != size
+    {
+        let _ = tokio::fs::remove_file(&part).await;
+        return Err("download size mismatch".to_string());
     }
 
     // A cancel landing during the last chunks must not publish the file.
@@ -108,6 +132,7 @@ async fn transfer(
     url: &str,
     part: &Path,
     cancel: &CancellationToken,
+    size: u64,
     on_progress: &mut impl FnMut(u8),
 ) -> Result<(), String> {
     let client = reqwest::Client::builder()
@@ -139,7 +164,12 @@ async fn transfer(
         return Err(format!("download HTTP {status} for {url}"));
     }
 
-    let total = response.content_length().map_or(0, |len| len + have);
+    let total = response
+        .content_length()
+        .map_or(0, |len| len.saturating_add(have));
+    if total > size {
+        return Err("download exceeds expected size".to_string());
+    }
 
     let mut file = tokio::fs::OpenOptions::new()
         .create(true)
@@ -167,6 +197,9 @@ async fn transfer(
             },
         };
 
+        if written.saturating_add(chunk.len() as u64) > size {
+            return Err("download exceeds expected size".to_string());
+        }
         file.write_all(&chunk)
             .await
             .map_err(|e| format!("write file failed: {e}"))?;

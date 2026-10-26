@@ -79,16 +79,22 @@ export function ModelPickerModal() {
   const selectedModel = catalog.find(m => m.id === selected) ?? null
   const ordered = useMemo(() => sortForDisplay(catalog), [catalog])
 
-  // Enable scrolling only when the grid is actually clipped.
+  // Scroll only when a card is clipped, not just the bottom padding.
   const bodyRef = useRef<HTMLDivElement>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
   const [overflowing, setOverflowing] = useState(false)
   useEffect(() => {
     const el = bodyRef.current
-    if (!el) return
-    const measure = () => setOverflowing(el.scrollHeight > el.clientHeight + 1)
+    const grid = gridRef.current
+    if (!el || !grid) return
+    const measure = () => {
+      const top = parseFloat(getComputedStyle(el).paddingTop)
+      setOverflowing(top + grid.offsetHeight > el.clientHeight)
+    }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(el)
+    observer.observe(grid)
     window.addEventListener('resize', measure)
     return () => {
       observer.disconnect()
@@ -128,15 +134,14 @@ export function ModelPickerModal() {
           )}
         </div>
 
-        {/* `overflow` is set from a measurement, not a guess: an always-on
-            `auto` box still accepts wheel input when nothing is clipped. */}
+        {/* Measured: an always-on `auto` box still takes wheel input when nothing is clipped. */}
         <div
           ref={bodyRef}
-          className={`min-h-0 overscroll-contain px-6 py-4 ${
-            overflowing ? 'overflow-y-auto' : 'overflow-hidden'
+          className={`min-h-0 overscroll-none overflow-x-hidden px-6 pt-2.75 pb-4 ${
+            overflowing ? 'overflow-y-auto' : 'overflow-y-hidden'
           }`}
         >
-          <div className="grid grid-cols-2 gap-2">
+          <div ref={gridRef} className="grid grid-cols-2 gap-2">
             {ordered.map(model => {
               const { id, displayName, description, sizeBytes, multilingual } = model
               const streaming = isStreaming(model)
@@ -212,7 +217,7 @@ export function ModelPickerModal() {
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 px-6 pb-5 pt-4 border-t border-(--border-soft)">
+        <div className="shrink-0 px-6 py-3 border-t border-(--border-soft)">
           <AnimatePresence mode="wait">
             {confirmed ? (
               <motion.div
@@ -253,26 +258,29 @@ export function ModelPickerModal() {
                 </p>
                 {loadError && catalog.length === 0 ? (
                   <Button
-                    className="shrink-0 min-w-44 gap-2"
+                    size="sm"
+                    className="shrink-0 min-w-44"
                     onClick={() => setReloadKey(k => k + 1)}
                   >
-                    <RefreshCw size={14} strokeWidth={2} />
+                    <RefreshCw size={12} strokeWidth={2} />
                     Try again
                   </Button>
                 ) : (
                 <Button
-                  className="shrink-0 min-w-44 gap-2"
+                  size="sm"
+                  variant="tinted"
+                  className="shrink-0 min-w-44"
                   onClick={handleConfirm}
                   disabled={confirming || !selected}
                 >
                   {confirming ? (
                     <>
-                      <Loader2 size={14} strokeWidth={2} className="animate-spin" />
+                      <Loader2 size={12} strokeWidth={2} className="animate-spin" />
                       Starting download…
                     </>
                   ) : (
                     <>
-                      <Download size={14} strokeWidth={2} />
+                      <Download size={12} strokeWidth={2} />
                       Download &amp; continue
                     </>
                   )}
