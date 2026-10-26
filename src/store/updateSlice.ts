@@ -7,19 +7,16 @@ import type { AppState } from './useAppStore'
 export type UpdateStatus =
   | 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error' | 'up-to-date'
 
-/** The pending update, shared so the sidebar prompt and the About tab drive one
+/** The pending update, shared so the sidebar card and the About tab drive one
  *  install rather than each holding a private updater handle. */
 export type UpdateSlice = {
   updateStatus: UpdateStatus
   updateVersion: string | null
   updateProgress: number
   updateError: string | null
-  /** Dismissed for this session — hides the sidebar prompt, About still shows it. */
-  updateDismissed: boolean
   checkForUpdate: () => Promise<void>
   installUpdate: () => Promise<void>
   restartForUpdate: () => Promise<void>
-  dismissUpdate: () => void
 }
 
 export const createUpdateSlice: StateCreator<AppState, [], [], UpdateSlice> = (set, get) => ({
@@ -27,7 +24,6 @@ export const createUpdateSlice: StateCreator<AppState, [], [], UpdateSlice> = (s
   updateVersion: null,
   updateProgress: 0,
   updateError: null,
-  updateDismissed: false,
 
   checkForUpdate: async () => {
     set({ updateStatus: 'checking', updateError: null })
@@ -76,8 +72,6 @@ export const createUpdateSlice: StateCreator<AppState, [], [], UpdateSlice> = (s
       set({ updateStatus: 'error', updateError: extractErrorMessage(e, 'Restart failed') })
     }
   },
-
-  dismissUpdate: () => set({ updateDismissed: true }),
 })
 
 /** The plugin's updater handle. Kept outside the store because it is a live

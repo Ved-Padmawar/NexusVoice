@@ -1,8 +1,7 @@
 import { useShallow } from 'zustand/react/shallow'
 import { memo, useEffect, useRef } from 'react'
-import { motion } from 'framer-motion'
-import { Check } from 'lucide-react'
 import { useAppStore } from '../../store/useAppStore'
+import { Swatch } from '../../components/ui/Swatch'
 import { WaveformCanvas } from '../../components/WaveformCanvas'
 import { BARS, ease } from '../../lib/waveform'
 import { subscribeWhileVisible } from '../../lib/frameClock'
@@ -160,42 +159,15 @@ function StyleSwatch({ s, active, onPick, levelsRef, theme }: {
   theme: PillThemeDef
 }) {
   return (
-    <motion.button
-      type="button"
-      onClick={onPick}
-      aria-pressed={active}
-      className="flex h-10 items-center gap-2.5 rounded-(--r-md) border px-2.5 text-left cursor-pointer"
-      initial={false}
-      animate={{
-        borderColor: active ? 'var(--accent)' : 'var(--border-soft)',
-        backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface)',
-      }}
-      whileHover={active ? undefined : { borderColor: 'var(--border)', backgroundColor: 'var(--surface-hover)' }}
-      whileTap={{ scale: 0.99 }}
-      transition={{ duration: 0.15 }}
-    >
-      {/* The real recording pill running this style, so the motion being
-          chosen is seen on the colour it will be drawn on. */}
-      <PreviewPill style={s.id} levelsRef={levelsRef} theme={theme} />
-
-      <span className="min-w-0 flex-1">
-        <motion.span
-          className="block truncate text-[12px] font-semibold tracking-[-0.01em]"
-          initial={false}
-          animate={{ color: active ? 'var(--accent)' : 'var(--fg)' }}
-          transition={{ duration: 0.2 }}
-        >
-          {s.label}
-        </motion.span>
-        <span className="block truncate text-[10px] text-muted-foreground">{s.hint}</span>
-      </span>
-
-      {active && (
-        <span className="grid size-4 shrink-0 place-items-center rounded-full bg-(--accent)">
-          <Check size={9} strokeWidth={3.5} className="text-primary-foreground" />
-        </span>
-      )}
-    </motion.button>
+    <Swatch
+      active={active}
+      onPick={onPick}
+      // The real recording pill running this style, so the motion being
+      // chosen is seen on the colour it will be drawn on.
+      preview={<PreviewPill style={s.id} levelsRef={levelsRef} theme={theme} />}
+      label={s.label}
+      hint={s.hint}
+    />
   )
 }
 
@@ -214,16 +186,16 @@ export const WaveformTab = memo(function WaveformTab() {
 
   return (
     <section>
-    <h2 className="mb-2 text-[13px] font-semibold text-(--fg-2)">Waveform</h2>
-    <div ref={rootRef} className="flex gap-4 rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
+    <h2 className="mb-2 text-[13px] font-semibold text-fg-2">Waveform</h2>
+    <div ref={rootRef} className="flex gap-4 rounded-lg border border-line-soft bg-panel p-4">
       <div className="flex shrink-0 flex-col gap-2.5">
         <div
-          className="grid h-21.5 w-55 place-items-center rounded-(--r-md) border border-(--border-soft) shadow-(--shadow-sm)"
+          className="grid h-21.5 w-55 place-items-center rounded-md border border-line-soft shadow-(--shadow-sm)"
           style={{ background: theme.stage }}
         >
           <PreviewPill style={waveformStyle} levelsRef={levelsRef} theme={theme} />
         </div>
-        <span className="text-[11px] text-muted-foreground">How the pill draws your voice</span>
+        <span className="text-[11px] text-muted">How the pill draws your voice</span>
       </div>
 
       <div className="grid min-w-0 flex-1 grid-cols-2 content-center gap-1.5">

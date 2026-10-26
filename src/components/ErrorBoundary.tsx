@@ -1,6 +1,7 @@
 import { Component, type ReactNode, type ErrorInfo } from 'react'
-import { AlertTriangle, RotateCcw } from 'lucide-react'
+import { WarningIcon, ArrowCounterClockwiseIcon } from '@phosphor-icons/react'
 import { logger } from '../lib/logger'
+import { Button } from './ui/Button'
 
 interface Props {
   children: ReactNode
@@ -40,23 +41,19 @@ export class ErrorBoundary extends Component<Props, State> {
           role="alert"
           className="flex h-full w-full flex-col items-center justify-center gap-4 p-6 text-center"
         >
-          <div className="flex size-12 items-center justify-center rounded-(--r-xl) bg-(--danger-soft) text-destructive">
-            <AlertTriangle size={22} strokeWidth={1.75} />
-          </div>
+          <span className="grid size-14 place-items-center rounded-2xl bg-danger-soft text-danger">
+            <WarningIcon size={24} weight="duotone" />
+          </span>
           <div className="flex flex-col gap-1">
-            <p className="m-0 text-[14px] font-semibold text-(--fg)">Something went wrong</p>
-            <p className="m-0 max-w-70 text-[12px] leading-relaxed text-muted-foreground">
+            <p className="text-md font-semibold text-fg">Something went wrong</p>
+            <p className="max-w-70 text-sm text-balance text-muted">
               This section ran into an unexpected error. You can try loading it again.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={this.reset}
-            className="nv-edge [--edge:var(--border-soft)] hover:[--edge:var(--border)] inline-flex items-center gap-1.5 h-9 px-3.5 rounded-(--r-md) bg-(--surface) text-(--fg) text-[12px] font-medium cursor-pointer hover:bg-accent"
-          >
-            <RotateCcw size={13} strokeWidth={1.75} />
+          <Button onClick={this.reset}>
+            <ArrowCounterClockwiseIcon size={13} weight="bold" />
             Try again
-          </button>
+          </Button>
         </div>
       )
     }

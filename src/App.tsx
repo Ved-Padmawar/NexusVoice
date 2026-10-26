@@ -1,7 +1,6 @@
 import { useShallow } from 'zustand/react/shallow'
 import { useEffect, useState, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router'
-import { motion } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Toaster } from 'sonner'
 
@@ -19,7 +18,7 @@ import { showMainWindow } from './lib/showMainWindow'
 import { setWindowVisible } from './lib/frameClock'
 
 const Spinner = () => (
-  <motion.div className="w-7 h-7 rounded-full border-2 border-(--border) border-t-(--accent)" animate={{ rotate: 360 }} transition={{ duration: 0.65, ease: 'linear', repeat: Infinity }} />
+  <div className="size-7 animate-spin rounded-full border-2 border-line border-t-accent" />
 )
 
 /** Full-screen startup loader. Spinner appears only after a short delay so a fast
@@ -27,11 +26,11 @@ const Spinner = () => (
 function StartupLoader() {
   const showSpinner = useDelayedFlag(true, 250)
   return (
-    <div className="flex flex-col items-center justify-center min-h-dvh gap-3.5 bg-background" role="status" aria-live="polite" data-tauri-drag-region>
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-3.5 bg-bg" role="status" aria-live="polite" data-tauri-drag-region>
       {showSpinner && (
         <>
           <Spinner />
-          <p className="text-[12px] text-muted-foreground">Loading…</p>
+          <p className="text-sm text-muted">Loading…</p>
         </>
       )}
     </div>
@@ -42,7 +41,7 @@ function StartupLoader() {
 function RouteFallback() {
   const showSpinner = useDelayedFlag(true, 250)
   return (
-    <div className="flex items-center justify-center min-h-dvh bg-background" role="status" data-tauri-drag-region>
+    <div className="grid place-items-center" role="status">
       {showSpinner && <Spinner />}
     </div>
   )
@@ -153,19 +152,7 @@ function App() {
             <ModelPickerModal />
           </Suspense>
         )}
-        <Toaster
-          position="bottom-right"
-          toastOptions={{
-            style: {
-              background: 'var(--panel)',
-              border: '1px solid var(--border)',
-              color: 'var(--fg)',
-              fontSize: '13px',
-              borderRadius: 'var(--r-lg)',
-              boxShadow: 'var(--shadow-md)',
-            },
-          }}
-        />
+        <Toaster position="bottom-right" />
       </BrowserRouter>
     </QueryClientProvider>
   )

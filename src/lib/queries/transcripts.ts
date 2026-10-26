@@ -110,6 +110,27 @@ export function useStats() {
   return useQuery(statsOptions)
 }
 
+export type DayWords = { day: Date; words: number }
+
+/** Words per local day, oldest first, one entry per day: days with no
+ *  dictation (which the backend omits) count zero. */
+export function useDailyWords(days: number) {
+  return useQuery({
+    queryKey: queryKeys.dailyWords(days),
+    queryFn: () => commands.getDailyWords(days, -new Date().getTimezoneOffset()),
+    select: (rows): DayWords[] => {
+      const byDay = new Map(rows.map(r => [r.day, r.words]))
+      const today = new Date()
+      return Array.from({ length: days }, (_, i) => {
+        const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1 - i))
+        const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
+        return { day, words: byDay.get(key) ?? 0 }
+      })
+    },
+    ...EVENT_DRIVEN,
+  })
+}
+
 export function useDeleteTranscript() {
   const client = useQueryClient()
   return useMutation({

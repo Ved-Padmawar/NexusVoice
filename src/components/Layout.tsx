@@ -1,179 +1,89 @@
 import { Outlet, Link, useLocation } from 'react-router'
 import { useEffect, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
-import clsx from 'clsx'
-import { LayoutDashboard, BookOpen, Settings2, X, ArrowUp, Download, RotateCcw } from 'lucide-react'
+import { BookOpenIcon, DownloadSimpleIcon, SquaresFourIcon, MinusIcon, ArrowClockwiseIcon, SlidersHorizontalIcon, SquareIcon, XIcon } from '@phosphor-icons/react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getName } from '@tauri-apps/api/app'
 import { useAppStore } from '../store/useAppStore'
 import { ROUTES } from '../lib/routes'
 import { preloadRoute } from '../lib/routeModules'
+import { cn } from '../lib/utils'
 import logoUrl from '../assets/logo.png'
 
+const WINDOW_BUTTON = 'grid h-8 w-11.5 cursor-pointer place-items-center text-muted transition-colors'
+
+/** Drag region and window controls, over the content column only. The fade
+ *  under it grows as the page scrolls (index.css). */
 function TitleBar() {
   const win = getCurrentWindow()
   return (
-    <div className="absolute top-0 left-0 right-0 flex items-stretch h-8 z-20 select-none pointer-events-none">
-      <div className="flex-1 h-full cursor-default pointer-events-auto" data-tauri-drag-region />
-      <div className="flex items-stretch no-drag pointer-events-auto">
-        <button
-          type="button"
-          className="flex items-center justify-center w-11.5 h-full bg-transparent border-none cursor-pointer text-muted-foreground transition-[background,color] duration-(--t-fast) hover:bg-accent hover:text-(--fg)"
-          onClick={() => win.minimize()}
-          aria-label="Minimize"
-        >
-          <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor" /></svg>
-        </button>
-        <button
-          type="button"
-          className="flex items-center justify-center w-11.5 h-full bg-transparent border-none cursor-pointer text-muted-foreground transition-[background,color] duration-(--t-fast) hover:bg-accent hover:text-(--fg)"
-          onClick={() => win.toggleMaximize()}
-          aria-label="Maximize"
-        >
-          <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><rect x="0.5" y="0.5" width="8" height="8" rx="0.5" stroke="currentColor" /></svg>
-        </button>
-        <button
-          type="button"
-          className="flex items-center justify-center w-11.5 h-full bg-transparent border-none cursor-pointer text-muted-foreground transition-[background,color] duration-(--t-fast) hover:bg-(--color-close) hover:text-white"
-          onClick={() => win.close()}
-          aria-label="Close"
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </button>
-      </div>
+    <header className="topbar relative z-20 flex items-stretch justify-end bg-bg" data-tauri-drag-region>
+      <button type="button" aria-label="Minimize" onClick={() => win.minimize()} className={cn(WINDOW_BUTTON, 'no-drag hover:bg-surface-hover hover:text-fg')}>
+        <MinusIcon size={13} />
+      </button>
+      <button type="button" aria-label="Maximize" onClick={() => win.toggleMaximize()} className={cn(WINDOW_BUTTON, 'no-drag hover:bg-surface-hover hover:text-fg')}>
+        <SquareIcon size={12} />
+      </button>
+      <button type="button" aria-label="Close" onClick={() => win.close()} className={cn(WINDOW_BUTTON, 'no-drag hover:bg-close hover:text-white')}>
+        <XIcon size={13} />
+      </button>
+    </header>
+  )
+}
+
+const PHASE = 'col-start-1 row-start-1 transition-[opacity,filter,visibility] duration-300'
+const phase = (shown: boolean) => (shown ? 'visible opacity-100 blur-0' : 'invisible opacity-0 blur-[3px]')
+
+/** The whole update flow in one card: Install, then it fills as it downloads,
+ *  then Restart. The phases share one grid cell, so the card keeps its size. */
+function UpdateCard() {
+  const status = useAppStore(s => s.updateStatus)
+  const version = useAppStore(s => s.updateVersion)
+  const progress = useAppStore(s => s.updateProgress)
+  const installUpdate = useAppStore(s => s.installUpdate)
+  const restartForUpdate = useAppStore(s => s.restartForUpdate)
+
+  if (status !== 'available' && status !== 'downloading' && status !== 'ready') return null
+
+  return (
+    <div className="grid px-2 pb-2">
+      <button
+        type="button"
+        onClick={installUpdate}
+        tabIndex={status === 'available' ? 0 : -1}
+        className={cn(PHASE, phase(status === 'available'), 'inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-accent-soft px-3.5 text-xs font-semibold text-accent-ink ring-1 ring-accent-line ring-inset hover:bg-accent/25 hover:ring-accent')}
+      >
+        <DownloadSimpleIcon size={13} weight="bold" />Install v{version}
+      </button>
+      <span
+        role="progressbar"
+        aria-valuenow={progress}
+        aria-label="Downloading update"
+        className={cn(PHASE, phase(status === 'downloading'), 'relative inline-flex h-8 items-center justify-center overflow-hidden rounded-lg bg-accent-soft px-3.5 text-xs font-semibold text-accent-ink tabular-nums ring-1 ring-accent-line ring-inset')}
+      >
+        <span className="absolute inset-y-0 left-0 bg-accent/30 transition-[width] duration-300 ease-linear" style={{ width: `${progress}%` }} />
+        <span className="relative">Downloading {progress}%</span>
+      </span>
+      <button
+        type="button"
+        onClick={restartForUpdate}
+        tabIndex={status === 'ready' ? 0 : -1}
+        className={cn(PHASE, phase(status === 'ready'), 'inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-success-soft px-3.5 text-xs font-semibold text-success ring-1 ring-success/30 ring-inset hover:bg-success/25 hover:ring-success/60')}
+      >
+        <ArrowClockwiseIcon size={13} weight="bold" />Restart to update
+      </button>
     </div>
   )
 }
 
-/** Installs in place — the About tab is the secondary path, not the only one. */
-function UpdatePrompt() {
-  const status = useAppStore(s => s.updateStatus)
-  const version = useAppStore(s => s.updateVersion)
-  const progress = useAppStore(s => s.updateProgress)
-  const dismissed = useAppStore(s => s.updateDismissed)
-  const installUpdate = useAppStore(s => s.installUpdate)
-  const restartForUpdate = useAppStore(s => s.restartForUpdate)
-  const dismissUpdate = useAppStore(s => s.dismissUpdate)
-
-  const shown = !dismissed && (status === 'available' || status === 'downloading' || status === 'ready')
-
-  return (
-    <AnimatePresence initial={false}>
-      {shown && (
-        <motion.div
-          key="update-prompt"
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          exit={{ opacity: 0, height: 0 }}
-          transition={{ duration: 0.2 }}
-          className="overflow-hidden px-2 pb-2"
-        >
-          <div
-            className="relative flex flex-col gap-2.25 px-2.75 py-2.5 rounded-(--r-md) bg-(--surface) border overflow-hidden"
-            style={{
-              borderColor: 'color-mix(in srgb, var(--accent) 22%, var(--border-soft))',
-              boxShadow: '0 1px 2px oklch(0 0 0 / 0.18)',
-            }}
-          >
-            <div className="flex items-center gap-2 pr-4.5">
-              <span
-                className="grid place-items-center w-5.5 h-5.5 shrink-0 rounded-(--r-sm) text-(--accent)"
-                style={{ background: 'color-mix(in srgb, var(--accent) 15%, transparent)' }}
-              >
-                <ArrowUp size={11} strokeWidth={2.25} />
-              </span>
-              <span className="flex flex-col gap-px flex-1 min-w-0">
-                <span className="text-[11px] font-semibold tracking-[-0.01em] text-(--fg) truncate">
-                  {status === 'ready' ? 'Update installed' : status === 'downloading' ? 'Downloading' : 'Update available'}
-                </span>
-                <span className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground tabular-nums whitespace-nowrap overflow-hidden">
-                  {status === 'available' ? (
-                    <>
-                      <span>v{__APP_VERSION__}</span>
-                      <span className="opacity-50">→</span>
-                      <span className="text-(--accent) font-semibold">v{version}</span>
-                    </>
-                  ) : status === 'ready' ? (
-                    <>
-                      <span className="text-(--accent) font-semibold">v{version}</span>
-                      <span>· restart to finish</span>
-                    </>
-                  ) : (
-                    <span className="text-(--accent) font-semibold">v{version}</span>
-                  )}
-                </span>
-              </span>
-            </div>
-
-            {status !== 'downloading' && (
-              <button
-                type="button"
-                title="Dismiss"
-                onClick={dismissUpdate}
-                className="absolute top-1.25 right-1.25 flex items-center justify-center w-4 h-4 rounded-(--r-sm) text-muted-foreground bg-transparent border-none cursor-pointer transition-colors duration-(--t-fast) hover:text-destructive hover:bg-(--danger-soft)"
-              >
-                <X size={10} strokeWidth={2} />
-              </button>
-            )}
-
-            {status === 'downloading' ? (
-              <div className="flex flex-col gap-1.25">
-                <div
-                  className="h-0.75 rounded-full overflow-hidden"
-                  style={{ background: 'color-mix(in srgb, var(--fg) 12%, transparent)' }}
-                >
-                  <motion.div
-                    className="h-full rounded-full bg-(--accent)"
-                    animate={{ width: `${progress}%` }}
-                    transition={{ duration: 0.24, ease: [0.4, 0, 0.2, 1] }}
-                  />
-                </div>
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-[10px] text-muted-foreground tabular-nums">Downloading…</span>
-                  <span className="text-[10px] font-semibold text-(--fg-2) tabular-nums">{progress}%</span>
-                </div>
-              </div>
-            ) : (
-              <motion.button
-                type="button"
-                onClick={status === 'ready' ? restartForUpdate : installUpdate}
-                className={`w-full h-6.25 inline-flex items-center justify-center gap-1.25 rounded-(--r-sm) text-[11px] font-semibold cursor-pointer ${
-                  status === 'ready'
-                    ? 'bg-transparent text-(--accent) border'
-                    : 'bg-(--accent) text-primary-foreground border-none'
-                }`}
-                style={status === 'ready'
-                  ? { borderColor: 'color-mix(in srgb, var(--accent) 40%, transparent)' }
-                  : undefined}
-                whileHover={status === 'ready'
-                  ? { backgroundColor: 'color-mix(in srgb, var(--accent) 12%, transparent)' }
-                  : { backgroundColor: 'color-mix(in srgb, var(--accent) 85%, white)' }}
-                whileTap={{ scale: 0.98 }}
-                transition={{ duration: 0.15 }}
-              >
-                {status === 'ready'
-                  ? <><RotateCcw size={10} strokeWidth={2.25} />Restart now</>
-                  : <><Download size={10} strokeWidth={2.25} />Install update</>}
-              </motion.button>
-            )}
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  )
-}
-
 const NAV = [
-  { path: ROUTES.DASHBOARD,  label: 'Dashboard',  Icon: LayoutDashboard },
-  { path: ROUTES.DICTIONARY, label: 'Dictionary', Icon: BookOpen },
-  { path: ROUTES.SETTINGS,   label: 'Settings',   Icon: Settings2 },
+  { path: ROUTES.DASHBOARD,  label: 'Dashboard',  Icon: SquaresFourIcon },
+  { path: ROUTES.DICTIONARY, label: 'Dictionary', Icon: BookOpenIcon },
+  { path: ROUTES.SETTINGS,   label: 'Settings',   Icon: SlidersHorizontalIcon },
 ]
 
 export function Layout() {
   const setActiveRoute = useAppStore((s) => s.setActiveRoute)
+  const hasHotkey = useAppStore((s) => s.hasHotkey)
   const location = useLocation()
 
   useEffect(() => {
@@ -188,74 +98,63 @@ export function Layout() {
   }, [])
 
   return (
-    <div className="relative flex flex-col h-dvh overflow-hidden bg-background">
-      <TitleBar />
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        <aside className="w-(--sidebar-w) shrink-0 h-full bg-(--panel) border-r border-(--border) flex flex-col relative z-10">
-          <div className="px-3.5 pt-7 pb-3.5 flex items-center border-b border-(--border-soft)">
-            <Link to="/" className="flex items-center gap-2.25 no-underline group">
-              {/* Real app icon (cyan/steel split tile + waveform) — same mark as
-                  the taskbar/tray icon, so branding is consistent everywhere. */}
-              <img
-                src={logoUrl}
-                alt="NexusVoice"
-                className="w-9 h-9 rounded-(--r-md) shrink-0"
-              />
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <div className="text-[13px] font-black tracking-[-0.02em] leading-none"><span className="text-(--fg)">Nexus</span><span className="text-(--accent)">Voice</span></div>
-                  {isDev && (
-                    <span className="px-1.25 py-px rounded-(--r-xs) bg-(--accent-soft) text-(--accent) text-[9px] font-bold uppercase tracking-[0.06em] leading-none">
-                      Dev
-                    </span>
-                  )}
+    <div className="app-shell grid h-dvh grid-cols-[200px_minmax(0,1fr)] overflow-hidden bg-bg text-base">
+      <aside className="relative z-10 flex h-full min-h-0 flex-col border-r border-line bg-panel">
+        <div className="flex items-center border-b border-line-soft px-3.5 pt-7 pb-3.5" data-tauri-drag-region>
+          <Link to={ROUTES.DASHBOARD} className="no-drag flex items-center gap-2.25">
+            <img src={logoUrl} alt="NexusVoice" className="size-9 shrink-0 rounded-md" />
+            <div>
+              <div className="flex items-center gap-1.5">
+                <div className="text-[13px] leading-none font-black tracking-[-0.02em]">
+                  <span className="text-fg">Nexus</span><span className="text-accent">Voice</span>
                 </div>
-                <div className="text-[10px] text-(--fg-2) mt-0.5 tracking-[0.03em]">v{__APP_VERSION__}</div>
+                {isDev && (
+                  <span className="rounded-xs bg-accent-soft px-1.25 py-px text-[9px] leading-none font-bold tracking-[0.06em] text-accent uppercase">Dev</span>
+                )}
               </div>
-            </Link>
-          </div>
-
-          <nav className="flex-1 p-2 flex flex-col gap-px overflow-y-auto">
-            {NAV.map(({ path, label, Icon }) => {
-              const active = location.pathname === path
-              return (
-                <Link
-                  key={path}
-                  to={path}
-                  onPointerEnter={() => preloadRoute(path)}
-                  onFocus={() => preloadRoute(path)}
-                  className={clsx(
-                    'flex items-center gap-2.25 px-2.5 py-1.75 rounded-(--r-md) no-underline text-[13px] font-medium transition-[color,background] duration-(--t-fast) relative group',
-                    active
-                      ? 'text-(--fg) bg-(--surface) font-semibold'
-                      : 'text-muted-foreground hover:text-(--fg) hover:bg-(--surface)'
-                  )}
-                >
-                  {active && (
-                    <span className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-0.75 rounded-r-[3px] bg-(--accent)" />
-                  )}
-                  <Icon
-                    size={15}
-                    strokeWidth={1.75}
-                    className={clsx(
-                      'w-4 h-4 shrink-0 transition-opacity duration-(--t-fast)',
-                      active ? 'opacity-100' : 'opacity-65 group-hover:opacity-100'
-                    )}
-                  />
-                  <span>{label}</span>
-                </Link>
-              )
-            })}
-          </nav>
-
-          <UpdatePrompt />
-        </aside>
-
-        <div className="flex-1 min-w-0 h-full overflow-hidden flex flex-col items-center">
-          <main className="flex-1 w-full overflow-hidden flex flex-col min-h-0">
-            <Outlet />
-          </main>
+              <div className="mt-0.5 text-2xs tracking-[0.03em] text-fg-2">v{__APP_VERSION__}</div>
+            </div>
+          </Link>
         </div>
+
+        <nav className="flex flex-1 flex-col gap-px overflow-y-auto p-2" aria-label="Main">
+          {NAV.map(({ path, label, Icon }) => {
+            const active = location.pathname === path
+            return (
+              <Link
+                key={path}
+                to={path}
+                aria-current={active ? 'page' : undefined}
+                onPointerEnter={() => preloadRoute(path)}
+                onFocus={() => preloadRoute(path)}
+                className={cn(
+                  'group relative flex items-center gap-2.25 rounded-md px-2.5 py-1.75 text-[13px] transition-[color,background-color] duration-120',
+                  // The accent tick on the left edge grows in on the active link.
+                  "before:absolute before:top-1/2 before:left-0 before:h-4 before:w-0.75 before:-translate-y-1/2 before:rounded-r-[3px] before:bg-accent before:transition-[scale] before:duration-200 before:ease-out-quint before:content-['']",
+                  active
+                    ? 'bg-surface font-semibold text-fg before:scale-y-100'
+                    : 'font-medium text-muted before:scale-y-0 hover:bg-surface hover:text-fg',
+                )}
+              >
+                <Icon size={15} className={cn('shrink-0', active ? 'opacity-100' : 'opacity-65 group-hover:opacity-100')} />
+                {label}
+                {path === ROUTES.SETTINGS && !hasHotkey && (
+                  <span className="ml-auto size-1.5 rounded-full bg-warning" aria-label="No hotkey set" />
+                )}
+              </Link>
+            )
+          })}
+        </nav>
+
+        <UpdateCard />
+      </aside>
+
+      <div className="relative grid min-h-0 min-w-0 grid-rows-[32px_minmax(0,1fr)]">
+        <TitleBar />
+        {/* Keyed by route, so each page plays its entrance once. */}
+        <main key={location.pathname} className="grid min-h-0 min-w-0 animate-[page-in_260ms_var(--ease-out-quint)]">
+          <Outlet />
+        </main>
       </div>
     </div>
   )

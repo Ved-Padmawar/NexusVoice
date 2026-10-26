@@ -38,7 +38,7 @@ describe("App", () => {
       return Promise.resolve(null);
     });
     useAppStore.setState({
-      theme: "abyss",
+      theme: "indigo",
       starting: false,
       // Otherwise the first-run model picker mounts over the app.
       modelChosen: true,

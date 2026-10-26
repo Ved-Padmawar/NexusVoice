@@ -19,9 +19,15 @@ beforeEach(() => { takeLegacyPill() })
 describe('persist — migrate', () => {
   it('hands the pill preferences older versions kept to the backend', () => {
     // The backend owns them now, so the pill window reads the same values.
-    const out = migrate({ theme: 'pine', pillTheme: 'dawn', waveformStyle: 'memo', liveTranscript: true }, 1)
+    const out = migrate({ theme: 'orchid', pillTheme: 'dawn', waveformStyle: 'memo', liveTranscript: true }, 1)
     expect(takeLegacyPill()).toEqual({ theme: 'dawn', waveformStyle: 'memo', liveTranscript: true })
-    expect(out).toEqual({ theme: 'pine' })
+    expect(out).toEqual({ theme: 'orchid' })
+  })
+
+  it('moves a retired window theme to the default', () => {
+    // Abyss and Pine have no stylesheet any more; kept, the window renders unthemed.
+    expect(migrate({ theme: 'abyss' }, 2)).toEqual({ theme: 'indigo' })
+    expect(migrate({ theme: 'pine' }, 2)).toEqual({ theme: 'indigo' })
   })
 
   it('rewrites the removed "steps" waveform style to "spectrum" on the way', () => {
@@ -31,14 +37,14 @@ describe('persist — migrate', () => {
   })
 
   it('hands nothing over from a blob already at the current version', () => {
-    migrate({ theme: 'abyss' }, 2)
+    migrate({ theme: 'steel' }, 3)
     expect(takeLegacyPill()).toBeNull()
   })
 
   it('survives an empty or partial persisted blob', () => {
     // A truncated write must not throw and block startup.
     expect(() => migrate({}, 0)).not.toThrow()
-    expect(() => migrate({ theme: 'abyss' }, 0)).not.toThrow()
+    expect(() => migrate({ theme: 'steel' }, 0)).not.toThrow()
   })
 })
 

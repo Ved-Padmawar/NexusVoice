@@ -26,6 +26,48 @@ async fn insert(pool: &SqlitePool, content: &str, created_at: &str) -> i64 {
     .expect("insert")
 }
 
+/// Insert `words` words at `now` shifted by an SQLite modifier like `'-3 days'`.
+async fn insert_ago(pool: &SqlitePool, words: i64, ago: &str) {
+    sqlx::query("INSERT INTO transcripts (content, word_count, created_at) VALUES ('t', ?, datetime('now', ?))")
+        .bind(words)
+        .bind(ago)
+        .execute(pool)
+        .await
+        .expect("insert");
+}
+
+#[tokio::test]
+async fn daily_words_sums_each_day_in_the_window_oldest_first() {
+    let pool = pool().await;
+    insert_ago(&pool, 5, "-0 minutes").await;
+    insert_ago(&pool, 7, "-0 minutes").await;
+    insert_ago(&pool, 3, "-2 days").await;
+    insert_ago(&pool, 100, "-40 days").await; // outside a 30-day window
+    let rows = TranscriptRepository::new(pool)
+        .daily_words(30, 0)
+        .await
+        .expect("query");
+    let words: Vec<i64> = rows.iter().map(|(_, w)| *w).collect();
+    assert_eq!(words, [3, 12]);
+    assert!(rows[0].0 < rows[1].0, "oldest first: {rows:?}");
+}
+
+#[tokio::test]
+async fn daily_words_counts_by_the_callers_local_day() {
+    let pool = pool().await;
+    insert_ago(&pool, 4, "-0 minutes").await;
+    // UTC+14: for most of the UTC day this instant is already tomorrow there.
+    let ahead = TranscriptRepository::new(pool.clone())
+        .daily_words(1, 14 * 60)
+        .await
+        .expect("query");
+    let local_today: String = sqlx::query_scalar("SELECT date('now', '+840 minutes')")
+        .fetch_one(&pool)
+        .await
+        .expect("date");
+    assert_eq!(ahead, [(local_today, 4)]);
+}
+
 #[tokio::test]
 async fn keyset_walks_every_row_without_repeats() {
     let pool = pool().await;

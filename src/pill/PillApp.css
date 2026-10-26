@@ -39,8 +39,8 @@ body {
 }
 
 /* ===== Pill =====
-   Geometry is framer-motion's, not CSS — a transition on the same property
-   fights the animation frame and stutters mid-morph. */
+   One monotone curve owns the shell dimensions and corners. Native CSS
+   transitions retarget from the current painted size during interruptions. */
 .pill {
   height: 32px;
   border-radius: 999px;
@@ -56,7 +56,11 @@ body {
   background: #0f0f18;
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
-  transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  transition:
+    width 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
 .pill:active { cursor: grabbing; }
@@ -73,6 +77,9 @@ body {
 /* ===== Expanded (Tide) =====
    The accent wash pooling at the bottom edge — the surface reading as live. */
 .pill__tide {
+  height: 88px;
+  opacity: 1;
+  transition: height 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 200ms ease-out;
   position: absolute;
   left: 0;
   right: 0;
@@ -82,6 +89,11 @@ body {
 }
 
 .pill__transcript {
+  opacity: 1;
+  transition: opacity 240ms ease-out 140ms;
+  /* Keep the masked scroller on its own layer after the entrance fade;
+     demoting it mid-resize can leave stale text tiles in WebView2. */
+  will-change: opacity;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -102,10 +114,26 @@ body {
 
 .pill__transcript::-webkit-scrollbar { width: 0; }
 
+/* Keep the words in their final-width layout until the shell has closed.
+   Removing them after the fade would change layout during the morph. */
+.pill--dictation-paused .pill__tide { opacity: 0.4; }
+.pill--closing .pill__tide,
+.pill--closing .pill__transcript {
+  opacity: 0;
+  transition: opacity 90ms ease-out;
+}
+
+@starting-style {
+  .pill__tide,
+  .pill--dictation-paused .pill__tide { height: 0; opacity: 0; }
+  .pill__transcript { opacity: 0; }
+}
+
 .pill__committed { color: rgba(255,255,255,0.95); }
 .pill__tentative { color: rgba(255,255,255,0.45); }
 
 .pill__caret {
+  animation: pill-caret 1050ms linear infinite;
   display: inline-block;
   width: 2px;
   height: 1em;
@@ -139,7 +167,7 @@ body {
   gap: 8px;
 }
 
-/* A fast result can show the idle label before the height spring finishes, so
+/* A fast result can show the idle label before the height transition finishes, so
    cap the 42px control row and use capsule padding to keep the label centred. */
 .pill--closing .pill__strip:not([aria-hidden]) {
   height: min(32px, 100%);
@@ -477,6 +505,7 @@ body {
 /* The parent morphs between rectangles and circles. The rotating ring must
    stay square throughout, or it becomes an ellipse clipped by the pill. */
 .pill__spinner {
+  animation: pill-spin 1s linear infinite;
   width: 22px;
   height: 22px;
   box-sizing: border-box;
@@ -494,8 +523,18 @@ body {
   to { opacity: 1; }
 }
 
+@keyframes pill-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pill-caret {
+  0%, 55% { opacity: 1; }
+  55.01%, 100% { opacity: 0.15; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .pill, .pill__bar, .pill__control, .pill__waveform--dictation {
+  .pill, .pill__bar, .pill__control, .pill__waveform--dictation,
+  .pill__tide, .pill__transcript {
     transition: none;
   }
   .pill__strip--returning { animation: none; }

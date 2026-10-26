@@ -96,6 +96,29 @@ impl TranscriptRepository {
             .await
     }
 
+    /// Words dictated per local day over the last `days` days (today included),
+    /// oldest first; days with no dictation are absent. `created_at` is UTC, so
+    /// `utc_offset_minutes` shifts it into the user's day, and the lower bound is
+    /// their local midnight shifted back to UTC so it can seek the keyset index.
+    pub async fn daily_words(
+        &self,
+        days: i64,
+        utc_offset_minutes: i64,
+    ) -> Result<Vec<(String, i64)>, sqlx::Error> {
+        sqlx::query_as(
+            "SELECT date(created_at, ?1) AS day, SUM(word_count)
+             FROM transcripts
+             WHERE created_at >= datetime('now', ?1, 'start of day', ?2, ?3)
+             GROUP BY day
+             ORDER BY day",
+        )
+        .bind(format!("{utc_offset_minutes:+} minutes"))
+        .bind(format!("{} days", 1 - days))
+        .bind(format!("{:+} minutes", -utc_offset_minutes))
+        .fetch_all(&self.pool)
+        .await
+    }
+
     /// Keyset-paginated fetch: returns rows strictly after `cursor`, ordered by the
     /// `(created_at, id)` tuple. Unlike LIMIT/OFFSET, a cursor names a row, so an
     /// insert or delete mid-scroll can't shift the window into repeats or skips.

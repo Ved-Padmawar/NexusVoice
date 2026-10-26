@@ -82,6 +82,7 @@ fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::resume_dictation,
             commands::commit_dictation,
             commands::get_usage_stats,
+            commands::get_daily_words,
             commands::get_transcripts,
             commands::search_transcripts,
             commands::get_dictionary,

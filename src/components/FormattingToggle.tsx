@@ -1,10 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Dialog } from 'radix-ui'
-import { Sparkles, Settings2, X, CheckCircle2, Loader2, AlertCircle, Plug, Save } from 'lucide-react'
+import {
+  SparkleIcon, SlidersHorizontalIcon, XIcon, CheckIcon, CheckCircleIcon, SpinnerGapIcon, WarningCircleIcon,
+  PlugIcon, PlugsConnectedIcon, LinkIcon, CubeIcon, KeyIcon, LockSimpleIcon,
+} from '@phosphor-icons/react'
 import { commands } from '../bindings'
 import { extractErrorMessage } from '../lib/errors'
 import { VendorMark } from './ui/VendorMark'
+import { Button } from './ui/Button'
+import { Modal } from './ui/Modal'
+import { Switch } from './ui/Switch'
+import { TextInput } from './ui/TextInput'
 import type { VendorId } from '../lib/vendors'
 import { toast } from 'sonner'
 import { isConfigured, keepingKeys } from '../lib/formatConfig'
@@ -15,10 +20,10 @@ const EMPTY_PROFILE: ProfileView = { baseUrl: '', model: '', hasApiKey: false }
 const activeProfile = (c: FormatterView): ProfileView =>
   c.profiles[c.provider] ?? EMPTY_PROFILE
 
-
 type Preset = {
   id: string
   label: string
+  hint: string
   baseUrl: string
   needsKey: boolean
   modelHint: string
@@ -27,24 +32,30 @@ type Preset = {
 // Every preset but "anthropic" speaks the OpenAI-compatible API; presets only
 // prefill the base URL, and "anthropic"/"custom" prefill nothing.
 const PRESETS: Preset[] = [
-  { id: 'ollama',     label: 'Ollama (local/cloud)', baseUrl: 'http://localhost:11434/v1', needsKey: false, modelHint: 'qwen2.5:3b-instruct' },
-  { id: 'lmstudio',   label: 'LM Studio (local)', baseUrl: 'http://localhost:1234/v1',  needsKey: false, modelHint: 'qwen2.5-3b-instruct' },
-  { id: 'openai',     label: 'OpenAI',            baseUrl: 'https://api.openai.com/v1',  needsKey: true,  modelHint: 'gpt-5.5' },
-  { id: 'openrouter', label: 'OpenRouter',        baseUrl: 'https://openrouter.ai/api/v1', needsKey: true, modelHint: 'meta-llama/llama-3.1-8b-instruct' },
-  { id: 'anthropic',  label: 'Anthropic',         baseUrl: '',                            needsKey: true,  modelHint: 'claude-sonnet-5' },
-  { id: 'custom',     label: 'Custom',            baseUrl: '',                            needsKey: false, modelHint: 'model name' },
+  { id: 'ollama',     label: 'Ollama',     hint: 'Local or cloud', baseUrl: 'http://localhost:11434/v1',    needsKey: false, modelHint: 'qwen2.5:3b-instruct' },
+  { id: 'lmstudio',   label: 'LM Studio',  hint: 'Local',          baseUrl: 'http://localhost:1234/v1',     needsKey: false, modelHint: 'qwen2.5-3b-instruct' },
+  { id: 'openai',     label: 'OpenAI',     hint: 'API key',        baseUrl: 'https://api.openai.com/v1',    needsKey: true,  modelHint: 'gpt-5.5' },
+  { id: 'openrouter', label: 'OpenRouter', hint: 'API key',        baseUrl: 'https://openrouter.ai/api/v1', needsKey: true,  modelHint: 'meta-llama/llama-3.1-8b-instruct' },
+  { id: 'anthropic',  label: 'Anthropic',  hint: 'API key',        baseUrl: '',                             needsKey: true,  modelHint: 'claude-haiku-5-5' },
+  { id: 'custom',     label: 'Custom',     hint: 'Any OpenAI-compatible', baseUrl: '',                      needsKey: false, modelHint: 'your-model-name' },
 ]
 
 const DEFAULT_CONFIG: FormatterView = { enabled: false, provider: 'ollama', profiles: {} }
 
-const INPUT_CLASS =
-  'nv-edge [--edge:var(--border)] focus:[--edge:var(--accent)] w-full px-3 py-2 text-[12px] text-(--fg) bg-(--surface) rounded-(--r-md) outline-none placeholder:text-muted-foreground'
+/** Host and path of a base URL, without the scheme. */
+const hostOf = (url: string) => url.replace(/^https?:\/\//, '').replace(/\/+$/, '')
 
 /** Smart-formatting toggle + provider config. The formatter is an HTTP call,
  *  off by default; enabling without an endpoint opens the modal. */
 export function FormattingToggle() {
   const [config, setConfig] = useState<FormatterView>(DEFAULT_CONFIG)
   const [modalOpen, setModalOpen] = useState(false)
+  // Bumped per opening, so the form starts from the saved config each time.
+  const [formKey, setFormKey] = useState(0)
+  const openModal = () => {
+    setFormKey((k) => k + 1)
+    setModalOpen(true)
+  }
 
   const refresh = useCallback(() => {
     commands.getFormatConfig().then(setConfig).catch(() => {})
@@ -62,98 +73,71 @@ export function FormattingToggle() {
     })
   }
 
-  const toggle = async () => {
-    const next = !config.enabled
+  const toggle = async (next: boolean) => {
     if (next && !configured) {
       // On while the endpoint is set up; closing unsaved puts it back.
       setConfig({ ...config, enabled: true })
-      setModalOpen(true)
+      openModal()
       return
     }
     await persist({ ...config, enabled: next })
   }
 
-  const presetLabel = PRESETS.find((p) => p.id === config.provider)?.label ?? config.provider
+  const close = () => {
+    setModalOpen(false)
+    if (!configured) setConfig((c) => ({ ...c, enabled: false }))
+  }
+
+  const preset = PRESETS.find((p) => p.id === config.provider)
 
   return (
-    <div className="nv-edge [--edge:var(--border-soft)] overflow-hidden rounded-(--r-lg) bg-(--panel)">
-      <div className="px-4 py-2.5 border-b border-(--border-soft) text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-        Smart formatting
+    <div className="flex flex-col gap-3 rounded-2xl bg-panel p-4 ring-1 ring-line-soft ring-inset">
+      <div className="flex items-center gap-3">
+        <span className="grid size-8 place-items-center rounded-[10px] bg-accent-soft text-base text-accent-ink">
+          <SparkleIcon size={16} weight="duotone" />
+        </span>
+        <p className="flex-1 text-sm font-semibold text-fg">Smart formatting</p>
+        <Switch checked={config.enabled} onChange={(on) => void toggle(on)} aria-label="Smart formatting" />
+      </div>
+      <p className="text-xs text-pretty text-muted">
+        Sends each transcript to your LLM to fix punctuation and turn spoken lists into real ones. If it fails, you get the raw transcript.
+      </p>
+
+      {/* The formatter in use, at the same height as the live-transcript
+          preview beside it, so the two cards line up. */}
+      <div className={`mt-auto flex h-20 items-center gap-3 rounded-lg bg-field px-4 ring-1 ring-line-soft ring-inset transition-opacity ${config.enabled ? '' : 'opacity-50'}`}>
+        <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-panel shadow-(--shadow-sm) ring-1 ring-line-soft ring-inset">
+          {configured
+            ? <VendorMark vendor={config.provider as VendorId} className="size-5.5" />
+            : <PlugIcon size={20} className="text-muted" />}
+        </span>
+        <span className="min-w-0 flex-1">
+          {configured ? (
+            <>
+              <span className="block text-sm font-semibold text-fg">{preset?.label ?? config.provider}</span>
+              <span className="block truncate text-xs text-muted">
+                <span className="font-mono text-fg-2">{active.model}</span>
+                {active.baseUrl && ` at ${hostOf(active.baseUrl)}`}
+              </span>
+            </>
+          ) : (
+            <span className="block text-sm font-semibold text-fg">No endpoint configured</span>
+          )}
+        </span>
+        <Button variant="chip" onClick={openModal} className="hover:text-accent-ink hover:ring-accent-line">
+          <SlidersHorizontalIcon size={12} weight="bold" />
+          Configure
+        </Button>
       </div>
 
-      <div className="flex items-center justify-between gap-4 p-4">
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 mt-px rounded-(--r-md) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-            <Sparkles size={14} strokeWidth={2} />
-          </div>
-          <div>
-            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em]">
-              {configured ? (
-                <>
-                  <VendorMark vendor={config.provider as VendorId} className="size-3.5 shrink-0" />
-                  <span className="min-w-0 truncate">{presetLabel} · {active.model}</span>
-                </>
-              ) : (
-                'No endpoint configured'
-              )}
-            </p>
-            <p className="text-[11px] text-muted-foreground mt-0.75 max-w-95">
-              Sends each transcript to your chosen LLM (local Ollama, OpenAI, Anthropic, OpenRouter…)
-              to clean up punctuation and turn spoken lists into real lists before pasting.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          <motion.button
-            type="button"
-            onClick={() => setModalOpen(true)}
-            className="nv-edge [--edge:var(--border)] flex items-center gap-1.5 px-2.5 py-1.5 rounded-(--r-md) bg-(--surface) text-[12px] font-medium text-(--fg-2) cursor-pointer"
-            whileHover={{ backgroundColor: 'var(--surface-hover)', color: 'var(--fg)' }}
-            whileTap={{ scale: 0.96 }}
-            transition={{ duration: 0.15 }}
-          >
-            <Settings2 size={12} strokeWidth={1.75} />
-            Configure
-          </motion.button>
-          <motion.button
-            type="button"
-            role="switch"
-            aria-checked={config.enabled}
-            aria-label="Toggle smart formatting"
-            onClick={toggle}
-            className="relative w-10.5 h-6 rounded-full shrink-0 cursor-pointer border-none p-0"
-            initial={false}
-            animate={{ backgroundColor: config.enabled ? 'var(--accent)' : 'var(--border)' }}
-            whileTap={{ scale: 0.95 }}
-            transition={{ duration: 0.2 }}
-          >
-            <motion.span
-              className="absolute top-0.75 left-0.75 w-4.5 h-4.5 rounded-full bg-white shadow-sm"
-              animate={{ x: config.enabled ? 18 : 0 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 28 }}
-            />
-          </motion.button>
-        </div>
-      </div>
-
-      <AnimatePresence>
-        {modalOpen && (
-          <ProviderModal
-            initial={config}
-            onClose={() => {
-              setModalOpen(false)
-              if (!configured) setConfig((c) => ({ ...c, enabled: false }))
-            }}
-            onSaved={() => { refresh(); setModalOpen(false) }}
-          />
-        )}
-      </AnimatePresence>
+      <Modal open={modalOpen} aria-labelledby="format-title" className="w-135" onClose={close}>
+        <ProviderForm key={formKey} initial={config} onClose={close} onSaved={() => { refresh(); setModalOpen(false) }} />
+      </Modal>
     </div>
   )
 }
 
-function ProviderModal({
+function ProviderForm({
   initial,
   onClose,
   onSaved,
@@ -176,11 +160,9 @@ function ProviderModal({
   const resultTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const preset = PRESETS.find((p) => p.id === providerId) ?? PRESETS[0]
-  // Anthropic pins its own endpoint (native Messages API) — a base URL field
-  // would be misleading, so it's hidden entirely for that provider.
+  // Anthropic pins its own endpoint, so a base URL field would mislead.
   const showBaseUrl = providerId !== 'anthropic'
 
-  // Clean up the result-flash timer on unmount.
   useEffect(() => () => { if (resultTimerRef.current) clearTimeout(resultTimerRef.current) }, [])
 
   const selectProvider = (id: string) => {
@@ -211,8 +193,7 @@ function ProviderModal({
 
   const canSubmit = isConfigured(providerId, { baseUrl, model })
 
-  // Show the test result icon briefly, then revert the button to its ready
-  // state — leaving it stuck on a past result is misleading.
+  // The test result shows briefly; a stale one would mislead.
   const flashResult = (result: 'ok' | 'fail') => {
     setTestResult(result)
     if (resultTimerRef.current) clearTimeout(resultTimerRef.current)
@@ -239,8 +220,7 @@ function ProviderModal({
   const handleSave = async () => {
     if (!canSubmit) return
     setSaving(true)
-    // Saving from the modal also enables formatting — the user configured an
-    // endpoint specifically to use it.
+    // Saving also enables formatting: an endpoint is configured to be used.
     try {
       await commands.setFormatConfig({ ...draft(), enabled: true })
       toast.success('Smart formatting enabled')
@@ -253,185 +233,134 @@ function ProviderModal({
   }
 
   return (
-    <Dialog.Root open onOpenChange={(next) => { if (!next) onClose() }}>
-      <Dialog.Portal forceMount>
-        <Dialog.Overlay asChild>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
-          />
-        </Dialog.Overlay>
-        <Dialog.Content
-          aria-describedby={undefined}
-          asChild
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none"
+    <>
+      <div className="flex items-center gap-3 px-6 pt-5 pb-4">
+        <div className="flex-1">
+          <h2 id="format-title" className="text-xl font-bold tracking-tight text-fg">Smart formatting</h2>
+          <p className="text-xs text-muted">Connect Anthropic or any OpenAI-compatible endpoint.</p>
+        </div>
+        <button
+          type="button"
+          aria-label="Close"
+          onClick={onClose}
+          className="grid size-8 cursor-pointer place-items-center rounded-lg text-muted hover:bg-danger-soft hover:text-danger"
         >
-          <div>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.96, y: 8 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: 8 }}
-        transition={{ duration: 0.2, ease: 'easeOut' }}
-        className="nv-edge [--edge:var(--border)] w-115 flex flex-col bg-(--panel) rounded-(--r-xl) shadow-(--shadow-lg) overflow-hidden pointer-events-auto"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-(--border-soft)">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-              <Sparkles size={15} strokeWidth={2} />
-            </div>
-            <div>
-              <Dialog.Title className="text-[15px] font-bold tracking-tight text-(--fg) m-0">Formatting provider</Dialog.Title>
-              <p className="text-[11px] text-muted-foreground mt-0.5">Connect Anthropic or any OpenAI-compatible endpoint</p>
-            </div>
-          </div>
-          <Dialog.Close asChild>
+          <XIcon size={14} weight="bold" />
+        </button>
+      </div>
+
+      <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-6 pb-5">
+        <div role="radiogroup" aria-label="Provider" className="grid grid-cols-3 gap-1.5">
+          {PRESETS.map((p) => {
+            const on = p.id === providerId
+            return (
+              <button
+                key={p.id}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                onClick={() => selectProvider(p.id)}
+                className={`flex cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition ${
+                  on ? 'bg-accent-soft ring-2 ring-accent ring-inset' : 'bg-field ring-1 ring-transparent ring-inset hover:ring-line'
+                }`}
+              >
+                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-panel ring-1 ring-line-soft ring-inset">
+                  {p.id === 'custom'
+                    ? <PlugsConnectedIcon size={16} weight="bold" className="text-fg-2" />
+                    : <VendorMark vendor={p.id as VendorId} className="size-4.5" />}
+                </span>
+                <span className="min-w-0">
+                  <span className={`block text-sm font-semibold ${on ? 'text-accent-ink' : 'text-fg'}`}>{p.label}</span>
+                  <span className="block truncate text-2xs text-muted">{p.hint}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        {showBaseUrl && (
+          <Field label="Base URL">
+            <TextInput
+              icon={<LinkIcon size={14} />}
+              name="format-base-url"
+              autoComplete="off"
+              spellCheck={false}
+              value={baseUrl}
+              onChange={(e) => { setBaseUrl(e.target.value); setTestResult('idle') }}
+              placeholder={preset.baseUrl || 'http://localhost:11434/v1'}
+              className="font-mono"
+            />
+          </Field>
+        )}
+
+        <Field label="Model">
+          <TextInput
+            icon={<CubeIcon size={14} />}
+            name="format-model"
+            autoComplete="off"
+            spellCheck={false}
+            value={model}
+            onChange={(e) => { setModel(e.target.value); setTestResult('idle') }}
+            placeholder={preset.modelHint}
+            className="font-mono"
+          />
+          <span className="text-2xs text-muted">
+            Pick a small instruct model, not a reasoning one. For example <span className="font-mono">{preset.modelHint}</span>
+          </span>
+        </Field>
+
+        <Field label={preset.needsKey ? 'API key' : 'API key (optional)'}>
+          <TextInput
+            icon={<KeyIcon size={14} />}
+            name="format-api-key"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={apiKey}
+            onChange={(e) => { setApiKey(e.target.value); setTestResult('idle') }}
+            placeholder={keySaved && !removeKey
+              ? 'Saved in your system keychain — type to replace'
+              : preset.needsKey ? 'sk-…' : 'Leave blank for local servers'}
+            className="font-mono placeholder:font-sans"
+          />
+          {keySaved && !removeKey && apiKey === '' && (
             <button
               type="button"
-              aria-label="Close"
-              className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer transition-colors duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-destructive"
+              onClick={() => { setRemoveKey(true); setTestResult('idle') }}
+              className="cursor-pointer self-start text-2xs text-muted hover:text-danger"
             >
-              <X size={14} strokeWidth={2} />
+              Remove saved key
             </button>
-          </Dialog.Close>
-        </div>
+          )}
+        </Field>
+      </div>
 
-        <div className="flex flex-col gap-4 px-6 py-5">
-          {/* Provider presets */}
-          <div className="grid grid-cols-2 gap-2">
-            {PRESETS.map((p) => {
-              const active = p.id === providerId
-              return (
-                <motion.button
-                  key={p.id}
-                  type="button"
-                  onClick={() => selectProvider(p.id)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-(--r-md) border-[1.5px] text-[12px] font-medium cursor-pointer text-left"
-                  initial={false}
-                  animate={{
-                    backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface)',
-                    borderColor: active ? 'var(--accent)' : 'var(--border)',
-                    color: active ? 'var(--accent)' : 'var(--fg)',
-                  }}
-                  whileHover={active ? undefined : { backgroundColor: 'var(--surface-hover)' }}
-                  whileTap={{ scale: 0.97 }}
-                  transition={{ type: 'spring', stiffness: 300, damping: 25, mass: 0.8 }}
-                >
-                  <VendorMark vendor={p.id as VendorId} className="size-4 shrink-0" />
-                  <span className="min-w-0 truncate">{p.label}</span>
-                </motion.button>
-              )
-            })}
-          </div>
-
-          {/* Base URL */}
-          {showBaseUrl ? (
-            <Field label="Base URL">
-              <input
-                id="format-base-url"
-                name="format-base-url"
-                type="text"
-                autoComplete="off"
-                value={baseUrl}
-                onChange={(e) => { setBaseUrl(e.target.value); setTestResult('idle') }}
-                placeholder={preset.baseUrl || 'http://localhost:11434/v1'}
-                className={INPUT_CLASS}
-                spellCheck={false}
-              />
-            </Field>
-          ) : null}
-
-          {/* Model */}
-          <Field label="Model">
-            <input
-              id="format-model"
-              name="format-model"
-              type="text"
-              autoComplete="off"
-              value={model}
-              onChange={(e) => { setModel(e.target.value); setTestResult('idle') }}
-              placeholder={preset.modelHint}
-              className={INPUT_CLASS}
-              spellCheck={false}
-            />
-            <span className="text-[10px] text-muted-foreground">
-              Tip: use a small instruct model (e.g. qwen2.5-3b-instruct), not a reasoning model — much faster and more accurate for formatting.
-            </span>
-          </Field>
-
-          {/* API key */}
-          <Field label={preset.needsKey ? 'API key' : 'API key (optional)'}>
-            <input
-              id="format-api-key"
-              name="format-api-key"
-              type="password"
-              autoComplete="off"
-              value={apiKey}
-              onChange={(e) => { setApiKey(e.target.value); setTestResult('idle') }}
-              placeholder={keySaved && !removeKey
-                ? 'Saved in your system keychain — type to replace'
-                : preset.needsKey ? 'sk-…' : 'leave blank for local servers'}
-              className={INPUT_CLASS}
-              spellCheck={false}
-            />
-            {keySaved && !removeKey && apiKey === '' && (
-              <button
-                type="button"
-                onClick={() => { setRemoveKey(true); setTestResult('idle') }}
-                className="self-start text-[10px] text-muted-foreground bg-transparent border-none p-0 cursor-pointer hover:text-destructive"
-              >
-                Remove saved key
-              </button>
-            )}
-          </Field>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-6 pb-5 pt-1">
-          <motion.button
-            type="button"
-            onClick={handleTest}
-            disabled={!canSubmit || testing}
-            className="nv-edge [--edge:var(--border)] flex items-center gap-2 text-[12px] font-medium text-(--fg-2) bg-(--surface) rounded-(--r-md) px-3 py-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            whileHover={!canSubmit || testing ? undefined : { backgroundColor: 'var(--surface-hover)' }}
-            whileTap={!canSubmit || testing ? undefined : { scale: 0.97 }}
-            transition={{ duration: 0.15 }}
-          >
-            {testing ? <Loader2 size={13} className="animate-spin" />
-              : testResult === 'ok' ? <CheckCircle2 size={13} className="text-(--success)" />
-              : testResult === 'fail' ? <AlertCircle size={13} className="text-(--destructive)" />
-              : <Plug size={13} strokeWidth={1.75} />}
-            Test connection
-          </motion.button>
-          <motion.button
-            type="button"
-            onClick={handleSave}
-            disabled={!canSubmit || saving}
-            className="flex items-center gap-2 text-[12px] font-semibold text-primary-foreground bg-(--accent) border-none rounded-(--r-md) px-4 py-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            whileHover={!canSubmit || saving ? undefined : { opacity: 0.9 }}
-            whileTap={!canSubmit || saving ? undefined : { scale: 0.97 }}
-            transition={{ duration: 0.15 }}
-          >
-            {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} strokeWidth={1.75} />}
-            {saving ? 'Saving…' : 'Save & enable'}
-          </motion.button>
-        </div>
-      </motion.div>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+      <div className="flex items-center justify-end gap-2 border-t border-line-soft px-6 py-3.5">
+        <span className="mr-auto flex items-center gap-1.5 text-2xs text-muted">
+          <LockSimpleIcon size={12} />
+          Stored on this device only
+        </span>
+        <Button variant="outline" onClick={handleTest} disabled={!canSubmit || testing}>
+          {testing ? <SpinnerGapIcon size={13} weight="bold" className="animate-spin" />
+            : testResult === 'ok' ? <CheckCircleIcon size={13} weight="fill" className="text-success" />
+            : testResult === 'fail' ? <WarningCircleIcon size={13} weight="fill" className="text-danger" />
+            : <PlugIcon size={13} weight="bold" />}
+          Test connection
+        </Button>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" onClick={handleSave} disabled={!canSubmit || saving}>
+          {saving ? <SpinnerGapIcon size={13} weight="bold" className="animate-spin" /> : <CheckIcon size={13} weight="bold" />}
+          {saving ? 'Saving…' : 'Save & enable'}
+        </Button>
+      </div>
+    </>
   )
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-medium text-(--fg-2)">{label}</span>
+      <span className="text-xs font-semibold text-fg-2">{label}</span>
       {children}
     </label>
   )

@@ -1,28 +1,26 @@
-import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import {
+  ArrowClockwiseIcon, CaretRightIcon, CheckIcon, CpuIcon, DownloadSimpleIcon, HardDrivesIcon,
+  HourglassMediumIcon, PlayIcon, WarningCircleIcon, XIcon,
+} from '@phosphor-icons/react'
 import { commands } from '../../bindings'
-import {
-  formatModelSize, isStreaming, modelNameToId, sortForDisplay,
-  type CatalogModel, type ModelId,
-} from '../../lib/models'
+import { formatModelSize, isStreaming, modelNameToId, type CatalogModel, type ModelId } from '../../lib/models'
 import { toast } from 'sonner'
-import {
-  Check, Cpu, Database, Download, Globe, HardDrive, Mic, Radio, Search, X,
-} from 'lucide-react'
-import { Input } from '@/components/ui/input'
-import { Tooltip } from '@/components/ui/tooltip'
+import { Button } from '../../components/ui/Button'
+import { Popover } from '../../components/ui/Popover'
+import { Segmented } from '../../components/ui/Segmented'
 import { VendorMark } from '../../components/ui/VendorMark'
+import { ModelManagerModal } from '../../components/ModelManagerModal'
 import { vendorForFamily } from '../../lib/vendors'
+import { cn } from '../../lib/utils'
 import type { DownloadedModel, HardwareProfile } from '../../types'
 import { useAppStore } from '../../store/useAppStore'
 import type { Download as ModelDownload } from '../../store/modelSlice'
 import { ModelUnloadSection } from './ModelUnloadSection'
 
-// Opens on demand, so its tree stays out of the Settings chunk.
-const ModelManagerModal = lazy(() =>
-  import('../../components/ModelManagerModal').then(m => ({ default: m.ModelManagerModal }))
-)
-
+const VENDOR_NAME: Record<string, string> = {
+  openai: 'OpenAI', nvidia: 'NVIDIA', ibm: 'IBM', qwen: 'Qwen', moonshine: 'Moonshine',
+}
 
 /** Quantised — a proportional bar made small models invisible slivers. */
 function weightTier(bytes: number): 0 | 1 | 2 | 3 {
@@ -33,29 +31,68 @@ function weightTier(bytes: number): 0 | 1 | 2 | 3 {
 }
 
 const TIER_LABEL = ['Light', 'Medium', 'Heavy', 'Max'] as const
-const TIER_HEIGHTS = ['4px', '6px', '8px', '10px']
+const TIER_HEIGHT = ['h-1', 'h-1.5', 'h-2.25', 'h-3']
 
-function WeightMeter({ bytes, active }: { bytes: number; active: boolean }) {
+function WeightMeter({ bytes }: { bytes: number }) {
   const tier = weightTier(bytes)
   return (
-    <Tooltip content={`${TIER_LABEL[tier]} download`}>
-      <span className="flex items-end gap-0.5">
-        {[0, 1, 2, 3].map((i) => (
-          <span
-            key={i}
-            className="w-0.75 rounded-[1px]"
-            style={{
-              height: TIER_HEIGHTS[i],
-              background: i <= tier ? (active ? 'var(--accent)' : 'var(--fg-2)') : 'var(--border)',
-            }}
-          />
-        ))}
-      </span>
-    </Tooltip>
+    <span className="inline-flex h-3 items-end gap-0.5" data-tip={`${TIER_LABEL[tier]} download`}>
+      {TIER_HEIGHT.map((h, i) => (
+        <span key={h} className={cn('w-0.75 rounded-[1px]', h, i <= tier ? 'bg-fg-2' : 'bg-line')} />
+      ))}
+    </span>
   )
 }
 
-/** Card hover backs off over a control, so only one surface lights up. */
+const ACTION = 'flex-1 hover:bg-accent-soft hover:text-accent-ink hover:ring-accent-line [&_svg]:text-accent-ink'
+
+/** The card's own description, with the full text in a popover when it is clipped. */
+function Description({ model }: { model: CatalogModel }) {
+  const ref = useRef<HTMLParagraphElement>(null)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const [open, setOpen] = useState(false)
+  const vendor = vendorForFamily(model.family)
+
+  useEffect(() => () => clearTimeout(timer.current), [])
+
+  const show = () => {
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => {
+      const el = ref.current
+      if (el && el.scrollHeight > el.clientHeight + 1) setOpen(true)
+    }, 300)
+  }
+  const hide = () => {
+    clearTimeout(timer.current)
+    setOpen(false)
+  }
+
+  return (
+    <>
+      <p
+        ref={ref}
+        onPointerEnter={show}
+        onPointerLeave={hide}
+        className="line-clamp-2 min-h-[2lh] text-xs text-pretty text-muted"
+      >
+        {model.detail}
+      </p>
+      <Popover open={open} onOpenChange={setOpen} anchorRef={ref} className="w-72 p-3">
+        <div className="flex items-center gap-2.5">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-field">
+            {vendor ? <VendorMark vendor={vendor} className="size-4.5" /> : <CpuIcon size={16} className="text-muted" />}
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-fg">{model.displayName}</p>
+            {vendor && <p className="text-2xs text-muted">{VENDOR_NAME[vendor]}</p>}
+          </div>
+        </div>
+        <p className="mt-2.5 text-xs leading-normal text-fg-2">{model.detail}</p>
+      </Popover>
+    </>
+  )
+}
+
 function ModelCard({
   model,
   loaded,
@@ -79,162 +116,118 @@ function ModelCard({
   const download: ModelDownload | undefined = useAppStore(s => s.downloads[model.id])
   const streaming = isStreaming(model)
   const vendor = vendorForFamily(model.family)
+  const failed = download?.status === 'error'
 
   return (
-    <div
-      className={`nv-edge flex flex-col gap-2.5 rounded-(--r-lg) p-3 ${
-        loaded
-          ? '[--edge:var(--accent)] bg-(--accent-soft)'
-          : '[--edge:var(--border-soft)] bg-(--panel) hover:[--edge:var(--border)] hover:bg-accent has-[button:hover]:[--edge:var(--border-soft)] has-[button:hover]:bg-(--panel)'
-      }`}
+    <article
+      className={cn(
+        'flex min-w-0 flex-col gap-3 rounded-2xl bg-panel p-4 ring-inset transition-shadow duration-200',
+        loaded ? 'ring-2 ring-accent' : 'ring-1 ring-line-soft',
+      )}
     >
-      <div className="flex gap-2.5">
-        {/* The vendor that trained the model — a real mark reads faster than
-            an initial, and groups the families without an accordion. */}
-        <span
-          className={`grid size-8 shrink-0 place-items-center rounded-(--r-md) ${
-            installed && !loaded
-              ? 'border border-(--accent-soft) bg-(--accent-soft)'
-              : 'border border-(--border) bg-(--surface)'
-          }`}
-        >
-          {vendor
-            ? <VendorMark vendor={vendor} className="size-4.5" />
-            : <Cpu size={15} strokeWidth={1.75} className="text-muted-foreground" />}
+      <header className="flex items-start gap-3">
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-field ring-1 ring-line-soft ring-inset">
+          {vendor ? <VendorMark vendor={vendor} className="size-5" /> : <CpuIcon size={18} className="text-muted" />}
         </span>
-
         <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-1.5">
-            <Tooltip content={model.displayName}>
-              <span className={`min-w-0 flex-1 truncate text-[12.5px] font-semibold tracking-[-0.01em] ${loaded ? 'text-(--accent)' : 'text-(--fg)'}`}>
-                {model.displayName}
-              </span>
-            </Tooltip>
-            {recommended && !loaded && (
-              <span className="shrink-0 rounded-(--r-xs) border border-(--accent-soft) bg-(--accent-soft) px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.04em] text-(--accent)">
-                Best fit
-              </span>
-            )}
-          </div>
-          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{model.description}</p>
+          <p className="flex items-center gap-1.5 text-2xs text-muted">
+            {vendor && VENDOR_NAME[vendor]}
+            {streaming && <span className="rounded-md bg-accent-2-soft px-1.5 font-semibold text-accent-2-ink">Streaming</span>}
+            {recommended && <span className="rounded-md bg-accent-soft px-1.5 font-semibold text-accent-ink">Recommended</span>}
+          </p>
+          <h3 className="mt-0.5 truncate text-sm font-semibold text-fg" title={model.displayName}>{model.displayName}</h3>
         </div>
-      </div>
+      </header>
 
-      <div className="flex items-center gap-2">
-        <WeightMeter bytes={model.sizeBytes} active={loaded} />
-        <span className={`text-[11px] font-medium tabular-nums ${loaded ? 'text-(--accent)' : 'text-(--fg-2)'}`}>
-          {formatModelSize(model.sizeBytes)}
-        </span>
+      <Description model={model} />
 
-        <span className="ml-auto flex items-center gap-1.5">
-          {streaming && (
-            <Tooltip content="Streaming — text appears while you speak">
-              <span className="flex shrink-0 items-center gap-1 rounded-(--r-xs) bg-(--accent-soft) px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.04em] text-(--accent)">
-                <Radio size={9} strokeWidth={2.5} />
-                streaming
-              </span>
-            </Tooltip>
-          )}
-          <Tooltip content={model.multilingual ? 'Multilingual' : 'English only'}>
-            <span className="flex shrink-0 items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">
-              <Globe size={9} strokeWidth={2.25} />
-              {model.multilingual ? 'multi' : 'en'}
+      <dl className="grid grid-cols-2 gap-2 rounded-xl bg-field px-3 py-2">
+        <div>
+          <dt className="text-2xs text-muted">Size</dt>
+          <dd className="mt-0.5 flex items-baseline gap-1.5 text-xs font-semibold text-fg tabular-nums">
+            {formatModelSize(model.sizeBytes)}
+            <WeightMeter bytes={model.sizeBytes} />
+          </dd>
+        </div>
+        <div>
+          <dt className="text-2xs text-muted">Languages</dt>
+          <dd className="mt-0.5 text-xs font-semibold text-fg">{model.multilingual ? 'Multilingual' : 'English'}</dd>
+        </div>
+      </dl>
+
+      {failed && download.error && (
+        <p className="-mt-1 truncate text-2xs text-danger" title={download.error}>
+          <WarningCircleIcon size={11} weight="fill" className="inline align-[-1px]" /> {download.error}
+        </p>
+      )}
+
+      <footer className="mt-auto flex h-8 items-center gap-2">
+        {installed ? (
+          loaded ? (
+            <span className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent text-xs font-semibold text-accent-fg">
+              <CheckIcon size={12} weight="bold" />In use
             </span>
-          </Tooltip>
-        </span>
-      </div>
-
-      {/* Fixed height, so a card does not resize as its state changes. */}
-      <div className="flex h-7 items-center gap-2">
-        {download && download.status !== 'error' ? (
-          <>
+          ) : (
+            <Button variant="chip" onClick={onUse} disabled={disabled} className={ACTION}>
+              <PlayIcon size={12} weight="bold" />Use
+            </Button>
+          )
+        ) : download && !failed ? (
+          <div className="flex h-8 flex-1 items-center gap-2.5">
             {download.status === 'queued' ? (
-              <span className="flex-1 text-[11px] text-muted-foreground">Queued</span>
+              <span className="flex flex-1 items-center gap-1.5 text-xs font-semibold text-fg-2">
+                <HourglassMediumIcon size={14} className="queue-glass text-accent-ink" />Up next
+              </span>
             ) : (
               <>
-                <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-(--surface)">
-                  <motion.span
-                    className="block h-full rounded-full bg-(--accent)"
-                    initial={false}
-                    animate={{ width: `${download.progress}%` }}
-                    transition={{ duration: 0.25 }}
-                  />
+                <DownloadSimpleIcon size={14} weight="bold" className="shrink-0 text-accent-ink" />
+                <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-fg/10">
+                  <span className="block h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${download.progress}%` }} />
                 </span>
-                <span className="shrink-0 text-[11px] font-semibold tabular-nums text-(--accent)">
-                  {download.progress}%
-                </span>
+                <span className="w-8 text-right text-xs font-semibold text-fg-2 tabular-nums">{download.progress}%</span>
               </>
             )}
-            <Tooltip content="Cancel download">
-              <motion.button
-                type="button"
-                aria-label="Cancel download"
-                onClick={onCancel}
-                className="grid size-5 shrink-0 place-items-center rounded-(--r-xs) text-muted-foreground cursor-pointer"
-                whileHover={{ color: 'var(--danger)', backgroundColor: 'color-mix(in srgb, var(--danger) 12%, transparent)' }}
-                whileTap={{ scale: 0.92 }}
-                transition={{ duration: 0.15 }}
-              >
-                <X size={13} strokeWidth={2.25} />
-              </motion.button>
-            </Tooltip>
-          </>
-        ) : loaded ? (
-          // `leading-none`, or the icon centres against the taller line box.
-          <span className="nv-edge [--edge:var(--border-soft)] flex h-7 w-full items-center justify-center gap-1.5 rounded-(--r-md) bg-(--surface) text-[12px] font-semibold text-(--success)">
-            <Check size={12} strokeWidth={2.5} className="shrink-0" />
-            <span className="leading-none">In use</span>
-          </span>
-        ) : (
-          <Tooltip content={download?.error ?? model.displayName}>
             <button
               type="button"
-              onClick={installed ? onUse : onDownload}
-              disabled={disabled}
-              className={`nv-edge flex h-7 w-full items-center justify-center gap-1.5 rounded-(--r-md) bg-(--surface) text-[12px] font-medium cursor-pointer hover:bg-(--accent-soft) hover:text-(--accent) hover:[--edge:color-mix(in_srgb,var(--accent)_45%,transparent)] disabled:cursor-not-allowed disabled:opacity-50 ${
-                download?.status === 'error'
-                  ? '[--edge:var(--danger)] text-destructive'
-                  : 'text-(--fg-2)'
-              }`}
+              aria-label="Cancel download"
+              onClick={onCancel}
+              className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-muted hover:bg-danger-soft hover:text-danger"
             >
-              {installed ? (
-                <span className="leading-none">Use this model</span>
-              ) : (
-                <>
-                  <Download size={12} strokeWidth={2} className="shrink-0" />
-                  <span className="leading-none">
-                    {download?.status === 'error' ? 'Retry download' : 'Download'}
-                  </span>
-                </>
-              )}
+              <XIcon size={12} weight="bold" />
             </button>
-          </Tooltip>
+          </div>
+        ) : (
+          <Button
+            variant="chip"
+            onClick={onDownload}
+            disabled={disabled}
+            className={cn(ACTION, failed && 'text-danger ring-danger/40 hover:bg-danger-soft hover:text-danger hover:ring-danger/60 [&_svg]:text-danger')}
+          >
+            {failed ? <ArrowClockwiseIcon size={12} weight="bold" /> : <DownloadSimpleIcon size={12} weight="bold" />}
+            {failed ? 'Retry' : 'Download'}
+            <span className="font-normal tabular-nums opacity-70">{formatModelSize(model.sizeBytes)}</span>
+          </Button>
         )}
-      </div>
-    </div>
+      </footer>
+    </article>
   )
 }
 
 type Filter = 'all' | 'installed' | 'streaming' | 'multilingual'
 
-const FILTERS: { id: Filter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'installed', label: 'On disk' },
-  { id: 'streaming', label: 'Streaming' },
-  { id: 'multilingual', label: 'Multilingual' },
-]
+const FILTER_LABEL: Record<Filter, string> = {
+  all: 'All', installed: 'On this PC', streaming: 'Streaming', multilingual: 'Multilingual',
+}
 
-/** The model catalog. Filters narrow the grid rather than folding it. */
+/** The model catalog, filtered to what the chosen tab matches. */
 export function VoiceTab() {
   const [profile, setProfile] = useState<HardwareProfile | null>(null)
   const [modelSaving, setModelSaving] = useState(false)
   const [onDisk, setOnDisk] = useState<DownloadedModel[]>([])
   const [managerOpen, setManagerOpen] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
-  const [query, setQuery] = useState('')
 
   const catalog = useAppStore(s => s.catalog)
-  const orderedModels = useMemo(() => sortForDisplay(catalog), [catalog])
   const refreshCatalog = useAppStore(s => s.refreshCatalog)
   const pendingCount = useAppStore(s => Object.keys(s.downloads).length)
   const selected = useAppStore(s => s.selectedModel)
@@ -263,29 +256,23 @@ export function VoiceTab() {
   // `selected` is set even with nothing downloaded, so require the file too.
   const loadedVariant = selected && onDiskVariants.has(selected) ? selected : null
 
+  // In use first, then what is on disk, then the rest; smallest first within each.
+  const ordered = useMemo(() => {
+    const rank = (m: CatalogModel) => (m.id === loadedVariant ? 0 : onDiskVariants.has(m.id) ? 1 : 2)
+    return [...catalog].sort((a, b) => rank(a) - rank(b) || a.sizeBytes - b.sizeBytes)
+  }, [catalog, loadedVariant, onDiskVariants])
+
   const diskBytes = onDisk.reduce((a, m) => a + m.sizeBytes, 0)
 
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return orderedModels.filter((m) => {
-      if (filter === 'installed' && !onDiskVariants.has(m.id)) return false
-      if (filter === 'streaming' && !isStreaming(m)) return false
-      if (filter === 'multilingual' && !m.multilingual) return false
-      if (q && !m.displayName.toLowerCase().includes(q) && !m.description.toLowerCase().includes(q)) {
-        return false
-      }
-      return true
-    })
-  }, [orderedModels, filter, query, onDiskVariants])
+  const matches = useCallback((m: CatalogModel, f: Filter) =>
+    f === 'all' || (f === 'installed' ? onDiskVariants.has(m.id) : f === 'streaming' ? isStreaming(m) : m.multilingual),
+  [onDiskVariants])
 
-  const filterCount = useCallback((id: Filter) => {
-    if (id === 'all') return orderedModels.length
-    return orderedModels.filter((m) =>
-      id === 'installed' ? onDiskVariants.has(m.id)
-        : id === 'streaming' ? isStreaming(m)
-          : m.multilingual,
-    ).length
-  }, [orderedModels, onDiskVariants])
+  const shown = ordered.filter(m => matches(m, filter))
+  const filterOptions = (Object.keys(FILTER_LABEL) as Filter[]).map(f => ({
+    value: f,
+    label: <>{FILTER_LABEL[f]} <span className="tabular-nums opacity-70">{ordered.filter(m => matches(m, f)).length}</span></>,
+  }))
 
   // Only offered for a model on disk, so the override can't point at nothing.
   const handleUseModel = async (v: ModelId) => {
@@ -299,136 +286,50 @@ export function VoiceTab() {
     finally { setModelSaving(false) }
   }
 
-  const shownModel = loadedVariant ? catalog.find(m => m.id === loadedVariant) : null
-  const shownVendor = shownModel ? vendorForFamily(shownModel.family) : null
-
   return (
-    <div className="flex flex-col gap-3">
-      {/* What is running — a status readout, so one line. */}
-      <div className={`flex shrink-0 items-center gap-2.5 rounded-(--r-md) border px-3 py-2 ${
-        loadedVariant ? 'border-(--accent-soft) bg-(--accent-soft)' : 'border-(--border-soft) bg-(--panel)'
-      }`}>
-        <span className={`grid size-7 shrink-0 place-items-center rounded-(--r-sm) ${
-          loadedVariant ? 'bg-(--accent-soft)' : 'text-muted-foreground'
-        }`}>
-          {shownVendor
-            ? <VendorMark vendor={shownVendor} className="size-4" />
-            : <Mic size={13} strokeWidth={2} />}
-        </span>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center gap-3">
+        <Segmented value={filter} options={filterOptions} onChange={setFilter} aria-label="Filter models" />
+        <Button variant="chip" onClick={() => setManagerOpen(true)} className="group ml-auto">
+          <HardDrivesIcon size={14} weight="bold" className="text-accent-ink" />
+          Manage downloads
+          <span className="font-normal text-muted tabular-nums">{formatModelSize(diskBytes)}</span>
+          <CaretRightIcon size={10} weight="bold" className="text-muted transition-transform group-hover:translate-x-0.5" />
+        </Button>
+        <ModelUnloadSection />
+      </div>
 
-        <span className="shrink-0 truncate text-[13px] font-bold tracking-[-0.02em] text-(--fg)">
-          {shownModel ? shownModel.displayName : 'No model loaded'}
-        </span>
-
-        {shownModel && isStreaming(shownModel) && (
-          <span className="flex shrink-0 items-center gap-1 rounded-(--r-xs) bg-(--accent-soft) px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.04em] text-(--accent)">
-            <Radio size={9} strokeWidth={2.5} />
-            live
-          </span>
+      {/* Room for the in-use card's outline and the last row; the scrollbar sits
+          in the page's right gutter instead of over the cards. */}
+      <div className="voice-scroll mt-4 -mr-3.5 min-h-0 flex-1 overflow-y-auto overscroll-none pt-0.5 pr-1 pb-8 [scrollbar-gutter:stable]">
+        {shown.length === 0 && (
+          <p className="py-16 text-center text-sm text-muted">No models here yet.</p>
         )}
-        <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
-          {shownModel ? shownModel.detail : 'Pick a model below to start transcribing.'}
-        </span>
-
-        <span className="flex shrink-0 items-center gap-3 border-l border-(--border-soft) pl-3 text-[10px]">
-          <span className="flex items-center gap-1.5 text-(--fg-2)">
-            <Cpu size={11} className="text-(--accent)" />
-            {profile
-              ? `${profile.executionProvider.toUpperCase()}${profile.vramGb > 0 ? ` · ${profile.vramGb} GB` : ''}`
-              : 'Detecting…'}
-          </span>
-          <span className="flex items-center gap-1.5 text-muted-foreground">
-            <HardDrive size={11} />
-            {onDisk.length} on disk · {(diskBytes / 1e9).toFixed(2)} GB
-          </span>
-        </span>
-
-        <button
-          type="button"
-          onClick={() => setManagerOpen(true)}
-          title="Manage downloaded models"
-          className="flex shrink-0 items-center gap-1.5 rounded-(--r-sm) border border-(--border) bg-(--surface) px-2 py-1 text-[11px] font-medium text-(--fg-2) cursor-pointer transition-colors duration-(--t-fast) hover:bg-accent hover:text-(--fg)"
-        >
-          <Database size={11} strokeWidth={1.75} className="shrink-0" />
-          <span className="leading-none">Manage</span>
-        </button>
-      </div>
-
-      <ModelUnloadSection />
-
-      <div className="flex shrink-0 items-center gap-2">
-        <div className="flex items-center gap-1">
-          {FILTERS.map((f) => {
-            const on = filter === f.id
-            return (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setFilter(f.id)}
-                className={`nv-edge flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium cursor-pointer ${
-                  on
-                    ? '[--edge:color-mix(in_srgb,var(--accent)_55%,transparent)] bg-(--accent-soft) text-(--accent)'
-                    : 'text-(--fg-2) hover:[--edge:var(--muted)] hover:text-(--fg)'
-                }`}
-              >
-                {f.label}
-                <span className="tabular-nums">{filterCount(f.id)}</span>
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="relative w-42 shrink-0">
-          <Search size={12} strokeWidth={2} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Find a model…"
-            aria-label="Find a model"
-            className="h-7 pl-7 pr-2 text-[11px]"
-          />
-        </div>
-
-        <span className="ml-auto min-w-0 truncate text-right text-[10px] text-muted-foreground">
-          Bars show download weight — light to heavy.
-        </span>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2.5">
-        {visible.map((model) => (
-          <ModelCard
-            key={model.id}
-            model={model}
-            loaded={loadedVariant === model.id}
-            installed={onDiskVariants.has(model.id)}
-            recommended={recommendedVariant === model.id}
-            disabled={modelSaving}
-            onDownload={() => void startDownload(model.id)}
-            onUse={() => void handleUseModel(model.id)}
-            onCancel={() => void cancelDownload(model.id)}
-          />
-        ))}
-      </div>
-
-      {visible.length === 0 && (
-        <p className="py-8 text-center text-[12px] text-muted-foreground">
-          No models match that filter.
-        </p>
-      )}
-
-      <AnimatePresence>
-        {managerOpen && (
-          <Suspense fallback={null}>
-            <ModelManagerModal
-              onClose={() => {
-                setManagerOpen(false)
-                refreshOnDisk()
-                void refreshModelInfo()
-              }}
+        <div className="grid grid-cols-3 gap-3">
+          {shown.map((model) => (
+            <ModelCard
+              key={model.id}
+              model={model}
+              loaded={loadedVariant === model.id}
+              installed={onDiskVariants.has(model.id)}
+              recommended={recommendedVariant === model.id}
+              disabled={modelSaving}
+              onDownload={() => void startDownload(model.id)}
+              onUse={() => void handleUseModel(model.id)}
+              onCancel={() => void cancelDownload(model.id)}
             />
-          </Suspense>
-        )}
-      </AnimatePresence>
+          ))}
+        </div>
+      </div>
+
+      <ModelManagerModal
+        open={managerOpen}
+        onClose={() => {
+          setManagerOpen(false)
+          refreshOnDisk()
+          void refreshModelInfo()
+        }}
+      />
     </div>
   )
 }

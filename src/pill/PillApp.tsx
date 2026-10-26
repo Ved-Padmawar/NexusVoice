@@ -1,7 +1,6 @@
 import { memo, useEffect, useState, useCallback, useRef, useMemo, useSyncExternalStore } from 'react'
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { Check, Pause, Play } from 'lucide-react'
+import { CheckIcon, PauseIcon, PlayIcon } from '@phosphor-icons/react'
 import { commands, type PillSettings, type TranscriptionPartial } from '../bindings'
 import { extractErrorMessage } from '../lib/errors'
 import { useEventListener } from '../lib/hooks'
@@ -64,11 +63,9 @@ function updateBar(bar: HTMLSpanElement | null, level: number) {
 function Spinner({ colors }: { colors: [string, string] }) {
   return (
     <div className="pill__spinner-slot">
-      <motion.div
+      <div
         className="pill__spinner"
         style={{ borderRadius: '50%', border: `1.5px solid ${colors[0]}`, borderTopColor: colors[1] }}
-        animate={{ rotate: 360 }}
-        transition={{ duration: 1, ease: 'linear', repeat: Infinity }}
       />
     </div>
   )
@@ -105,7 +102,7 @@ export function PillApp() {
   const levelsRef = useRef<number[]>(new Array(FLAT_BARS.length).fill(0))
   const textRef = useRef<HTMLDivElement | null>(null)
   const innerRef = useRef<HTMLSpanElement | null>(null)
-  const reduceMotion = useReducedMotion()
+  const pillRef = useRef<HTMLDivElement | null>(null)
 
   const isRecording = state === 'recording'
   const isDictation = state === 'dictation' || state === 'dictation-paused'
@@ -114,7 +111,7 @@ export function PillApp() {
   const wantsCard =
     liveTranscript && (isRecording || isDictation) && hasPartial
   const { roomy, expanded, width, height, radius, headroom } = usePillGeometry(
-    wantsCard, tooltip !== '', PILL_WIDTH[state], reduceMotion, innerRef, textRef,
+    wantsCard, tooltip !== '', PILL_WIDTH[state], pillRef, innerRef, textRef,
   )
 
   const handleDragStart = useCallback((e: React.MouseEvent) => {
@@ -293,7 +290,7 @@ export function PillApp() {
             aria-label={isPaused ? 'Resume dictation' : 'Pause dictation'}
             title={isPaused ? 'Resume' : 'Pause'}
           >
-            {isPaused ? <Play size={11} strokeWidth={2.4} /> : <Pause size={11} strokeWidth={2.4} />}
+            {isPaused ? <PlayIcon size={11} weight="bold" /> : <PauseIcon size={11} weight="bold" />}
           </button>
           {renderWaveform(true)}
           <button
@@ -304,7 +301,7 @@ export function PillApp() {
             aria-label="Commit dictation"
             title="Save"
           >
-            <Check size={12} strokeWidth={2.5} />
+            <CheckIcon size={12} weight="bold" />
           </button>
         </>
       )}
@@ -320,58 +317,37 @@ export function PillApp() {
       {/* Shown once the window has room; over a card, inside its top edge. */}
       {tooltip && headroom && <div className={`pill-tooltip${roomy ? ' pill-tooltip--inset' : ''}`}>{tooltip}</div>}
 
-      <motion.div
+      <div
         // Keep the outgoing transcript in its card layout until the close
         // finishes. Switching to a flex row during its fade rewraps the text.
         className={`pill pill--${state}${roomy ? ' pill--expanded' : ''}${roomy && !expanded ? ' pill--closing' : ''}`}
         data-pill-theme={pillTheme}
-        initial={false}
+        ref={pillRef}
         style={{ width, height, borderRadius: radius, overflow: 'hidden' }}
         onMouseDown={handleDragStart}
         role="status"
         aria-label={`NexusVoice: ${state}`}
       >
-        <AnimatePresence>
-          {expanded && (
-            <motion.div
-              key="tide"
+        {roomy && (
+          <>
+            <div
               className="pill__tide"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{
-                height: 88,
-                opacity: isPaused ? 0.4 : 1,
-                transition: reduceMotion ? { duration: 0 } : { height: { duration: 0.28, ease: [0.22, 1, 0.36, 1] }, opacity: { duration: 0.2 } },
-              }}
-              exit={{ opacity: 0, transition: { duration: reduceMotion ? 0 : 0.09 } }}
               style={{ background: `linear-gradient(to top, rgba(${theme.accentRgb},0.16), transparent)` }}
             />
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {expanded && (
-            <motion.div
-              key="transcript"
+            <div
               ref={textRef}
               className="pill__transcript"
               style={{ '--card-w': `${CARD_W}px` } as React.CSSProperties}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1, transition: reduceMotion ? { duration: 0 } : { duration: 0.24, delay: 0.14 } }}
-              exit={{ opacity: 0, transition: { duration: reduceMotion ? 0 : 0.09 } }}
             >
               <span ref={innerRef} style={{ display: 'block' }}>
                 <LiveText />
                 {!isPaused && (
-                  <motion.span
-                    className="pill__caret"
-                    animate={{ opacity: [1, 1, 0.15, 0.15] }}
-                    transition={{ duration: 1.05, times: [0, 0.55, 0.5501, 1], repeat: Infinity, ease: 'linear' }}
-                  />
+                  <span className="pill__caret" />
                 )}
               </span>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </div>
+          </>
+        )}
 
         {showStrip && (
           <div className={isDictation && !roomy ? 'pill__dictation' : `pill__strip${roomy && !expanded && state === 'idle' ? ' pill__strip--returning' : ''}`}
@@ -391,7 +367,7 @@ export function PillApp() {
             <span className="pill__pct">{downloadPct}%</span>
           </>
         )}
-      </motion.div>
+      </div>
     </div>
   )
 }

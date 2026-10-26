@@ -53,7 +53,7 @@ describe('HotkeySection', () => {
   it('enters listening mode on click', async () => {
     await renderSettings()
     fireEvent.click(recordingRecorder())
-    expect(screen.getByText(/press keys/i)).toBeInTheDocument()
+    expect(screen.getByText(/press the keys/i)).toBeInTheDocument()
   })
 
   it('shows pressed keys while listening', async () => {

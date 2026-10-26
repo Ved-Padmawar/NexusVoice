@@ -1,26 +1,24 @@
 import { useState, useEffect, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Dialog } from 'radix-ui'
-import { HardDrive, Trash2, X, Database } from 'lucide-react'
+import { TrashIcon, XIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../bindings'
+import { formatModelSize } from '../lib/models'
+import { VENDORS, vendorForFamily, isRaster } from '../lib/vendors'
+import { useAppStore } from '../store/useAppStore'
+import { Modal } from './ui/Modal'
+import { VendorMark } from './ui/VendorMark'
 import type { DownloadedModel } from '../types'
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const gb = bytes / (1024 ** 3)
-  if (gb >= 1) return `${gb.toFixed(2)} GB`
-  const mb = bytes / (1024 ** 2)
-  return `${mb.toFixed(0)} MB`
-}
-
 type Props = {
+  open: boolean
   onClose: () => void
 }
 
-export function ModelManagerModal({ onClose }: Props) {
+/** Models on this PC: where deleting lives. The total leads; the list, largest first, is the breakdown. */
+export function ModelManagerModal({ open, onClose }: Props) {
   const [models, setModels] = useState<DownloadedModel[]>([])
   const [deleting, setDeleting] = useState<string | null>(null)
+  const catalog = useAppStore(s => s.catalog)
 
   const load = useCallback(() => {
     commands.getDownloadedModels()
@@ -28,7 +26,7 @@ export function ModelManagerModal({ onClose }: Props) {
       .catch(() => {})
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { if (open) load() }, [open, load])
 
   const handleDelete = async (variant: string, displayName: string) => {
     setDeleting(variant)
@@ -43,114 +41,73 @@ export function ModelManagerModal({ onClose }: Props) {
     }
   }
 
-  const totalBytes = models.reduce((acc, m) => acc + m.sizeBytes, 0)
+  const rows = [...models].sort((a, b) => b.sizeBytes - a.sizeBytes)
+  const [total, unit] = formatModelSize(rows.reduce((acc, m) => acc + m.sizeBytes, 0)).split(' ')
 
   return (
-    <Dialog.Root open onOpenChange={(next) => { if (!next) onClose() }}>
-      <Dialog.Portal forceMount>
-        <Dialog.Overlay asChild>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
-          />
-        </Dialog.Overlay>
-        <Dialog.Content
-          aria-describedby={undefined}
-          asChild
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          className="fixed top-0 right-0 bottom-0 left-(--sidebar-w) z-50 flex items-center justify-center pointer-events-none"
+    <Modal open={open} onClose={onClose} aria-labelledby="manager-title" className="max-h-160 w-115">
+      <div className="flex shrink-0 items-start gap-3 px-6 pt-5 pb-3">
+        <div className="flex-1">
+          <h2 id="manager-title" className="text-sm font-semibold text-fg-2">Models on this PC</h2>
+          <p className="mt-1 flex items-baseline gap-1.5 tabular-nums">
+            <span className="text-[30px] leading-none font-bold tracking-[-0.03em] text-fg">{total}</span>
+            <span className="text-md font-semibold text-muted">{unit}</span>
+            <span className="ml-1.5 text-xs text-muted">
+              {rows.length > 0 ? `across ${rows.length} model${rows.length === 1 ? '' : 's'}` : 'No models downloaded'}
+            </span>
+          </p>
+        </div>
+        <button
+          type="button"
+          aria-label="Close"
+          onClick={onClose}
+          className="grid size-6 cursor-pointer place-items-center rounded-md text-muted hover:bg-danger-soft hover:text-danger"
         >
-          <div>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 8 }}
-              transition={{ duration: 0.22, ease: 'easeOut' }}
-              className="w-115 flex flex-col bg-(--panel) border border-(--border) rounded-(--r-xl) shadow-(--shadow-lg) overflow-hidden pointer-events-auto"
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-(--border-soft)">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-(--r-lg) bg-(--accent-soft) text-(--accent) flex items-center justify-center shrink-0">
-                    <Database size={15} strokeWidth={2} />
-                  </div>
-                  <div>
-                    <Dialog.Title className="text-[15px] font-bold tracking-tight text-(--fg) m-0">Model Manager</Dialog.Title>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      {models.length > 0 ? `${models.length} model${models.length > 1 ? 's' : ''} · ${formatBytes(totalBytes)} on disk` : 'No models downloaded'}
-                    </p>
-                  </div>
-                </div>
-                <Dialog.Close asChild>
-                  <button
-                    type="button"
-                    aria-label="Close"
-                    className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer transition-colors duration-(--t-fast) hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] hover:text-destructive"
-                  >
-                    <X size={14} strokeWidth={2} />
-                  </button>
-                </Dialog.Close>
-              </div>
+          <XIcon size={12} weight="bold" />
+        </button>
+      </div>
 
-              {/* Model list */}
-              <div className="flex flex-col gap-2 px-6 py-5">
-                <AnimatePresence initial={false}>
-                  {models.length === 0 ? (
-                    <p className="text-[12px] text-muted-foreground text-center py-6">No models on disk.</p>
-                  ) : (
-                    models.map((model) => (
-                      <motion.div
-                        key={model.variant}
-                        layout
-                        initial={{ opacity: 0, y: -6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, x: -8 }}
-                        transition={{ duration: 0.18, ease: 'easeOut' }}
-                        className="flex items-center gap-3 px-4 py-3 rounded-(--r-lg) bg-(--surface) border border-(--border-soft)"
-                      >
-                        <HardDrive size={13} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[12px] font-semibold text-(--fg)">{model.displayName}</span>
-                            {model.isActive && (
-                              <span className="text-[9px] font-bold text-(--success) bg-(--success-soft) border border-(--success-soft) rounded-(--r-xs) px-1.25 py-px uppercase tracking-[0.04em]">
-                                Active
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[10px] text-muted-foreground">{formatBytes(model.sizeBytes)}</span>
-                        </div>
-
-                        <motion.button
-                          type="button"
-                          aria-label={`Delete ${model.displayName}`}
-                          disabled={deleting === model.variant}
-                          className="flex items-center justify-center w-7 h-7 rounded-(--r-md) text-muted-foreground bg-transparent border-none cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                          onClick={() => handleDelete(model.variant, model.displayName)}
-                          whileHover={deleting === model.variant ? undefined : { backgroundColor: 'var(--surface-hover)', color: 'var(--danger)' }}
-                          whileTap={deleting === model.variant ? undefined : { scale: 0.92 }}
-                          transition={{ duration: 0.15 }}
-                        >
-                          <Trash2 size={13} strokeWidth={1.75} />
-                        </motion.button>
-                      </motion.div>
-                    ))
+      <ul className="min-h-0 flex-1 overflow-y-auto overscroll-none px-3 pb-2">
+        {rows.map((model, i) => {
+          const family = catalog.find(m => m.id === model.variant)?.family
+          const vendor = family ? vendorForFamily(family) : null
+          const color = vendor && !isRaster(vendor) ? VENDORS[vendor].color : null
+          return (
+            <li key={model.variant}>
+              {i > 0 && <div aria-hidden="true" className="mx-3 h-px bg-line-soft" />}
+              <div className="flex h-14 items-center gap-3 rounded-lg px-3 hover:bg-surface-hover has-[[data-del]:hover]:bg-transparent">
+                <span
+                  className="grid size-8 shrink-0 place-items-center rounded-lg bg-field"
+                  style={color ? { background: `color-mix(in oklab, ${color} 14%, transparent)` } : undefined}
+                >
+                  {vendor && <VendorMark vendor={vendor} className="size-4.5" />}
+                </span>
+                <span className="flex min-w-0 flex-1 items-center gap-2 text-sm font-semibold text-fg">
+                  <span className="truncate">{model.displayName}</span>
+                  {model.isActive && (
+                    <span className="shrink-0 rounded-md bg-accent-soft px-1.5 py-px text-[10px] font-semibold text-accent-ink">In use</span>
                   )}
-                </AnimatePresence>
+                </span>
+                <span className="text-sm font-medium text-fg-2 tabular-nums">{formatModelSize(model.sizeBytes)}</span>
+                <button
+                  type="button"
+                  data-del
+                  aria-label={`Delete ${model.displayName}`}
+                  disabled={deleting === model.variant}
+                  onClick={() => void handleDelete(model.variant, model.displayName)}
+                  className="grid size-8 cursor-pointer place-items-center rounded-lg text-muted transition-[color,background-color] hover:bg-danger-soft hover:text-danger disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  <TrashIcon size={14} />
+                </button>
               </div>
+            </li>
+          )
+        })}
+      </ul>
 
-              {/* Footer */}
-              <div className="px-6 pb-5 pt-0">
-                <p className="text-[10px] text-muted-foreground">Deleting the active model frees its memory; transcription will prompt you to pick a model again.</p>
-              </div>
-            </motion.div>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+      <p className="shrink-0 border-t border-line-soft px-6 pt-3 pb-4 text-2xs text-pretty text-muted">
+        Every NexusVoice build on this PC shares these files. Deleting the active model frees its memory; transcription will prompt you to pick a model again.
+      </p>
+    </Modal>
   )
 }

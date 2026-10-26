@@ -34,6 +34,12 @@ async commitDictation() : Promise<null> {
 async getUsageStats() : Promise<UsageStatsResponse> {
     return await TAURI_INVOKE("get_usage_stats");
 },
+/**
+ * Words per day for the dashboard's waveform, in the caller's time zone.
+ */
+async getDailyWords(days: number, utcOffsetMinutes: number) : Promise<DailyWordsResponse[]> {
+    return await TAURI_INVOKE("get_daily_words", { days, utcOffsetMinutes });
+},
 async getTranscripts(page: PageQuery) : Promise<TranscriptResponse[]> {
     return await TAURI_INVOKE("get_transcripts", { page });
 },
@@ -284,6 +290,11 @@ downloadProgress: number | null;
  * The running download is unpacking and checking the pack.
  */
 verifying: boolean }
+export type DailyWordsResponse = { 
+/**
+ * Local calendar day, `YYYY-MM-DD`.
+ */
+day: string; words: number }
 export type DictionaryResponse = { id: number; term: string; replacement: string; hits: number; createdAt: string }
 export type DownloadStatus = "queued" | "running" | "error"
 export type DownloadedModel = { variant: string; displayName: string; sizeBytes: number; isActive: boolean }

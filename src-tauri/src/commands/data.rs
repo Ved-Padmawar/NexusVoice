@@ -43,6 +43,42 @@ pub async fn get_usage_stats(db: State<'_, Database>) -> Result<UsageStatsRespon
     })
 }
 
+#[derive(Debug, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyWordsResponse {
+    /// Local calendar day, `YYYY-MM-DD`.
+    pub day: String,
+    pub words: i64,
+}
+
+/// A year, the most the dashboard could ever draw.
+const MAX_DAYS: u32 = 366;
+/// UTC−12 to UTC+14, the range real time zones span.
+const UTC_OFFSET_RANGE: std::ops::RangeInclusive<i32> = -12 * 60..=14 * 60;
+
+/// Words per day for the dashboard's waveform, in the caller's time zone.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_daily_words(
+    db: State<'_, Database>,
+    days: u32,
+    utc_offset_minutes: i32,
+) -> Result<Vec<DailyWordsResponse>, ApiError> {
+    if !UTC_OFFSET_RANGE.contains(&utc_offset_minutes) {
+        return Err(ApiError::new("invalid_input", "UTC offset is out of range"));
+    }
+    let rows = TranscriptRepository::new(db.pool().await?)
+        .daily_words(
+            i64::from(days.clamp(1, MAX_DAYS)),
+            i64::from(utc_offset_minutes),
+        )
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(day, words)| DailyWordsResponse { day, words })
+        .collect())
+}
+
 const MAX_PAGE_SIZE: i64 = 200;
 const DEFAULT_PAGE_SIZE: i64 = 50;
 

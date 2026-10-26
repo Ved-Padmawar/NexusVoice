@@ -24,12 +24,12 @@ describe('MicrophoneSection', () => {
 
     // The trigger shows the default device once loaded.
     await waitFor(() =>
-      expect(screen.getByText(/Default — Realtek Microphone/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Microphone' })).toHaveTextContent(/Default — Realtek Microphone/)
     )
 
     // Opening the menu reveals the named alternative.
-    fireEvent.click(screen.getByRole('combobox'))
-    expect(await screen.findByText('Blue Yeti')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Microphone' }))
+    expect(await screen.findByRole('listbox')).toHaveTextContent('Blue Yeti')
   })
 
   it('preselects a saved non-default device', async () => {
@@ -39,7 +39,7 @@ describe('MicrophoneSection', () => {
     ])
     render(<MicrophoneSection />)
     await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: /Blue Yeti/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Microphone' })).toHaveTextContent('Blue Yeti')
     )
   })
 
@@ -48,9 +48,9 @@ describe('MicrophoneSection', () => {
     render(<MicrophoneSection />)
 
     await waitFor(() =>
-      expect(screen.getByText(/Default — Realtek Microphone/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Microphone' })).toHaveTextContent(/Default — Realtek Microphone/)
     )
-    fireEvent.click(screen.getByRole('combobox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Microphone' }))
     fireEvent.click(await screen.findByText('Blue Yeti'))
 
     await waitFor(() =>

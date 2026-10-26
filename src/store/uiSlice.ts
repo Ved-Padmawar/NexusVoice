@@ -3,8 +3,12 @@ import { commands, type PillSettings } from '../bindings'
 import { logger } from '../lib/logger'
 import { subscribePillSettings } from '../lib/pillSettings'
 import { takeLegacyPill } from './legacyPill'
-import type { AppState, ThemeName } from './useAppStore'
+import type { AppState } from './useAppStore'
 import type { SettingsTab } from '../lib/routes'
+
+export const THEME_NAMES = ['steel', 'midnight', 'indigo', 'orchid', 'canvas', 'dawn', 'breeze', 'blossom'] as const
+export type ThemeName = typeof THEME_NAMES[number]
+export const DEFAULT_THEME: ThemeName = 'indigo'
 
 const DEFAULT_PILL: PillSettings = { theme: 'steel', waveformStyle: 'bars', liveTranscript: false }
 
@@ -24,10 +28,10 @@ export type UiSlice = {
 }
 
 export const createUiSlice: StateCreator<AppState, [], [], UiSlice> = (set, get) => ({
-  theme: 'abyss',
+  theme: DEFAULT_THEME,
   pill: DEFAULT_PILL,
   activeRoute: '/',
-  activeSettingsTab: 'appearance',
+  activeSettingsTab: 'general',
   modelChosen: false,
 
   setTheme: (theme) => set({ theme }),

@@ -1,48 +1,58 @@
-import { motion } from 'framer-motion'
-import { Captions } from 'lucide-react'
+import { ClosedCaptioningIcon, MicrophoneIcon } from '@phosphor-icons/react'
+import { Switch } from './ui/Switch'
 import { useAppStore } from '../store/useAppStore'
+import { pillThemeDef } from '../lib/pillThemes'
+import './LiveTranscriptToggle.css'
 
 /** Expand the pill into a live transcript card as you speak. */
 export function LiveTranscriptToggle() {
   const liveTranscript = useAppStore((s) => s.pill.liveTranscript)
   const updatePill = useAppStore((s) => s.updatePill)
-
-  const toggle = () => { void updatePill({ liveTranscript: !liveTranscript }) }
+  const pillTheme = useAppStore((s) => s.pill.theme)
+  const theme = pillThemeDef(pillTheme)
 
   return (
-    <div className="nv-edge [--edge:var(--border-soft)] flex items-center justify-between gap-4 rounded-(--r-lg) bg-(--panel) px-4 py-3">
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-(--r-md) bg-(--accent-soft) text-(--accent)">
-          <Captions size={14} strokeWidth={2} />
-        </div>
-        <div className="min-w-0">
-          <p className="text-[12px] font-semibold tracking-[-0.01em] text-(--fg-2)">Live transcript in the pill</p>
-          <p className="mt-0.75 text-[11px] text-muted-foreground">
-            The pill expands into a card and fills in as you speak. A large
-            model on modest hardware may lag behind your voice.
-          </p>
+    <div className="flex flex-col gap-3 rounded-2xl bg-panel p-4 ring-1 ring-line-soft ring-inset">
+      <div className="flex items-center gap-3">
+        <span className="grid size-8 place-items-center rounded-[10px] bg-accent-2-soft text-base text-accent-2-ink">
+          <ClosedCaptioningIcon size={16} weight="duotone" />
+        </span>
+        <p className="flex-1 text-sm font-semibold text-fg">Live transcript in the pill</p>
+        <Switch
+          checked={liveTranscript}
+          onChange={(on) => { void updatePill({ liveTranscript: on }) }}
+          aria-label="Live transcript in the pill"
+        />
+      </div>
+      <p className="text-xs text-pretty text-muted">
+        The pill opens into a card that fills in as you speak. A large model on modest hardware may lag behind your voice.
+      </p>
+      {/* Match redesign's full-size card, scaled inside the clipped stage. */}
+      <div aria-hidden="true" className="mt-auto grid h-20 place-items-center overflow-hidden rounded-lg bg-field ring-1 ring-line-soft ring-inset">
+        <div className="origin-center scale-[.6]">
+          <div
+            className="live-transcript-preview"
+            data-pill-theme={pillTheme}
+            style={{ background: theme.bg, color: theme.brand, '--preview-accent': theme.accent } as React.CSSProperties}
+          >
+            <span className="live-transcript-preview__tide" />
+            <div className="live-transcript-preview__text">
+              <p>
+                <span>Let’s move the design review to Thursday and loop in the</span>{' '}
+                <span className="live-transcript-preview__tentative">platform team before</span>
+                <span className="live-transcript-preview__caret" />
+              </p>
+            </div>
+            <div className="live-transcript-preview__strip">
+              <MicrophoneIcon size={12} weight="fill" />
+              <span className="live-transcript-preview__wave">
+                {Array.from({ length: 8 }, (_, i) => <i key={i} />)}
+              </span>
+              <span className="live-transcript-preview__hint">Hold to speak</span>
+            </div>
+          </div>
         </div>
       </div>
-
-      <motion.button
-        type="button"
-        role="switch"
-        aria-checked={liveTranscript}
-        aria-label="Live transcript in the pill"
-        onClick={toggle}
-        className="relative h-6 w-10.5 shrink-0 cursor-pointer rounded-full border-none p-0"
-        initial={false}
-        animate={{ backgroundColor: liveTranscript ? 'var(--accent)' : 'var(--border)' }}
-        whileTap={{ scale: 0.95 }}
-        transition={{ duration: 0.2 }}
-      >
-        <motion.span
-          className="absolute top-0.75 left-0.75 size-4.5 rounded-full bg-white shadow-sm"
-          initial={false}
-          animate={{ x: liveTranscript ? 18 : 0 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 28 }}
-        />
-      </motion.button>
     </div>
   )
 }

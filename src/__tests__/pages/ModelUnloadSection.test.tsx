@@ -13,11 +13,11 @@ beforeEach(() => {
 })
 
 describe('ModelUnloadSection', () => {
-  it('shows the saved setting as checked', async () => {
+  it('shows the saved setting selected', async () => {
     mockInvoke.mockResolvedValue('after15Minutes')
     render(<ModelUnloadSection />)
     await waitFor(() =>
-      expect(screen.getByRole('radio', { name: '15 min' })).toHaveAttribute('aria-checked', 'true')
+      expect(screen.getByRole('button', { name: 'Unload when idle' })).toHaveTextContent('15 min')
     )
   })
 
@@ -25,8 +25,9 @@ describe('ModelUnloadSection', () => {
     mockInvoke.mockResolvedValue('never')
     render(<ModelUnloadSection />)
     // Disabled until the saved value has loaded.
-    await waitFor(() => expect(screen.getByRole('radio', { name: '1 hour' })).toBeEnabled())
-    fireEvent.click(screen.getByRole('radio', { name: '1 hour' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Unload when idle' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Unload when idle' }))
+    fireEvent.click(await screen.findByRole('option', { name: '1 hour' }))
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('set_model_unload', { policy: 'after1Hour' })
     )

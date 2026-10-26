@@ -9,6 +9,10 @@ import type { PillSettings } from '../../types'
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({ setAlwaysOnTop: vi.fn().mockResolvedValue(undefined), startDragging: vi.fn().mockResolvedValue(undefined) }) }))
 vi.mock('../../components/WaveformCanvas', () => ({ WaveformCanvas: () => <canvas /> }))
 
+// jsdom has no CSS transition engine. Model the browser's completion promise;
+// the real-WebView suite checks the interpolated dimensions and fade timing.
+Element.prototype.getAnimations ??= () => []
+
 const listeners = new Map<string, Set<EventCallback<unknown>>>()
 const emit = async (event: string, payload: unknown = null) => {
   await act(async () => { for (const handler of listeners.get(event) ?? []) await handler({ event, id: 1, payload }) })
@@ -33,7 +37,10 @@ beforeEach(() => {
   listeners.clear()
   localStorage.clear()
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
-  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  vi.spyOn(Element.prototype, 'getAnimations').mockImplementation(() => [{
+    transitionProperty: 'width',
+    finished: new Promise(resolve => setTimeout(resolve, 280)),
+  } as unknown as CSSTransition])
   revision = 0
   recordingRevision = 0
   vi.mocked(invoke).mockReset().mockImplementation(cmd => Promise.resolve(RESPONSES[cmd]))
@@ -74,7 +81,7 @@ it('keeps outgoing words available during the transcript exit fade', async () =>
   await record('recording')
   await emit('transcription-partial', { committed: 'Keep these words', tentative: 'visible' })
   await waitFor(() => expect(view.getByText('Keep these words')).toBeInTheDocument())
-  await waitFor(() => expect(view.container.querySelector('.pill__transcript')).toHaveStyle({ opacity: '1' }))
+  expect(view.getByRole('status')).toHaveClass('pill--expanded')
   await record('processing')
   expect(view.getByText('Keep these words')).toBeInTheDocument()
   expect(view.getByText('visible')).toBeInTheDocument()
@@ -237,6 +244,41 @@ it('does not let a cancelled close shrink a reopened card', async () => {
 it('restores capsule bounds on mount after a renderer reload', async () => {
   render(<PillApp />)
   await waitFor(() => expect(invoke).toHaveBeenCalledWith('resize_pill', { expanded: false }))
+})
+
+it('waits for native shape transitions before shrinking the OS window', async () => {
+  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(100)
+  const view = render(<PillApp />)
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('resize_pill', { expanded: false }))
+  await setPill({ liveTranscript: true })
+  await record('recording')
+  await emit('transcription-partial', { committed: 'Wait for the entire close', tentative: '' })
+  await waitFor(() => expect(view.getByRole('status')).toHaveClass('pill--expanded'))
+  let finish!: () => void
+  vi.mocked(Element.prototype.getAnimations).mockReturnValue([{
+    transitionProperty: 'height',
+    finished: new Promise<void>(resolve => { finish = resolve }),
+  } as unknown as CSSTransition])
+  vi.mocked(invoke).mockClear()
+  await record('processing')
+  expect(view.getByRole('status')).toHaveClass('pill--closing')
+  expect(invoke).not.toHaveBeenCalledWith('resize_pill', { expanded: false })
+  await act(async () => finish())
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('resize_pill', { expanded: false }))
+  expect(view.getByRole('status')).not.toHaveClass('pill--expanded')
+})
+
+it('collapses immediately when the browser has no shape transitions (reduced motion)', async () => {
+  vi.mocked(Element.prototype.getAnimations).mockReturnValue([])
+  const view = render(<PillApp />)
+  await setPill({ liveTranscript: true })
+  await record('recording')
+  await emit('transcription-partial', { committed: 'Reduced motion', tentative: '' })
+  await waitFor(() => expect(view.getByRole('status')).toHaveClass('pill--expanded'))
+  vi.mocked(invoke).mockClear()
+  await record('idle')
+  expect(view.getByRole('status')).not.toHaveClass('pill--expanded')
+  expect(invoke).toHaveBeenCalledWith('resize_pill', { expanded: false })
 })
 
 it('stages idle content when a card returns directly to idle without processing', async () => {
