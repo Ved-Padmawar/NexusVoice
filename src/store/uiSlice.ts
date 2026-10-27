@@ -1,5 +1,5 @@
 import type { StateCreator } from 'zustand'
-import { commands, type PillSettings } from '../bindings'
+import { commands, type PillSettings, type PillSettingsSnapshot } from '../bindings'
 import { logger } from '../lib/logger'
 import { subscribePillSettings } from '../lib/pillSettings'
 import { takeLegacyPill } from './legacyPill'
@@ -27,32 +27,52 @@ export type UiSlice = {
   setModelChosen: (chosen: boolean) => void
 }
 
-export const createUiSlice: StateCreator<AppState, [], [], UiSlice> = (set, get) => ({
-  theme: DEFAULT_THEME,
-  pill: DEFAULT_PILL,
-  activeRoute: '/',
-  activeSettingsTab: 'general',
-  modelChosen: false,
+export const createUiSlice: StateCreator<AppState, [], [], UiSlice> = (set, get) => {
+  let savesPending = 0
+  let newest: PillSettingsSnapshot | undefined
 
-  setTheme: (theme) => set({ theme }),
-  // Applied at once so the picker responds; the saved snapshot follows.
-  updatePill: async (change) => {
-    const next = { ...get().pill, ...change }
-    set({ pill: next })
-    try {
-      await commands.setPillSettings(next)
-    } catch (e) {
-      logger.error('could not save pill settings', e)
-      set({ pill: (await commands.getPillSettings()).settings })
-    }
-  },
-  followPillSettings: () => {
-    const stop = subscribePillSettings((pill) => set({ pill }))
-    const legacy = takeLegacyPill()
-    if (legacy) void get().updatePill(legacy)
-    return stop
-  },
-  setActiveRoute: (route) => set({ activeRoute: route }),
-  setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
-  setModelChosen: (chosen) => set({ modelChosen: chosen }),
-})
+  // Only a snapshot newer than any seen may apply, so a delayed event never
+  // replays an older edit.
+  const isNewest = (snapshot: PillSettingsSnapshot) => {
+    if (newest && snapshot.revision <= newest.revision) return false
+    newest = snapshot
+    return true
+  }
+
+  return {
+    theme: DEFAULT_THEME,
+    pill: DEFAULT_PILL,
+    activeRoute: '/',
+    activeSettingsTab: 'general',
+    modelChosen: false,
+
+    setTheme: (theme) => set({ theme }),
+    // Applied at once so the picker responds; snapshots wait out pending saves.
+    updatePill: async (change) => {
+      const next = { ...get().pill, ...change }
+      set({ pill: next })
+      savesPending += 1
+      try {
+        isNewest(await commands.setPillSettings(next))
+      } catch (e) {
+        logger.error('could not save pill settings', e)
+      }
+      savesPending -= 1
+      if (savesPending === 0) {
+        newest ??= await commands.getPillSettings()
+        set({ pill: newest.settings })
+      }
+    },
+    followPillSettings: () => {
+      const stop = subscribePillSettings((settings, revision) => {
+        if (isNewest({ revision, settings }) && savesPending === 0) set({ pill: settings })
+      })
+      const legacy = takeLegacyPill()
+      if (legacy) void get().updatePill(legacy)
+      return stop
+    },
+    setActiveRoute: (route) => set({ activeRoute: route }),
+    setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
+    setModelChosen: (chosen) => set({ modelChosen: chosen }),
+  }
+}

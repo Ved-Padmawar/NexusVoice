@@ -62,20 +62,22 @@ pub fn conflicts(bindings: &HotkeyBindings, kind: HotkeyKind, hotkey: &str) -> b
         .any(|bound| bound.eq_ignore_ascii_case(hotkey))
 }
 
-/// The shortcuts bound with the OS right now.
+/// The shortcuts bound with the OS right now. A saved shortcut another
+/// application holds at startup stays saved but is missing here.
 #[derive(Default)]
 pub struct Hotkeys {
     bound: Mutex<HotkeyBindings>,
 }
 
 impl Hotkeys {
-    /// Bind the saved shortcuts at startup.
+    /// Bind the saved shortcuts at startup, each on its own.
     pub async fn restore(&self, app: &AppHandle, settings: &Settings) {
-        let saved = settings.hotkeys();
-        match bind_all(app, &saved) {
-            Ok(()) => *self.bound.lock().await = saved,
-            Err(e) => log::error!("failed to restore hotkeys: {e:?}"),
+        if let Err(e) = app.global_shortcut().unregister_all() {
+            log::error!("failed to clear hotkeys: {e}");
+            return;
         }
+        *self.bound.lock().await =
+            bind_available(&settings.hotkeys(), |kind, hotkey| bind(app, hotkey, kind));
     }
 
     /// Bind `hotkey` to `kind`, or unbind it with `None`. A rejected change
@@ -87,25 +89,46 @@ impl Hotkeys {
         kind: HotkeyKind,
         hotkey: Option<String>,
     ) -> Result<(), HotkeyError> {
-        let mut bound = self.bound.lock().await;
+        let mut saved = settings.hotkeys();
         if hotkey
             .as_deref()
-            .is_some_and(|h| conflicts(&bound, kind, h))
+            .is_some_and(|h| conflicts(&saved, kind, h))
         {
             return Err(HotkeyError::Conflict);
         }
 
+        let mut bound = self.bound.lock().await;
         let mut next = bound.clone();
-        *kind.slot(&mut next) = hotkey;
+        kind.slot(&mut next).clone_from(&hotkey);
         if let Err(e) = bind_all(app, &next) {
             let _ = bind_all(app, &bound);
             return Err(e);
         }
-        *bound = next.clone();
+        *bound = next;
+        *kind.slot(&mut saved) = hotkey;
         settings
-            .set_hotkeys(next)
+            .set_hotkeys(saved)
             .map_err(|e| HotkeyError::Save(e.to_string()))
     }
+}
+
+/// Bind each saved shortcut on its own and return the ones that took; a
+/// failure is logged, so one conflict never disables the rest.
+fn bind_available(
+    saved: &HotkeyBindings,
+    mut bind: impl FnMut(HotkeyKind, &str) -> Result<(), HotkeyError>,
+) -> HotkeyBindings {
+    let mut bound = HotkeyBindings::default();
+    for kind in HotkeyKind::ALL {
+        let Some(hotkey) = kind.of(saved) else {
+            continue;
+        };
+        match bind(kind, hotkey) {
+            Ok(()) => *kind.slot(&mut bound) = Some(hotkey.to_owned()),
+            Err(e) => log::error!("could not restore the {kind:?} hotkey: {e:?}"),
+        }
+    }
+    bound
 }
 
 /// Clear all shortcuts, then bind each requested one. If any binding fails,

@@ -5,13 +5,13 @@ import { commands, events, type PillSettings, type PillSettingsSnapshot } from '
  * change. Listens before it fetches so no change slips between the two, and
  * drops anything older than what it already applied.
  */
-export function subscribePillSettings(onChange: (settings: PillSettings) => void): () => void {
+export function subscribePillSettings(onChange: (settings: PillSettings, revision: number) => void): () => void {
   let revision = -1
   let stopped = false
   const apply = (snapshot: PillSettingsSnapshot) => {
     if (stopped || snapshot.revision <= revision) return
     revision = snapshot.revision
-    onChange(snapshot.settings)
+    onChange(snapshot.settings, snapshot.revision)
   }
   const unlisten = events.pillSettingsChanged.listen((e) => apply(e.payload))
   void unlisten.then(() => commands.getPillSettings()).then(apply).catch(() => {})

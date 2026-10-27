@@ -136,7 +136,7 @@ impl Recorder {
                 mic,
                 session: Arc::new(Mutex::new(None)),
                 streamed: Arc::new(Mutex::new(None)),
-                stream_done: Arc::new((Mutex::new(false), Condvar::new())),
+                stream_done: Arc::new((Mutex::new(true), Condvar::new())),
             },
             focus: Mutex::new(None),
             lease: Mutex::new(None),
@@ -244,7 +244,7 @@ impl Recorder {
             Action::Resume => self.resume(),
             Action::Commit => self.commit(app).await,
             Action::Cancel => {
-                self.cancel();
+                self.cancel().await;
                 Ok(())
             }
         }
@@ -413,7 +413,7 @@ impl Recorder {
     }
 
     /// Discard the recording without transcribing it.
-    fn cancel(&self) {
+    async fn cancel(&self) {
         {
             let mut phase = lock_recovering(&self.phase);
             if !matches!(*phase, Phase::Recording(_) | Phase::Paused) {
@@ -423,6 +423,8 @@ impl Recorder {
         }
         self.capture.capturing.store(false, Ordering::SeqCst);
         self.capture.mic.disarm();
+        // The next recording clears the buffer this worker still reads.
+        self.wait_for_stream_done().await;
         lock_recovering(&self.capture.session).take();
         self.reset();
     }
@@ -604,7 +606,7 @@ mod tests {
             recorder.claim_finish(Mode::Dictation),
             Err(RecordError::Finalizing)
         ));
-        recorder.cancel();
+        tauri::async_runtime::block_on(recorder.cancel());
         assert_eq!(recorder.snapshot().status, RecordingStatus::Processing);
         recorder.reset();
         assert_eq!(recorder.snapshot().status, RecordingStatus::Idle);
@@ -624,8 +626,36 @@ mod tests {
         assert!(reloaded.revision > before_reload.revision);
         recorder.reset();
         recorder.claim_start(Mode::PushToTalk).unwrap();
-        recorder.cancel();
+        tauri::async_runtime::block_on(recorder.cancel());
         assert_eq!(recorder.snapshot().status, RecordingStatus::Idle);
+    }
+
+    #[test]
+    fn a_cancel_with_no_stream_worker_returns_at_once() {
+        let recorder = Recorder::new();
+        recorder.claim_start(Mode::PushToTalk).unwrap();
+        let started = Instant::now();
+        tauri::async_runtime::block_on(recorder.cancel());
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(recorder.snapshot().status, RecordingStatus::Idle);
+    }
+
+    #[test]
+    fn a_cancel_stays_busy_until_the_stream_worker_is_done() {
+        let recorder = Recorder::new();
+        recorder.claim_start(Mode::PushToTalk).unwrap();
+        let done = Arc::clone(&recorder.capture.stream_done);
+        *lock_recovering(&done.0) = false;
+        let worker = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            *lock_recovering(&done.0) = true;
+            done.1.notify_all();
+        });
+        let started = Instant::now();
+        tauri::async_runtime::block_on(recorder.cancel());
+        assert!(started.elapsed() >= Duration::from_millis(150));
+        assert_eq!(recorder.snapshot().status, RecordingStatus::Idle);
+        worker.join().unwrap();
     }
 
     #[test]

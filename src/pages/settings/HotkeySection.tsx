@@ -76,15 +76,23 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
   const [saving, setSaving] = useState(false)
   const hotkeyRef = useRef<HTMLDivElement>(null)
   const keysRef = useRef<Set<string>>(new Set())
+  const unboundRef = useRef<string | null>(null)
   const Icon = config.icon
 
   const restoreCurrentHotkey = useCallback(() => {
-    if (currentHotkey) commands.setHotkey(config.kind, currentHotkey).catch(() => {})
-  }, [config.kind, currentHotkey])
+    const hotkey = unboundRef.current
+    unboundRef.current = null
+    if (hotkey) commands.setHotkey(config.kind, hotkey).catch(() => {})
+  }, [config.kind])
+
+  useEffect(() => restoreCurrentHotkey, [restoreCurrentHotkey])
 
   // Unbound while recording, or pressing the current combination would fire it.
   const startListening = useCallback(() => {
-    if (currentHotkey) commands.setHotkey(config.kind, null).catch(() => {})
+    if (currentHotkey && !unboundRef.current) {
+      unboundRef.current = currentHotkey
+      commands.setHotkey(config.kind, null).catch(() => {})
+    }
     setIsListening(true)
     setPressedKeys([])
     keysRef.current.clear()
@@ -144,6 +152,7 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
     setSaving(true)
     try {
       await commands.setHotkey(config.kind, shortcut)
+      unboundRef.current = null
       setCurrentHotkey(shortcut)
       useAppStore.setState({ [config.storeFlag]: true })
       setPressedKeys([])

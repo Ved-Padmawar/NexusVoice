@@ -104,6 +104,35 @@ describe('HotkeySection', () => {
     })
   })
 
+  it('puts a saved hotkey back when the page closes mid-edit', async () => {
+    respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
+    useAppStore.setState({ hasHotkey: true })
+    const { unmount } = await renderSettings()
+    fireEvent.click(await screen.findByRole('button', { name: /change recording hotkey/i }))
+    expect(mockInvoke).toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: null })
+
+    unmount()
+
+    expect(mockInvoke).toHaveBeenLastCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+A' })
+  })
+
+  it('does not restore the old hotkey after a new one is saved', async () => {
+    respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
+    useAppStore.setState({ hasHotkey: true })
+    const { unmount } = await renderSettings()
+    fireEvent.click(await screen.findByRole('button', { name: /change recording hotkey/i }))
+    fireEvent.keyDown(window, { key: 'Control', code: 'ControlLeft' })
+    fireEvent.keyDown(window, { key: 'B', code: 'KeyB' })
+    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+B' })
+    })
+
+    unmount()
+
+    expect(mockInvoke).not.toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+A' })
+  })
+
   it('unbinds the hotkey on remove', async () => {
     respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
     useAppStore.setState({ hasHotkey: true })
