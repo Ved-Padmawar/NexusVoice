@@ -44,6 +44,19 @@ fn a_code_passes_through_unchanged() {
 }
 
 #[test]
+fn the_exact_code_is_preferred_when_offered() {
+    assert_eq!(offered_for(&["en-GB", "en", "en-US"], "en"), Some("en"));
+}
+
+#[test]
+fn the_default_falls_back_to_us_english_then_to_any_locale() {
+    assert_eq!(offered_for(&["en-GB", "en-US"], DEFAULT), Some("en-US"));
+    assert_eq!(offered_for(&["en-AU", "en-GB"], DEFAULT), Some("en-AU"));
+    assert_eq!(offered_for(&["de-AT", "de-DE"], "de"), Some("de-AT"));
+    assert_eq!(offered_for(&["de", "fr"], DEFAULT), None);
+}
+
+#[test]
 fn a_locale_is_named_by_its_primary_subtag() {
     assert_eq!(display_name("de-DE", false), "German");
     assert_eq!(display_name("en-GB", true), "English (GB)");

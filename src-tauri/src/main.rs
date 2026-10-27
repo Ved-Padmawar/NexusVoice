@@ -79,6 +79,8 @@ fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::get_recording_state,
             commands::list_input_devices,
             commands::set_input_device,
+            commands::get_keep_mic_open,
+            commands::set_keep_mic_open,
             commands::pause_dictation,
             commands::resume_dictation,
             commands::commit_dictation,
@@ -308,6 +310,8 @@ fn main() {
             app.manage(CudaPack::new(app_data_dir.clone()));
             CudaPack::replace_unverified(app.handle());
             app.manage(Recorder::new());
+            app.state::<Recorder>()
+                .set_keep_mic_open(app.state::<Settings>().keep_mic_open());
             app.manage(Hotkeys::default());
 
             {

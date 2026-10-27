@@ -22,6 +22,12 @@ async listInputDevices() : Promise<InputDeviceInfo[]> {
 async setInputDevice(name: string | null) : Promise<null> {
     return await TAURI_INVOKE("set_input_device", { name });
 },
+async getKeepMicOpen() : Promise<boolean> {
+    return await TAURI_INVOKE("get_keep_mic_open");
+},
+async setKeepMicOpen(keep: boolean) : Promise<null> {
+    return await TAURI_INVOKE("set_keep_mic_open", { keep });
+},
 async pauseDictation() : Promise<null> {
     return await TAURI_INVOKE("pause_dictation");
 },

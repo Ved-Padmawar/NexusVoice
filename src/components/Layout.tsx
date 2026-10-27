@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation } from 'react-router'
 import { useEffect, useState } from 'react'
-import { BookOpenIcon, DownloadSimpleIcon, SquaresFourIcon, MinusIcon, ArrowClockwiseIcon, SlidersHorizontalIcon, SquareIcon, XIcon } from '@phosphor-icons/react'
+import { BookOpenIcon, DownloadSimpleIcon, SquaresFourIcon, MinusIcon, ArrowClockwiseIcon, GearIcon, SquareIcon, XIcon } from '@phosphor-icons/react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getName } from '@tauri-apps/api/app'
 import { useAppStore } from '../store/useAppStore'
@@ -78,7 +78,7 @@ function UpdateCard() {
 const NAV = [
   { path: ROUTES.DASHBOARD,  label: 'Dashboard',  Icon: SquaresFourIcon },
   { path: ROUTES.DICTIONARY, label: 'Dictionary', Icon: BookOpenIcon },
-  { path: ROUTES.SETTINGS,   label: 'Settings',   Icon: SlidersHorizontalIcon },
+  { path: ROUTES.SETTINGS,   label: 'Settings',   Icon: GearIcon },
 ]
 
 export function Layout() {
@@ -100,7 +100,7 @@ export function Layout() {
   return (
     <div className="app-shell grid h-dvh grid-cols-[200px_minmax(0,1fr)] overflow-hidden bg-bg text-base">
       <aside className="relative z-10 flex h-full min-h-0 flex-col border-r border-line bg-panel">
-        <div className="flex items-center border-b border-line-soft px-3.5 pt-7 pb-3.5" data-tauri-drag-region>
+        <div className="flex items-center px-3.5 pt-7 pb-3.5" data-tauri-drag-region>
           <Link to={ROUTES.DASHBOARD} className="no-drag flex items-center gap-2.25">
             <img src={logoUrl} alt="NexusVoice" className="size-9 shrink-0 rounded-md" />
             <div>

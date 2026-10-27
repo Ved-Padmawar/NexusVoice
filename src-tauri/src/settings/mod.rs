@@ -88,6 +88,7 @@ struct SettingsFile {
     language: Option<String>,
     /// Input device name; `None` follows the OS default.
     input_device: Option<String>,
+    keep_mic_open: bool,
     formatter: FormatterSettings,
     pill: PillSettings,
 }
@@ -177,6 +178,14 @@ impl Settings {
 
     pub fn set_input_device(&self, name: Option<String>) -> std::io::Result<()> {
         self.update(|f| f.input_device = name).map(drop)
+    }
+
+    pub fn keep_mic_open(&self) -> bool {
+        self.read(|f| f.keep_mic_open)
+    }
+
+    pub fn set_keep_mic_open(&self, keep: bool) -> std::io::Result<()> {
+        self.update(|f| f.keep_mic_open = keep).map(drop)
     }
 
     pub fn pill(&self) -> PillSettingsSnapshot {

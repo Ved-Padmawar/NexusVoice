@@ -15,6 +15,7 @@ const respond = (hotkeys = { pushToTalk: null as string | null, dictation: null,
   mockInvoke.mockImplementation((cmd) => Promise.resolve(({
     get_hotkeys: hotkeys,
     list_input_devices: [],
+    get_keep_mic_open: false,
     get_language_options: { supported: false, options: [] },
     get_format_config: { enabled: false, provider: 'ollama', profiles: {} },
   } as Record<string, unknown>)[cmd]))

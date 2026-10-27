@@ -225,23 +225,25 @@
 
 /* ================================================================
    Sonner toasts, themed through Sonner's own attributes. Its stylesheet
-   uses :where(), so these win; its stacking and motion are kept.
+   styles [data-sonner-toast][data-styled=true], so each selector here is
+   one step more specific; its stacking and motion are kept.
    ================================================================ */
-[data-sonner-toast] {
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 0; border-radius: 14px;
   background: color-mix(in oklab, var(--panel) 90%, transparent); backdrop-filter: blur(14px) saturate(1.4);
   box-shadow: var(--shadow-lg), inset 0 0 0 1px var(--border);
   color: var(--fg); font-size: 12px; font-weight: 500;
 }
-[data-sonner-toast] [data-icon] { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 9px; flex-shrink: 0; font-size: 15px; background: var(--accent-soft); color: var(--accent-ink); }
-[data-sonner-toast][data-type="success"] [data-icon] { background: var(--success-soft); color: var(--success); }
-[data-sonner-toast][data-type="error"] [data-icon] { background: var(--danger-soft); color: var(--danger); }
-[data-sonner-toast][data-type="error"] { box-shadow: var(--shadow-lg), inset 0 0 0 1px color-mix(in oklab, var(--danger) 40%, var(--border)); }
-[data-sonner-toast] [data-content] { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-[data-sonner-toast] [data-title] { font-weight: 600; }
-[data-sonner-toast] [data-button] { flex-shrink: 0; height: 26px; padding: 0 10px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; font-weight: 600; cursor: pointer; }
-[data-sonner-toast] [data-button]:hover { background: color-mix(in oklab, var(--accent) 24%, transparent); }
-[data-sonner-toast] [data-description] { font-size: 11px; color: var(--muted); font-weight: 400; }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] [data-icon] { display: grid; place-items: center; width: 20px; height: 20px; margin: 0; flex-shrink: 0; color: var(--accent-ink); }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] [data-icon] svg { margin: 0; }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true][data-type="success"] [data-icon] { color: var(--success); }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true][data-type="error"] [data-icon] { color: var(--danger); }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true][data-type="error"] { box-shadow: var(--shadow-lg), inset 0 0 0 1px color-mix(in oklab, var(--danger) 40%, var(--border)); }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] [data-content] { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] [data-title] { font-weight: 600; }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] [data-button] { flex-shrink: 0; height: 26px; padding: 0 10px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; font-weight: 600; cursor: pointer; }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] [data-button]:hover { background: color-mix(in oklab, var(--accent) 24%, transparent); }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] [data-description] { font-size: 11px; color: var(--muted); font-weight: 400; }
 
 /* ================================================================
    Shell. A page's scroll box is .page-scroll; content softly fades

@@ -9,7 +9,7 @@ const NOTES: [(f32, f32, f32); 2] = [(659.25, 0.0, 0.07), (880.0, 0.055, 0.09)];
 const DURATION: f32 = 0.145;
 const ATTACK: f32 = 0.004;
 /// Soft, so the live mic picks up little of it.
-const AMPLITUDE: f32 = 0.12;
+const AMPLITUDE: f32 = 0.18;
 
 pub(crate) fn sample_at(t: f32) -> f32 {
     NOTES

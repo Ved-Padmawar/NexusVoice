@@ -80,6 +80,24 @@ pub fn set_input_device(
 
 #[tauri::command]
 #[specta::specta]
+pub fn get_keep_mic_open(settings: State<'_, Settings>) -> bool {
+    settings.keep_mic_open()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_keep_mic_open(
+    settings: State<'_, Settings>,
+    recorder: State<'_, Recorder>,
+    keep: bool,
+) -> Result<(), ApiError> {
+    settings.set_keep_mic_open(keep)?;
+    recorder.set_keep_mic_open(keep);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn get_recording_state(recorder: State<'_, Recorder>) -> RecordingSnapshot {
     recorder.snapshot()
 }

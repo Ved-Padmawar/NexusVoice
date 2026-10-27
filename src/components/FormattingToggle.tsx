@@ -65,6 +65,7 @@ export function FormattingToggle() {
 
   const active = activeProfile(config)
   const configured = isConfigured(config.provider, active)
+  const dim = config.enabled ? '' : 'opacity-50'
 
   const persist = async (next: FormatterView) => {
     setConfig(next)
@@ -105,13 +106,13 @@ export function FormattingToggle() {
 
       {/* The formatter in use, at the same height as the live-transcript
           preview beside it, so the two cards line up. */}
-      <div className={`mt-auto flex h-20 items-center gap-3 rounded-lg bg-field px-4 ring-1 ring-line-soft ring-inset transition-opacity ${config.enabled ? '' : 'opacity-50'}`}>
-        <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-panel shadow-(--shadow-sm) ring-1 ring-line-soft ring-inset">
+      <div className={`mt-auto flex h-20 items-center gap-3 rounded-lg bg-field px-4 ring-1 ring-line-soft ring-inset`}>
+        <span className={`grid size-11 shrink-0 place-items-center rounded-xl bg-panel shadow-(--shadow-sm) ring-1 ring-line-soft ring-inset transition-opacity ${dim}`}>
           {configured
             ? <VendorMark vendor={config.provider as VendorId} className="size-5.5" />
             : <PlugIcon size={20} className="text-muted" />}
         </span>
-        <span className="min-w-0 flex-1">
+        <span className={`min-w-0 flex-1 transition-opacity ${dim}`}>
           {configured ? (
             <>
               <span className="block text-sm font-semibold text-fg">{preset?.label ?? config.provider}</span>

@@ -427,6 +427,10 @@ impl Recorder {
         self.reset();
     }
 
+    pub fn set_keep_mic_open(&self, keep: bool) {
+        self.capture.mic.set_keep_open(keep);
+    }
+
     /// Release the device so the next recording opens the newly chosen one.
     /// A recording in progress keeps its stream.
     pub fn close_mic_if_idle(&self) {

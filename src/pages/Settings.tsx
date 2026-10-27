@@ -1,6 +1,7 @@
 import { useShallow } from 'zustand/react/shallow'
 import { useRef, useEffect } from 'react'
 import { useLocation } from 'react-router'
+import { InfoIcon, MicrophoneIcon, PaletteIcon, SlidersHorizontalIcon, type Icon } from '@phosphor-icons/react'
 import { useAppStore } from '../store/useAppStore'
 import { SETTINGS_TABS, type SettingsTab } from '../lib/routes'
 import { cn } from '../lib/utils'
@@ -12,11 +13,18 @@ import { VoiceTab } from './settings/VoiceTab'
 import { PillTab } from './settings/PillTab'
 import { WaveformTab } from './settings/WaveformTab'
 
+const tabLabel = (Icon: Icon, text: string) => (
+  <>
+    <Icon size={15} weight="bold" />
+    {text}
+  </>
+)
+
 const TABS = [
-  { value: SETTINGS_TABS.GENERAL, label: 'General' },
-  { value: SETTINGS_TABS.VOICE, label: 'Voice' },
-  { value: SETTINGS_TABS.APPEARANCE, label: 'Appearance' },
-  { value: SETTINGS_TABS.ABOUT, label: 'About' },
+  { value: SETTINGS_TABS.GENERAL, label: tabLabel(SlidersHorizontalIcon, 'General') },
+  { value: SETTINGS_TABS.VOICE, label: tabLabel(MicrophoneIcon, 'Voice') },
+  { value: SETTINGS_TABS.APPEARANCE, label: tabLabel(PaletteIcon, 'Appearance') },
+  { value: SETTINGS_TABS.ABOUT, label: tabLabel(InfoIcon, 'About') },
 ] as const
 
 export function Settings() {
@@ -42,7 +50,7 @@ export function Settings() {
     <div
       className={cn(
         'min-h-0 px-7 pt-3',
-        voice ? 'flex flex-col overflow-hidden' : 'page-scroll settings-scroll overflow-y-auto overscroll-none',
+        voice ? 'flex flex-col overflow-hidden [scrollbar-gutter:stable]' : 'page-scroll settings-scroll overflow-y-auto overscroll-none',
       )}
     >
       <div className="flex items-center gap-4">

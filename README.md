@@ -39,7 +39,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **Push-to-talk** — hold any custom hotkey to record, release to transcribe and paste
 - **Live streaming transcription** — your speech is transcribed as you talk, so there's barely anything left to process when you release the hotkey
 - **Dictation Mode** — a hands-free alternative: press a hotkey to start, then pause/resume and save from the pill or by hotkey — ideal for longer, uninterrupted dictation
-- **Microphone selection** — pick which input device records your voice (Settings → General); defaults to the system default and falls back to it automatically if your chosen mic is unplugged
+- **Microphone selection** — pick which input device records your voice (Settings → General); defaults to the system default and falls back to it automatically if your chosen mic is unplugged. An optional **Keep ready** switch holds the mic open between recordings instead of releasing it after 60 seconds idle
 - **100% local** — transcription runs entirely on your machine, nothing is sent to the cloud
 - **GPU-accelerated** — Vulkan on NVIDIA, AMD and Intel GPUs, with optional CUDA on NVIDIA; falls back to CPU
 - **Live transcript in the pill (optional)** — the pill expands into a card and fills in as you speak, on any model. Off by default (Settings → General)
@@ -107,7 +107,7 @@ Models marked **live** are fed audio incrementally and own their decode session;
 
 ## Smart Formatting (optional)
 
-By default NexusVoice pastes the raw transcription. Enable **Smart Formatting** (Settings → Voice) to have an LLM clean up punctuation and infer structure — e.g. turning a spoken "first… second… third…" into a real numbered list — before pasting.
+By default NexusVoice pastes the raw transcription. Enable **Smart Formatting** (Settings → General) to have an LLM clean up punctuation and infer structure — e.g. turning a spoken "first… second… third…" into a real numbered list — before pasting.
 
 It connects to Anthropic's Messages API or any **OpenAI-compatible** chat endpoint. Presets prefill the base URL; you supply the model name and (where needed) an API key:
 

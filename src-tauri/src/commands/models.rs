@@ -173,13 +173,18 @@ pub fn get_language_options(settings: State<'_, Settings>) -> LanguageSettings {
             .then_with(|| a.0.cmp(&b.0))
     });
 
+    let codes: Vec<&str> = named.iter().map(|(code, _)| code.as_str()).collect();
+    let selected = active
+        .and_then(|want| language::offered_for(&codes, want))
+        .map(str::to_owned);
+
     let options = std::iter::once(LanguageOption {
         code: AUTO.to_string(),
         name: "Auto-detect".to_string(),
         is_selected: active.is_none(),
     })
     .chain(named.into_iter().map(|(code, name)| LanguageOption {
-        is_selected: active == Some(code.as_str()),
+        is_selected: selected.as_deref() == Some(code.as_str()),
         code,
         name,
     }))

@@ -15,6 +15,18 @@ pub fn primary_of(code: &str) -> &str {
     code.split(['-', '_']).next().unwrap_or(code)
 }
 
+/// The locale shown for [`DEFAULT`] when a model offers regions only.
+const DEFAULT_LOCALE: &str = "en-US";
+
+/// The offered code for `want`: exact, else the default's locale, else the
+/// first locale of its language.
+pub fn offered_for<'a>(offered: &[&'a str], want: &str) -> Option<&'a str> {
+    let find = |matches: &dyn Fn(&str) -> bool| offered.iter().copied().find(|code| matches(code));
+    find(&|code| code == want)
+        .or_else(|| find(&|code| want == DEFAULT && code == DEFAULT_LOCALE))
+        .or_else(|| find(&|code| primary_of(code) == primary_of(want)))
+}
+
 /// Display name for `code` from the catalog, else the code itself. Locales get
 /// their region appended only when `regioned`.
 pub fn display_name(code: &str, regioned: bool) -> String {

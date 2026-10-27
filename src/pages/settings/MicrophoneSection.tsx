@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { commands } from '../../bindings'
 import { extractErrorMessage } from '../../lib/errors'
 import { Select } from '../../components/ui/Select'
+import { KeepMicOpenToggle } from './KeepMicOpenToggle'
 import type { InputDevice } from '../../types'
 
 /** Sentinel for the "Default" option — maps to no saved preference. */
@@ -65,9 +66,12 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
 
   return (
     <div className="flex min-w-0 flex-col gap-2.5">
-      <div>
-        <p className="text-sm font-semibold text-fg">Microphone</p>
-        <p className="text-xs text-muted">The device that records your voice.</p>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-fg">Microphone</p>
+          <p className="text-xs text-muted">The device that records your voice.</p>
+        </div>
+        <KeepMicOpenToggle />
       </div>
 
       <div className="flex gap-2">

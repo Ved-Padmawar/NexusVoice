@@ -36,6 +36,28 @@ fn changes_survive_a_restart() {
 }
 
 #[test]
+fn the_microphone_is_released_when_idle_until_asked_otherwise() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let settings = load(dir.path());
+        assert!(!settings.keep_mic_open());
+        settings.set_keep_mic_open(true).unwrap();
+    }
+    assert!(load(dir.path()).keep_mic_open());
+}
+
+#[test]
+fn turning_the_microphone_hold_back_off_survives_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let settings = load(dir.path());
+        settings.set_keep_mic_open(true).unwrap();
+        settings.set_keep_mic_open(false).unwrap();
+    }
+    assert!(!load(dir.path()).keep_mic_open());
+}
+
+#[test]
 fn every_pill_change_moves_the_revision_forward() {
     // A window drops an event older than its snapshot, so revisions must grow.
     let dir = tempfile::tempdir().unwrap();
