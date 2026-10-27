@@ -127,10 +127,10 @@ function CopyButton({ text }: { text: string }) {
       type="button"
       aria-label="Copy"
       onClick={handleCopy}
-      className="copy-btn grid size-9 cursor-pointer place-items-center rounded-[10px] text-muted hover:bg-surface-hover hover:text-fg"
+      className="copy-btn grid size-8 cursor-pointer place-items-center rounded-lg text-muted hover:bg-surface-hover hover:text-fg"
     >
-      <CopyIcon size={16} className="c-idle" />
-      <CheckIcon size={16} weight="bold" className="c-done" />
+      <CopyIcon size={15} className="c-idle" />
+      <CheckIcon size={15} weight="bold" className="c-done" />
     </button>
   )
 }
@@ -186,7 +186,7 @@ function Calendar({ view, onView, picked, band, onPick }: CalendarProps) {
               onClick={() => onPick(v)}
               className={cn(
                 'grid h-7.5 cursor-pointer place-items-center rounded-[7px] text-xs text-fg transition-colors hover:bg-surface-hover',
-                d.getMonth() !== m && 'text-muted opacity-55',
+                d.getMonth() !== m && 'text-muted',
                 v === today && 'ring-1 ring-inset ring-line',
                 band && v > band.from && v < band.to && 'rounded-none bg-surface',
                 v === picked && 'rounded-[7px] bg-accent-soft font-semibold text-accent-ink ring-1 ring-inset ring-accent-line',
@@ -448,9 +448,9 @@ const TranscriptRow = memo(function TranscriptRow({ item, onDelete }: { item: Tr
           type="button"
           aria-label="Delete"
           onClick={() => onDelete(item.id)}
-          className="grid size-9 cursor-pointer place-items-center rounded-[10px] text-muted hover:bg-danger-soft hover:text-danger"
+          className="grid size-8 cursor-pointer place-items-center rounded-lg text-muted hover:bg-danger-soft hover:text-danger"
         >
-          <TrashIcon size={16} />
+          <TrashIcon size={15} />
         </button>
       </div>
     </li>

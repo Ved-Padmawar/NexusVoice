@@ -21,7 +21,26 @@ export function Modal({ open, onClose, 'aria-labelledby': labelledBy, className,
     if (!open) return
     const previous = document.activeElement as HTMLElement | null
     panelRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && onClose) onClose() }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && onClose) onClose()
+      if (e.key !== 'Tab' || !panelRef.current) return
+      // Keep Tab inside the dialog: wrap at either end.
+      const items = panelRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      )
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      if (!first || !last) {
+        e.preventDefault()
+      } else if (e.shiftKey && (active === first || active === panelRef.current)) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
     document.addEventListener('keydown', onKey)
     return () => {
       document.removeEventListener('keydown', onKey)

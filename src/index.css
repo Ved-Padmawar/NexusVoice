@@ -178,7 +178,7 @@
   #root { height: 100dvh; overflow: hidden; }
 
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  :is(input, select, textarea):focus-visible { outline: none; }
+  :is(input:not([type="checkbox"]), select, textarea):focus-visible { outline: none; }
   ::selection { background: var(--accent-soft); }
   input[type="password"]::-ms-reveal { display: none; }
 

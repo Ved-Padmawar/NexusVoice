@@ -71,9 +71,12 @@ function Description({ model }: { model: CatalogModel }) {
     <>
       <p
         ref={ref}
+        tabIndex={0}
         onPointerEnter={show}
         onPointerLeave={hide}
-        className="line-clamp-2 min-h-[2lh] text-xs text-pretty text-muted"
+        onFocus={show}
+        onBlur={hide}
+        className="line-clamp-2 min-h-[2lh] rounded-xs text-xs text-pretty text-muted"
       >
         {model.detail}
       </p>
