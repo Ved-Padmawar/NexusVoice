@@ -11,7 +11,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 <br/>
 
 ![Tauri](https://img.shields.io/badge/Tauri_2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white)
-![Rust](https://img.shields.io/badge/Rust_1.97-CE422B?style=for-the-badge&logo=rust&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust_1.99-CE422B?style=for-the-badge&logo=rust&logoColor=white)
 ![React](https://img.shields.io/badge/React_19-61DAFB?style=for-the-badge&logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![Tailwind](https://img.shields.io/badge/Tailwind_v4-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white)
@@ -129,7 +129,7 @@ Use a small **instruct** model (e.g. `qwen2.5-3b-instruct`) — not a reasoning/
 | Layer | Technology |
 |-------|-----------|
 | Desktop runtime | Tauri 2 |
-| Backend | Rust 1.97 |
+| Backend | Rust 1.99 |
 | Audio capture | cpal |
 | Transcription | transcribe-cpp (ggml) |
 | Voice activity detection | earshot (pure Rust) |

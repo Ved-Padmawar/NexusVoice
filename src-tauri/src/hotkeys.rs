@@ -64,6 +64,8 @@ pub fn conflicts(bindings: &HotkeyBindings, kind: HotkeyKind, hotkey: &str) -> b
 
 /// The shortcuts bound with the OS right now. A saved shortcut another
 /// application holds at startup stays saved but is missing here.
+/// The lock also spans each read-modify-save of the saved set (this is its
+/// only writer), so concurrent changes can't overwrite each other.
 #[derive(Default)]
 pub struct Hotkeys {
     bound: Mutex<HotkeyBindings>,
@@ -89,6 +91,7 @@ impl Hotkeys {
         kind: HotkeyKind,
         hotkey: Option<String>,
     ) -> Result<(), HotkeyError> {
+        let mut bound = self.bound.lock().await;
         let mut saved = settings.hotkeys();
         if hotkey
             .as_deref()
@@ -97,7 +100,6 @@ impl Hotkeys {
             return Err(HotkeyError::Conflict);
         }
 
-        let mut bound = self.bound.lock().await;
         let mut next = bound.clone();
         kind.slot(&mut next).clone_from(&hotkey);
         if let Err(e) = bind_all(app, &next) {
