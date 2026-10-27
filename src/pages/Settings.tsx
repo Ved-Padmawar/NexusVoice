@@ -42,7 +42,7 @@ export function Settings() {
     <div
       className={cn(
         'min-h-0 px-7 pt-3',
-        voice ? 'flex flex-col overflow-hidden' : 'page-scroll overflow-y-auto overscroll-none pb-8',
+        voice ? 'flex flex-col overflow-hidden' : 'page-scroll settings-scroll overflow-y-auto overscroll-none',
       )}
     >
       <div className="flex items-center gap-4">
@@ -66,6 +66,7 @@ export function Settings() {
         )}
         {tab === SETTINGS_TABS.ABOUT && <AboutTab />}
       </div>
+      {!voice && <div aria-hidden="true" className="settings-end" />}
     </div>
   )
 }

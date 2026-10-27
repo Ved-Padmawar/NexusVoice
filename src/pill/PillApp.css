@@ -65,13 +65,20 @@ body {
 
 .pill:active { cursor: grabbing; }
 
-/* Only the card stacks; the capsule keeps its original row. */
+/* Only the card stacks; the capsule keeps its original row. Padding eases
+   with the shell, or the controls jump inward on the first frame. */
 .pill--expanded {
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-end;
   gap: 0;
   padding: 0;
+  transition:
+    width 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
 /* ===== Expanded (Tide) =====
@@ -144,11 +151,14 @@ body {
 }
 
 /* `display:contents` leaves the strip's children as direct children of
-   `.pill` — the exact row the capsule always laid out. */
+   `.pill` — the exact row the capsule always laid out. The height only
+   gives the card's strip a value to ease from. */
 .pill__strip {
   display: contents;
+  height: 30px;
 }
 
+/* Insets ease with the shell so the controls slide into the card's row. */
 .pill--expanded .pill__strip {
   display: flex;
   flex-shrink: 0;
@@ -158,6 +168,11 @@ body {
   z-index: 1;
   height: 42px;
   padding: 0 13px 4px 15px;
+  transition:
+    height 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    gap 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    grid-template-columns 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .pill--expanded.pill--dictation .pill__strip,
@@ -290,9 +305,10 @@ body {
   min-height: 3px;
 }
 
+/* Not 100%: easing from a percentage tracks the growing shell and overshoots. */
 .pill__dictation {
   width: 100%;
-  height: 100%;
+  height: 30px;
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) 20px;
   align-items: center;
@@ -534,7 +550,7 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .pill, .pill__bar, .pill__control, .pill__waveform--dictation,
-  .pill__tide, .pill__transcript {
+  .pill__tide, .pill__transcript, .pill__strip {
     transition: none;
   }
   .pill__strip--returning { animation: none; }

@@ -77,7 +77,7 @@ function processingSpinner(accentRgb: string): [string, string] {
   return [`rgba(${accentRgb},0.15)`, `rgba(${accentRgb},0.9)`]
 }
 
-const DEFAULT_SETTINGS: PillSettings = { theme: 'steel', waveformStyle: 'bars', liveTranscript: false }
+const DEFAULT_SETTINGS: PillSettings = { theme: 'steel', waveformStyle: 'bars', liveTranscript: false, startSound: false }
 
 /** Map a capture failure to the short label the pill has room for. */
 function captureErrorLabel(message: string): string {
@@ -136,6 +136,24 @@ export function PillApp() {
 
   useEffect(() => {
     void getCurrentWindow().setAlwaysOnTop(true)
+  }, [])
+
+  // Windows passes clicks through everywhere but this box.
+  useEffect(() => {
+    const pill = pillRef.current
+    if (!pill) return
+    const report = () => {
+      const { x, y, width, height } = pill.getBoundingClientRect()
+      commands.setPillHitbox({ x, y, width, height }).catch(() => {})
+    }
+    report()
+    const observer = new ResizeObserver(report)
+    observer.observe(pill)
+    window.addEventListener('resize', report)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', report)
+    }
   }, [])
 
   const showTooltip = useCallback((msg: string) => {

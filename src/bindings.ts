@@ -187,6 +187,12 @@ async resizePill(expanded: boolean) : Promise<null> {
     return await TAURI_INVOKE("resize_pill", { expanded });
 },
 /**
+ * The pill's box in its window; clicks elsewhere pass through.
+ */
+async setPillHitbox(hitbox: PillHitbox) : Promise<void> {
+    await TAURI_INVOKE("set_pill_hitbox", { hitbox });
+},
+/**
  * Forward a log record from the webview into the unified backend log file,
  * so frontend errors land in the same structured log as backend events.
  * `level` is one of: error, warn, info, debug, trace (defaults to info).
@@ -409,6 +415,10 @@ export type PackState = "absent" |
  */
 export type PageQuery = { limit: number | null; cursorCreatedAt: string | null; cursorId: number | null; from: string | null; to: string | null; sortAsc: boolean | null }
 /**
+ * The pill's box in CSS pixels, relative to the window's client area.
+ */
+export type PillHitbox = { x: number; y: number; width: number; height: number }
+/**
  * Preferences both windows read: the settings screen edits them, the pill
  * draws with them.
  */
@@ -416,7 +426,11 @@ export type PillSettings = { theme: PillTheme; waveformStyle: WaveformStyle;
 /**
  * Expand the pill into a card that fills in while recording.
  */
-liveTranscript: boolean }
+liveTranscript: boolean; 
+/**
+ * Chime once the microphone is live, in either recording mode.
+ */
+startSound: boolean }
 /**
  * The pill's preferences changed. Carries the revision so a window can drop
  * an update older than the snapshot it already holds.

@@ -3,6 +3,7 @@
 use tauri::{AppHandle, Manager, State};
 
 use crate::database::Database;
+use crate::pill_clickthrough::PillHitbox;
 
 use super::error::ApiError;
 
@@ -46,6 +47,13 @@ pub async fn open_logs_folder(app: AppHandle) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// The pill's box in its window; clicks elsewhere pass through.
+#[tauri::command]
+#[specta::specta]
+pub fn set_pill_hitbox(hitbox: PillHitbox) {
+    crate::pill_clickthrough::set_hitbox(hitbox);
+}
+
 /// Bottom-centre the pill is pinned to. Re-read whenever it is back at capsule
 /// size so dragging still moves it — re-deriving on every call drifts.
 static PILL_ANCHOR: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new(None);
@@ -57,6 +65,10 @@ static PILL_ANCHOR: std::sync::Mutex<Option<(f64, f64)>> = std::sync::Mutex::new
 pub fn resize_pill(app: AppHandle, expanded: bool) -> Result<(), ApiError> {
     use crate::pill_geometry::{capsule_window, card_window};
 
+    // Windows keeps the pill at card size; see `pill_clickthrough`.
+    if cfg!(windows) {
+        return Ok(());
+    }
     let Some(pill) = app.get_webview_window("pill") else {
         return Ok(());
     };

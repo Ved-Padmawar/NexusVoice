@@ -55,6 +55,8 @@ pub struct PillSettings {
     pub waveform_style: WaveformStyle,
     /// Expand the pill into a card that fills in while recording.
     pub live_transcript: bool,
+    /// Chime once the microphone is live, in either recording mode.
+    pub start_sound: bool,
 }
 
 /// `PillSettings` as of a revision. Revisions only grow, so a window can drop

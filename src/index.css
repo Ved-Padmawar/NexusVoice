@@ -260,6 +260,14 @@
 /* A page with its own sticky header scrolls under the bar plainly. */
 .app-shell:has([data-no-topbar-fade]) .topbar::after { display: none; }
 
+/* Bottom room only when settings scroll, so a page that fits never does. */
+.settings-end { height: 2rem; }
+@supports (container-type: scroll-state) {
+  .settings-scroll { container-type: scroll-state; }
+  .settings-end { height: 0; }
+  @container scroll-state(scrollable: block) { .settings-end { height: 2rem; } }
+}
+
 /* ================================================================
    Dashboard
    ================================================================ */

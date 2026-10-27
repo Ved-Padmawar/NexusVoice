@@ -10,7 +10,7 @@ export const THEME_NAMES = ['steel', 'midnight', 'indigo', 'orchid', 'canvas', '
 export type ThemeName = typeof THEME_NAMES[number]
 export const DEFAULT_THEME: ThemeName = 'indigo'
 
-const DEFAULT_PILL: PillSettings = { theme: 'steel', waveformStyle: 'bars', liveTranscript: false }
+const DEFAULT_PILL: PillSettings = { theme: 'steel', waveformStyle: 'bars', liveTranscript: false, startSound: false }
 
 export type UiSlice = {
   theme: ThemeName

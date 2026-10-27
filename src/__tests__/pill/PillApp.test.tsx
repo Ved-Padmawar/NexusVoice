@@ -18,7 +18,7 @@ const emit = async (event: string, payload: unknown = null) => {
   await act(async () => { for (const handler of listeners.get(event) ?? []) await handler({ event, id: 1, payload }) })
 }
 
-const DEFAULT_PILL: PillSettings = { theme: 'steel', waveformStyle: 'bars', liveTranscript: false }
+const DEFAULT_PILL: PillSettings = { theme: 'steel', waveformStyle: 'bars', liveTranscript: false, startSound: false }
 let revision = 0
 let recordingRevision = 0
 const record = (status: string) => emit('recording-state-changed', { revision: ++recordingRevision, status })

@@ -51,6 +51,7 @@ mod hotkeys;
 mod inference;
 mod injection;
 mod llm;
+mod pill_clickthrough;
 mod pill_geometry;
 mod postprocess;
 mod preprocess;
@@ -116,6 +117,7 @@ fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::test_format_connection,
             commands::open_logs_folder,
             commands::resize_pill,
+            commands::set_pill_hitbox,
             commands::log_frontend,
             commands::wait_for_app_ready,
         ])
@@ -446,6 +448,13 @@ fn main() {
                             .and_then(tauri::WebviewWindowBuilder::build)
                         {
                             Ok(pill) => {
+                                // Windows never resizes the pill; see pill_clickthrough.
+                                #[cfg(windows)]
+                                let (pill_w, pill_h) = {
+                                    crate::pill_clickthrough::spawn(app_handle.clone());
+                                    crate::pill_geometry::card_window()
+                                };
+                                #[cfg(not(windows))]
                                 let (pill_w, pill_h) = crate::pill_geometry::capsule_window();
                                 let _ = pill.set_size(tauri::LogicalSize::new(pill_w, pill_h));
                                 // Position: centered horizontally, near bottom of primary monitor

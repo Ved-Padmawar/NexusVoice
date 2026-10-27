@@ -304,6 +304,10 @@ impl Recorder {
             .take_error()
             .or_else(|| timed_out.then(|| "microphone is not responding".to_string()))
         else {
+            // The mic is delivering now, so the chime means "listening".
+            if app.state::<Settings>().pill().settings.start_sound {
+                crate::audio::chime::play_start();
+            }
             return Ok(());
         };
         self.capture.mic.disarm();

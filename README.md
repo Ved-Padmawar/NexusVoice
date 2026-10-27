@@ -43,6 +43,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **100% local** — transcription runs entirely on your machine, nothing is sent to the cloud
 - **GPU-accelerated** — Vulkan on NVIDIA, AMD and Intel GPUs, with optional CUDA on NVIDIA; falls back to CPU
 - **Live transcript in the pill (optional)** — the pill expands into a card and fills in as you speak, on any model. Off by default (Settings → General)
+- **Start sound (optional)** — a short chime once the microphone is listening. Off by default (Settings → General)
 - **Smart model selection** — picks the best model for your hardware automatically
 - **First-run model picker** — choose your model on first launch with a hardware-aware recommendation, then download on demand
 - **Personal dictionary** — map spoken words to their correct form (e.g. "gonna" → "going to"), including names speech-to-text splits into several words ("next js" → "Next.js")

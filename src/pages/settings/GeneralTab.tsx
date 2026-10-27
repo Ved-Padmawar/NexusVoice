@@ -5,6 +5,7 @@ import { HotkeySection } from './HotkeySection'
 import { TextInjectionSection } from './TextInjectionSection'
 import { FormattingToggle } from '../../components/FormattingToggle'
 import { LiveTranscriptToggle } from '../../components/LiveTranscriptToggle'
+import { StartSoundToggle } from '../../components/StartSoundToggle'
 import { useAppStore } from '../../store/useAppStore'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -40,6 +41,9 @@ export const GeneralTab = memo(function GeneralTab() {
         <div className="grid grid-cols-2 gap-5">
           <FormattingToggle />
           <LiveTranscriptToggle />
+          <div className="col-span-2">
+            <StartSoundToggle />
+          </div>
         </div>
       </Section>
 
