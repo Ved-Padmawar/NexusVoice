@@ -133,6 +133,35 @@ describe('HotkeySection', () => {
     expect(mockInvoke).not.toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+A' })
   })
 
+  describe('closing the page while a save is pending', () => {
+    let rejectSave: (e: unknown) => void
+
+    beforeEach(async () => {
+      respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
+      const base = mockInvoke.getMockImplementation()!
+      mockInvoke.mockImplementation((cmd, args) =>
+        cmd === 'set_hotkey' && (args as { hotkey: string | null }).hotkey === 'Ctrl+B'
+          ? new Promise((_, reject) => { rejectSave = reject })
+          : base(cmd, args))
+      useAppStore.setState({ hasHotkey: true })
+      const { unmount } = await renderSettings()
+      fireEvent.click(await screen.findByRole('button', { name: /change recording hotkey/i }))
+      fireEvent.keyDown(window, { key: 'Control', code: 'ControlLeft' })
+      fireEvent.keyDown(window, { key: 'B', code: 'KeyB' })
+      fireEvent.click(screen.getByRole('button', { name: /save/i }))
+      unmount()
+    })
+
+    it('does not restore the old hotkey over it', () => {
+      expect(mockInvoke).not.toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+A' })
+    })
+
+    it('restores the old hotkey if the save fails', async () => {
+      await act(async () => { rejectSave({ code: 'hotkey', message: 'in use' }) })
+      expect(mockInvoke).toHaveBeenLastCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+A' })
+    })
+  })
+
   it('unbinds the hotkey on remove', async () => {
     respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
     useAppStore.setState({ hasHotkey: true })

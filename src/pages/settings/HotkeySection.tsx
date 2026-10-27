@@ -77,6 +77,7 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
   const hotkeyRef = useRef<HTMLDivElement>(null)
   const keysRef = useRef<Set<string>>(new Set())
   const unboundRef = useRef<string | null>(null)
+  const mountedRef = useRef(false)
   const Icon = config.icon
 
   const restoreCurrentHotkey = useCallback(() => {
@@ -85,10 +86,17 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
     if (hotkey) commands.setHotkey(config.kind, hotkey).catch(() => {})
   }, [config.kind])
 
-  useEffect(() => restoreCurrentHotkey, [restoreCurrentHotkey])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      restoreCurrentHotkey()
+    }
+  }, [restoreCurrentHotkey])
 
   // Unbound while recording, or pressing the current combination would fire it.
   const startListening = useCallback(() => {
+    if (saving) return
     if (currentHotkey && !unboundRef.current) {
       unboundRef.current = currentHotkey
       commands.setHotkey(config.kind, null).catch(() => {})
@@ -96,7 +104,7 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
     setIsListening(true)
     setPressedKeys([])
     keysRef.current.clear()
-  }, [config.kind, currentHotkey])
+  }, [config.kind, currentHotkey, saving])
 
   useEffect(() => {
     if (!isListening) return
@@ -149,16 +157,20 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
       toast.error('Invalid combination - use modifier + key')
       return
     }
+    // Claimed before the await so closing the page mid-save can't restore it.
+    const previous = unboundRef.current
+    unboundRef.current = null
     setSaving(true)
     try {
       await commands.setHotkey(config.kind, shortcut)
-      unboundRef.current = null
       setCurrentHotkey(shortcut)
       useAppStore.setState({ [config.storeFlag]: true })
       setPressedKeys([])
       keysRef.current.clear()
       toast.success(`${config.title} hotkey saved`)
     } catch (e: unknown) {
+      unboundRef.current = previous
+      if (!mountedRef.current) restoreCurrentHotkey()
       toast.error(extractErrorMessage(e, `Failed to register the ${config.title.toLowerCase()} hotkey.`))
     } finally {
       setSaving(false)
@@ -212,7 +224,7 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
       <span className="flex w-36 shrink-0 justify-end gap-1">
         {editing ? (
           <>
-            <Button variant="ghost" size="sm" onClick={cancelListening}>Cancel</Button>
+            <Button variant="ghost" size="sm" onClick={cancelListening} disabled={saving}>Cancel</Button>
             <Button variant="primary" size="sm" onClick={handleSaveHotkey} disabled={saving || pressedKeys.length === 0}>
               {saving ? 'Saving…' : 'Save'}
             </Button>
