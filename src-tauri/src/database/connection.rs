@@ -184,6 +184,16 @@ mod tests {
         i64::try_from(sqlx::migrate!("src/database/migrations").iter().count()).unwrap()
     }
 
+    #[test]
+    fn migrations_are_checked_out_with_lf_endings() {
+        for sql in [
+            include_str!("migrations/0001_init.sql"),
+            include_str!("migrations/0002_transcript_stats.sql"),
+        ] {
+            assert!(!sql.contains('\r'));
+        }
+    }
+
     /// As the pre-squash build left it: end schema, 13 recorded versions.
     async fn legacy_database() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
@@ -474,6 +484,21 @@ mod tests {
     async fn a_fresh_database_is_left_to_the_migrator() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         init_database(&pool).await.expect("init succeeds");
+
+        let (versions,): (i64,) = sqlx::query_as("SELECT count(*) FROM _sqlx_migrations")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(versions, migration_count());
+    }
+
+    #[tokio::test]
+    async fn reopening_a_migrated_database_keeps_its_ledger() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        open_database(&path).await.unwrap().close().await;
+
+        let pool = open_database(&path).await.expect("reopen succeeds");
 
         let (versions,): (i64,) = sqlx::query_as("SELECT count(*) FROM _sqlx_migrations")
             .fetch_one(&pool)
