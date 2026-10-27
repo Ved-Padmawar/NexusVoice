@@ -1,0 +1,136 @@
+/* Settings preview from redesign: retain the 332 × 132 layout before the
+   wrapper scales it to 60%. The stage intentionally crops the card's foot. */
+.live-transcript-preview {
+  position: relative;
+  isolation: isolate;
+  width: 332px;
+  height: 132px;
+  border-radius: 28px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+  user-select: none;
+  box-shadow: inset 0 0 0 1px var(--preview-border), var(--preview-shadow);
+}
+
+.live-transcript-preview[data-pill-theme="steel"] {
+  --preview-border: rgb(148 168 200 / 0.18);
+  --preview-dim: rgb(200 215 235 / 0.5);
+  --preview-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05), 0 6px 18px -6px rgb(0 0 0 / 0.55);
+}
+
+.live-transcript-preview[data-pill-theme="midnight"] {
+  --preview-border: rgb(34 211 211 / 0.2);
+  --preview-dim: rgb(34 211 211 / 0.55);
+  --preview-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 6px 18px -6px rgb(0 0 0 / 0.55);
+}
+
+.live-transcript-preview[data-pill-theme="canvas"] {
+  --preview-border: #93a5e9;
+  --preview-dim: rgb(52 86 214 / 0.62);
+  --preview-shadow: 0 4px 12px -6px rgb(30 50 140 / 0.28);
+}
+
+.live-transcript-preview[data-pill-theme="dawn"] {
+  --preview-border: #e0936c;
+  --preview-dim: rgb(194 65 12 / 0.65);
+  --preview-shadow: 0 4px 12px -6px rgb(160 60 10 / 0.3);
+}
+
+.live-transcript-preview[data-pill-theme="aurora"] {
+  --preview-border: rgb(255 255 255 / 0.3);
+  --preview-dim: rgb(255 255 255 / 0.72);
+  --preview-shadow: inset 0 1px 0 rgb(255 255 255 / 0.14), 0 8px 22px -10px rgb(110 80 220 / 0.6);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+}
+
+.live-transcript-preview[data-pill-theme="glass"] {
+  --preview-border: rgb(255 255 255 / 0.32);
+  --preview-dim: rgb(255 255 255 / 0.6);
+  --preview-shadow: inset 0 1px 0 rgb(255 255 255 / 0.5), inset 0 -1px 0 rgb(255 255 255 / 0.08), 0 8px 24px -8px rgb(0 0 0 / 0.45);
+  backdrop-filter: blur(18px) saturate(1.8);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+}
+
+.live-transcript-preview__tide {
+  position: absolute;
+  inset: auto 0 0;
+  height: 88px;
+  z-index: -1;
+  background: linear-gradient(to top, color-mix(in srgb, var(--preview-accent) 18%, transparent), transparent);
+}
+
+.live-transcript-preview[data-pill-theme="steel"] .live-transcript-preview__tide { display: none; }
+
+.live-transcript-preview__text {
+  flex: 1;
+  min-height: 0;
+  padding: 18px 19px 4px;
+  overflow: hidden;
+  font-size: 13.5px;
+  line-height: 1.62;
+  letter-spacing: -0.007em;
+  text-align: left;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.live-transcript-preview__tentative,
+.live-transcript-preview__hint { color: var(--preview-dim); }
+
+.live-transcript-preview__caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 3px;
+  vertical-align: -0.16em;
+  border-radius: 2px;
+  background: var(--preview-accent);
+  animation: transcript-preview-caret 1.05s linear infinite;
+}
+
+.live-transcript-preview__strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 42px;
+  padding: 0 13px 4px 15px;
+  flex-shrink: 0;
+}
+
+.live-transcript-preview__strip > svg { color: var(--preview-accent); flex-shrink: 0; }
+.live-transcript-preview__hint { margin-left: auto; font-size: 10px; font-weight: 500; white-space: nowrap; }
+
+.live-transcript-preview__wave {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  flex: 0 0 54px;
+  height: 20px;
+}
+
+.live-transcript-preview__wave > i {
+  flex: 0 0 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--preview-accent);
+  --peak: calc(7px + mod(sibling-index() * 5, 10) * 1px);
+  animation: transcript-preview-bar calc(0.34s + mod(sibling-index() * 7, 5) * 0.08s) ease-in-out infinite alternate;
+  animation-delay: calc(sibling-index() * -0.19s);
+}
+
+@keyframes transcript-preview-caret {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: 0.15; }
+}
+
+@keyframes transcript-preview-bar { to { height: var(--peak); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .live-transcript-preview__caret,
+  .live-transcript-preview__wave > i { animation: none; }
+}

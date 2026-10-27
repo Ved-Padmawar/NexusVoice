@@ -1,0 +1,94 @@
+name: Test
+run-name: Test · ${{ github.ref_name }}
+
+# Manual only: run it from the Actions tab or `gh workflow run test.yml --ref <branch>`.
+# Runs the same checks the release gate does, on Linux and Windows, and
+# publishes nothing.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Short target dir avoids MSVC/CMake path-length limits.
+      - name: Set short Cargo target dir (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo "CARGO_TARGET_DIR=C:\b" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Set libclang / cmake paths (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $llvm = "C:\Program Files\LLVM\bin"
+          $cmake = "C:\Program Files\CMake\bin\cmake.exe"
+          if (-not (Test-Path "$llvm\libclang.dll")) { throw "libclang.dll not found at $llvm" }
+          if (-not (Test-Path $cmake)) { throw "cmake not found at $cmake" }
+          echo "LIBCLANG_PATH=$llvm" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "CMAKE=$cmake"        | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libasound2-dev \
+            libxdo-dev \
+            build-essential \
+            libssl-dev \
+            clang \
+            libclang-dev \
+            llvm-dev \
+            cmake \
+            pkg-config
+
+      - name: Set LIBCLANG_PATH (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          LIBCLANG_DIR=$(dirname "$(find /usr/lib /usr/lib64 -name 'libclang.so*' -print -quit)")
+          echo "Found libclang in: $LIBCLANG_DIR"
+          echo "LIBCLANG_PATH=$LIBCLANG_DIR" >> "$GITHUB_ENV"
+
+      - name: Install frontend deps
+        run: bun install --frozen-lockfile
+
+      - name: Frontend checks (type, lint, unit tests, build)
+        run: |
+          bun run typecheck
+          bun run lint
+          bun run test
+          bun run build
+
+      - name: Setup nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Backend checks (format, Clippy, tests)
+        working-directory: src-tauri
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -W clippy::pedantic -D warnings
+          cargo nextest run --release

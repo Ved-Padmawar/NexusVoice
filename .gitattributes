@@ -2,3 +2,6 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 *.sh text eol=lf
+*.sql text eol=lf
+# Signed bytes: a line-ending conversion breaks the signature.
+src-tauri/tests/fixtures/cuda-signing/** -text

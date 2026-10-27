@@ -17,7 +17,7 @@ use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{ErrorKind, SampleFormat};
 
 use crate::audio::WaveformMeter;
-use crate::state::lock_recovering;
+use crate::sync::lock_recovering;
 
 /// How long a warm stream is kept with nothing recording. Long enough to cover
 /// back-to-back dictation, short enough that the OS mic indicator doesn't stay
@@ -166,9 +166,11 @@ struct Shared {
     last_error: Mutex<Option<String>>,
     /// The open stream hit a fatal error and delivers nothing more.
     dead: AtomicBool,
+    /// Skips the idle release.
+    keep_open: AtomicBool,
 }
 
-/// The persistent capture stream. One lives in `AppState` for the app's life.
+/// The persistent capture stream. The recorder holds one for the app's life.
 pub struct MicStream {
     shared: Arc<Shared>,
     tx: Mutex<Option<mpsc::Sender<Command>>>,
@@ -191,9 +193,15 @@ impl MicStream {
                 ready: Arc::new((Mutex::new(false), Condvar::new())),
                 last_error: Mutex::new(None),
                 dead: AtomicBool::new(false),
+                keep_open: AtomicBool::new(false),
             }),
             tx: Mutex::new(None),
         }
+    }
+
+    /// Hold the device open past [`IDLE_TIMEOUT`].
+    pub fn set_keep_open(&self, keep: bool) {
+        self.shared.keep_open.store(keep, Ordering::SeqCst);
     }
 
     /// Open the device, starting the supervisor thread on first use. A no-op
@@ -312,7 +320,9 @@ fn supervise(rx: &mpsc::Receiver<Command>, shared: &Arc<Shared>) {
                     log::warn!("releasing dead microphone stream");
                     drop(stream.take());
                     open_device = None;
-                } else if shared.armed.load(Ordering::SeqCst) {
+                } else if shared.armed.load(Ordering::SeqCst)
+                    || shared.keep_open.load(Ordering::SeqCst)
+                {
                     idle_since = std::time::Instant::now();
                 } else if stream.is_some()
                     && idle_since.elapsed() >= IDLE_TIMEOUT

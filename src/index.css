@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "tw-animate-css";
 
 /* Bundled: absent on Linux, where the fallback's wider metrics overflowed. */
 @font-face {
@@ -10,368 +9,155 @@
   src: url('/fonts/inter-latin-variable.woff2') format('woff2');
 }
 
-@custom-variant dark (&:is(.dark *));
-
-/* ================================================================
-   Radix data-attribute variants (formerly from the shadcn CLI package)
-   ================================================================ */
-@custom-variant data-open {
-  &:where([data-state="open"]),
-  &:where([data-open]:not([data-open="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-closed {
-  &:where([data-state="closed"]),
-  &:where([data-closed]:not([data-closed="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-checked {
-  &:where([data-state="checked"]),
-  &:where([data-checked]:not([data-checked="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-unchecked {
-  &:where([data-state="unchecked"]),
-  &:where([data-unchecked]:not([data-unchecked="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-selected {
-  &:where([data-selected="true"]) {
-    @slot;
-  }
-}
-
-@custom-variant data-disabled {
-  &:where([data-disabled="true"]),
-  &:where([data-disabled]:not([data-disabled="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-active {
-  &:where([data-state="active"]),
-  &:where([data-active]:not([data-active="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-horizontal {
-  &:where([data-orientation="horizontal"]) {
-    @slot;
-  }
-}
-
-@custom-variant data-vertical {
-  &:where([data-orientation="vertical"]) {
-    @slot;
-  }
-}
-
-/* ================================================================
-   shadcn/ui — map our CSS vars to shadcn token names
-   ================================================================ */
+/* Utilities resolve to the active theme's tokens: bg-panel, ring-line-soft,
+   text-accent-ink… The themes below set the raw values; nothing else does. */
 @theme inline {
-  --color-background:         var(--bg);
-  --color-foreground:         var(--fg);
-  --color-card:               var(--panel);
-  --color-card-foreground:    var(--fg);
-  --color-popover:            var(--panel);
-  --color-popover-foreground: var(--fg);
-  --color-primary:            var(--accent);
-  --color-primary-foreground: var(--accent-fg);
-  --color-secondary:          var(--surface);
-  --color-secondary-foreground: var(--fg);
-  --color-muted:              var(--surface);
-  --color-muted-foreground:   var(--muted);
-  --color-accent:             var(--surface-hover);
-  --color-accent-foreground:  var(--fg);
-  --color-destructive:        var(--danger);
-  --color-border:             var(--border);
-  --color-input:              var(--border);
-  --color-ring:               var(--accent);
-  --radius-sm:   4px;
-  --radius-md:   8px;
-  --radius-lg:   12px;
-  --radius-xl:   16px;
+  --color-bg: var(--bg);
+  --color-bg-alt: var(--bg-alt);
+  --color-field: var(--field);
+  --color-panel: var(--panel);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-line: var(--border);
+  --color-line-soft: var(--border-soft);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-line: var(--accent-line);
+  --color-accent-2: var(--accent-2);
+  --color-accent-2-soft: var(--accent-2-soft);
+  --color-accent-2-ink: var(--accent-2-ink);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  /* Window close button: Windows 11 red, intentionally not theme-tinted */
+  --color-close: #c42b1c;
+
+  /* Inter only, "code" text included: tabular figures and a slashed zero
+     instead of a separate mono face. */
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'Inter', system-ui, sans-serif;
+
+  --text-2xs: 10px;  --text-2xs--line-height: 1.4;
+  --text-xs: 11px;   --text-xs--line-height: 1.45;
+  --text-sm: 12px;   --text-sm--line-height: 1.5;
+  --text-base: 13px; --text-base--line-height: 1.6;
+  --text-md: 15px;   --text-md--line-height: 1.4;
+  --text-lg: 16px;   --text-lg--line-height: 1.25;
+  --text-xl: 20px;   --text-xl--line-height: 1.2;
+  --text-2xl: 28px;  --text-2xl--line-height: 1.1;
+  --text-display: 68px; --text-display--line-height: 0.95;
+
+  --radius-xs: 4px; --radius-sm: 6px; --radius-md: 9px; --radius-lg: 12px; --radius-xl: 16px; --radius-2xl: 22px;
 }
 
-/* Suppress native WebView2/Edge password reveal button */
-input[type="password"]::-ms-reveal { display: none; }
-
-/* ================================================================
-   Design tokens — shared across all themes
-   ================================================================ */
-:root {
-  /* Radius scale */
-  --r-xs: 4px;
-  --r-sm: 6px;
-  --r-md: 8px;
-  --r-lg: 12px;
-  --r-xl: 16px;
-  --r-2xl: 20px;
-  --r-full: 9999px;
-
-  /* Sidebar */
-  --sidebar-w: 220px;
-
-  /* Transitions */
-  --t-fast:   120ms cubic-bezier(0.4, 0, 0.2, 1);
-  --t-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
-  --t-spring: 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
-
-  /* Semantic (same across themes) */
-  --success:      oklch(0.70 0.17 145);
-  --success-soft: oklch(0.70 0.17 145 / 0.12);
-  --warning:      oklch(0.78 0.17 70);
-  --warning-soft: oklch(0.78 0.17 70 / 0.12);
-  --danger:       oklch(0.63 0.22 22);
-  --danger-soft:  oklch(0.63 0.22 22 / 0.14);
-  /* Window close button — Windows 11 red, intentionally not theme-tinted */
-  --color-close:  #c42b1c;
+/* Static: also read as var() from the CSS below, so always emitted. */
+@theme static {
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* ================================================================
-   THEME: Abyss — blue-grey dark, periwinkle accent (default)
+   Window themes. [data-theme] is set on <html>; previews set it on
+   their own element, so each one resolves its own values.
    ================================================================ */
-:root,
-:root[data-theme='abyss'] {
+:root, [data-theme="indigo"] {
   color-scheme: dark;
-  --bg:            oklch(0.20 0.02 250);
-  --bg-alt:        oklch(0.18 0.02 250);
-  --panel:         oklch(0.24 0.02 250);
-  --panel-border:  oklch(0.30 0.02 250);
-  --surface:       oklch(0.27 0.02 250);
-  --surface-hover: oklch(0.32 0.02 250);
-  --border:        oklch(0.35 0.02 250);
-  --border-soft:   oklch(0.28 0.02 250);
-  --fg:            oklch(0.92 0.01 250);
-  --fg-2:          oklch(0.85 0.01 250);
-  --muted:         oklch(0.56 0.01 250);
-  --accent:        oklch(0.75 0.12 250);
-  --accent-hover:  oklch(0.80 0.12 250);
-  --accent-soft:   oklch(0.75 0.12 250 / 0.15);
-  --accent-fg:     oklch(0.98 0.005 0);
-  --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.30), 0 1px 2px oklch(0 0 0 / 0.20);
-  --shadow-md:     0 4px 12px oklch(0 0 0 / 0.40), 0 2px 4px oklch(0 0 0 / 0.25);
-  --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.60), 0 4px 8px oklch(0 0 0 / 0.35);
-  --glow:          0 0 20px oklch(0.75 0.12 250 / 0.25);
+  --bg: #0e0f1f; --bg-alt: #0a0b18; --panel: #141629; --surface: #1b1e35; --border: #2f3356;
+  --fg: #eceefb; --fg-2: #c5c9e6; --muted: #959bc0;
+  --accent: #8b93f8; --accent-ink: #a5adfb; --accent-fg: #0b0c24; --accent-2: #93c5fd;
+  --success: #6ee7b7; --warning: #fcc66a; --danger: #ff7a95;
+  --shadow-rgb: 4 4 20; --shadow-a: 0.55;
 }
-
-/* ================================================================
-   THEME: Midnight — deep navy, vivid violet accent
-   ================================================================ */
-/* The one multi-hue theme: near-neutral indigo surfaces (chroma ≤ 0.02, so
-   they read as grey rather than tinting the whole window), a cyan accent, and
-   semantics on their own hues instead of tints of the accent. */
-:root[data-theme='midnight'] {
+[data-theme="steel"] {
   color-scheme: dark;
-  --bg:            oklch(0.15 0.015 265);
-  --bg-alt:        oklch(0.12 0.018 265);
-  --panel:         oklch(0.19 0.014 265);
-  --panel-border:  oklch(0.27 0.016 265);
-  --surface:       oklch(0.23 0.013 265);
-  --surface-hover: oklch(0.28 0.015 265);
-  --border:        oklch(0.32 0.018 265);
-  --border-soft:   oklch(0.25 0.014 265);
-  --fg:            oklch(0.95 0.008 265);
-  --fg-2:          oklch(0.86 0.010 265);
-  --muted:         oklch(0.60 0.020 265);
-  --accent:        oklch(0.78 0.13 195);
-  --accent-hover:  oklch(0.84 0.12 195);
-  --accent-soft:   oklch(0.78 0.13 195 / 0.16);
-  --accent-fg:     oklch(0.16 0.02 220);
-  /* Amber, magenta and lime — far enough from the cyan accent to read as
-     their own signals rather than shades of it. */
-  --success:       oklch(0.78 0.17 145);
-  --success-soft:  oklch(0.78 0.17 145 / 0.14);
-  --warning:       oklch(0.80 0.15 75);
-  --warning-soft:  oklch(0.80 0.15 75 / 0.14);
-  --danger:        oklch(0.66 0.21 12);
-  --danger-soft:   oklch(0.66 0.21 12 / 0.16);
-  --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.45), 0 1px 2px oklch(0 0 0 / 0.30);
-  --shadow-md:     0 4px 12px oklch(0 0 0 / 0.55), 0 2px 4px oklch(0 0 0 / 0.35);
-  --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.70), 0 4px 8px oklch(0 0 0 / 0.45);
-  --glow:          0 0 20px oklch(0.78 0.13 195 / 0.30);
+  --bg: #0f131a; --bg-alt: #0b0e14; --panel: #151a23; --surface: #1c232e; --border: #2c3646;
+  --fg: #e4eaf3; --fg-2: #b8c2d1; --muted: #8a97ab;
+  --accent: #b9cde2; --accent-ink: #b9cde2; --accent-fg: #0f1620; --accent-2: #e2c79f;
+  --success: #5fd39a; --warning: #f2b65a; --danger: #ff7a7a;
+  --shadow-rgb: 0 0 0; --shadow-a: 0.5;
 }
-
-/* ================================================================
-   THEME: Steel — dark slate blue-grey, pale icy accent
-   ================================================================ */
-:root[data-theme='steel'] {
+[data-theme="midnight"] {
   color-scheme: dark;
-  /* Matches the Steel swatch and pill (#141820 ground, #b8cce0 accent). */
-  --bg:            oklch(0.21 0.017 264);
-  --bg-alt:        oklch(0.18 0.017 264);
-  --panel:         oklch(0.23 0.021 264);
-  --panel-border:  oklch(0.28 0.024 262);
-  --surface:       oklch(0.26 0.023 259);
-  --surface-hover: oklch(0.31 0.026 260);
-  --border:        oklch(0.30 0.026 260);
-  --border-soft:   oklch(0.26 0.022 262);
-  --fg:            oklch(0.92 0.014 258);
-  --fg-2:          oklch(0.82 0.020 258);
-  --muted:         oklch(0.55 0.040 261);
-  --accent:        oklch(0.84 0.035 248);
-  --accent-hover:  oklch(0.90 0.030 248);
-  --accent-soft:   oklch(0.84 0.035 248 / 0.15);
-  --accent-fg:     oklch(0.18 0.020 260);
-  --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.35), 0 1px 2px oklch(0 0 0 / 0.22);
-  --shadow-md:     0 4px 12px oklch(0 0 0 / 0.50), 0 2px 4px oklch(0 0 0 / 0.30);
-  --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.70), 0 4px 8px oklch(0 0 0 / 0.40);
-  --glow:          0 0 20px oklch(0.84 0.035 248 / 0.25);
+  --bg: #05080e; --bg-alt: #03050a; --panel: #0b0f17; --surface: #121824; --border: #253044;
+  --fg: #edf0f6; --fg-2: #c2c9d6; --muted: #8992a6;
+  --accent: #22d3d3; --accent-ink: #22d3d3; --accent-fg: #03181a; --accent-2: #9b8cff;
+  --success: #4ade9a; --warning: #fbbf4a; --danger: #ff6b81;
+  --shadow-rgb: 0 0 0; --shadow-a: 0.6;
 }
-
-/* ================================================================
-   THEME: Pine — dark forest green, mint accent
-   ================================================================ */
-:root[data-theme='pine'] {
+[data-theme="orchid"] {
   color-scheme: dark;
-  --bg:            oklch(0.22 0.02 150);
-  --bg-alt:        oklch(0.19 0.02 150);
-  --panel:         oklch(0.27 0.02 150);
-  --panel-border:  oklch(0.34 0.02 150);
-  --surface:       oklch(0.31 0.02 150);
-  --surface-hover: oklch(0.36 0.02 150);
-  --border:        oklch(0.39 0.02 150);
-  --border-soft:   oklch(0.31 0.02 150);
-  --fg:            oklch(0.92 0.01 150);
-  --fg-2:          oklch(0.84 0.01 150);
-  --muted:         oklch(0.56 0.02 150);
-  --accent:        oklch(0.72 0.14 150);
-  --accent-hover:  oklch(0.78 0.14 150);
-  --accent-soft:   oklch(0.72 0.14 150 / 0.15);
-  --accent-fg:     oklch(0.98 0.005 0);
-  --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.30), 0 1px 2px oklch(0 0 0 / 0.20);
-  --shadow-md:     0 4px 12px oklch(0 0 0 / 0.45), 0 2px 4px oklch(0 0 0 / 0.28);
-  --shadow-lg:     0 12px 28px oklch(0 0 0 / 0.60), 0 4px 8px oklch(0 0 0 / 0.35);
-  --glow:          0 0 20px oklch(0.72 0.14 150 / 0.20);
+  --bg: #120e19; --bg-alt: #0d0a13; --panel: #191423; --surface: #221b2f; --border: #3a2f4e;
+  --fg: #f1ebf8; --fg-2: #d0c5e1; --muted: #a093b6;
+  --accent: #ec84f7; --accent-ink: #ef94f8; --accent-fg: #220a27; --accent-2: #86d7fc;
+  --success: #6fe0a8; --warning: #fcc66a; --danger: #ff7a95;
+  --shadow-rgb: 8 0 16; --shadow-a: 0.55;
 }
-
-/* ================================================================
-   THEME: Canvas — clean off-white light, cobalt accent
-   ================================================================ */
-:root[data-theme='canvas'] {
+[data-theme="canvas"] {
   color-scheme: light;
-  --bg:            oklch(0.97 0.005 250);
-  --bg-alt:        oklch(0.94 0.005 250);
-  --panel:         oklch(1.00 0.000 0);
-  --panel-border:  oklch(0.91 0.005 250);
-  --surface:       oklch(0.95 0.005 250);
-  --surface-hover: oklch(0.92 0.008 250);
-  --border:        oklch(0.85 0.008 250);
-  --border-soft:   oklch(0.92 0.005 250);
-  --fg:            oklch(0.25 0.01 250);
-  --fg-2:          oklch(0.35 0.01 250);
-  --muted:         oklch(0.55 0.01 250);
-  --accent:        oklch(0.48 0.16 255);
-  --accent-hover:  oklch(0.42 0.16 255);
-  --accent-soft:   oklch(0.48 0.16 255 / 0.16);
-  --accent-fg:     oklch(0.98 0.01 250);
-  --shadow-sm:     0 1px 3px oklch(0.25 0.01 250 / 0.04), 0 1px 2px oklch(0.25 0.01 250 / 0.03);
-  --shadow-md:     0 4px 12px oklch(0.25 0.01 250 / 0.08), 0 2px 4px oklch(0.25 0.01 250 / 0.05);
-  --shadow-lg:     0 12px 28px oklch(0.25 0.01 250 / 0.12), 0 4px 8px oklch(0.25 0.01 250 / 0.07);
-  --glow:          0 0 20px oklch(0.48 0.16 255 / 0.15);
+  --bg: #e9edf4; --bg-alt: #dfe4ee; --panel: #ffffff; --surface: #f4f6fa; --border: #c9d0dd;
+  --fg: #141927; --fg-2: #384056; --muted: #596279;
+  --accent: #3456d6; --accent-ink: #2f4fcc; --accent-fg: #ffffff; --accent-2: #0d9488;
+  --success: #137a43; --warning: #9a5b00; --danger: #c3263a;
+  --shadow-rgb: 30 40 70; --shadow-a: 0.14;
 }
-
-/* ================================================================
-   THEME: Dawn — warm white light, orange accent
-   ================================================================ */
-:root[data-theme='dawn'] {
+[data-theme="dawn"] {
   color-scheme: light;
-  --bg:            oklch(0.98 0.010 32);
-  --bg-alt:        oklch(0.96 0.014 32);
-  --panel:         oklch(0.93 0.020 35);
-  --panel-border:  oklch(0.87 0.024 35);
-  --surface:       oklch(0.96 0.010 32);
-  --surface-hover: oklch(0.92 0.018 32);
-  --border:        oklch(0.84 0.024 32);
-  --border-soft:   oklch(0.89 0.016 32);
-  --fg:            oklch(0.22 0.024 30);
-  --fg-2:          oklch(0.38 0.020 32);
-  --muted:         oklch(0.56 0.016 35);
-  --accent:        oklch(0.60 0.22 40);
-  --accent-hover:  oklch(0.54 0.24 40);
-  --accent-soft:   oklch(0.60 0.22 40 / 0.16);
-  --accent-fg:     oklch(1.00 0.00 0);
-  --shadow-sm:     0 1px 3px oklch(0.22 0.02 30 / 0.07), 0 1px 2px oklch(0.22 0.02 30 / 0.04);
-  --shadow-md:     0 4px 12px oklch(0.22 0.02 30 / 0.12), 0 2px 4px oklch(0.22 0.02 30 / 0.07);
-  --shadow-lg:     0 12px 28px oklch(0.22 0.02 30 / 0.18), 0 4px 8px oklch(0.22 0.02 30 / 0.10);
-  --glow:          0 0 20px oklch(0.60 0.22 40 / 0.25);
+  --bg: #f2e3d3; --bg-alt: #ead7c3; --panel: #fffaf3; --surface: #fbefe2; --border: #e0c7ab;
+  --fg: #2b1d12; --fg-2: #5a4331; --muted: #7a604c;
+  --accent: #b9500a; --accent-ink: #a84808; --accent-fg: #ffffff; --accent-2: #c2365f;
+  --success: #276b33; --warning: #8f5a00; --danger: #b8282e;
+  --shadow-rgb: 90 45 10; --shadow-a: 0.14;
 }
-
-/* ================================================================
-   THEME: Breeze — cool teal light, cyan-teal accent
-   ================================================================ */
-:root[data-theme='breeze'] {
+[data-theme="breeze"] {
   color-scheme: light;
-  --bg:            oklch(0.97 0.016 200);
-  --bg-alt:        oklch(0.94 0.018 200);
-  --panel:         oklch(0.91 0.024 200);
-  --panel-border:  oklch(0.85 0.022 200);
-  --surface:       oklch(0.95 0.016 200);
-  --surface-hover: oklch(0.91 0.020 200);
-  --border:        oklch(0.82 0.020 200);
-  --border-soft:   oklch(0.88 0.018 200);
-  --fg:            oklch(0.20 0.016 200);
-  --fg-2:          oklch(0.34 0.014 200);
-  --muted:         oklch(0.52 0.016 200);
-  --accent:        oklch(0.50 0.14 200);
-  --accent-hover:  oklch(0.44 0.16 200);
-  --accent-soft:   oklch(0.50 0.14 200 / 0.16);
-  --accent-fg:     oklch(0.99 0.01 200);
-  --shadow-sm:     0 1px 3px oklch(0.20 0.01 200 / 0.06), 0 1px 2px oklch(0.20 0.01 200 / 0.04);
-  --shadow-md:     0 4px 12px oklch(0.20 0.01 200 / 0.10), 0 2px 4px oklch(0.20 0.01 200 / 0.06);
-  --shadow-lg:     0 12px 28px oklch(0.20 0.01 200 / 0.14), 0 4px 8px oklch(0.20 0.01 200 / 0.08);
-  --glow:          0 0 20px oklch(0.50 0.14 200 / 0.20);
+  --bg: #d9eaee; --bg-alt: #cbe1e6; --panel: #f7fbfc; --surface: #e9f3f5; --border: #b6d2d8;
+  --fg: #0f2a33; --fg-2: #2c4c56; --muted: #4b6a73;
+  --accent: #0c6f82; --accent-ink: #0b6779; --accent-fg: #ffffff; --accent-2: #5b54c9;
+  --success: #1a6b40; --warning: #8a5a00; --danger: #b42a3c;
+  --shadow-rgb: 10 50 60; --shadow-a: 0.14;
 }
-
-/* ================================================================
-   THEME: Blossom — soft rose light, pink accent
-   ================================================================ */
-:root[data-theme='blossom'] {
+[data-theme="blossom"] {
   color-scheme: light;
-  --bg:            oklch(0.97 0.014 355);
-  --bg-alt:        oklch(0.94 0.016 355);
-  --panel:         oklch(0.91 0.022 355);
-  --panel-border:  oklch(0.85 0.020 355);
-  --surface:       oklch(0.95 0.014 355);
-  --surface-hover: oklch(0.91 0.018 355);
-  --border:        oklch(0.83 0.018 355);
-  --border-soft:   oklch(0.89 0.016 355);
-  --fg:            oklch(0.22 0.016 355);
-  --fg-2:          oklch(0.36 0.014 355);
-  --muted:         oklch(0.54 0.016 355);
-  --accent:        oklch(0.50 0.18 355);
-  --accent-hover:  oklch(0.44 0.20 355);
-  --accent-soft:   oklch(0.50 0.18 355 / 0.16);
-  --accent-fg:     oklch(0.99 0.01 355);
-  --shadow-sm:     0 1px 3px oklch(0.22 0.01 355 / 0.06), 0 1px 2px oklch(0.22 0.01 355 / 0.04);
-  --shadow-md:     0 4px 12px oklch(0.22 0.01 355 / 0.09), 0 2px 4px oklch(0.22 0.01 355 / 0.05);
-  --shadow-lg:     0 12px 28px oklch(0.22 0.01 355 / 0.14), 0 4px 8px oklch(0.22 0.01 355 / 0.08);
-  --glow:          0 0 20px oklch(0.50 0.18 355 / 0.15);
+  --bg: #f1dde2; --bg-alt: #e9cfd6; --panel: #fff8f9; --surface: #fbedf0; --border: #e3bfc8;
+  --fg: #2e1720; --fg-2: #5a3843; --muted: #7a5662;
+  --accent: #b02a49; --accent-ink: #a8243f; --accent-fg: #ffffff; --accent-2: #7a4fd6;
+  --success: #1d6a41; --warning: #8d5600; --danger: #b3202e;
+  --shadow-rgb: 80 20 35; --shadow-a: 0.14;
 }
 
+/* Derived from each theme where it is declared. Dark themes mix their field;
+   light ones use the panel. */
+:root, [data-theme] {
+  --field: color-mix(in oklab, var(--fg) 5%, var(--surface));
+  --surface-hover: color-mix(in oklab, var(--fg) 6%, var(--surface));
+  --border-soft: color-mix(in oklab, var(--border) 55%, var(--panel));
+  --accent-hover: color-mix(in oklab, var(--accent) 86%, var(--fg));
+  --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
+  --accent-line: color-mix(in oklab, var(--accent) 45%, transparent);
+  --accent-2-soft: color-mix(in oklab, var(--accent-2) 14%, transparent);
+  --accent-2-ink: color-mix(in oklab, var(--accent-2) 72%, var(--fg));
+  --success-soft: color-mix(in oklab, var(--success) 14%, transparent);
+  --warning-soft: color-mix(in oklab, var(--warning) 14%, transparent);
+  --danger-soft: color-mix(in oklab, var(--danger) 14%, transparent);
+  --shadow-sm: 0 1px 2px rgb(var(--shadow-rgb) / calc(var(--shadow-a) * 0.6));
+  --shadow-md: 0 6px 16px -4px rgb(var(--shadow-rgb) / var(--shadow-a)), 0 2px 4px rgb(var(--shadow-rgb) / calc(var(--shadow-a) * 0.5));
+  --shadow-lg: 0 24px 48px -12px rgb(var(--shadow-rgb) / calc(var(--shadow-a) * 1.4)), 0 6px 14px rgb(var(--shadow-rgb) / var(--shadow-a));
+}
+[data-theme="canvas"], [data-theme="dawn"], [data-theme="breeze"], [data-theme="blossom"] { --field: var(--panel); }
+
 /* ================================================================
-   Base layer — global resets and body styles
+   Base
    ================================================================ */
 @layer base {
-  *, *::before, *::after {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-    @apply border-border;
-  }
-
   html {
-    scroll-behavior: smooth;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -382,192 +168,176 @@ input[type="password"]::-ms-reveal { display: none; }
     overflow: hidden;
     background: var(--bg);
     color: var(--fg);
-    font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-sans);
     font-size: 13px;
     line-height: 1.5;
     font-feature-settings: 'cv11', 'ss01', 'liga';
-    transition: background-color var(--t-normal), color var(--t-normal);
-    @apply bg-background text-foreground;
+    transition: background-color 200ms, color 200ms;
   }
 
   #root { height: 100dvh; overflow: hidden; }
 
-  button, input, select, textarea { font-family: inherit; font-size: inherit; }
-  a { color: var(--accent); text-decoration: none; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  :is(input:not([type="checkbox"]), select, textarea):focus-visible { outline: none; }
+  ::selection { background: var(--accent-soft); }
+  input[type="password"]::-ms-reveal { display: none; }
 
-  /* Focus ring — only keyboard navigation */
-  :focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    border-radius: var(--r-sm);
-  }
+  /* A thin themed thumb, no track, no arrow buttons. Chromium on Windows
+     still draws arrows with `scrollbar-width: thin`, and setting that
+     property disables these pseudo-elements, so the standard one isn't used. */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-button { display: none; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background: color-mix(in oklab, var(--fg) 18%, transparent) padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in oklab, var(--fg) 32%, transparent); }
 
-  /* Scrollbar */
-  ::-webkit-scrollbar { width: 5px; height: 5px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb {
-    background: var(--border);
-    border-radius: var(--r-full);
-  }
-  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
-
-  /* Dropdown lists scroll without a visible bar — the clipped last row already
-     says the list continues, and a track inside a short popover is more chrome
-     than it is worth. */
-  .select-list { scrollbar-width: none; -ms-overflow-style: none; }
-  .select-list::-webkit-scrollbar { width: 0; height: 0; }
-
-  /* Tauri drag regions — cannot be expressed as Tailwind utilities */
+  /* Tauri drag regions: not expressible as utilities */
   [data-tauri-drag-region] { -webkit-app-region: drag; app-region: drag; cursor: default; }
   .no-drag { -webkit-app-region: no-drag; app-region: no-drag; }
 
+  /* Tooltips: themed, with a short delay. Not rendered until shown, so a
+     hidden one never widens its scroller. data-tip-pos="bottom" near the top
+     edge; data-tip-align="start"/"end" near the left/right edge. In the base layer, so a
+     utility like `absolute` on the same element wins. */
+  [data-tip] { position: relative; }
 }
 
-/* ── Component classes (shadcn slot overrides) ───────────────────── */
-@layer components {
-  /* Input */
-  .nv-input {
-    height: 34px;
-    padding: 0 10px;
-    font-size: 13px;
-    font-weight: 400;
-    /* Not fixed px — a shorter height would leave the line box overflowing. */
-    line-height: normal;
-    letter-spacing: 0;
-    font-family: inherit;
-    border-radius: var(--r-md);
-    background: var(--surface);
-    /* Inset shadow, not a border — a 1px rounded border clips off-pixel. */
-    border: 1px solid transparent;
-    box-shadow: inset 0 0 0 1px var(--border);
-    color: var(--fg);
-    outline: none;
-    width: 100%;
-    transition: box-shadow var(--t-fast);
-  }
-  .nv-input::placeholder { color: var(--muted); font-weight: 400; font-size: 13px; }
-  .nv-input:focus { box-shadow: inset 0 0 0 1px var(--accent); outline: none; }
+[data-tip]::after {
+  --tip-x: -50%;
+  content: attr(data-tip);
+  display: none; position: absolute; z-index: 50; left: 50%; bottom: calc(100% + 6px);
+  width: max-content; max-width: 240px; padding: 5px 8px; border-radius: 7px;
+  background: color-mix(in oklab, var(--accent) 12%, var(--panel));
+  color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--border), 0 6px 16px -4px rgb(var(--shadow-rgb) / 0.45);
+  font: 500 11px/1.4 var(--font-sans); letter-spacing: 0; text-align: left; text-transform: none; white-space: pre-line;
+  pointer-events: none; translate: var(--tip-x) 0;
+}
+[data-tip]:hover::after, [data-tip]:focus-visible::after { display: block; animation: tip-in 140ms var(--ease-out-quint) 400ms both; }
+/* A trigger's own menu covers where its tooltip would show. */
+[data-tip][aria-expanded="true"]::after { display: none; }
+[data-tip-pos="bottom"]::after { bottom: auto; top: calc(100% + 6px); }
+[data-tip-align="start"]::after { left: 0; --tip-x: 0%; }
+[data-tip-align="end"]::after { left: auto; right: 0; --tip-x: 0%; }
+@keyframes tip-in { from { opacity: 0; translate: var(--tip-x) 3px; } }
 
-  /* Same trick for bordered controls that are not inputs. Set the edge colour
-     with --edge; the transparent border only reserves the 1px of box. */
-  .nv-edge {
-    border: 1px solid transparent;
-    box-shadow: inset 0 0 0 1px var(--edge, var(--border));
-    transition: box-shadow var(--t-fast), color var(--t-fast), background var(--t-fast);
-  }
-  .nv-input:focus-visible { outline: none; }
-  .nv-input:disabled { opacity: 0.45; cursor: not-allowed; }
+@keyframes page-in { from { opacity: 0; translate: 0 6px; } }
 
-  /* shadcn Button — compact sizing, brand radius */
-  [data-slot="button"] {
-    border-radius: var(--r-md);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.01em;
-    transition: all var(--t-fast);
-  }
+/* ================================================================
+   Sonner toasts, themed through Sonner's own attributes. Its stylesheet
+   styles [data-sonner-toast][data-styled=true], so each selector here is
+   one step more specific; its stacking and motion are kept.
+   ================================================================ */
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 0; border-radius: 14px;
+  background: color-mix(in oklab, var(--panel) 90%, transparent); backdrop-filter: blur(14px) saturate(1.4);
+  box-shadow: var(--shadow-lg), inset 0 0 0 1px var(--border);
+  color: var(--fg); font-size: 12px; font-weight: 500;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] [data-icon] { display: grid; place-items: center; width: 20px; height: 20px; margin: 0; flex-shrink: 0; color: var(--accent-ink); }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] [data-icon] svg { margin: 0; }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true][data-type="success"] [data-icon] { color: var(--success); }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true][data-type="error"] [data-icon] { color: var(--danger); }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true][data-type="error"] { box-shadow: var(--shadow-lg), inset 0 0 0 1px color-mix(in oklab, var(--danger) 40%, var(--border)); }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] [data-content] { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] [data-title] { font-weight: 600; }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] [data-button] { flex-shrink: 0; height: 26px; padding: 0 10px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; font-weight: 600; cursor: pointer; }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] [data-button]:hover { background: color-mix(in oklab, var(--accent) 24%, transparent); }
+[data-sonner-toaster] [data-sonner-toast][data-styled=true] [data-description] { font-size: 11px; color: var(--muted); font-weight: 400; }
 
-  /* shadcn Label */
-  [data-slot="label"] {
-    font-size: 11.5px;
-    font-weight: 500;
-    color: var(--fg-2);
-    letter-spacing: 0.01em;
-    text-transform: none;
-  }
+/* ================================================================
+   Shell. A page's scroll box is .page-scroll; content softly fades
+   out under the title bar once it scrolls. Only the visible page has
+   a box, so only it drives the fade. Engines without scroll-driven
+   animations simply show no fade.
+   ================================================================ */
+.app-shell { timeline-scope: --page-scroll; }
+.page-scroll { scroll-timeline: --page-scroll block; scrollbar-gutter: stable; }
+.topbar::after {
+  content: ""; position: absolute; inset: 100% 0 auto; height: 28px; pointer-events: none;
+  background: linear-gradient(var(--bg), transparent);
+  opacity: 0; animation: bar-fade linear both; animation-timeline: --page-scroll; animation-range: 0 40px;
+}
+@keyframes bar-fade { to { opacity: 1; } }
+/* A page with its own sticky header scrolls under the bar plainly. */
+.app-shell:has([data-no-topbar-fade]) .topbar::after { display: none; }
 
-  /* shadcn Badge */
-  [data-slot="badge"] {
-    border-radius: var(--r-sm);
-    font-size: 10px;
-    font-weight: 600;
-    padding: 2px 7px;
-    letter-spacing: 0.02em;
-  }
-
-  /* shadcn Select */
-  [data-slot="select-trigger"] {
-    height: 36px;
-    font-size: 12px;
-    border-radius: var(--r-md);
-    background: var(--surface);
-    border: 1px solid transparent;
-    box-shadow: inset 0 0 0 1px var(--border);
-    color: var(--fg);
-    padding: 0 10px;
-    gap: 6px;
-    transition: box-shadow var(--t-fast);
-    width: 100%;
-  }
-  [data-slot="select-trigger"]:hover { box-shadow: inset 0 0 0 1px var(--accent); }
-  [data-slot="select-trigger"]:focus-visible,
-  [data-slot="select-trigger"][data-state="open"] {
-    box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px var(--accent-soft);
-    outline: none;
-  }
-  [data-slot="select-content"] {
-    background: var(--panel);
-    border: 1px solid transparent;
-    box-shadow: inset 0 0 0 1px var(--border), var(--shadow-lg);
-    border-radius: var(--r-lg);
-    padding: 4px;
-    min-width: 180px;
-    z-index: 9999;
-  }
-  [data-slot="select-item"] {
-    font-size: 12px;
-    color: var(--fg-2);
-    border-radius: var(--r-md);
-    padding: 7px 10px;
-    cursor: pointer;
-    transition: background var(--t-fast), color var(--t-fast);
-    gap: 8px;
-  }
-  [data-slot="select-item"]:hover,
-  [data-slot="select-item"][data-highlighted] {
-    background: var(--surface-hover);
-    color: var(--fg);
-    outline: none;
-  }
-  [data-slot="select-item"][data-state="checked"] { color: var(--accent); font-weight: 600; }
-  [data-slot="select-item-indicator"] { right: 8px; }
-
-  /* shadcn Tabs */
-  [role="tablist"] {
-    background: var(--surface);
-    border: 1px solid transparent;
-    box-shadow: inset 0 0 0 1px var(--border-soft);
-    border-radius: var(--r-lg);
-    padding: 3px;
-    gap: 2px;
-    height: auto;
-  }
-  [role="tab"] {
-    border-radius: var(--r-md);
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--muted);
-    padding: 5px 14px;
-    height: auto;
-    transition: all var(--t-fast);
-  }
-  [role="tab"]:hover { color: var(--fg); }
-  [role="tab"][data-state="active"] {
-    background: var(--panel);
-    color: var(--fg);
-    font-weight: 600;
-    box-shadow: var(--shadow-sm);
-  }
-
-  /* shadcn Alert */
-  [data-slot="alert"] {
-    border-radius: var(--r-lg);
-    font-size: 12px;
-    padding: 10px 14px;
-  }
+/* Bottom room only when settings scroll, so a page that fits never does. */
+.settings-end { height: 2rem; }
+@supports (container-type: scroll-state) {
+  .settings-scroll { container-type: scroll-state; }
+  .settings-end { height: 0; }
+  @container scroll-state(scrollable: block) { .settings-end { height: 2rem; } }
 }
 
+/* ================================================================
+   Dashboard
+   ================================================================ */
 
+/* Count-up: an integer custom property animates, a counter prints it. */
+@property --n { syntax: '<integer>'; inherits: false; initial-value: 0; }
+.count { counter-reset: n var(--n); animation: count-up 1100ms var(--ease-out-quint) both; }
+.count::after { content: counter(n); }
+@keyframes count-up { from { --n: 0; } to { --n: var(--to); } }
+
+/* Words per day, one bar each, mirrored like audio. The bars grow in once,
+   left to right (--i staggers them), then hold still. */
+.daywave > span { flex: 1; min-width: 0; display: grid; align-items: center; }
+.daywave > span > i {
+  display: block; height: max(4px, calc(var(--v) * 100%)); border-radius: 999px;
+  background: color-mix(in oklab, var(--accent) calc(100% - var(--v) * 45%), var(--accent-2));
+  opacity: calc(0.35 + var(--v) * 0.55);
+  transition: opacity 120ms, scale 200ms var(--ease-out-quint);
+  animation: bar-grow 700ms var(--ease-out-quint) both;
+  animation-delay: calc(var(--i) * 9ms);
+}
+.daywave > span:hover > i { opacity: 1; scale: 1.6 1.04; }
+.daywave > span[data-today] > i { opacity: 1; background: var(--accent); }
+.daywave > span:hover::after { animation-delay: 0ms; }
+@keyframes bar-grow { from { scale: 1 0; } }
+
+.ring-fill { animation: ring-fill 1100ms var(--ease-out-quint) both; }
+@keyframes ring-fill { from { stroke-dasharray: 0 100; } }
+
+/* Copy to tick, no script: a click focuses the button and focus runs one
+   cross-fade. `:not(:active)` drops it while held, so every click restarts it. */
+.copy-btn > svg { grid-area: 1 / 1; }
+.copy-btn .c-done { opacity: 0; color: var(--success); }
+.copy-btn:focus:not(:focus-visible):not(:active) .c-idle { animation: copy-out 1.8s var(--ease-out-quint) both; }
+.copy-btn:focus:not(:focus-visible):not(:active) .c-done { animation: copy-in 1.8s var(--ease-out-quint) both; }
+@keyframes copy-in {
+  0% { opacity: 0; scale: 0.6; filter: blur(2px); }
+  18%, 78% { opacity: 1; scale: 1; filter: blur(0); }
+  100% { opacity: 0; scale: 0.85; filter: blur(1px); }
+}
+@keyframes copy-out {
+  0% { opacity: 1; scale: 1; filter: blur(0); }
+  18%, 78% { opacity: 0; scale: 0.6; filter: blur(2px); }
+  100% { opacity: 1; scale: 1; filter: blur(0); }
+}
+
+/* ================================================================
+   Settings
+   ================================================================ */
+
+/* Voice grid: once scrolled, cards fade under the filter row instead of being
+   cut by a hard edge. The fade grows with the grid's own scroll position. */
+@property --fade { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@keyframes fade-in-edge { to { --fade: 12px; } }
+.voice-scroll {
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--fade));
+  animation: fade-in-edge linear both;
+  animation-timeline: scroll(self);
+  animation-range: 0 24px;
+}
+
+/* Queued download: the hourglass turns over every few seconds. */
+@keyframes glass-turn { 0%, 38% { rotate: 0deg; } 50%, 88% { rotate: 180deg; } 100% { rotate: 360deg; } }
+.queue-glass { animation: glass-turn 5s ease-in-out infinite; }
+
+/* Hotkey recorder: the record dot blinks while it listens. */
+@keyframes blink { 50% { opacity: 0.3; } }
+.hk-listen { animation: blink 1s steps(2) infinite; }
 
 /* ===================================================================
    Waveform preview (Settings → Appearance)

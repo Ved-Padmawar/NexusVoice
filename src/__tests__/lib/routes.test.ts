@@ -1,6 +1,6 @@
 /**
- * `SETTINGS_TABS` is the registry; `Settings.tsx` hard-codes the same strings in
- * its triggers and panels. CLAUDE.md calls out keeping the three in sync — a
+ * `SETTINGS_TABS` is the registry; `Settings.tsx` names each entry in its
+ * triggers and panels. CLAUDE.md calls out keeping the three in sync — a
  * drift shows up as a tab that renders nothing, with no error.
  */
 import { describe, it, expect } from 'vitest'
@@ -26,37 +26,31 @@ describe('SETTINGS_TABS', () => {
     expect(Object.values(SETTINGS_TABS)).toEqual(['general', 'voice', 'appearance', 'about'])
   })
 
+  const keys = Object.keys(SETTINGS_TABS)
+  const trigger = (key: string) => `value: SETTINGS_TABS.${key},`
+  const panel = (key: string) => `tab === SETTINGS_TABS.${key} &&`
+
   it('gives every registered tab a trigger in Settings.tsx', () => {
-    const missing = Object.values(SETTINGS_TABS).filter(
-      tab => !settingsSource.includes(`<TabsTrigger value="${tab}"`),
-    )
+    const missing = keys.filter(key => !settingsSource.includes(trigger(key)))
     expect(missing, 'these tabs have no trigger to click').toEqual([])
   })
 
   it('gives every registered tab a panel in Settings.tsx', () => {
-    const missing = Object.values(SETTINGS_TABS).filter(
-      tab => !settingsSource.includes(`<TabsContent value="${tab}"`),
-    )
+    const missing = keys.filter(key => !settingsSource.includes(panel(key)))
     expect(missing, 'these tabs render nothing when selected').toEqual([])
   })
 
   it('renders the triggers in the registry order', () => {
-    // The registry is the spec; a reordered JSX list silently contradicts it.
-    const order = Object.values(SETTINGS_TABS).map(tab => ({
-      tab,
-      at: settingsSource.indexOf(`<TabsTrigger value="${tab}"`),
-    }))
-    expect(order.every(o => o.at >= 0)).toBe(true)
-    const positions = order.map(o => o.at)
-    expect(positions, `trigger order was ${order.map(o => o.tab)}`)
-      .toEqual([...positions].sort((a, b) => a - b))
+    // The registry is the spec; a reordered list silently contradicts it.
+    const positions = keys.map(key => settingsSource.indexOf(trigger(key)))
+    expect(positions.every(at => at >= 0)).toBe(true)
+    expect(positions, `trigger order was ${keys}`).toEqual([...positions].sort((a, b) => a - b))
   })
 
   it('has no trigger or panel for a tab that is not registered', () => {
     // A leftover panel from a removed tab is dead code that still renders.
-    const registered = new Set<string>(Object.values(SETTINGS_TABS))
-    for (const match of settingsSource.matchAll(/<Tabs(?:Trigger|Content) value="([^"]+)"/g)) {
-      expect(registered.has(match[1]), `"${match[1]}" is rendered but not registered`).toBe(true)
+    for (const match of settingsSource.matchAll(/SETTINGS_TABS\.([A-Z_]+)/g)) {
+      expect(keys.includes(match[1]), `"${match[1]}" is rendered but not registered`).toBe(true)
     }
   })
 })

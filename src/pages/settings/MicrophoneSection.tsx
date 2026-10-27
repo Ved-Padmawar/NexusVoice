@@ -1,17 +1,11 @@
 import { useState, useEffect, useCallback, memo } from 'react'
-import { invoke } from '@tauri-apps/api/core'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Select } from 'radix-ui'
-import { Mic, RefreshCw, Check, ChevronDown } from 'lucide-react'
+import { MicrophoneIcon, ArrowsClockwiseIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { COMMANDS } from '../../lib/commands'
+import { commands } from '../../bindings'
 import { extractErrorMessage } from '../../lib/errors'
-
-type InputDevice = {
-  name: string
-  isDefault: boolean
-  isSelected: boolean
-}
+import { Select } from '../../components/ui/Select'
+import { KeepMicOpenToggle } from './KeepMicOpenToggle'
+import type { InputDevice } from '../../types'
 
 /** Sentinel for the "Default" option — maps to no saved preference. */
 const DEFAULT_VALUE = '__default__'
@@ -21,11 +15,9 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
   const [selected, setSelected] = useState<string>(DEFAULT_VALUE)
   const [initialLoading, setInitialLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [open, setOpen] = useState(false)
 
   const fetchDevices = useCallback(async () => {
-    const list = await invoke<InputDevice[]>(COMMANDS.LIST_INPUT_DEVICES)
-    const devices = Array.isArray(list) ? list : []
+    const devices = await commands.listInputDevices()
     setDevices(devices)
     const active = devices.find(d => d.isSelected && !d.isDefault)
     setSelected(active ? active.name : DEFAULT_VALUE)
@@ -49,14 +41,11 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
   }, [refreshing, fetchDevices])
 
   const choose = useCallback(async (value: string) => {
-    setOpen(false)
     if (value === selected) return
     const previous = selected
     setSelected(value)
     try {
-      await invoke<void>(COMMANDS.SET_INPUT_DEVICE, {
-        name: value === DEFAULT_VALUE ? null : value,
-      })
+      await commands.setInputDevice(value === DEFAULT_VALUE ? null : value)
     } catch (e) {
       setSelected(previous)
       toast.error(extractErrorMessage(e, 'Could not set microphone'))
@@ -64,109 +53,49 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
   }, [selected])
 
   const defaultLabel = devices.find(d => d.isDefault)?.name
-  const currentLabel = selected === DEFAULT_VALUE
-    ? (defaultLabel ? `Default — ${defaultLabel}` : 'Default')
-    : selected
 
   // The default device is represented by the "Default — <name>" sentinel, so
   // list only the non-default devices by name (deduped) to avoid a duplicate row.
   const seen = new Set<string>()
   const options = [
-    { value: DEFAULT_VALUE, label: defaultLabel ? `Default — ${defaultLabel}` : 'Default' },
+    { value: DEFAULT_VALUE, label: defaultLabel ? `Default — ${defaultLabel}` : 'Default', dividerAfter: true },
     ...devices
       .filter(d => !d.isDefault && !d.name.startsWith('Default') && (seen.has(d.name) ? false : seen.add(d.name)))
       .map(d => ({ value: d.name, label: d.name })),
   ]
 
   return (
-    <div className="flex flex-col gap-4">
-      <div>
-        <p className="text-[12px] font-semibold text-(--fg-2) tracking-[-0.01em] mb-1">Microphone</p>
-        <p className="text-[12px] text-muted-foreground">Choose which input device records your voice.</p>
+    <div className="flex min-w-0 flex-col gap-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-fg">Microphone</p>
+          <p className="text-xs text-muted">The device that records your voice.</p>
+        </div>
+        <KeepMicOpenToggle />
       </div>
 
-      <div className="flex min-w-0 items-center gap-2">
-        <Select.Root
-          value={selected}
-          onValueChange={(v) => void choose(v)}
-          open={open}
-          onOpenChange={setOpen}
-        >
-          <Select.Trigger asChild disabled={initialLoading}>
-            <button
-              type="button"
-              aria-label={currentLabel}
-              className={`nv-edge relative flex flex-1 min-w-0 items-center h-9 pl-8 pr-8 rounded-(--r-md) bg-(--surface) text-[12px] text-(--fg) cursor-pointer text-left focus:outline-none disabled:opacity-50 ${open ? '[--edge:var(--accent)]' : '[--edge:var(--border-soft)] hover:[--edge:var(--border)]'}`}
-            >
-              <Mic size={14} strokeWidth={2} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-(--accent) pointer-events-none" />
-              <span className="truncate">
-                <Select.Value>{currentLabel}</Select.Value>
-              </span>
-              <motion.span
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-(--fg-2) pointer-events-none flex"
-                animate={{ rotate: open ? 180 : 0 }}
-                transition={{ duration: 0.18 }}
-              >
-                <ChevronDown size={14} strokeWidth={2} />
-              </motion.span>
-            </button>
-          </Select.Trigger>
-
-          <AnimatePresence>
-            {open && (
-              <Select.Portal forceMount>
-                <Select.Content asChild position="popper" sideOffset={4}>
-                  <motion.div
-                    initial={{ opacity: 0, y: -4, scale: 0.98 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -4, scale: 0.98 }}
-                    transition={{ duration: 0.14, ease: 'easeOut' }}
-                    className="z-50 w-(--radix-select-trigger-width) max-h-64 overflow-x-hidden rounded-(--r-lg) bg-(--panel) border border-(--border) shadow-(--shadow-lg)"
-                  >
-                    <Select.Viewport className="select-list" style={{ overflowY: 'auto', overscrollBehavior: 'none', maxHeight: '16rem' }}>
-                      {options.map((opt, i) => {
-                        const active = opt.value === selected
-                        return (
-                          <Select.Item
-                            key={opt.value}
-                            value={opt.value}
-                            className={`flex items-center h-9 px-3.5 text-[12px] text-(--fg) cursor-pointer outline-none select-none data-highlighted:bg-(--surface) ${i === 0 ? 'rounded-t-(--r-lg)' : ''} ${i === options.length - 1 ? 'rounded-b-(--r-lg)' : ''}`}
-                          >
-                            <span className={`flex-1 truncate ${active ? 'font-semibold text-(--accent)' : ''}`}>
-                              <Select.ItemText>{opt.label}</Select.ItemText>
-                            </span>
-                            <Select.ItemIndicator className="shrink-0 ml-2 text-(--accent)">
-                              <Check size={13} strokeWidth={2.5} />
-                            </Select.ItemIndicator>
-                          </Select.Item>
-                        )
-                      })}
-                    </Select.Viewport>
-                  </motion.div>
-                </Select.Content>
-              </Select.Portal>
-            )}
-          </AnimatePresence>
-        </Select.Root>
-
-        <motion.button
+      <div className="flex gap-2">
+        <div className="min-w-0 flex-1">
+          <Select
+            value={selected}
+            options={options}
+            onChange={(v) => void choose(v)}
+            aria-label="Microphone"
+            icon={<MicrophoneIcon size={14} weight="bold" />}
+            disabled={initialLoading}
+          />
+        </div>
+        <button
           type="button"
           onClick={refresh}
           disabled={initialLoading}
-          title="Refresh device list"
-          whileTap={{ scale: 0.92 }}
-          className="nv-edge [--edge:var(--border-soft)] hover:[--edge:var(--border)] inline-flex shrink-0 items-center justify-center size-9 rounded-(--r-md) bg-(--surface) text-(--fg-2) cursor-pointer hover:text-(--fg) disabled:opacity-50"
+          aria-label="Refresh the device list"
+          data-tip="Refresh the device list"
+          data-tip-pos="bottom"
+          className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-lg bg-field text-fg-2 ring-1 ring-line-soft ring-inset transition hover:text-fg hover:ring-line disabled:opacity-50"
         >
-          <motion.span
-            className="flex"
-            animate={refreshing ? { rotate: 360 } : { rotate: 0 }}
-            transition={refreshing
-              ? { repeat: Infinity, ease: 'linear', duration: 0.7 }
-              : { duration: 0.2 }}
-          >
-            <RefreshCw size={13} strokeWidth={1.75} />
-          </motion.span>
-        </motion.button>
+          <ArrowsClockwiseIcon size={14} weight="bold" className={refreshing ? 'animate-spin' : undefined} />
+        </button>
       </div>
     </div>
   )

@@ -7,12 +7,14 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-use crate::state::AppState;
+use crate::settings::Settings;
+
+use super::cache::EngineCache;
 
 /// How often the watcher looks at the engine; an unload lands up to this late.
 const CHECK_EVERY: Duration = Duration::from_secs(30);
 
-/// When an idle model is unloaded. Persisted as the `model_unload` file.
+/// When an idle model is unloaded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ModelUnload {
@@ -50,14 +52,9 @@ pub fn spawn_watcher(app: AppHandle) {
         let mut ticks = tokio::time::interval(CHECK_EVERY);
         loop {
             ticks.tick().await;
-            let state = app.state::<AppState>();
-            let policy = state.load_model_unload();
-            let recording = state
-                .transcription_running
-                .load(std::sync::atomic::Ordering::SeqCst);
-            if policy.should_unload(state.engine_idle_for(), recording)
-                && state.evict_engine().await
-            {
+            let engine = app.state::<EngineCache>();
+            let policy = app.state::<Settings>().model_unload();
+            if policy.should_unload(engine.idle_for(), engine.in_use()) && engine.unload() {
                 log::info!("model unloaded after idling ({policy:?})");
             }
         }

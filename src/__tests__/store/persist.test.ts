@@ -3,49 +3,48 @@
  * brought forward. Both are silent when wrong — a stale pref renders nothing,
  * and a leaked field creates a second source of truth.
  */
-import { describe, it, expect, vi } from 'vitest'
-import { useAppStore } from '../../store/useAppStore'
-import { STORE_PERSIST_KEY } from '../../store/persistKey'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { STORE_PERSIST_KEY, useAppStore } from '../../store/useAppStore'
+import { takeLegacyPill } from '../../store/legacyPill'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }))
 
 const options = useAppStore.persist.getOptions()
-const migrate = options.migrate!
+const migrate = (blob: unknown, from: number) => options.migrate!(blob, from) as unknown as Record<string, unknown>
 const partialize = options.partialize!
 
+beforeEach(() => { takeLegacyPill() })
+
 describe('persist — migrate', () => {
-  it('rewrites the removed "steps" waveform style to "spectrum"', () => {
-    // `steps` has no renderer any more, so leaving it set draws an empty canvas
-    // for every user who had it selected.
-    const out = migrate({ waveformStyle: 'steps' }, 0) as { waveformStyle: string }
-    expect(out.waveformStyle).toBe('spectrum')
+  it('hands the pill preferences older versions kept to the backend', () => {
+    // The backend owns them now, so the pill window reads the same values.
+    const out = migrate({ theme: 'orchid', pillTheme: 'dawn', waveformStyle: 'memo', liveTranscript: true }, 1)
+    expect(takeLegacyPill()).toEqual({ theme: 'dawn', waveformStyle: 'memo', liveTranscript: true })
+    expect(out).toEqual({ theme: 'orchid' })
   })
 
-  it('leaves a still-valid style alone', () => {
-    for (const style of ['bars', 'memo', 'eq', 'spectrum']) {
-      const out = migrate({ waveformStyle: style }, 0) as { waveformStyle: string }
-      expect(out.waveformStyle, `${style} was rewritten`).toBe(style)
-    }
+  it('moves a retired window theme to the default', () => {
+    // Abyss and Pine have no stylesheet any more; kept, the window renders unthemed.
+    expect(migrate({ theme: 'abyss' }, 2)).toEqual({ theme: 'indigo' })
+    expect(migrate({ theme: 'pine' }, 2)).toEqual({ theme: 'indigo' })
   })
 
-  it('does not re-run the rewrite at the current version', () => {
-    // A user who deliberately has a style named "steps" in a future build must
-    // not have it silently changed on every load.
-    const out = migrate({ waveformStyle: 'steps' }, 1) as { waveformStyle: string }
-    expect(out.waveformStyle).toBe('steps')
+  it('rewrites the removed "steps" waveform style to "spectrum" on the way', () => {
+    // `steps` has no renderer any more; the backend would reject it.
+    migrate({ waveformStyle: 'steps' }, 0)
+    expect(takeLegacyPill()).toEqual({ waveformStyle: 'spectrum' })
   })
 
-  it('carries the rest of the persisted prefs through untouched', () => {
-    const stored = { theme: 'pine', pillTheme: 'dawn', waveformStyle: 'steps', liveTranscript: true }
-    const out = migrate(stored, 0) as typeof stored
-    expect(out).toMatchObject({ theme: 'pine', pillTheme: 'dawn', liveTranscript: true })
+  it('hands nothing over from a blob already at the current version', () => {
+    migrate({ theme: 'steel' }, 3)
+    expect(takeLegacyPill()).toBeNull()
   })
 
   it('survives an empty or partial persisted blob', () => {
     // A truncated write must not throw and block startup.
     expect(() => migrate({}, 0)).not.toThrow()
-    expect(() => migrate({ theme: 'abyss' }, 0)).not.toThrow()
+    expect(() => migrate({ theme: 'steel' }, 0)).not.toThrow()
   })
 })
 
@@ -57,16 +56,13 @@ describe('persist — partialize', () => {
       'activeRoute',
       'activeSettingsTab',
       'cudaOfferSeen',
-      'liveTranscript',
       'modelChosen',
-      'pillTheme',
       'theme',
-      'waveformStyle',
     ])
   })
 
   it('never persists the model selection', () => {
-    // The Rust `model_override` file is the single source of truth. A copy here
+    // The backend's saved model is the single source of truth. A copy here
     // would survive a backend change and disagree with it after a restart.
     useAppStore.setState({ selectedModel: 'whisper-tiny', activeModelName: 'Whisper Tiny' })
     const keys = Object.keys(persisted())

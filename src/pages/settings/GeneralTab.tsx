@@ -1,14 +1,23 @@
-import { memo, useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { MicrophoneSection } from './MicrophoneSection'
 import { LanguageSection } from './LanguageSection'
 import { HotkeySection } from './HotkeySection'
 import { TextInjectionSection } from './TextInjectionSection'
 import { FormattingToggle } from '../../components/FormattingToggle'
 import { LiveTranscriptToggle } from '../../components/LiveTranscriptToggle'
+import { StartSoundToggle } from '../../components/StartSoundToggle'
 import { useAppStore } from '../../store/useAppStore'
 
-/** Input first: it is what the rest of the app assumes is already right. */
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section>
+      <h2 className="mb-2 text-sm font-semibold text-fg-2">{title}</h2>
+      {children}
+    </section>
+  )
+}
 
+/** Input first: it is what the rest of the app assumes is already right. */
 export const GeneralTab = memo(function GeneralTab() {
   // Language support is per-model — the picker hides itself for English-only.
   const modelId = useAppStore((s) => s.selectedModel)
@@ -20,24 +29,27 @@ export const GeneralTab = memo(function GeneralTab() {
   useEffect(() => { void refreshModelInfo() }, [refreshModelInfo])
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* `overflow-visible` — both selects open panels past the card edge. */}
-      <div
-        className={`grid gap-4 rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4 *:min-w-0 ${
-          langSupported ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'
-        }`}
-      >
-        <MicrophoneSection />
-        <LanguageSection modelId={modelId} onSupportedChange={onLangSupportedChange} />
-      </div>
+    <div className="flex flex-col gap-5">
+      <Section title="Input">
+        <div className={`grid gap-5 rounded-2xl bg-panel p-4 ring-1 ring-line-soft ring-inset ${langSupported ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          <MicrophoneSection />
+          <LanguageSection modelId={modelId} onSupportedChange={onLangSupportedChange} />
+        </div>
+      </Section>
 
-      <FormattingToggle />
+      <Section title="Output">
+        <div className="grid grid-cols-2 gap-5">
+          <FormattingToggle />
+          <LiveTranscriptToggle />
+          <div className="col-span-2">
+            <StartSoundToggle />
+          </div>
+        </div>
+      </Section>
 
-      <LiveTranscriptToggle />
-
-      <div className="rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
+      <Section title="Shortcuts">
         <HotkeySection />
-      </div>
+      </Section>
 
       <TextInjectionSection />
     </div>

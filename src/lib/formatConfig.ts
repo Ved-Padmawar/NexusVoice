@@ -1,16 +1,4 @@
-/**
- * Shared rule for whether the formatting LLM is configured enough to call.
- *
- * Lives here rather than in the component so the toggle and the provider modal
- * apply one rule instead of restating it each.
- */
-
-/** One provider's endpoint details, as persisted in `format_config.json`. */
-export type Profile = {
-  baseUrl: string
-  model: string
-  apiKey: string
-}
+import type { FormatterUpdate, FormatterView, ProfileView } from '../types'
 
 /**
  * Whether a provider has the minimum needed to make a request. Mirrors
@@ -21,8 +9,17 @@ export type Profile = {
  */
 export function isConfigured(
   provider: string,
-  profile: Pick<Profile, 'baseUrl' | 'model'>,
+  profile: Pick<ProfileView, 'baseUrl' | 'model'>,
 ): boolean {
   if (profile.model.trim() === '') return false
   return provider === 'anthropic' || profile.baseUrl.trim() !== ''
+}
+
+/** The saved settings as an update that keeps every saved key. */
+export function keepingKeys(view: FormatterView): FormatterUpdate {
+  const profiles = Object.fromEntries(
+    Object.entries(view.profiles).flatMap(([id, p]) =>
+      p ? [[id, { baseUrl: p.baseUrl, model: p.model, apiKey: null }]] : []),
+  )
+  return { enabled: view.enabled, provider: view.provider, profiles }
 }

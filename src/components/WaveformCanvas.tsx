@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from 'react'
 import { WAVEFORM_RENDERERS, ACCENT_RGB, type RenderState } from '../lib/waveform'
 import { subscribeEveryFrame, subscribeWhileVisible } from '../lib/frameClock'
-import type { WaveformStyle } from '../store/uiSlice'
+import type { WaveformStyle } from '../types'
 
 type Props = {
   style: WaveformStyle

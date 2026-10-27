@@ -1,8 +1,8 @@
 /**
  * Canvas renderers for the pill's capture waveform.
  *
- * Every style consumes the same frame the Rust capture thread emits on
- * `pill:waveform` — 8 spectrum levels, 0–1 — so switching styles costs
+ * Every style consumes the same frame the Rust capture thread emits as
+ * `pillWaveform` — 8 spectrum levels, 0–1 — so switching styles costs
  * nothing at the backend. `bars` is the original DOM-based style and is
  * drawn by the pill itself; the three here are canvas-drawn.
  *
@@ -10,7 +10,7 @@
  * the caller-supplied `RenderState`. Callers reuse one state per canvas.
  */
 
-import type { WaveformStyle } from '../store/uiSlice'
+import type { WaveformStyle } from '../types'
 
 export const BARS = 8
 export const ACCENT_RGB = '120,162,244'

@@ -1,12 +1,9 @@
 //! Optional CUDA backend: status, download and removal of the CUDA pack.
 
-use std::sync::Arc;
-
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 
-use crate::inference::{cuda, downloader::CANCELLED};
-use crate::state::AppState;
+use crate::inference::cuda::{self, CudaPack};
 
 use super::error::ApiError;
 
@@ -18,55 +15,40 @@ pub struct CudaStatus {
     pub pack: cuda::PackState,
     /// Percent of the running download; `None` when idle.
     pub download_progress: Option<u8>,
+    /// The running download is unpacking and checking the pack.
+    pub verifying: bool,
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_cuda_status(state: State<'_, AppState>) -> CudaStatus {
+pub fn get_cuda_status(pack: State<'_, CudaPack>) -> CudaStatus {
     CudaStatus {
         supported: cuda::supported(),
-        pack: cuda::pack_state(&state.app_data_dir),
-        download_progress: state.cuda_download.progress(),
+        pack: pack.state(),
+        download_progress: pack.progress(),
+        verifying: pack.verifying(),
     }
 }
 
-/// Fetch the CUDA pack in the background, reported through `cuda-download-*` events.
 #[tauri::command]
 #[specta::specta]
-pub fn start_cuda_download(app: AppHandle, state: State<'_, AppState>) -> Result<(), ApiError> {
+pub fn start_cuda_download(app: AppHandle) -> Result<(), ApiError> {
     if !cuda::supported() {
         return Err(ApiError::new("unsupported", "CUDA needs an NVIDIA GPU"));
     }
-    let download = Arc::clone(&state.cuda_download);
-    let app_data_dir = state.app_data_dir.clone();
-
-    tauri::async_runtime::spawn(async move {
-        match download.run(&app, &app_data_dir).await {
-            Ok(()) => {
-                let _ = app.emit("cuda-download-complete", ());
-            }
-            Err(e) if e == CANCELLED => {
-                let _ = app.emit("cuda-download-cancelled", ());
-            }
-            Err(e) => {
-                log::warn!("CUDA pack download failed: {e}");
-                let _ = app.emit("cuda-download-error", e);
-            }
-        }
-    });
+    CudaPack::start_download(&app);
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn cancel_cuda_download(state: State<'_, AppState>) {
-    state.cuda_download.cancel();
+pub fn cancel_cuda_download(pack: State<'_, CudaPack>) {
+    pack.cancel();
 }
 
 /// Remove the pack; one in use is deleted at the next start.
 #[tauri::command]
 #[specta::specta]
-pub fn remove_cuda_pack(state: State<'_, AppState>) -> Result<(), ApiError> {
-    state.cuda_download.cancel();
-    cuda::remove(&state.app_data_dir).map_err(|e| ApiError::new("io_error", e.to_string()))
+pub fn remove_cuda_pack(pack: State<'_, CudaPack>) -> Result<(), ApiError> {
+    Ok(pack.remove()?)
 }

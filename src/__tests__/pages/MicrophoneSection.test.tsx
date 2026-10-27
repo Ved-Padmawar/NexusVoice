@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MicrophoneSection } from '../../pages/settings/MicrophoneSection'
-import { COMMANDS } from '../../lib/commands'
 import { invoke } from '@tauri-apps/api/core'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
@@ -25,12 +24,12 @@ describe('MicrophoneSection', () => {
 
     // The trigger shows the default device once loaded.
     await waitFor(() =>
-      expect(screen.getByText(/Default — Realtek Microphone/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Microphone' })).toHaveTextContent(/Default — Realtek Microphone/)
     )
 
     // Opening the menu reveals the named alternative.
-    fireEvent.click(screen.getByRole('combobox'))
-    expect(await screen.findByText('Blue Yeti')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Microphone' }))
+    expect(await screen.findByRole('listbox')).toHaveTextContent('Blue Yeti')
   })
 
   it('preselects a saved non-default device', async () => {
@@ -40,16 +39,7 @@ describe('MicrophoneSection', () => {
     ])
     render(<MicrophoneSection />)
     await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: /Blue Yeti/ })).toBeInTheDocument()
-    )
-  })
-
-  it('does not crash when the backend returns a non-array', async () => {
-    // The Tauri mock resolves undefined by default — the component must tolerate it.
-    mockInvoke.mockResolvedValue(undefined)
-    render(<MicrophoneSection />)
-    await waitFor(() =>
-      expect(screen.getByRole('combobox', { name: /Default/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Microphone' })).toHaveTextContent('Blue Yeti')
     )
   })
 
@@ -58,13 +48,13 @@ describe('MicrophoneSection', () => {
     render(<MicrophoneSection />)
 
     await waitFor(() =>
-      expect(screen.getByText(/Default — Realtek Microphone/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Microphone' })).toHaveTextContent(/Default — Realtek Microphone/)
     )
-    fireEvent.click(screen.getByRole('combobox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Microphone' }))
     fireEvent.click(await screen.findByText('Blue Yeti'))
 
     await waitFor(() =>
-      expect(mockInvoke).toHaveBeenCalledWith(COMMANDS.SET_INPUT_DEVICE, { name: 'Blue Yeti' })
+      expect(mockInvoke).toHaveBeenCalledWith('set_input_device', { name: 'Blue Yeti' })
     )
   })
 })

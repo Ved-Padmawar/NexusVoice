@@ -9,7 +9,7 @@ fn enqueue_registers_a_queued_entry() {
     let snap = d.snapshot();
     assert_eq!(snap.len(), 1);
     assert_eq!(snap[0].0, "whisper-tiny");
-    assert_eq!(snap[0].1, "queued");
+    assert_eq!(snap[0].1, DownloadStatus::Queued);
     assert_eq!(snap[0].2, 0);
 }
 
@@ -33,7 +33,7 @@ fn a_failed_download_can_be_retried() {
     // An error is terminal for the run but not for the model.
     assert!(!d.is_pending("whisper-tiny"));
     assert!(d.enqueue("whisper-tiny").is_some());
-    assert_eq!(d.snapshot()[0].1, "queued");
+    assert_eq!(d.snapshot()[0].1, DownloadStatus::Queued);
 }
 
 #[test]
@@ -44,13 +44,13 @@ fn progress_and_error_surface_in_the_snapshot() {
     d.set_progress("parakeet", 42);
 
     let snap = d.snapshot();
-    assert_eq!(snap[0].1, "running");
+    assert_eq!(snap[0].1, DownloadStatus::Running);
     assert_eq!(snap[0].2, 42);
     assert_eq!(snap[0].3, None);
 
     d.set_error("parakeet", "boom".into());
     let snap = d.snapshot();
-    assert_eq!(snap[0].1, "error");
+    assert_eq!(snap[0].1, DownloadStatus::Error);
     assert_eq!(snap[0].3.as_deref(), Some("boom"));
 }
 
@@ -100,5 +100,5 @@ fn downloads_are_tracked_independently() {
     let snap = d.snapshot();
     assert_eq!(snap.len(), 1);
     assert_eq!(snap[0].0, "b");
-    assert_eq!(snap[0].1, "queued");
+    assert_eq!(snap[0].1, DownloadStatus::Queued);
 }

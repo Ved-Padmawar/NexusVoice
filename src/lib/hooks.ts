@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { listen, type EventName } from '@tauri-apps/api/event'
+import type { EventCallback, UnlistenFn } from '@tauri-apps/api/event'
+import { events } from '../bindings'
 
 /**
  * Returns `true` only after `active` has stayed truthy for `delayMs`.
@@ -19,13 +20,33 @@ export function useDelayedFlag(active: boolean, delayMs = 250): boolean {
   return shown
 }
 
-/** Registers a Tauri event listener and cleans up on unmount. */
-export function useEventListener<T>(event: EventName, handler: (payload: T) => void) {
+type BackendEvent<T> = {
+  listen: (handler: EventCallback<T>) => Promise<UnlistenFn>
+}
+
+type BackendEventName = keyof typeof events
+type BackendPayload<K extends BackendEventName> = Parameters<Parameters<typeof events[K]['listen']>[0]>[0]['payload']
+
+/**
+ * Listen by generated key: tauri-specta's event proxy creates a new object on
+ * every access. Depending on that object would resubscribe on every render,
+ * losing one-shot events while the replacement listener's IPC is in flight.
+ */
+export function useEventListener<K extends BackendEventName>(event: K, handler: (payload: BackendPayload<K>) => void) {
   const handlerRef = useRef(handler)
   useLayoutEffect(() => { handlerRef.current = handler })
 
   useEffect(() => {
-    const unlisten = listen<T>(event, (e) => handlerRef.current(e.payload))
-    return () => { unlisten.then(fn => fn()).catch(() => {}) }
+    let cancelled = false
+    const source = events[event] as BackendEvent<BackendPayload<K>>
+    const unlisten = source.listen((e) => {
+      if (!cancelled) handlerRef.current(e.payload)
+    })
+    // Attach a rejection handler immediately, even when the component remains mounted.
+    void unlisten.catch(() => {})
+    return () => {
+      cancelled = true
+      void unlisten.then(fn => fn()).catch(() => {})
+    }
   }, [event])
 }

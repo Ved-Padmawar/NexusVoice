@@ -1,0 +1,35 @@
+{
+  "platform": "windows-x86_64",
+  "release": "v1.20.0",
+  "engine": "0.4.0",
+  "files": [
+    {
+      "name": "cudart64_13.dll",
+      "asset": "cuda-windows-x86_64-cudart64_13.dll.gz",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 1,
+      "unpacked_size": 1
+    },
+    {
+      "name": "cublasLt64_13.dll",
+      "asset": "cuda-windows-x86_64-cublasLt64_13.dll.gz",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 1,
+      "unpacked_size": 1
+    },
+    {
+      "name": "cublas64_13.dll",
+      "asset": "cuda-windows-x86_64-cublas64_13.dll.gz",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 1,
+      "unpacked_size": 1
+    },
+    {
+      "name": "ggml-cuda.dll",
+      "asset": "cuda-windows-x86_64-ggml-cuda.dll.gz",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 1,
+      "unpacked_size": 1
+    }
+  ]
+}

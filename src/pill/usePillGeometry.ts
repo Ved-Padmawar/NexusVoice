@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
-import { animate, useMotionValue } from 'framer-motion'
-import { invoke } from '@tauri-apps/api/core'
-import { COMMANDS } from '../lib/commands'
+import { commands } from '../bindings'
 
 const CAPSULE_H = 32
 export const CARD_W = 332
@@ -10,26 +8,18 @@ const CARD_MAX_H = 186
 const CARD_RADIUS = 28
 const TEXT_AND_STRIP = 69
 
-// Monotone curves cannot overshoot, including a reversal mid-transition.
-// Geometry has one owner and one clock; CSS only eases colour and opacity.
-const SHAPE_TRANSITION = { type: 'tween' as const, duration: 0.28, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] }
-
 const painted = () => new Promise<void>(resolve => {
   requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
 })
 
 export function usePillGeometry(wantsCard: boolean, wantsHeadroom: boolean, capsuleWidth: number,
-  reduceMotion: boolean | null, innerRef: RefObject<HTMLSpanElement | null>,
+  pillRef: RefObject<HTMLDivElement | null>, innerRef: RefObject<HTMLSpanElement | null>,
   textRef: RefObject<HTMLDivElement | null>) {
   const [roomy, setRoomy] = useState(false)
   // The capsule window has no room above the pill, so a message grows it too.
   const [headroom, setHeadroom] = useState(false)
   const wantsHeadroomRef = useRef(wantsHeadroom)
   const [contentHeight, setContentHeight] = useState(CARD_MIN_H)
-  const heightRef = useRef(CARD_MIN_H)
-  const width = useMotionValue(capsuleWidth)
-  const height = useMotionValue(CAPSULE_H)
-  const radius = useMotionValue(CAPSULE_H / 2)
   const queue = useRef<Promise<void>>(Promise.resolve())
   // A renderer reload can inherit an expanded OS window. Establish its size
   // rather than assuming that a fresh React tree means a fresh window.
@@ -41,7 +31,7 @@ export function usePillGeometry(wantsCard: boolean, wantsHeadroom: boolean, caps
   const resize = useCallback((large: boolean) => {
     const next = queue.current.then(async () => {
       if (windowExpanded.current === large) return
-      await invoke(COMMANDS.RESIZE_PILL, { expanded: large })
+      await commands.resizePill(large)
       windowExpanded.current = large
     })
     queue.current = next.catch(() => {})
@@ -80,53 +70,49 @@ export function usePillGeometry(wantsCard: boolean, wantsHeadroom: boolean, caps
       const measured = inner.offsetHeight
       if (measured > 0) {
         const next = Math.min(CARD_MAX_H, Math.max(CARD_MIN_H, measured + TEXT_AND_STRIP))
-        heightRef.current = next
         setContentHeight(next)
       }
       const text = textRef.current
       if (text) text.scrollTop = text.scrollHeight
     }
     measure()
-    const observer = new ResizeObserver(measure)
+    const observer = new ResizeObserver(entries => {
+      if (entries.some(entry => entry.target === inner)) measure()
+      // Follow the newest line as CSS changes the transcript viewport's
+      // height, without a JS animation loop or React render per frame.
+      const text = textRef.current
+      if (text) text.scrollTop = text.scrollHeight
+    })
     observer.observe(inner)
+    if (textRef.current) observer.observe(textRef.current)
     return () => observer.disconnect()
   }, [expanded, innerRef, textRef])
 
   useLayoutEffect(() => {
+    if (wantsCard) return
     let cancelled = false
-    const transition = reduceMotion ? { duration: 0 } : SHAPE_TRANSITION
-    const controls = [
-      animate(width, expanded ? CARD_W : capsuleWidth, transition),
-      animate(height, expanded ? heightRef.current : CAPSULE_H, transition),
-      animate(radius, expanded ? CARD_RADIUS : CAPSULE_H / 2, transition),
-    ]
-    if (!wantsCard) {
-      void Promise.all(controls).then(async () => {
-        if (cancelled) return
-        // Also runs when opening was interrupted before roomy became true.
-        // Gate a reopen before dispatching the shrink: once it is in flight,
-        // the next expansion must wait for its own resize acknowledgement.
-        setRoomy(false)
-        if (!wantsHeadroomRef.current) await resize(false)
-      }).catch(error => console.error('Unable to collapse recording pill', error))
-    }
-    return () => { cancelled = true; controls.forEach(control => control.stop()) }
-  }, [expanded, wantsCard, capsuleWidth, reduceMotion, width, height, radius, resize])
-
-  useLayoutEffect(() => {
-    if (!expanded) return
-    const control = animate(height, contentHeight, reduceMotion ? { duration: 0 } : SHAPE_TRANSITION)
-    return () => control.stop()
-  }, [expanded, contentHeight, reduceMotion, height])
-
-  // Keep the latest line visible as the viewport grows, not just at the start
-  // of the resize. No React render is needed for each animation frame.
-  useEffect(() => height.on('change', () => {
-    const text = textRef.current
-    if (text && wantsCard) text.scrollTop = text.scrollHeight
-  }), [height, textRef, wantsCard])
+    // getAnimations flushes the new CSS targets. Wait for the shell's actual
+    // transitions before shrinking its native window, including a reversed
+    // transition. Reduced motion produces no transitions and closes at once.
+    const transitions = pillRef.current?.getAnimations().filter(animation =>
+      'transitionProperty' in animation && /^(width|height|border-.*-radius)$/.test(animation.transitionProperty as string),
+    ) ?? []
+    void Promise.allSettled(transitions.map(animation => animation.finished)).then(async () => {
+      if (cancelled) return
+      // Also runs if opening ended before roomy became true. A reopen cancels
+      // this completion; the serialized resize queue handles IPC in flight.
+      setRoomy(false)
+      if (!wantsHeadroomRef.current) await resize(false)
+    }).catch(error => console.error('Unable to collapse recording pill', error))
+    return () => { cancelled = true }
+  }, [wantsCard, capsuleWidth, pillRef, resize])
 
   useEffect(() => () => { void resize(false).catch(error => console.error('Unable to release pill window', error)) }, [resize])
 
-  return { roomy, expanded, width, height, radius, headroom }
+  return {
+    roomy, expanded, headroom,
+    width: expanded ? CARD_W : capsuleWidth,
+    height: expanded ? contentHeight : CAPSULE_H,
+    radius: expanded ? CARD_RADIUS : CAPSULE_H / 2,
+  }
 }

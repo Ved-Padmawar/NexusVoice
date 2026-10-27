@@ -39,7 +39,6 @@ beforeEach(() => {
     updateVersion: null,
     updateProgress: 0,
     updateError: null,
-    updateDismissed: false,
   })
 })
 
@@ -180,17 +179,5 @@ describe('restartForUpdate', () => {
     await expect(state().restartForUpdate()).resolves.toBeUndefined()
     expect(state().updateStatus).toBe('error')
     expect(state().updateError).toBe('permission denied')
-  })
-})
-
-describe('dismissUpdate', () => {
-  it('hides the sidebar prompt without discarding the pending update', async () => {
-    // About must still offer the install after the prompt is dismissed.
-    mockCheck.mockResolvedValue(handle('1.17.0') as never)
-    await state().checkForUpdate()
-    state().dismissUpdate()
-    expect(state().updateDismissed).toBe(true)
-    expect(state().updateStatus).toBe('available')
-    expect(state().updateVersion).toBe('1.17.0')
   })
 })

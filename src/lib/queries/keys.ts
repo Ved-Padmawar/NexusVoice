@@ -6,5 +6,7 @@ export const queryKeys = {
   transcriptSearch: (query: string, filters: TranscriptFilters) =>
     ['transcripts', 'search', query, filters] as const,
   stats: ['stats'] as const,
+  // Under `stats`, so whatever refreshes the totals refreshes this too.
+  dailyWords: (days: number) => ['stats', 'daily', days] as const,
   dictionary: ['dictionary'] as const,
 }

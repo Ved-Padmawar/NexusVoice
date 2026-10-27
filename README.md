@@ -11,7 +11,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 <br/>
 
 ![Tauri](https://img.shields.io/badge/Tauri_2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white)
-![Rust](https://img.shields.io/badge/Rust_1.97-CE422B?style=for-the-badge&logo=rust&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust_1.99-CE422B?style=for-the-badge&logo=rust&logoColor=white)
 ![React](https://img.shields.io/badge/React_19-61DAFB?style=for-the-badge&logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![Tailwind](https://img.shields.io/badge/Tailwind_v4-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white)
@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.19.0-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.20.0-violet?style=flat-square)
 
 </div>
 
@@ -39,10 +39,11 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **Push-to-talk** — hold any custom hotkey to record, release to transcribe and paste
 - **Live streaming transcription** — your speech is transcribed as you talk, so there's barely anything left to process when you release the hotkey
 - **Dictation Mode** — a hands-free alternative: press a hotkey to start, then pause/resume and save from the pill or by hotkey — ideal for longer, uninterrupted dictation
-- **Microphone selection** — pick which input device records your voice (Settings → General); defaults to the system default and falls back to it automatically if your chosen mic is unplugged
+- **Microphone selection** — pick which input device records your voice (Settings → General); defaults to the system default and falls back to it automatically if your chosen mic is unplugged. An optional **Keep ready** switch holds the mic open between recordings instead of releasing it after 60 seconds idle
 - **100% local** — transcription runs entirely on your machine, nothing is sent to the cloud
 - **GPU-accelerated** — Vulkan on NVIDIA, AMD and Intel GPUs, with optional CUDA on NVIDIA; falls back to CPU
 - **Live transcript in the pill (optional)** — the pill expands into a card and fills in as you speak, on any model. Off by default (Settings → General)
+- **Start sound (optional)** — a short chime once the microphone is listening. Off by default (Settings → General)
 - **Smart model selection** — picks the best model for your hardware automatically
 - **First-run model picker** — choose your model on first launch with a hardware-aware recommendation, then download on demand
 - **Personal dictionary** — map spoken words to their correct form (e.g. "gonna" → "going to"), including names speech-to-text splits into several words ("next js" → "Next.js")
@@ -106,7 +107,7 @@ Models marked **live** are fed audio incrementally and own their decode session;
 
 ## Smart Formatting (optional)
 
-By default NexusVoice pastes the raw transcription. Enable **Smart Formatting** (Settings → Voice) to have an LLM clean up punctuation and infer structure — e.g. turning a spoken "first… second… third…" into a real numbered list — before pasting.
+By default NexusVoice pastes the raw transcription. Enable **Smart Formatting** (Settings → General) to have an LLM clean up punctuation and infer structure — e.g. turning a spoken "first… second… third…" into a real numbered list — before pasting.
 
 It connects to Anthropic's Messages API or any **OpenAI-compatible** chat endpoint. Presets prefill the base URL; you supply the model name and (where needed) an API key:
 
@@ -128,7 +129,7 @@ Use a small **instruct** model (e.g. `qwen2.5-3b-instruct`) — not a reasoning/
 | Layer | Technology |
 |-------|-----------|
 | Desktop runtime | Tauri 2 |
-| Backend | Rust 1.97 |
+| Backend | Rust 1.99 |
 | Audio capture | cpal |
 | Transcription | transcribe-cpp (ggml) |
 | Voice activity detection | earshot (pure Rust) |

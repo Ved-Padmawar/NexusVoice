@@ -10,20 +10,11 @@ use serde::{Deserialize, Serialize};
 
 /// Which decode path a model runs through: [`Self::SingleShot`] decodes a whole
 /// buffer per call, [`Self::Streaming`] is fed incrementally.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "kebab-case")]
 pub enum Pipeline {
     SingleShot,
     Streaming,
-}
-
-impl Pipeline {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::SingleShot => "single-shot",
-            Self::Streaming => "streaming",
-        }
-    }
 }
 
 /// One catalog entry, deserialized straight from `models.json`.

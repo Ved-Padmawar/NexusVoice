@@ -1,8 +1,7 @@
 import { useShallow } from 'zustand/react/shallow'
 import { memo } from 'react'
-import { motion } from 'framer-motion'
-import { Check, Moon, Sun } from 'lucide-react'
 import { useAppStore, type ThemeName } from '../../store/useAppStore'
+import { Swatch } from '../../components/ui/Swatch'
 
 type ThemeDef = {
   name: ThemeName
@@ -19,20 +18,19 @@ type ThemeDef = {
 }
 
 const THEMES: ThemeDef[] = [
-  { name: 'abyss',    label: 'Abyss',    blurb: 'cool slate, periwinkle accent', mode: 'dark',  bg: '#22232b', panel: '#2a2b35', accent: '#78a2f4', border: '#383a48', surface: '#2e303d', muted: '#6a6e88', fg: '#e6e8f0' },
-  { name: 'midnight', label: 'Midnight', blurb: 'slate indigo, cyan accent',     mode: 'dark',  bg: '#080b12', panel: '#11141a', accent: '#1ad1d1', border: '#2e333c', surface: '#1a1d23', muted: '#7a808d', fg: '#eceef4' },
-  { name: 'steel',    label: 'Steel',    blurb: 'neutral grey, cool highlight',  mode: 'dark',  bg: '#141820', panel: '#191e28', accent: '#b8cce0', border: '#252d3a', surface: '#1e2530', muted: '#5a6880', fg: '#dfe5ee' },
-  { name: 'pine',     label: 'Pine',     blurb: 'forest green, mint accent',     mode: 'dark',  bg: '#1b2420', panel: '#222d29', accent: '#58c596', border: '#304038', surface: '#283530', muted: '#507060', fg: '#dfeae4' },
-  { name: 'canvas',   label: 'Canvas',   blurb: 'clean white, cobalt accent',    mode: 'light', bg: '#f8f9fc', panel: '#ffffff', accent: '#3a5bd9', border: '#d8dce8', surface: '#f0f2f8', muted: '#8890b0', fg: '#1a1c28' },
-  { name: 'dawn',     label: 'Dawn',     blurb: 'warm paper, amber accent',      mode: 'light', bg: '#faf4ee', panel: '#ede0d0', accent: '#d4610a', border: '#d8c8b4', surface: '#f5ede2', muted: '#9a8870', fg: '#2c2418' },
-  { name: 'breeze',   label: 'Breeze',   blurb: 'pale cyan, teal accent',        mode: 'light', bg: '#eef6f8', panel: '#d8eef0', accent: '#1a7a8a', border: '#c0d8dc', surface: '#e8f4f6', muted: '#6a9098', fg: '#16303a' },
-  { name: 'blossom',  label: 'Blossom',  blurb: 'soft rose, crimson accent',     mode: 'light', bg: '#f8eef0', panel: '#e8d4d8', accent: '#c0304a', border: '#d8c0c4', surface: '#f2e4e8', muted: '#9a7078', fg: '#33202a' },
+  { name: 'steel',    label: 'Steel',    blurb: 'Graphite with brass',    mode: 'dark',  bg: '#0f131a', panel: '#151a23', accent: '#b9cde2', border: '#2c3646', surface: '#1c232e', muted: '#8a97ab', fg: '#e4eaf3' },
+  { name: 'midnight', label: 'Midnight', blurb: 'Ink navy and cyan',      mode: 'dark',  bg: '#05080e', panel: '#0b0f17', accent: '#22d3d3', border: '#253044', surface: '#121824', muted: '#8992a6', fg: '#edf0f6' },
+  { name: 'indigo',   label: 'Indigo',   blurb: 'Blue-violet night',      mode: 'dark',  bg: '#0e0f1f', panel: '#141629', accent: '#8b93f8', border: '#2f3356', surface: '#1b1e35', muted: '#959bc0', fg: '#eceefb' },
+  { name: 'orchid',   label: 'Orchid',   blurb: 'Aubergine and orchid',   mode: 'dark',  bg: '#120e19', panel: '#191423', accent: '#ec84f7', border: '#3a2f4e', surface: '#221b2f', muted: '#a093b6', fg: '#f1ebf8' },
+  { name: 'canvas',   label: 'Canvas',   blurb: 'Cool paper, cobalt',     mode: 'light', bg: '#e9edf4', panel: '#ffffff', accent: '#3456d6', border: '#c9d0dd', surface: '#f4f6fa', muted: '#596279', fg: '#141927' },
+  { name: 'dawn',     label: 'Dawn',     blurb: 'Parchment and orange',   mode: 'light', bg: '#f2e3d3', panel: '#fffaf3', accent: '#b9500a', border: '#e0c7ab', surface: '#fbefe2', muted: '#7a604c', fg: '#2b1d12' },
+  { name: 'breeze',   label: 'Breeze',   blurb: 'Sea glass and teal',     mode: 'light', bg: '#d9eaee', panel: '#f7fbfc', accent: '#0c6f82', border: '#b6d2d8', surface: '#e9f3f5', muted: '#4b6a73', fg: '#0f2a33' },
+  { name: 'blossom',  label: 'Blossom',  blurb: 'Rose quartz, crimson',   mode: 'light', bg: '#f1dde2', panel: '#fff8f9', accent: '#b02a49', border: '#e3bfc8', surface: '#fbedf0', muted: '#7a5662', fg: '#2e1720' },
 ]
 
 function ThemePreview({ t }: { t: ThemeDef }) {
   return (
-    <div className="relative h-42 w-70 overflow-hidden rounded-(--r-md)" style={{ background: t.bg }}>
-      {/* Rail */}
+    <div className="relative h-full w-full overflow-hidden rounded-md" style={{ background: t.bg }}>
       <div className="absolute inset-y-0 left-0 w-13" style={{ background: t.panel, borderRight: `1px solid ${t.border}` }}>
         <div className="flex items-center gap-1.5 px-2 pt-2.5">
           <div className="size-1.75 rounded-xs" style={{ background: t.accent }} />
@@ -56,7 +54,6 @@ function ThemePreview({ t }: { t: ThemeDef }) {
         </div>
       </div>
 
-      {/* Content */}
       <div className="absolute inset-y-0 left-13 right-0">
         <div className="flex h-3.5 items-center justify-end gap-1.5 pr-2">
           <div className="h-px w-1.5" style={{ background: t.muted, opacity: 0.6 }} />
@@ -97,43 +94,17 @@ function ThemePreview({ t }: { t: ThemeDef }) {
   )
 }
 
-function ThemeSwatch({ t, active, onPick }: { t: ThemeDef; active: boolean; onPick: () => void }) {
+function ThemeStrip({ t }: { t: ThemeDef }) {
   return (
-    <motion.button
-      type="button"
-      onClick={onPick}
-      aria-pressed={active}
-      className="flex items-center gap-2.5 rounded-(--r-md) border px-2.5 py-2 text-left cursor-pointer"
-      initial={false}
-      animate={{
-        borderColor: active ? 'var(--accent)' : 'var(--border-soft)',
-        backgroundColor: active ? 'var(--accent-soft)' : 'var(--surface)',
-      }}
-      whileHover={active ? undefined : { borderColor: 'var(--border)', backgroundColor: 'var(--surface-hover)' }}
-      whileTap={{ scale: 0.99 }}
-      transition={{ duration: 0.15 }}
-    >
-      <span className="flex shrink-0 overflow-hidden rounded-(--r-xs) border border-(--border-soft)">
-        {[t.bg, t.panel, t.surface, t.border, t.muted, t.accent].map((c, i) => (
-          <span key={i} className="h-6 w-2.25" style={{ background: c }} />
-        ))}
-      </span>
-
-      <motion.span
-        className="min-w-0 flex-1 truncate text-[12px] font-semibold tracking-[-0.01em]"
-        initial={false}
-        animate={{ color: active ? 'var(--accent)' : 'var(--fg)' }}
-        transition={{ duration: 0.2 }}
-      >
-        {t.label}
-      </motion.span>
-
-      {active && (
-        <span className="grid size-4 shrink-0 place-items-center rounded-full bg-(--accent)">
-          <Check size={9} strokeWidth={3.5} className="text-primary-foreground" />
-        </span>
-      )}
-    </motion.button>
+    <span className="flex shrink-0 -space-x-1.5" aria-hidden="true">
+      {[t.bg, t.surface, t.accent, t.muted].map((c, i) => (
+        <span
+          key={i}
+          className="size-5 rounded-full"
+          style={{ background: c, boxShadow: i < 2 ? 'inset 0 0 0 1px color-mix(in oklab, var(--fg) 25%, transparent)' : '0 0 0 2px var(--panel)' }}
+        />
+      ))}
+    </span>
   )
 }
 
@@ -147,40 +118,28 @@ export const AppearanceTab = memo(function AppearanceTab() {
   const current = THEMES.find((t) => t.name === theme) ?? THEMES[0]
 
   return (
-    <div className="flex gap-4 rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
-      <div className="flex shrink-0 flex-col gap-2.5">
-        <div className="overflow-hidden rounded-(--r-md) border border-(--border-soft) shadow-(--shadow-sm)">
-          <ThemePreview t={current} />
-        </div>
-        <div className="flex items-baseline gap-2">
-          <span className="text-[13px] font-bold tracking-[-0.02em] text-(--fg)">{current.label}</span>
-          <span className="min-w-0 truncate text-[11px] text-muted-foreground">{current.blurb}</span>
-        </div>
+    <section>
+    <h2 className="mb-2 text-[13px] font-semibold text-fg-2">Window theme</h2>
+    <div className="flex gap-4 rounded-lg border border-line-soft bg-panel p-4">
+      <div className="w-55 shrink-0 overflow-hidden rounded-md border border-line-soft shadow-(--shadow-sm)">
+        <ThemePreview t={current} />
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        {([
-          { icon: <Moon size={11} />, label: 'Dark', mode: 'dark' as const },
-          { icon: <Sun size={11} />, label: 'Light', mode: 'light' as const },
-        ]).map((group) => (
-          <div key={group.mode} className="flex flex-col gap-1.5">
-            <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              {group.icon}
-              {group.label}
-            </span>
-            <div className="grid grid-cols-2 gap-1.5">
-              {THEMES.filter((t) => t.mode === group.mode).map((t) => (
-                <ThemeSwatch
-                  key={t.name}
-                  t={t}
-                  active={theme === t.name}
-                  onPick={() => setTheme(t.name)}
-                />
-              ))}
-            </div>
-          </div>
+      {/* Dark themes down the left column, light down the right. */}
+      <div className="grid min-w-0 flex-1 grid-flow-col grid-cols-2 grid-rows-4 gap-1.5">
+        {THEMES.map((t) => (
+          <Swatch
+            key={t.name}
+            inline
+            preview={<ThemeStrip t={t} />}
+            label={t.label}
+            hint={t.blurb}
+            active={theme === t.name}
+            onPick={() => setTheme(t.name)}
+          />
         ))}
       </div>
     </div>
+    </section>
   )
 })

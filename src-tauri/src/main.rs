@@ -43,72 +43,111 @@ fn session_id() -> &'static str {
 mod audio;
 mod commands;
 mod database;
+mod dictionary;
+mod events;
 mod focus;
 mod hardware;
+mod hotkeys;
 mod inference;
 mod injection;
 mod llm;
+mod pill_clickthrough;
 mod pill_geometry;
 mod postprocess;
 mod preprocess;
 mod remote;
-mod state;
+mod settings;
+mod sync;
 mod transcribe;
 mod transcription;
 
-/// The command registry, and the single source of the generated TS bindings.
-/// Adding a command here is what puts it in `src/bindings.ts`.
+use database::Database;
+use dictionary::Dictionary;
+use hotkeys::Hotkeys;
+use inference::cache::EngineCache;
+use inference::cuda::CudaPack;
+use inference::library::ModelLibrary;
+use settings::{Secrets, Settings};
+use transcription::Recorder;
+
+/// The command and event registry, and the single source of the generated TS
+/// bindings. Adding one here is what puts it in `src/bindings.ts`.
 fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
-    tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
-        commands::start_transcription,
-        commands::stop_transcription,
-        commands::list_input_devices,
-        commands::set_input_device,
-        commands::start_dictation,
-        commands::pause_dictation,
-        commands::resume_dictation,
-        commands::commit_dictation,
-        commands::get_usage_stats,
-        commands::get_transcripts,
-        commands::search_transcripts,
-        commands::get_dictionary,
-        commands::delete_transcript,
-        commands::update_dictionary,
-        commands::delete_dictionary_entry,
-        commands::type_text,
-        commands::get_injection_status,
-        commands::register_hotkey,
-        commands::unregister_hotkey,
-        commands::register_dictation_hotkey,
-        commands::unregister_dictation_hotkey,
-        commands::register_dictation_commit_hotkey,
-        commands::unregister_dictation_commit_hotkey,
-        commands::get_registered_hotkeys,
-        commands::get_model_info,
-        commands::start_model_download,
-        commands::get_active_downloads,
-        commands::cancel_model_download,
-        commands::set_model_override,
-        commands::get_language_options,
-        commands::set_language,
-        commands::get_model_unload,
-        commands::set_model_unload,
-        commands::get_hardware_profile,
-        commands::get_model_catalog,
-        commands::get_downloaded_models,
-        commands::delete_model,
-        commands::get_cuda_status,
-        commands::start_cuda_download,
-        commands::cancel_cuda_download,
-        commands::remove_cuda_pack,
-        commands::get_format_config,
-        commands::set_format_config,
-        commands::test_format_connection,
-        commands::open_logs_folder,
-        commands::resize_pill,
-        commands::log_frontend,
-        commands::wait_for_app_ready,
-    ])
+    tauri_specta::Builder::<tauri::Wry>::new()
+        .error_handling(tauri_specta::ErrorHandlingMode::Throw)
+        .commands(tauri_specta::collect_commands![
+            commands::get_recording_state,
+            commands::list_input_devices,
+            commands::set_input_device,
+            commands::get_keep_mic_open,
+            commands::set_keep_mic_open,
+            commands::pause_dictation,
+            commands::resume_dictation,
+            commands::commit_dictation,
+            commands::get_usage_stats,
+            commands::get_daily_words,
+            commands::get_transcripts,
+            commands::search_transcripts,
+            commands::get_dictionary,
+            commands::delete_transcript,
+            commands::update_dictionary,
+            commands::delete_dictionary_entry,
+            commands::get_injection_status,
+            commands::get_hotkeys,
+            commands::set_hotkey,
+            commands::get_pill_settings,
+            commands::set_pill_settings,
+            commands::get_model_info,
+            commands::start_model_download,
+            commands::get_active_downloads,
+            commands::cancel_model_download,
+            commands::set_model_override,
+            commands::get_language_options,
+            commands::set_language,
+            commands::get_model_unload,
+            commands::set_model_unload,
+            commands::get_hardware_profile,
+            commands::get_model_catalog,
+            commands::get_downloaded_models,
+            commands::delete_model,
+            commands::get_cuda_status,
+            commands::start_cuda_download,
+            commands::cancel_cuda_download,
+            commands::remove_cuda_pack,
+            commands::get_format_config,
+            commands::set_format_config,
+            commands::test_format_connection,
+            commands::open_logs_folder,
+            commands::resize_pill,
+            commands::set_pill_hitbox,
+            commands::log_frontend,
+            commands::wait_for_app_ready,
+        ])
+        .events(tauri_specta::collect_events![
+            events::RecordingStateChanged,
+            events::TranscriptionPartial,
+            events::TranscriptionPartialEnd,
+            events::TranscriptionComplete,
+            events::TranscriptionError,
+            events::TranscriptionWarning,
+            events::TranscriptSaved,
+            events::PillWaveform,
+            events::PillSettingsChanged,
+            events::ModelDownloadStart,
+            events::ModelDownloadRunning,
+            events::ModelDownloadProgress,
+            events::ModelDownloadComplete,
+            events::ModelDownloadError,
+            events::ModelDownloadCancelled,
+            events::ModelEvicted,
+            events::ModelSwitched,
+            events::LanguageReset,
+            events::CudaDownloadProgress,
+            events::CudaDownloadVerifying,
+            events::CudaDownloadComplete,
+            events::CudaDownloadCancelled,
+            events::CudaDownloadError,
+        ])
 }
 
 /// Write `src/bindings.ts`; debug launches and the test suite both regenerate it.
@@ -246,67 +285,53 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .setup(|app| {
+        .invoke_handler(specta_builder.invoke_handler())
+        .setup(move |app| {
+            specta_builder.mount_events(app);
+
             let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
             std::fs::create_dir_all(&app_data_dir)?;
             init_compute_backends(&app_data_dir);
 
-            let hotkeys_path = app_data_dir.join("hotkeys.json");
-            let model_override_path = app_data_dir.join("model_override");
-            let language_path = app_data_dir.join("language");
-            let format_config_path = app_data_dir.join("format_config.json");
-            let input_device_path = app_data_dir.join("input_device");
             let models_dir = shared_models_dir(&app_data_dir);
             std::fs::create_dir_all(&models_dir)?;
             // Nothing can be mid-download at startup, so any .part file is
             // debris from a crash or a quit during a download.
             inference::downloader::clean_stale_parts(&models_dir);
 
-            // Create state immediately with NO blocking I/O.
-            // The DB is initialized asynchronously after setup returns.
-            let app_state = state::AppState::new(
-                app_data_dir,
-                hotkeys_path,
-                model_override_path,
-                language_path,
-                format_config_path,
-                input_device_path,
-                models_dir,
-            );
-            app.manage(app_state);
+            // No blocking I/O beyond the settings file: the database opens in
+            // the background after setup returns.
+            let secrets = Secrets::new(app.config().identifier.clone());
+            app.manage(Settings::load(&app_data_dir, secrets));
+            app.manage(Database::default());
+            app.manage(Dictionary::default());
+            app.manage(EngineCache::new(models_dir.clone()));
+            app.manage(ModelLibrary::new(models_dir));
+            app.manage(CudaPack::new(app_data_dir.clone()));
+            CudaPack::replace_unverified(app.handle());
+            app.manage(Recorder::new());
+            app.state::<Recorder>()
+                .set_keep_mic_open(app.state::<Settings>().keep_mic_open());
+            app.manage(Hotkeys::default());
 
-            // Spawn: DB init + dict cache — fully async, never blocks main thread
             {
                 let app_handle = app.handle().clone();
+                let db_path = app_data_dir.join("nexusvoice.db");
                 tauri::async_runtime::spawn(async move {
-                    let state = app_handle.state::<state::AppState>();
-                    let db_path = state.app_data_dir.join("nexusvoice.db");
-
-                    // Open database (may run migrations — this is the slow part)
+                    // May run migrations; this is the slow part.
                     let result = database::connection::open_database(&db_path).await;
-                    let opened = result.clone();
                     // Publish either outcome, so waiting commands are released.
-                    state.set_database(result);
-
-                    let pool = match opened {
+                    app_handle.state::<Database>().set(result.clone());
+                    let pool = match result {
                         Ok(pool) => pool,
                         Err(e) => {
                             log::error!("database init failed: {e}");
                             return;
                         }
                     };
-
                     log::info!("database ready");
-
-                    // Preload dictionary cache
-                    {
-                        use database::repositories::dictionary::DictionaryRepository;
-                        let entries = DictionaryRepository::new(pool.clone())
-                            .list_all()
-                            .await
-                            .unwrap_or_default();
-                        *state.dict_cache.write().await =
-                            entries.into_iter().map(|e| (e.term.clone(), e)).collect();
+                    if let Err(e) = app_handle.state::<Dictionary>().load(&pool).await {
+                        log::error!("could not load the dictionary: {e}");
                     }
                 });
             }
@@ -344,11 +369,13 @@ fn main() {
                 });
             }
 
-            // Spawn: hotkey restore
             {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    commands::restore_registered_hotkeys(&app_handle).await;
+                    app_handle
+                        .state::<Hotkeys>()
+                        .restore(&app_handle, &app_handle.state::<Settings>())
+                        .await;
                 });
             }
 
@@ -357,20 +384,9 @@ fn main() {
             #[cfg(target_os = "linux")]
             remote::listen_for_signals(app.handle().clone());
 
-            // Spawn: eagerly pre-load the Whisper engine so the first transcription is instant.
-            // Model selection reads the override from disk, not the DB, so this does not wait
-            // on DB init. If no model is downloaded yet it is a no-op — get_or_load_engine
-            // returns Err, and recording start kicks the load off again.
-            {
-                let app_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    let state = app_handle.state::<state::AppState>();
-                    match state.get_or_load_engine().await {
-                        Ok(_) => log::info!("transcription engine pre-loaded and warmed up"),
-                        Err(e) => log::info!("transcription engine pre-load skipped: {e}"),
-                    }
-                });
-            }
+            // Preload so the first transcription is instant. Without a model on
+            // disk this is a no-op, and recording start tries again.
+            EngineCache::warm(app.handle());
             inference::idle::spawn_watcher(app.handle().clone());
 
             // System tray
@@ -397,12 +413,7 @@ fn main() {
                         }
                     }
                     "quit" => {
-                        let state = app.state::<state::AppState>();
-                        state
-                            .transcription_running
-                            .store(false, std::sync::atomic::Ordering::SeqCst);
-                        state.reset_recording_session();
-                        state.mic.shutdown();
+                        app.state::<Recorder>().shutdown();
                         let app_handle = app.clone();
                         tauri::async_runtime::spawn(async move {
                             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
@@ -441,6 +452,13 @@ fn main() {
                             .and_then(tauri::WebviewWindowBuilder::build)
                         {
                             Ok(pill) => {
+                                // Windows never resizes the pill; see pill_clickthrough.
+                                #[cfg(windows)]
+                                let (pill_w, pill_h) = {
+                                    crate::pill_clickthrough::spawn(app_handle.clone());
+                                    crate::pill_geometry::card_window()
+                                };
+                                #[cfg(not(windows))]
                                 let (pill_w, pill_h) = crate::pill_geometry::capsule_window();
                                 let _ = pill.set_size(tauri::LogicalSize::new(pill_w, pill_h));
                                 // Position: centered horizontally, near bottom of primary monitor
@@ -492,18 +510,11 @@ fn main() {
 
             Ok(())
         })
-        .invoke_handler(specta_builder.invoke_handler())
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            use tauri::RunEvent;
-            if let RunEvent::ExitRequested { .. } = event {
-                let state = app.state::<state::AppState>();
-                state
-                    .transcription_running
-                    .store(false, std::sync::atomic::Ordering::SeqCst);
-                state.reset_recording_session();
-                state.mic.shutdown();
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                app.state::<Recorder>().shutdown();
             }
         });
 }

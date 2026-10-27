@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
-import { Check, KeyboardIcon, RefreshCw, TriangleAlert } from 'lucide-react'
-import { COMMANDS } from '../../lib/commands'
+import { CheckIcon, KeyboardIcon, ArrowsClockwiseIcon, WarningIcon, MinusIcon } from '@phosphor-icons/react'
+import { commands } from '../../bindings'
+import { Button } from '../../components/ui/Button'
 import type { InjectionStatus } from '../../types'
 
 /**
@@ -18,7 +18,7 @@ export function TextInjectionSection() {
 
   const load = useCallback(
     () =>
-      invoke<InjectionStatus>(COMMANDS.GET_INJECTION_STATUS)
+      commands.getInjectionStatus()
         .then(setStatus)
         .catch(() => setStatus(null)),
     [],
@@ -38,69 +38,55 @@ export function TextInjectionSection() {
   const ready = status.selected !== null
 
   return (
-    <div className="rounded-(--r-lg) border border-(--border-soft) bg-(--panel) p-4">
-      <div className="flex items-center gap-2.5">
-        <span
-          className={`grid size-7 shrink-0 place-items-center rounded-(--r-sm) ${
-            ready ? 'bg-(--accent-soft) text-(--accent)' : 'text-destructive'
-          }`}
-        >
-          {ready ? <KeyboardIcon size={14} strokeWidth={2} /> : <TriangleAlert size={14} strokeWidth={2} />}
-        </span>
-
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-bold tracking-[-0.02em] text-(--fg)">Text injection</p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            {ready
-              ? `Typing transcripts with ${status.selected} on ${status.session}.`
-              : `No supported tool found on ${status.session}. Install one below, or nothing will be typed.`}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={recheck}
-          disabled={checking}
-          title="Check again"
-          className="flex shrink-0 items-center gap-1.5 rounded-(--r-sm) border border-(--border) bg-(--surface) px-2 py-1 text-[11px] font-medium text-(--fg-2) cursor-pointer transition-colors duration-(--t-fast) hover:bg-accent hover:text-(--fg) disabled:opacity-50"
-        >
-          <RefreshCw size={11} strokeWidth={1.75} className={checking ? 'animate-spin' : undefined} />
-          <span className="leading-none">Recheck</span>
-        </button>
-      </div>
-
-      <ul className="mt-3 flex flex-col gap-1.5">
-        {status.tools.map((tool) => (
-          <li
-            key={tool.name}
-            className={`flex items-center gap-2.5 rounded-(--r-md) border px-2.5 py-1.5 ${
-              tool.preferred
-                ? 'border-(--accent-soft) bg-(--accent-soft)'
-                : 'border-(--border-soft) bg-(--surface)'
+    <section>
+      <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-fg-2">
+        Text injection
+        <span className="rounded-md bg-accent-2-soft px-1.5 py-px text-[10px] font-semibold text-accent-2-ink">Linux</span>
+      </h2>
+      <div className="rounded-2xl bg-panel p-4 ring-1 ring-line-soft ring-inset">
+        <div className="flex items-center gap-3">
+          <span
+            className={`grid size-8 shrink-0 place-items-center rounded-[10px] ${
+              ready ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'
             }`}
           >
-            <span className={`shrink-0 ${tool.available ? 'text-(--accent)' : 'text-muted-foreground'}`}>
-              {tool.available ? <Check size={12} strokeWidth={2.5} /> : <span className="block size-3" />}
-            </span>
+            {ready ? <KeyboardIcon size={16} weight="duotone" /> : <WarningIcon size={16} weight="duotone" />}
+          </span>
 
-            <code className={`shrink-0 text-[11.5px] font-semibold ${tool.preferred ? 'text-(--accent)' : 'text-(--fg-2)'}`}>
-              {tool.name}
-            </code>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-fg">
+              {ready ? `Typing with ${status.selected} on ${status.session}` : `No supported tool found on ${status.session}`}
+            </p>
+            <p className="truncate text-xs text-muted">
+              {ready
+                ? 'Wayland blocks pasting into other windows, so a helper types for NexusVoice.'
+                : 'Install one below, or nothing will be typed.'}
+            </p>
+          </div>
 
-            {tool.preferred && (
-              <span className="shrink-0 rounded-(--r-xs) bg-(--accent-soft) px-1.5 py-px text-[9px] font-semibold uppercase tracking-[0.04em] text-(--accent)">
-                in use
-              </span>
-            )}
+          <Button onClick={recheck} disabled={checking}>
+            <ArrowsClockwiseIcon size={12} weight="bold" className={checking ? 'animate-spin' : undefined} />
+            Check again
+          </Button>
+        </div>
 
-            {!tool.available && (
-              <span className="min-w-0 flex-1 truncate text-right text-[10.5px] text-muted-foreground" title={tool.installHint}>
-                {tool.installHint}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
-    </div>
+        <ul className="mt-3 grid grid-cols-4 gap-1.5">
+          {status.tools.map((tool) => (
+            <li
+              key={tool.name}
+              data-tip={tool.preferred ? 'In use' : tool.available ? 'Installed' : tool.installHint}
+              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 ring-1 ring-inset ${
+                tool.preferred ? 'bg-accent-soft ring-accent-line' : 'bg-field ring-line-soft'
+              }`}
+            >
+              {tool.available
+                ? <CheckIcon size={12} weight="bold" className={tool.preferred ? 'text-accent-ink' : 'text-success'} />
+                : <MinusIcon size={12} className="text-muted" />}
+              <code className={`text-xs font-semibold ${tool.preferred ? 'text-accent-ink' : 'text-fg-2'}`}>{tool.name}</code>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
   )
 }

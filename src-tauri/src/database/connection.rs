@@ -2,7 +2,6 @@ use std::path::Path;
 use std::time::Duration;
 
 use sqlx::{
-    migrate::MigrateError,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteSynchronous},
     SqlitePool,
 };
@@ -31,7 +30,7 @@ pub async fn init_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await?;
 
-    adopt_legacy_history(pool).await?;
+    reconcile_ledger(pool).await?;
 
     sqlx::migrate!("src/database/migrations")
         .run(pool)
@@ -57,11 +56,13 @@ async fn column_names(pool: &SqlitePool, table: &str) -> Result<Vec<String>, sql
     Ok(rows.into_iter().map(|(name,)| name).collect())
 }
 
-/// Replay the `ADD COLUMN`s that introduced them, reaching the squashed
-/// schema without losing the rows.
+/// Replay the `ADD COLUMN`s that introduced them, which `CREATE TABLE IF NOT
+/// EXISTS` would skip, reaching the squashed schema without losing the rows.
 async fn add_missing_columns(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     for (table, column, definition) in LATE_COLUMNS {
-        if column_names(pool, table).await?.iter().any(|c| c == column) {
+        let columns = column_names(pool, table).await?;
+        // No table yet: the migrator creates it with every column.
+        if columns.is_empty() || columns.iter().any(|c| c == column) {
             continue;
         }
         log::info!("adding missing column {table}.{column}");
@@ -74,146 +75,71 @@ async fn add_missing_columns(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-/// Bring a database predating the migration squash up to the current schema and
-/// re-stamp it, so `open_database` does not wipe it as inconsistent.
-async fn adopt_legacy_history(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    let has_history: Option<(String,)> = sqlx::query_as(
+/// Make the ledger agree with this build's migrations. Every migration is
+/// idempotent, so a ledger that disagrees (pre-squash history, line endings
+/// that changed a checksum, an edited migration, a half-applied run) is
+/// dropped and the migrator replays them over the existing schema. Rows are
+/// never touched. This is the only upgrade path.
+async fn reconcile_ledger(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    add_missing_columns(pool).await?;
+
+    let has_ledger: Option<(String,)> = sqlx::query_as(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='_sqlx_migrations'",
     )
     .fetch_optional(pool)
     .await?;
-    if has_history.is_none() {
+    if has_ledger.is_none() {
         return Ok(()); // Fresh database; the migrator will stamp it.
     }
 
-    // From the migrator, so editing the schema can't leave a stale constant.
     let migrator = sqlx::migrate!("src/database/migrations");
-
-    // Legacy = a row the migrator doesn't know by checksum, so a future 0002
-    // isn't mistaken for pre-squash history.
-    let applied: Vec<(i64, Vec<u8>)> =
-        sqlx::query_as("SELECT version, checksum FROM _sqlx_migrations")
+    let applied: Vec<(i64, Vec<u8>, bool)> =
+        sqlx::query_as("SELECT version, checksum, success FROM _sqlx_migrations")
             .fetch_all(pool)
             .await?;
-    let legacy_rows = applied
-        .iter()
-        .filter(|(version, checksum)| {
-            !migrator
+    let in_step = applied.iter().all(|(version, checksum, success)| {
+        *success
+            && migrator
                 .iter()
                 .any(|m| m.version == *version && m.checksum.as_ref() == checksum.as_slice())
-        })
-        .count();
-    if legacy_rows == 0 {
+    });
+    if in_step {
         return Ok(());
     }
 
-    let (schema_ready,): (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM sqlite_master
-         WHERE type='table' AND name IN ('transcripts', 'dictionary', 'transcripts_fts')",
-    )
-    .fetch_one(pool)
-    .await?;
-    if schema_ready != 3 {
-        return Ok(());
-    }
-    add_missing_columns(pool).await?;
-
-    let Some(current) = migrator.iter().find(|m| m.version == 1) else {
-        return Ok(());
-    };
-
-    log::info!("adopting pre-squash migration history ({legacy_rows} legacy rows)");
+    log::info!("rebuilding the migration ledger ({} rows)", applied.len());
 
     let mut tx = pool.begin().await?;
-
     // A database predating the auth removal still carries these.
     // app_session references users(id), so it goes first.
-    sqlx::query("DROP TABLE IF EXISTS app_session")
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("DROP TABLE IF EXISTS refresh_tokens")
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("DROP TABLE IF EXISTS word_frequency")
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("DROP INDEX IF EXISTS idx_users_email")
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("DROP TABLE IF EXISTS users")
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query("DELETE FROM _sqlx_migrations")
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query(
-        "INSERT INTO _sqlx_migrations
-           (version, description, installed_on, success, checksum, execution_time)
-         VALUES (?, ?, CURRENT_TIMESTAMP, 1, ?, 0)",
-    )
-    .bind(current.version)
-    .bind(current.description.as_ref())
-    .bind(current.checksum.as_ref())
-    .execute(&mut *tx)
-    .await?;
+    for drop in [
+        "DROP TABLE IF EXISTS app_session",
+        "DROP TABLE IF EXISTS refresh_tokens",
+        "DROP TABLE IF EXISTS word_frequency",
+        "DROP INDEX IF EXISTS idx_users_email",
+        "DROP TABLE IF EXISTS users",
+        "DELETE FROM _sqlx_migrations",
+    ] {
+        sqlx::query(drop).execute(&mut *tx).await?;
+    }
     tx.commit().await
 }
 
-/// Open the database at `db_path` and run migrations.
-///
-/// If the migration history is inconsistent (e.g. after a partial upgrade),
-/// backs up the existing file to `<db_path>.bak`, deletes it, and starts
-/// fresh. All migrations are replayed on the clean DB.
-///
-/// Returns the ready pool.
+/// Open and migrate without ever replacing a user's history. An incompatible
+/// ledger needs an explicit supported upgrade (or a newer application), not a
+/// fresh empty database. Closing on error also checkpoints the WAL safely.
 pub async fn open_database(db_path: &Path) -> Result<SqlitePool, String> {
     let db_url = format!("sqlite://{}", db_path.to_string_lossy().replace('\\', "/"));
-
     let pool = create_pool(&db_url)
         .await
         .map_err(|e| format!("database init failed: {e}"))?;
-
-    match init_database(&pool).await {
-        Ok(()) => Ok(pool),
-        Err(sqlx::Error::Migrate(ref migrate_err)) if is_inconsistent(migrate_err) => {
-            log::warn!(
-                "migration state inconsistent: {migrate_err} — backing up and recreating database"
-            );
-            pool.close().await;
-
-            // Timestamped, so a second recovery cannot overwrite the first backup.
-            let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-            let bak = db_path.with_extension(format!("db.{stamp}.bak"));
-            if let Err(e) = std::fs::copy(db_path, &bak) {
-                log::warn!("could not write backup to {}: {e}", bak.display());
-            } else {
-                log::info!("database backed up to {}", bak.display());
-            }
-
-            // Remove the corrupted DB and start fresh
-            std::fs::remove_file(db_path)
-                .map_err(|e| format!("could not remove corrupted database: {e}"))?;
-
-            let fresh_pool = create_pool(&db_url)
-                .await
-                .map_err(|e| format!("database recreate failed: {e}"))?;
-
-            init_database(&fresh_pool)
-                .await
-                .map_err(|e| format!("migrations failed on fresh database: {e}"))?;
-
-            Ok(fresh_pool)
-        }
-        Err(e) => Err(format!("database migrations failed: {e}")),
+    if let Err(e) = init_database(&pool).await {
+        pool.close().await;
+        return Err(format!(
+            "database migrations failed; original history retained: {e}"
+        ));
     }
-}
-
-const fn is_inconsistent(err: &MigrateError) -> bool {
-    matches!(
-        err,
-        MigrateError::VersionMissing(_) | MigrateError::VersionMismatch(_)
-    )
+    Ok(pool)
 }
 
 #[cfg(test)]
@@ -222,6 +148,16 @@ mod tests {
 
     fn migration_count() -> i64 {
         i64::try_from(sqlx::migrate!("src/database/migrations").iter().count()).unwrap()
+    }
+
+    #[test]
+    fn migrations_are_checked_out_with_lf_endings() {
+        for sql in [
+            include_str!("migrations/0001_init.sql"),
+            include_str!("migrations/0002_transcript_stats.sql"),
+        ] {
+            assert!(!sql.contains('\r'));
+        }
     }
 
     /// As the pre-squash build left it: end schema, 13 recorded versions.
@@ -278,7 +214,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn adopts_a_pre_squash_history_without_losing_rows() {
+    async fn rebuilds_a_pre_squash_history_without_losing_rows() {
         let pool = legacy_database().await;
         sqlx::query("INSERT INTO transcripts (content, word_count) VALUES ('keep me', 2)")
             .execute(&pool)
@@ -327,7 +263,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_older_shaped_database_is_repaired_then_adopted() {
+    async fn an_older_shaped_database_is_repaired_then_migrated() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         sqlx::query(
             "CREATE TABLE transcripts (
@@ -376,7 +312,7 @@ mod tests {
             .await
             .unwrap();
 
-        adopt_legacy_history(&pool).await.expect("adopt runs");
+        init_database(&pool).await.expect("init succeeds");
 
         let (rows,): (i64,) = sqlx::query_as("SELECT count(*) FROM transcripts")
             .fetch_one(&pool)
@@ -394,10 +330,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(
-            versions, 1,
-            "adoption re-stamps only the squashed migration"
-        );
+        assert_eq!(versions, migration_count());
     }
 
     /// The real upgrade path: a database shaped by the previous release, opened
@@ -520,5 +453,248 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(versions, migration_count());
+    }
+
+    #[tokio::test]
+    async fn reopening_a_migrated_database_keeps_its_ledger() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        open_database(&path).await.unwrap().close().await;
+
+        let pool = open_database(&path).await.expect("reopen succeeds");
+
+        let (versions,): (i64,) = sqlx::query_as("SELECT count(*) FROM _sqlx_migrations")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(versions, migration_count());
+    }
+
+    #[tokio::test]
+    async fn a_failed_migration_never_replaces_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        let pool = open_database(&path).await.unwrap();
+        sqlx::query("INSERT INTO transcripts(content) VALUES ('sentinel')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        // A ledger row this build has never seen, as a newer build leaves it.
+        sqlx::query(
+            "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+             VALUES (999, 'future', 1, X'00', 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool.close().await;
+
+        let _ = open_database(&path).await;
+
+        let pool = create_pool(&path.to_string_lossy()).await.unwrap();
+        let (content,): (String,) = sqlx::query_as("SELECT content FROM transcripts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(content, "sentinel");
+    }
+
+    /// What a database looks like after a build ran every migration, with the
+    /// ledger rows rewritten by `tamper`.
+    async fn migrated_database_with_ledger(tamper: &str) -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        init_database(&pool).await.unwrap();
+        sqlx::query("INSERT INTO transcripts (content, word_count, duration_seconds) VALUES ('a', 3, 1.5), ('b', 2, NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(tamper.to_string()))
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool
+    }
+
+    async fn assert_healthy(pool: &SqlitePool) {
+        init_database(pool).await.expect("init succeeds");
+        let (versions,): (i64,) = sqlx::query_as("SELECT count(*) FROM _sqlx_migrations")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        assert_eq!(versions, migration_count());
+        let totals: (i64, i64, f64) =
+            sqlx::query_as("SELECT sessions, words, duration_seconds FROM transcript_stats")
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        assert_eq!(totals, (2, 5, 1.5));
+        let (rows,): (i64,) = sqlx::query_as("SELECT count(*) FROM transcripts")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        assert_eq!(rows, 2, "no transcript is lost");
+        // The triggers still work after the replay.
+        sqlx::query("INSERT INTO transcripts (content, word_count) VALUES ('c', 1)")
+            .execute(pool)
+            .await
+            .unwrap();
+        let (sessions,): (i64,) = sqlx::query_as("SELECT sessions FROM transcript_stats")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        assert_eq!(sessions, 3);
+    }
+
+    /// The failure that shipped: ledger checksums from a CRLF build, while the
+    /// stats table already exists.
+    #[tokio::test]
+    async fn a_ledger_with_line_ending_checksums_is_rebuilt() {
+        let pool =
+            migrated_database_with_ledger("UPDATE _sqlx_migrations SET checksum = X'AA'").await;
+        assert_healthy(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn a_ledger_missing_the_stats_migration_is_completed() {
+        let pool =
+            migrated_database_with_ledger("DELETE FROM _sqlx_migrations WHERE version = 2").await;
+        assert_healthy(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn a_ledger_stamped_for_the_first_migration_only_is_completed() {
+        // The state the earlier adoption left behind.
+        let pool =
+            migrated_database_with_ledger("DELETE FROM _sqlx_migrations WHERE version > 1").await;
+        assert_healthy(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn an_edited_migration_is_replayed() {
+        let pool = migrated_database_with_ledger(
+            "UPDATE _sqlx_migrations SET checksum = X'BB' WHERE version = 2",
+        )
+        .await;
+        assert_healthy(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn a_half_applied_ledger_row_is_replayed() {
+        let pool = migrated_database_with_ledger(
+            "UPDATE _sqlx_migrations SET success = 0 WHERE version = 2",
+        )
+        .await;
+        assert_healthy(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn drifted_stats_are_recomputed_by_the_replay() {
+        let pool = migrated_database_with_ledger(
+            "UPDATE transcript_stats SET sessions = 99, words = 99; DELETE FROM _sqlx_migrations WHERE version = 2",
+        )
+        .await;
+        assert_healthy(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn a_ledger_row_from_a_newer_build_is_rebuilt_without_losing_rows() {
+        let pool = migrated_database_with_ledger(
+            "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) VALUES (999, 'future', 1, X'00', 0)",
+        )
+        .await;
+        assert_healthy(&pool).await;
+    }
+
+    #[tokio::test]
+    async fn every_migration_can_run_twice() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        for _ in 0..2 {
+            for sql in [
+                include_str!("migrations/0001_init.sql"),
+                include_str!("migrations/0002_transcript_stats.sql"),
+            ] {
+                sqlx::raw_sql(sql).execute(&pool).await.unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_database_survives_many_reopens_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.db");
+        let pool = open_database(&path).await.unwrap();
+        sqlx::query("INSERT INTO transcripts (content, word_count) VALUES ('keep', 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        for _ in 0..3 {
+            let pool = open_database(&path).await.expect("reopen succeeds");
+            let (rows,): (i64,) = sqlx::query_as("SELECT count(*) FROM transcripts")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(rows, 1);
+            pool.close().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn a_healthy_ledger_is_left_untouched() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        init_database(&pool).await.unwrap();
+        sqlx::query("UPDATE _sqlx_migrations SET execution_time = 4242")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        init_database(&pool).await.unwrap();
+
+        let (stamped,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM _sqlx_migrations WHERE execution_time = 4242")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(stamped, migration_count(), "no row was replayed");
+    }
+
+    #[tokio::test]
+    async fn transcripts_that_predate_the_search_index_become_searchable() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE transcripts (id INTEGER PRIMARY KEY AUTOINCREMENT, content TEXT NOT NULL,
+               created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP), duration_seconds REAL,
+               word_count INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE dictionary (id INTEGER PRIMARY KEY AUTOINCREMENT, term TEXT NOT NULL,
+               replacement TEXT NOT NULL, created_at TEXT, hits INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO transcripts (content) VALUES ('an old dictation');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        init_database(&pool).await.expect("init succeeds");
+
+        let hits: Vec<(i64,)> = sqlx::query_as(
+            "SELECT rowid FROM transcripts_fts WHERE transcripts_fts MATCH 'dictation'",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(hits.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn replaying_the_migrations_keeps_search_results_unchanged() {
+        let pool = migrated_database_with_ledger("DELETE FROM _sqlx_migrations").await;
+        init_database(&pool).await.expect("replay succeeds");
+
+        let (hits,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM transcripts_fts WHERE transcripts_fts MATCH 'a OR b'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(hits, 2);
     }
 }

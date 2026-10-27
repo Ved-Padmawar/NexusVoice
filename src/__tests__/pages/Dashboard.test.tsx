@@ -61,6 +61,7 @@ function mockBackend({ transcripts = [], search = [], stats = null }: Backend = 
     if (cmd === 'get_transcripts') return Promise.resolve(transcripts)
     if (cmd === 'search_transcripts') return Promise.resolve(search)
     if (cmd === 'get_usage_stats') return Promise.resolve(stats)
+    if (cmd === 'get_daily_words') return Promise.resolve([])
     return Promise.resolve(undefined)
   })
 }
@@ -78,13 +79,13 @@ beforeEach(() => {
 describe('Dashboard — empty state', () => {
   it('shows empty state when no transcripts', async () => {
     renderDashboard()
-    expect(await screen.findByText(/nothing here yet/i)).toBeInTheDocument()
+    expect(await screen.findByText(/your first dictation lands here/i)).toBeInTheDocument()
   })
 
   it('shows hotkey warning when no hotkey set', () => {
     useAppStore.setState({ hasHotkey: false })
     renderDashboard()
-    expect(screen.getByText(/no hotkey set/i)).toBeInTheDocument()
+    expect(screen.getByText(/until a hotkey is set/i)).toBeInTheDocument()
   })
 })
 
@@ -99,21 +100,22 @@ describe('Dashboard — transcripts', () => {
     expect(screen.getByText('Testing search')).toBeInTheDocument()
   })
 
-  it('shows transcript count badge', async () => {
+  it('shows the day group count', async () => {
     renderDashboard()
-    expect(await screen.findByText('2')).toBeInTheDocument()
+    expect(await screen.findByText('2 dictations')).toBeInTheDocument()
   })
 
   it('labels a transcript with the app it was dictated into', async () => {
     renderDashboard()
-    expect(await screen.findByText(/Pasted in VS Code/)).toBeInTheDocument()
+    expect(await screen.findByText('VS Code')).toBeInTheDocument()
   })
 
   it('omits the app label when the target app is unknown', async () => {
     renderDashboard()
     await screen.findByText('Hello world')
-    // The second fixture has targetApp: null — only one label should render.
-    expect(screen.getAllByText(/Pasted in/)).toHaveLength(1)
+    // The second fixture has targetApp: null, so it is labelled as the clipboard.
+    expect(screen.getAllByText('VS Code')).toHaveLength(1)
+    expect(screen.getAllByText('Clipboard')).toHaveLength(1)
   })
 })
 
@@ -123,7 +125,7 @@ describe('Dashboard — search', () => {
     renderDashboard()
     await screen.findByText('Hello world')
 
-    fireEvent.change(screen.getByPlaceholderText(/search transcripts/i), { target: { value: 'hello' } })
+    fireEvent.change(screen.getByLabelText('Search transcripts'), { target: { value: 'hello' } })
 
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('search_transcripts', expect.objectContaining({ query: 'hello' }))
@@ -135,7 +137,7 @@ describe('Dashboard — search', () => {
     renderDashboard()
     await screen.findByText('Hello world')
 
-    fireEvent.change(screen.getByPlaceholderText(/search transcripts/i), { target: { value: 'xyz' } })
+    fireEvent.change(screen.getByLabelText('Search transcripts'), { target: { value: 'xyz' } })
 
     expect(await screen.findByText(/no results found/i, {}, { timeout: 1000 })).toBeInTheDocument()
   })
@@ -145,7 +147,7 @@ describe('Dashboard — search', () => {
     mockBackend({ transcripts: [], search: [hit] })
     renderDashboard()
 
-    fireEvent.change(screen.getByPlaceholderText(/search transcripts/i), { target: { value: 'matched' } })
+    fireEvent.change(screen.getByLabelText('Search transcripts'), { target: { value: 'matched' } })
 
     expect(await screen.findByText('Matched result', {}, { timeout: 1000 })).toBeInTheDocument()
   })
@@ -157,7 +159,7 @@ describe('Dashboard — stats', () => {
     renderDashboard()
     expect(await screen.findByText('1,234')).toBeInTheDocument()
     expect(screen.getByText('1m')).toBeInTheDocument()
-    expect(screen.getByText('5')).toBeInTheDocument()
+    expect(screen.getByText('Dictations').closest('div')).toHaveTextContent('5')
   })
 
   it('shows dash when stats are empty', async () => {
@@ -170,14 +172,14 @@ describe('Dashboard — stats', () => {
 describe('Dashboard — export', () => {
   it('shows export dropdown on button click', () => {
     renderDashboard()
-    fireEvent.click(screen.getByTitle(/export transcripts/i))
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
     expect(screen.getByText(/plain text/i)).toBeInTheDocument()
-    expect(screen.getByText(/json/i)).toBeInTheDocument()
+    expect(screen.getByText('JSON')).toBeInTheDocument()
   })
 
   it('pages through get_transcripts on format select', async () => {
     renderDashboard()
-    fireEvent.click(screen.getByTitle(/export transcripts/i))
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
     fireEvent.click(screen.getByText(/plain text/i))
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith(
@@ -191,24 +193,24 @@ describe('Dashboard — export', () => {
 describe('Dashboard — filter', () => {
   it('opens filter dropdown on button click', () => {
     renderDashboard()
-    fireEvent.click(screen.getByText(/^filter/i))
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
     expect(screen.getByText(/newest first/i)).toBeInTheDocument()
   })
 
-  it('shows range and specific day toggle', () => {
+  it('shows range and one day toggle', () => {
     renderDashboard()
-    fireEvent.click(screen.getByText(/^filter/i))
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
     expect(screen.getByText('Range')).toBeInTheDocument()
-    expect(screen.getByText(/specific day/i)).toBeInTheDocument()
+    expect(screen.getByText('One day')).toBeInTheDocument()
   })
 
-  it('switches to specific day mode', () => {
+  it('switches to one day mode', () => {
     renderDashboard()
-    fireEvent.click(screen.getByText(/^filter/i))
-    fireEvent.click(screen.getByText(/specific day/i))
-    // In specific day mode there is only one date input
-    const dateInputs = screen.getAllByDisplayValue('')
-    expect(dateInputs.length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
+    fireEvent.click(screen.getByText('One day'))
+    // In one day mode there is a single date field
+    expect(screen.getByText('On')).toBeInTheDocument()
+    expect(screen.queryByText('From')).not.toBeInTheDocument()
   })
 
   it('refetches with the applied sort order', async () => {
@@ -216,7 +218,7 @@ describe('Dashboard — filter', () => {
     renderDashboard()
     await screen.findByText('Hello world')
 
-    fireEvent.click(screen.getByText(/^filter/i))
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
     fireEvent.click(screen.getByText(/oldest first/i))
     fireEvent.click(screen.getByText(/^apply$/i))
 
@@ -262,6 +264,7 @@ describe('Dashboard — infinite scroll sentinel', () => {
     mockInvoke.mockImplementation((cmd) => {
       if (cmd === 'get_transcripts') return Promise.resolve(call++ === 0 ? fullPage : [fullPage[49]])
       if (cmd === 'get_usage_stats') return Promise.resolve(null)
+      if (cmd === 'get_daily_words') return Promise.resolve([])
       return Promise.resolve(undefined)
     })
     renderDashboard()
@@ -269,5 +272,21 @@ describe('Dashboard — infinite scroll sentinel', () => {
     act(() => fireIntersect?.())
     await waitFor(() => expect(call).toBe(2))
     expect(await screen.findAllByText('row 50')).toHaveLength(1)
+  })
+})
+
+describe('Dashboard — database failure', () => {
+  it('shows one error when stats and activity both fail, and retries both', async () => {
+    mockInvoke.mockRejectedValue({ code: 'database', message: 'database unavailable' })
+    renderDashboard()
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(1))
+
+    const statsCalls = () => mockInvoke.mock.calls.filter(([cmd]) => cmd === 'get_usage_stats').length
+    const before = statsCalls()
+    mockBackend({ transcripts: sampleTranscripts })
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }))
+    expect(await screen.findByText('Hello world')).toBeInTheDocument()
+    expect(statsCalls()).toBeGreaterThan(before)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

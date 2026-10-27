@@ -23,6 +23,14 @@ function mockBackend(entries: DictionaryEntry[] = []) {
 
 const render = () => renderWithQuery(<Dictionary />)
 
+const openNewRow = async () => {
+  fireEvent.click(screen.getByRole('button', { name: /add word/i }))
+  await screen.findByPlaceholderText('Heard word')
+}
+const termField = () => screen.getByPlaceholderText('Heard word')
+const replacementField = () => screen.getByPlaceholderText('Replacement')
+const saveButton = () => screen.getByRole('button', { name: /^add$/i })
+
 beforeEach(() => {
   mockInvoke.mockReset()
   mockBackend()
@@ -31,7 +39,7 @@ beforeEach(() => {
 describe('Dictionary — empty state', () => {
   it('shows empty state when no entries', async () => {
     render()
-    expect(await screen.findByText(/no entries yet/i)).toBeInTheDocument()
+    expect(await screen.findByText(/no corrections yet/i)).toBeInTheDocument()
   })
 })
 
@@ -39,50 +47,51 @@ describe('Dictionary — add entry', () => {
   it('keeps failed additions available for retry without an unhandled rejection', async () => {
     mockInvoke.mockImplementation(cmd => cmd === 'update_dictionary' ? Promise.reject(new Error('Write failed')) : Promise.resolve([]))
     render()
-    fireEvent.change(screen.getByPlaceholderText(/e.g. teh/i), { target: { value: 'teh' } })
-    fireEvent.change(screen.getByPlaceholderText(/e.g. the/i), { target: { value: 'the' } })
-    fireEvent.click(screen.getByRole('button', { name: /add to dictionary/i }))
+    await openNewRow()
+    fireEvent.change(termField(), { target: { value: 'teh' } })
+    fireEvent.change(replacementField(), { target: { value: 'the' } })
+    fireEvent.click(saveButton())
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Write failed'))
     expect(screen.getByDisplayValue('teh')).toBeEnabled()
     expect(screen.getByDisplayValue('the')).toBeEnabled()
   })
 
-  it('Add button is disabled when inputs are empty', () => {
+  it('Add button is disabled when inputs are empty', async () => {
     render()
-    expect(screen.getByRole('button', { name: /add to dictionary/i })).toBeDisabled()
+    await openNewRow()
+    expect(saveButton()).toBeDisabled()
   })
 
   it('sends the term and replacement to the backend', async () => {
     render()
-    fireEvent.change(screen.getByPlaceholderText(/e.g. teh/i), { target: { value: 'teh' } })
-    fireEvent.change(screen.getByPlaceholderText(/e.g. the/i), { target: { value: 'the' } })
-    fireEvent.click(screen.getByRole('button', { name: /add to dictionary/i }))
+    await openNewRow()
+    fireEvent.change(termField(), { target: { value: 'teh' } })
+    fireEvent.change(replacementField(), { target: { value: 'the' } })
+    fireEvent.click(saveButton())
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'teh', replacement: 'the' })
+      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'teh', replacement: 'the', previousTerm: null })
     })
   })
 
-  it('clears inputs after successful add', async () => {
+  it('closes the new row after a successful add', async () => {
     render()
-    const termInput = screen.getByPlaceholderText(/e.g. teh/i)
-    const replacementInput = screen.getByPlaceholderText(/e.g. the/i)
-    fireEvent.change(termInput, { target: { value: 'teh' } })
-    fireEvent.change(replacementInput, { target: { value: 'the' } })
-    fireEvent.click(screen.getByRole('button', { name: /add to dictionary/i }))
-    await waitFor(() => {
-      expect((termInput as HTMLInputElement).value).toBe('')
-      expect((replacementInput as HTMLInputElement).value).toBe('')
-    })
+    await openNewRow()
+    fireEvent.change(termField(), { target: { value: 'teh' } })
+    fireEvent.change(replacementField(), { target: { value: 'the' } })
+    fireEvent.click(saveButton())
+    // The new row closes once the entry is saved.
+    await waitFor(() => expect(screen.queryByPlaceholderText('Heard word')).not.toBeInTheDocument())
   })
 
   it('submits on Enter key in replacement input', async () => {
     render()
-    fireEvent.change(screen.getByPlaceholderText(/e.g. teh/i), { target: { value: 'gonna' } })
-    const replacementInput = screen.getByPlaceholderText(/e.g. the/i)
+    await openNewRow()
+    fireEvent.change(termField(), { target: { value: 'gonna' } })
+    const replacementInput = replacementField()
     fireEvent.change(replacementInput, { target: { value: 'going to' } })
     fireEvent.keyDown(replacementInput, { key: 'Enter' })
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'gonna', replacement: 'going to' })
+      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'gonna', replacement: 'going to', previousTerm: null })
     })
   })
 })
@@ -96,7 +105,7 @@ describe('Dictionary — existing entries', () => {
     mockInvoke.mockImplementation(cmd => cmd === 'update_dictionary' ? Promise.reject(new Error('Edit failed')) : Promise.resolve([sampleEntry]))
     render()
     await screen.findByText('teh')
-    fireEvent.click(screen.getAllByRole('button').find(b => b.querySelector('svg.lucide-pencil'))!)
+    fireEvent.click(screen.getByRole('button', { name: /edit teh/i }))
     fireEvent.change(screen.getByDisplayValue('teh'), { target: { value: 'hte' } })
     fireEvent.keyDown(screen.getByDisplayValue('the'), { key: 'Enter' })
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Edit failed'))
@@ -113,8 +122,7 @@ describe('Dictionary — existing entries', () => {
   it('deletes the entry by id when delete is clicked', async () => {
     render()
     await screen.findByText('teh')
-    // Trash button (last icon button in the row)
-    const deleteBtn = screen.getAllByRole('button').find(b => b.querySelector('svg.lucide-trash'))!
+    const deleteBtn = screen.getByRole('button', { name: /delete teh/i })
     fireEvent.click(deleteBtn)
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('delete_dictionary_entry', { id: 1 })
@@ -124,7 +132,7 @@ describe('Dictionary — existing entries', () => {
   it('sends the previous term when an entry is renamed', async () => {
     render()
     await screen.findByText('teh')
-    const editBtn = screen.getAllByRole('button').find(b => b.querySelector('svg.lucide-pencil'))
+    const editBtn = screen.getByRole('button', { name: /edit teh/i })
     fireEvent.click(editBtn!)
 
     const termInput = await screen.findByDisplayValue('teh')
@@ -143,7 +151,7 @@ describe('Dictionary — existing entries', () => {
   it('enters edit mode on pencil click', async () => {
     render()
     await screen.findByText('teh')
-    const editBtn = screen.getAllByRole('button').find(b => b.querySelector('svg.lucide-pencil'))
+    const editBtn = screen.getByRole('button', { name: /edit teh/i })
     if (editBtn) fireEvent.click(editBtn)
     expect(screen.getAllByRole('textbox').length).toBeGreaterThan(0)
   })
@@ -151,10 +159,10 @@ describe('Dictionary — existing entries', () => {
   it('cancels edit mode on X click', async () => {
     render()
     await screen.findByText('teh')
-    const editBtn = screen.getAllByRole('button').find(b => b.querySelector('svg.lucide-pencil'))
+    const editBtn = screen.getByRole('button', { name: /edit teh/i })
     if (editBtn) fireEvent.click(editBtn)
     // After entering edit mode, find the X (cancel) button
-    const cancelBtn = screen.getAllByRole('button').find(b => b.querySelector('svg.lucide-x'))
+    const cancelBtn = screen.getByRole('button', { name: /^cancel$/i })
     if (cancelBtn) fireEvent.click(cancelBtn)
     expect(screen.getByText('teh')).toBeInTheDocument()
   })

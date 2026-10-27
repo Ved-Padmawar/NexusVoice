@@ -1,45 +1,78 @@
 import type { StateCreator } from 'zustand'
+import { commands, type PillSettings, type PillSettingsSnapshot } from '../bindings'
+import { logger } from '../lib/logger'
+import { subscribePillSettings } from '../lib/pillSettings'
+import { takeLegacyPill } from './legacyPill'
 import type { AppState } from './useAppStore'
-import type { ThemeName } from './useAppStore'
 import type { SettingsTab } from '../lib/routes'
 
-export type PillTheme = 'steel' | 'midnight' | 'canvas' | 'dawn'
+export const THEME_NAMES = ['steel', 'midnight', 'indigo', 'orchid', 'canvas', 'dawn', 'breeze', 'blossom'] as const
+export type ThemeName = typeof THEME_NAMES[number]
+export const DEFAULT_THEME: ThemeName = 'indigo'
 
-/** How the pill draws the capture levels. All four read the same frame. */
-export type WaveformStyle = 'bars' | 'memo' | 'eq' | 'spectrum'
+const DEFAULT_PILL: PillSettings = { theme: 'steel', waveformStyle: 'bars', liveTranscript: false, startSound: false }
 
 export type UiSlice = {
   theme: ThemeName
-  pillTheme: PillTheme
-  waveformStyle: WaveformStyle
-  /** Expand the pill into a transcript card. Streaming models only. */
-  liveTranscript: boolean
+  /** Mirrors the backend's saved pill preferences, which the pill also reads. */
+  pill: PillSettings
   activeRoute: string
   activeSettingsTab: SettingsTab
   modelChosen: boolean
   setTheme: (theme: ThemeName) => void
-  setPillTheme: (theme: PillTheme) => void
-  setWaveformStyle: (style: WaveformStyle) => void
-  setLiveTranscript: (on: boolean) => void
+  updatePill: (change: Partial<PillSettings>) => Promise<void>
+  followPillSettings: () => () => void
   setActiveRoute: (route: string) => void
   setActiveSettingsTab: (tab: SettingsTab) => void
   setModelChosen: (chosen: boolean) => void
 }
 
-export const createUiSlice: StateCreator<AppState, [], [], UiSlice> = (set) => ({
-  theme: 'abyss',
-  pillTheme: 'steel',
-  waveformStyle: 'bars',
-  liveTranscript: false,
-  activeRoute: '/',
-  activeSettingsTab: 'appearance',
-  modelChosen: false,
+export const createUiSlice: StateCreator<AppState, [], [], UiSlice> = (set, get) => {
+  let savesPending = 0
+  let newest: PillSettingsSnapshot | undefined
 
-  setTheme: (theme) => set({ theme }),
-  setPillTheme: (pillTheme) => set({ pillTheme }),
-  setWaveformStyle: (waveformStyle) => set({ waveformStyle }),
-  setLiveTranscript: (liveTranscript) => set({ liveTranscript }),
-  setActiveRoute: (route) => set({ activeRoute: route }),
-  setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
-  setModelChosen: (chosen) => set({ modelChosen: chosen }),
-})
+  // Only a snapshot newer than any seen may apply, so a delayed event never
+  // replays an older edit.
+  const isNewest = (snapshot: PillSettingsSnapshot) => {
+    if (newest && snapshot.revision <= newest.revision) return false
+    newest = snapshot
+    return true
+  }
+
+  return {
+    theme: DEFAULT_THEME,
+    pill: DEFAULT_PILL,
+    activeRoute: '/',
+    activeSettingsTab: 'general',
+    modelChosen: false,
+
+    setTheme: (theme) => set({ theme }),
+    // Applied at once so the picker responds; snapshots wait out pending saves.
+    updatePill: async (change) => {
+      const next = { ...get().pill, ...change }
+      set({ pill: next })
+      savesPending += 1
+      try {
+        isNewest(await commands.setPillSettings(next))
+      } catch (e) {
+        logger.error('could not save pill settings', e)
+      }
+      savesPending -= 1
+      if (savesPending === 0) {
+        newest ??= await commands.getPillSettings()
+        set({ pill: newest.settings })
+      }
+    },
+    followPillSettings: () => {
+      const stop = subscribePillSettings((settings, revision) => {
+        if (isNewest({ revision, settings }) && savesPending === 0) set({ pill: settings })
+      })
+      const legacy = takeLegacyPill()
+      if (legacy) void get().updatePill(legacy)
+      return stop
+    },
+    setActiveRoute: (route) => set({ activeRoute: route }),
+    setActiveSettingsTab: (tab) => set({ activeSettingsTab: tab }),
+    setModelChosen: (chosen) => set({ modelChosen: chosen }),
+  }
+}

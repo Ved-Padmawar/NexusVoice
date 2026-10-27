@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
-import { COMMANDS } from '../lib/commands'
+import { commands } from '../bindings'
 import { extractErrorMessage } from '../lib/errors'
 import { logger } from '../lib/logger'
 import { prefetchDictionary, prefetchStats, prefetchTranscripts } from '../lib/queries'
@@ -24,7 +23,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set) =>
       if (startupInFlight) return startupInFlight
       startupInFlight = (async () => {
         try {
-          await invoke(COMMANDS.WAIT_FOR_APP_READY)
+          await commands.waitForAppReady()
         } catch (e) {
           const message = extractErrorMessage(e, 'Database unavailable')
           logger.error('startup failed', message)

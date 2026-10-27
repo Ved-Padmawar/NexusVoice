@@ -5,7 +5,7 @@
  * The cases mirror `src-tauri/tests/unit/llm/config.rs` one for one.
  */
 import { describe, it, expect } from 'vitest'
-import { isConfigured } from '../../lib/formatConfig'
+import { isConfigured, keepingKeys } from '../../lib/formatConfig'
 
 const profile = (baseUrl: string, model: string) => ({ baseUrl, model })
 
@@ -51,5 +51,21 @@ describe('isConfigured', () => {
 
   it('ignores surrounding whitespace the way the Rust side does', () => {
     expect(isConfigured('ollama', profile('  http://x/v1  ', '  m  '))).toBe(true)
+  })
+})
+
+describe('keepingKeys', () => {
+  it('sends every endpoint back without touching a saved key', () => {
+    // A key the UI never saw must not be cleared just by toggling formatting.
+    const update = keepingKeys({
+      enabled: true,
+      provider: 'openai',
+      profiles: { openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt', hasApiKey: true } },
+    })
+    expect(update).toEqual({
+      enabled: true,
+      provider: 'openai',
+      profiles: { openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt', apiKey: null } },
+    })
   })
 })

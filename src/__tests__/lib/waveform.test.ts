@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { WAVEFORM_RENDERERS, isCanvasStyle, BARS, type RenderState } from '../../lib/waveform'
-import type { WaveformStyle } from '../../store/uiSlice'
+import type { WaveformStyle } from '../../types'
 
 const STYLES: WaveformStyle[] = ['bars', 'memo', 'eq', 'spectrum']
 

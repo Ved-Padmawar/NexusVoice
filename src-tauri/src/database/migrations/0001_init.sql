@@ -37,3 +37,6 @@ CREATE TRIGGER IF NOT EXISTS transcripts_au AFTER UPDATE ON transcripts BEGIN
   INSERT INTO transcripts_fts(transcripts_fts, rowid, content) VALUES ('delete', old.id, old.content);
   INSERT INTO transcripts_fts(rowid, content) VALUES (new.id, new.content);
 END;
+
+-- Index the rows that predate the index (a no-op on a current one).
+INSERT INTO transcripts_fts(transcripts_fts) VALUES ('rebuild');

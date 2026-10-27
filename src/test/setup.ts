@@ -11,19 +11,17 @@ vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn(),
 }));
 
-// jsdom doesn't implement these — Radix UI primitives (Select, Popover, etc.)
-// call them internally, so tests crash without a no-op polyfill.
+// jsdom doesn't implement these; Select scrolls its options into view and
+// Popover re-places itself when its panel resizes.
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
-if (!Element.prototype.hasPointerCapture) {
-  Element.prototype.hasPointerCapture = () => false;
-}
-if (!Element.prototype.releasePointerCapture) {
-  Element.prototype.releasePointerCapture = () => {};
-}
-if (!Element.prototype.setPointerCapture) {
-  Element.prototype.setPointerCapture = () => {};
+if (!globalThis.ResizeObserver) {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
 }
 
 // jsdom declares scrollTo but throws when called, so assign unconditionally.
