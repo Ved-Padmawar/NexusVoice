@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::inference::transcript::{join_words, Word};
 use crate::inference::{Pass, TimedSegment, TranscriptionEngine};
+use crate::preprocess::To16k;
 
 const MIN_NEW_AUDIO_SECS: f64 = 1.0;
 const MAX_NEW_AUDIO_SECS: f64 = 5.0;
@@ -32,17 +33,45 @@ const PROMPT_TAIL_WORDS: usize = 30;
 /// earshot requires exactly 256 samples (16 ms) per frame.
 const VAD_CHUNK_16K: usize = 256;
 const VAD_SPEECH_ENTER: f32 = 0.5;
+/// Levelled room noise scores ~0.5, levelled quiet speech ~0.8.
+const VAD_LEVELED_SPEECH_ENTER: f32 = 0.7;
 const VAD_PAD_FRAMES: usize = 2;
+
+pub struct FinalText {
+    pub text: String,
+    /// `false` when the end of the recording may be missing.
+    pub complete: bool,
+}
+
+impl FinalText {
+    const fn complete(text: String) -> Self {
+        Self {
+            text,
+            complete: true,
+        }
+    }
+
+    const fn partial(text: String) -> Self {
+        Self {
+            text,
+            complete: false,
+        }
+    }
+}
 
 /// State of one recording's streaming transcription. Created when recording
 /// starts, polled by the stream worker, consumed by [`finalize`].
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct StreamingSession {
     /// Words confirmed by LocalAgreement-2, in order. Never revised.
     committed: Vec<Word>,
     committed_norm: Vec<String>,
     /// Native-rate buffer index where the active window starts.
     window_start: usize,
+    /// Native-rate samples already converted.
+    fed: usize,
+    converter: Option<To16k>,
+    window_16k: Vec<f32>,
     /// Native-rate buffer length at the last decode; gates decode cadence.
     decoded_len: usize,
     last_decode_secs: f64,
@@ -58,13 +87,11 @@ impl StreamingSession {
         Self::default()
     }
 
-    /// Native-rate buffer index the stream worker snapshots the window from.
-    pub const fn window_start(&self) -> usize {
-        self.window_start
+    pub const fn fed(&self) -> usize {
+        self.fed
     }
 
-    /// Whether a `poll` over a buffer of `total_len` samples would decode. Lets
-    /// the worker skip copying the window on polls that would bail anyway.
+    /// Whether [`Self::poll`] would decode a buffer of `total_len` samples.
     pub fn would_decode(&self, total_len: usize, native_rate: u32) -> bool {
         if native_rate == 0 {
             return false;
@@ -77,47 +104,55 @@ impl StreamingSession {
         (self.last_decode_secs / DUTY_CYCLE).clamp(MIN_NEW_AUDIO_SECS, MAX_NEW_AUDIO_SECS)
     }
 
-    /// One streaming step: decode if enough new audio arrived, commit whatever
-    /// two consecutive hypotheses now agree on, then trim the window if it
-    /// outgrew the threshold.
-    ///
-    /// `window` is the buffer from [`Self::window_start`] onward, at the mic's
-    /// native rate. Decodes synchronously — call from a blocking thread.
+    fn ingest(&mut self, new_audio: &[f32], native_rate: u32) -> Result<(), String> {
+        let converter = match self.converter.as_mut() {
+            Some(converter) => converter,
+            None => self.converter.insert(To16k::new(native_rate)?),
+        };
+        self.window_16k.extend(converter.push(new_audio)?);
+        self.fed += new_audio.len();
+        Ok(())
+    }
+
+    /// A failed conversion leaves the filter state unknown: refeed from the window start.
+    fn restart_conversion(&mut self) {
+        self.converter = None;
+        self.window_16k.clear();
+        self.fed = self.window_start;
+    }
+
+    fn advance_window(&mut self, new_start: usize, native_rate: u32) {
+        let dropped = (new_start - self.window_start) * 16_000 / native_rate as usize;
+        self.window_16k.drain(..dropped.min(self.window_16k.len()));
+        self.window_start = new_start;
+    }
+
+    /// One streaming step over `new_audio`, the native-rate buffer from
+    /// [`Self::fed`] on. Decodes synchronously — call from a blocking thread.
     pub fn poll(
         &mut self,
-        window: &[f32],
+        new_audio: &[f32],
         native_rate: u32,
         engine: &Arc<Mutex<TranscriptionEngine>>,
     ) {
-        if native_rate == 0 {
+        if let Err(e) = self.ingest(new_audio, native_rate) {
+            log::warn!("streaming pass skipped: {e}");
+            self.restart_conversion();
             return;
         }
-        let total_len = self.window_start + window.len();
-        let new_samples = total_len.saturating_sub(self.decoded_len.max(self.window_start));
-        if to_secs(new_samples, native_rate) < self.decode_gate_secs() {
-            return;
-        }
-
-        let mut prepared = match crate::preprocess::to_16k(window, native_rate) {
-            Ok(prepared) => prepared,
-            // `decoded_len` stays put, so the next poll retries the window.
-            Err(e) => {
-                log::warn!("streaming pass skipped: {e}");
-                return;
-            }
-        };
+        let total_len = self.fed;
         if !self.lead_trimmed {
             // `decoded_len` stays put so the next poll re-checks the grown buffer.
-            let Some(skip_16k) = lead_speech_offset(&prepared) else {
+            let Some(skip_16k) = lead_speech_offset(&self.window_16k) else {
                 return;
             };
             self.window_start += from_16k(skip_16k, native_rate);
-            prepared.drain(..skip_16k);
+            self.window_16k.drain(..skip_16k);
             self.lead_trimmed = true;
         }
         self.decoded_len = total_len;
 
-        let leveled = crate::preprocess::normalize_level(&prepared);
+        let leveled = crate::preprocess::normalize_level(&self.window_16k);
         if leveled.is_empty() {
             return;
         }
@@ -249,7 +284,10 @@ impl StreamingSession {
         let Some((idx, words, end_ms)) = cut else {
             return false;
         };
-        self.window_start += from_ms(end_ms, native_rate);
+        self.advance_window(
+            self.window_start + from_ms(end_ms, native_rate),
+            native_rate,
+        );
         self.segments.drain(..=idx);
         self.hyp_committed -= words;
         true
@@ -275,7 +313,7 @@ impl StreamingSession {
         }
 
         let words = cut_word_idx + 1;
-        self.window_start = boundary;
+        self.advance_window(boundary, native_rate);
         self.segments[0].words.drain(..words);
         if self.segments[0].words.is_empty() {
             self.segments.remove(0);
@@ -288,59 +326,66 @@ impl StreamingSession {
     /// means the audio could not be prepared, so the tail was never decoded.
     fn finish(
         mut self,
-        window: &[f32],
+        new_audio: &[f32],
         native_rate: u32,
         engine: &Arc<Mutex<TranscriptionEngine>>,
-    ) -> Result<String, String> {
-        if native_rate == 0 || window.is_empty() {
-            return Ok(self.text());
+    ) -> Result<FinalText, String> {
+        if native_rate == 0 {
+            return Ok(FinalText::complete(self.text()));
         }
 
-        let mut prepared = crate::preprocess::to_16k(window, native_rate)?;
-        if !self.lead_trimmed {
-            // No confident speech at all still gets decoded — the model's own
-            // no-speech filters have the final say.
-            if let Some(skip_16k) = lead_speech_offset(&prepared) {
-                prepared.drain(..skip_16k);
-            }
+        self.ingest(new_audio, native_rate)?;
+        if let Some(converter) = self.converter.as_mut() {
+            self.window_16k.extend(converter.finish()?);
         }
-        let leveled = crate::preprocess::normalize_level(&prepared);
+        if !self.lead_trimmed {
+            // Decoding silence makes Whisper invent text ("Thanks for watching!").
+            let Some(skip_16k) = final_speech_offset(&self.window_16k) else {
+                return Ok(FinalText::complete(self.text()));
+            };
+            self.window_16k.drain(..skip_16k);
+        }
+        let leveled = crate::preprocess::normalize_level(&self.window_16k);
         if leveled.is_empty() {
-            return Ok(self.text());
+            return Ok(FinalText::complete(self.text()));
         }
 
         let prompt = self.prompt();
         let Ok(mut guard) = engine.lock() else {
             log::error!("TranscriptionEngine mutex poisoned during finalize");
-            return Ok(self.text());
+            return Ok(FinalText::partial(self.text()));
         };
         match guard.transcribe_segments(&leveled, &prompt, Pass::Final) {
             Ok(segments) => {
+                let truncated = guard.was_truncated();
                 let hyp: Vec<Word> = segments.iter().flat_map(|s| &s.words).cloned().collect();
                 let norm: Vec<String> = hyp.iter().map(|w| normalize_word(&w.text)).collect();
                 let overlap = trailing_overlap(&self.committed_norm, &norm);
                 self.committed.extend_from_slice(&hyp[overlap..]);
-                Ok(self.text())
+                Ok(FinalText {
+                    text: self.text(),
+                    complete: !truncated,
+                })
             }
             Err(e) => {
                 log::warn!("final decode failed: {e}");
-                Ok(self.text())
+                Ok(FinalText::partial(self.text()))
             }
         }
     }
 }
 
 /// Finalize a recording: decode the audio the session hasn't committed yet and
-/// return the complete transcript. `None` (recording never streamed) decodes
-/// the whole buffer in one pass. `Err` means the audio could not be prepared.
+/// return the transcript. `None` (recording never streamed) decodes the whole
+/// buffer in one pass. `Err` means the audio could not be prepared.
 pub fn finalize(
     session: Option<StreamingSession>,
     buffer: &[f32],
     native_rate: u32,
     engine: &Arc<Mutex<TranscriptionEngine>>,
-) -> Result<String, String> {
+) -> Result<FinalText, String> {
     let session = session.unwrap_or_default();
-    let start = session.window_start().min(buffer.len());
+    let start = session.fed().min(buffer.len());
     session.finish(&buffer[start..], native_rate, engine)
 }
 
@@ -385,6 +430,21 @@ fn from_ms(ms: i64, native_rate: u32) -> usize {
 /// Only the lead-in is ever trimmed — marking the *end* of speech this way
 /// silently truncates real dictation. Interior pauses are left alone.
 fn lead_speech_offset(samples_16k: &[f32]) -> Option<usize> {
+    speech_offset(samples_16k, VAD_SPEECH_ENTER)
+}
+
+/// Quiet speech can score under the threshold raw; levelling lifts room noise
+/// too, so the levelled second look is held to a stricter one.
+fn final_speech_offset(samples_16k: &[f32]) -> Option<usize> {
+    lead_speech_offset(samples_16k).or_else(|| {
+        speech_offset(
+            &crate::preprocess::normalize_level(samples_16k),
+            VAD_LEVELED_SPEECH_ENTER,
+        )
+    })
+}
+
+fn speech_offset(samples_16k: &[f32], enter: f32) -> Option<usize> {
     let mut vad = earshot::Detector::default_boxed();
 
     // A trailing partial frame is ignored; at 16 ms it is below our padding.
@@ -392,7 +452,7 @@ fn lead_speech_offset(samples_16k: &[f32]) -> Option<usize> {
         .as_chunks::<VAD_CHUNK_16K>()
         .0
         .iter()
-        .position(|frame| vad.predict_f32(frame) >= VAD_SPEECH_ENTER)?;
+        .position(|frame| vad.predict_f32(frame) >= enter)?;
 
     let start = first.saturating_sub(VAD_PAD_FRAMES) * VAD_CHUNK_16K;
     (start < samples_16k.len()).then_some(start)

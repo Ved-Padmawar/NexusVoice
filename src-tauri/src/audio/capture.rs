@@ -72,7 +72,7 @@ fn is_capture_capable(device: &cpal::Device) -> bool {
 }
 
 /// cpal 0.18 device name (full WASAPI `FriendlyName` on Windows).
-fn device_name(device: &cpal::Device) -> Option<String> {
+pub(super) fn device_name(device: &cpal::Device) -> Option<String> {
     device.description().ok().map(|d| d.name().to_string())
 }
 

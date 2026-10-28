@@ -13,8 +13,9 @@ use crate::events::{
     PillWaveform, TranscriptionPartial, TranscriptionPartialEnd, TranscriptionWarning,
 };
 use crate::inference::cache::EngineCache;
+use crate::preprocess::To16k;
 use crate::sync::lock_recovering;
-use crate::transcribe::{Route, StreamSession, StreamingSession};
+use crate::transcribe::{Route, StreamSession, Streamed, StreamingSession};
 
 /// Poll cadence of the stream workers. Decode frequency is governed by the
 /// pipeline's minimum-new-audio gate, not this; polling is just the check.
@@ -36,7 +37,7 @@ pub struct Capture {
     pub session: Arc<Mutex<Option<StreamingSession>>>,
     /// Transcript a streaming-native model produced. `None` means finalize
     /// decodes the buffer itself.
-    pub streamed: Arc<Mutex<Option<String>>>,
+    pub streamed: Arc<Mutex<Option<Streamed>>>,
     /// Signalled when the streaming-native worker is done, so finalize does
     /// not read `streamed` before its tail is in.
     pub stream_done: Arc<(Mutex<bool>, Condvar)>,
@@ -103,25 +104,43 @@ fn spawn_native_stream(app: &AppHandle, capture: Capture) {
         };
         log::info!("decoding via {}", Route::Streaming.as_str());
 
+        // Built on the first audio: the mic sets its rate when it opens.
+        let mut converter: Option<To16k> = None;
+
         // Capture outlives `capturing` by the post-roll. Flags are read before
         // the buffer, so the pass that sees both off has everything.
         let mut fed = 0usize;
         loop {
             let capturing = capture.capturing.load(Ordering::SeqCst) || capture.mic.is_armed();
-            let rate = *lock_recovering(&capture.sample_rate);
             let chunk = {
                 let buf = lock_recovering(&capture.audio);
                 let chunk = buf[fed..].to_vec();
                 fed = buf.len();
                 chunk
             };
-            match crate::preprocess::to_16k(&chunk, rate) {
-                Ok(prepared) => {
-                    if !prepared.is_empty() && stream.feed(&prepared) {
-                        emit_partial(&app, stream.partial());
-                    }
+            if converter.is_none() && !chunk.is_empty() {
+                match To16k::new(*lock_recovering(&capture.sample_rate)) {
+                    Ok(built) => converter = Some(built),
+                    Err(e) => stream.drop_chunk(&e),
                 }
-                Err(e) => stream.drop_chunk(&e),
+            }
+            if let Some(converter) = converter.as_mut() {
+                let prepared = if capturing {
+                    converter.push(&chunk)
+                } else {
+                    converter.push(&chunk).and_then(|mut head| {
+                        head.extend(converter.finish()?);
+                        Ok(head)
+                    })
+                };
+                match prepared {
+                    Ok(prepared) => {
+                        if !prepared.is_empty() && stream.feed(&prepared) {
+                            emit_partial(&app, stream.partial());
+                        }
+                    }
+                    Err(e) => stream.drop_chunk(&e),
+                }
             }
             if !capturing {
                 break;
@@ -130,7 +149,9 @@ fn spawn_native_stream(app: &AppHandle, capture: Capture) {
         }
 
         let _ = TranscriptionPartialEnd.emit(&app);
-        *lock_recovering(&capture.streamed) = stream.finalize();
+        let text = stream.finalize();
+        let truncated = guard.was_truncated();
+        *lock_recovering(&capture.streamed) = text.map(|text| Streamed { text, truncated });
     });
 }
 
@@ -162,12 +183,11 @@ fn spawn_local_agreement(app: &AppHandle, capture: Capture) {
                 break;
             };
             let rate = *lock_recovering(&capture.sample_rate);
-            // Snapshot only when a decode will run; the copy grows with the recording.
-            let Some(window) = ({
+            let Some(new_audio) = ({
                 let buf = lock_recovering(&capture.audio);
                 session
                     .would_decode(buf.len(), rate)
-                    .then(|| buf[session.window_start().min(buf.len())..].to_vec())
+                    .then(|| buf[session.fed().min(buf.len())..].to_vec())
             }) else {
                 continue;
             };
@@ -178,7 +198,7 @@ fn spawn_local_agreement(app: &AppHandle, capture: Capture) {
             }
 
             let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                session.poll(&window, rate, &engine);
+                session.poll(&new_audio, rate, &engine);
             }));
             if polled.is_err() {
                 // Drop the session too, so finalize falls back to a clean

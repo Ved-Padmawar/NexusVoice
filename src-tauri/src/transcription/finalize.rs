@@ -20,7 +20,7 @@ use crate::inference::cache::{EngineCache, EngineLease, SharedEngine};
 use crate::inference::transcript::strip_leading_dashes;
 use crate::postprocess::remove_fillers;
 use crate::settings::Settings;
-use crate::transcribe::StreamingSession;
+use crate::transcribe::{FinalText, Streamed, StreamingSession};
 
 /// Everything finalize needs, taken from the recorder when capture stops.
 pub struct Recording {
@@ -29,8 +29,8 @@ pub struct Recording {
     pub lease: EngineLease,
     /// Growing-window state; `None` decodes the whole buffer in one pass.
     pub session: Option<StreamingSession>,
-    /// Transcript from a streaming-native model, already complete.
-    pub streamed: Option<String>,
+    /// Transcript from a streaming-native model.
+    pub streamed: Option<Streamed>,
     pub samples: Vec<f32>,
     pub sample_rate: u32,
     pub duration_seconds: Option<f64>,
@@ -56,13 +56,20 @@ pub async fn run(app: &AppHandle, recording: Recording) {
     app.state::<EngineCache>().touch();
     drop(lease);
 
-    let (raw, language) = match decoded {
+    let (raw, language, complete) = match decoded {
         Ok(decoded) => decoded,
         Err(message) => {
             let _ = TranscriptionError(message.to_string()).emit(app);
             return;
         }
     };
+    if !complete {
+        let _ = TranscriptionWarning(
+            "Part of your dictation could not be transcribed, so the end may be missing."
+                .to_string(),
+        )
+        .emit(app);
+    }
     // Whisper emits "- " at the start of short utterances.
     let text = remove_fillers(strip_leading_dashes(&raw), language.as_deref());
     if text.is_empty() {
@@ -89,52 +96,73 @@ pub async fn run(app: &AppHandle, recording: Recording) {
     let _ = TranscriptionComplete { paste_error, saved }.emit(app);
 }
 
-/// The transcript and the language it came out in. Engine failures discard
-/// the engine, so the next recording loads a fresh one.
+const ENGINE_FAILED: &str =
+    "Transcription engine encountered an error and was reset. Please try again.";
+const AUDIO_FAILED: &str = "Couldn't process the recorded audio. Please try again.";
+
+/// Engine failures discard the engine, so the next recording loads a fresh one.
 async fn decode(
     app: &AppHandle,
     engine: SharedEngine,
     session: Option<StreamingSession>,
-    streamed: Option<String>,
+    streamed: Option<Streamed>,
     samples: Vec<f32>,
     sample_rate: u32,
-) -> Result<(String, Option<String>), &'static str> {
-    const ENGINE_FAILED: &str =
-        "Transcription engine encountered an error and was reset. Please try again.";
-    const AUDIO_FAILED: &str = "Couldn't process the recorded audio. Please try again.";
-
+) -> Result<(String, Option<String>, bool), &'static str> {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        // A streaming-native model already decoded everything as it was fed;
-        // only the growing-window path has a tail left to decode.
-        let text = if let Some(text) = streamed {
-            text
-        } else {
-            let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                crate::transcribe::finalize(session, &samples, sample_rate, &engine)
-            }));
-            if decoded.is_err() || engine.is_poisoned() {
-                log::error!("engine failed during finalize; discarding it");
-                app.state::<EngineCache>().discard();
-            }
-            let Ok(decoded) = decoded else {
-                return Err(ENGINE_FAILED);
-            };
-            decoded.map_err(|e| {
-                log::error!("finalize failed: {e}");
-                AUDIO_FAILED
-            })?
+        let run_buffer = |session| decode_buffer(&app, &engine, session, &samples, sample_rate);
+        let FinalText { text, complete } = match streamed {
+            Some(Streamed {
+                text,
+                truncated: false,
+            }) => FinalText {
+                text,
+                complete: true,
+            },
+            // Cut short: decode the buffer, keeping the stream's text only if that fails.
+            Some(Streamed { text, .. }) => match run_buffer(None) {
+                Ok(retry) if retry.complete => retry,
+                _ => FinalText {
+                    text,
+                    complete: false,
+                },
+            },
+            None => run_buffer(session)?,
         };
         let language = engine
             .lock()
             .ok()
             .and_then(|guard| guard.output_language().map(str::to_string));
-        Ok((text, language))
+        Ok((text, language, complete))
     })
     .await
     .unwrap_or_else(|e| {
         log::error!("finalize task died: {e}");
         Err(ENGINE_FAILED)
+    })
+}
+
+fn decode_buffer(
+    app: &AppHandle,
+    engine: &SharedEngine,
+    session: Option<StreamingSession>,
+    samples: &[f32],
+    sample_rate: u32,
+) -> Result<FinalText, &'static str> {
+    let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::transcribe::finalize(session, samples, sample_rate, engine)
+    }));
+    if decoded.is_err() || engine.is_poisoned() {
+        log::error!("engine failed during finalize; discarding it");
+        app.state::<EngineCache>().discard();
+    }
+    let Ok(decoded) = decoded else {
+        return Err(ENGINE_FAILED);
+    };
+    decoded.map_err(|e| {
+        log::error!("finalize failed: {e}");
+        AUDIO_FAILED
     })
 }
 

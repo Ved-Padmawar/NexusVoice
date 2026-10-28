@@ -177,6 +177,11 @@ impl TranscriptionEngine {
         &mut self.session
     }
 
+    /// A finished stream reports truncation only here, not through its status.
+    pub fn was_truncated(&self) -> bool {
+        self.session.was_truncated()
+    }
+
     /// Run options for a streaming session — no prompt, since streaming models
     /// carry their own context across feeds.
     pub fn stream_run_options(&self) -> RunOptions {

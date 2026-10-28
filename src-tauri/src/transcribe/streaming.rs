@@ -2,6 +2,11 @@
 
 use transcribe_cpp::{RunOptions, Stream, StreamOptions};
 
+pub struct Streamed {
+    pub text: String,
+    pub truncated: bool,
+}
+
 /// A live streaming decode. Borrows the session for its lifetime, so the owning
 /// engine cannot run a single-shot decode concurrently.
 pub struct StreamSession<'a> {

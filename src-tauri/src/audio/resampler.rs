@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
-
 use rubato::audioadapter_buffers::direct::SequentialSliceOfVecs;
 use rubato::{
     Async, FixedAsync, Resampler, SincInterpolationParameters, SincInterpolationType,
@@ -11,27 +8,19 @@ use rubato::{
 // chunk_size must be > sinc_len / 2; 1024 is a safe default.
 const CHUNK_SIZE: usize = 1024;
 
-/// Cached resamplers per (from, to) rate pair. Building one computes the full
-/// sinc filter bank — far more expensive than the resampling itself.
-/// `process_all` resets filter history, so instances are safe to reuse.
-type ResamplerCache = Mutex<HashMap<(u32, u32), Async<f32>>>;
-static RESAMPLERS: OnceLock<ResamplerCache> = OnceLock::new();
+/// Sinc resampler whose filter state carries across [`Self::push`] calls.
+pub struct StreamResampler {
+    resampler: Async<f32>,
+    ratio: f64,
+    pending: Vec<f32>,
+    delay_left: usize,
+    frames_in: usize,
+    frames_out: usize,
+}
 
-/// Resample `samples` from `from_rate` Hz to `to_rate` Hz using a high-quality
-/// sinc interpolation filter. Returns the resampled mono f32 buffer.
-pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Result<Vec<f32>, String> {
-    if from_rate == to_rate || samples.is_empty() {
-        return Ok(samples.to_vec());
-    }
-
-    let ratio = f64::from(to_rate) / f64::from(from_rate);
-    let chunk_size = CHUNK_SIZE;
-
-    let mut cache = RESAMPLERS
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let resampler = cache.entry((from_rate, to_rate)).or_insert_with(|| {
+impl StreamResampler {
+    pub fn new(from_rate: u32, to_rate: u32) -> Result<Self, String> {
+        let ratio = f64::from(to_rate) / f64::from(from_rate);
         let params = SincInterpolationParameters {
             sinc_len: 64,
             // ≤0.85 recommended for downsampling to avoid aliasing near Nyquist
@@ -40,40 +29,88 @@ pub fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Result<Vec<f32
             oversampling_factor: 128,
             window: WindowFunction::BlackmanHarris2,
         };
-        Async::<f32>::new_sinc(
+        let resampler = Async::<f32>::new_sinc(
             ratio,
             2.0,
             &params,
-            chunk_size,
+            CHUNK_SIZE,
             1, // mono
             FixedAsync::Input,
         )
-        .expect("resampler init failed — invalid parameters")
-    });
+        .map_err(|e| format!("resampler {from_rate}→{to_rate} Hz rejected: {e}"))?;
+        Ok(Self {
+            delay_left: resampler.output_delay(),
+            resampler,
+            ratio,
+            pending: Vec::new(),
+            frames_in: 0,
+            frames_out: 0,
+        })
+    }
 
-    // `process_all` handles chunking, padding, and the startup-delay trim.
-    let input = vec![samples.to_vec()];
-    let adapter = SequentialSliceOfVecs::new(&input, 1, samples.len()).map_err(|e| {
-        format!(
-            "resampler input adapter rejected a {}-frame buffer: {e}",
-            samples.len()
-        )
-    })?;
+    pub fn push(&mut self, samples: &[f32]) -> Result<Vec<f32>, String> {
+        self.frames_in += samples.len();
+        self.pending.extend_from_slice(samples);
 
-    let mut out = resampler
-        .process_all(&adapter, samples.len(), None)
-        .map_err(|e| format!("resampler error: {e}"))?
-        .take_data();
+        let mut out = Vec::new();
+        let chunk = self.resampler.input_frames_next();
+        let pending = std::mem::take(&mut self.pending);
+        let mut chunks = pending.chunks_exact(chunk);
+        for input in &mut chunks {
+            self.step(input.to_vec(), &mut out)?;
+        }
+        self.pending = chunks.remainder().to_vec();
+        Ok(out)
+    }
 
-    // Mono, so interleaved output is already the single channel's samples.
+    /// Flushes the filter; the resampler is spent afterwards.
+    pub fn finish(&mut self) -> Result<Vec<f32>, String> {
+        let chunk = self.resampler.input_frames_next();
+        let mut out = Vec::new();
+        if !self.pending.is_empty() {
+            let mut input = std::mem::take(&mut self.pending);
+            input.resize(chunk, 0.0);
+            self.step(input, &mut out)?;
+        }
+
+        let expected = self.expected_frames();
+        while self.frames_out < expected {
+            self.step(vec![0.0; chunk], &mut out)?;
+        }
+        out.truncate(out.len().saturating_sub(self.frames_out - expected));
+        Ok(out)
+    }
+
     #[allow(
         clippy::cast_precision_loss,
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss
     )]
-    let expected_len = (samples.len() as f64 * ratio).round() as usize;
-    out.truncate(expected_len);
-    Ok(out)
+    fn expected_frames(&self) -> usize {
+        (self.frames_in as f64 * self.ratio).round() as usize
+    }
+
+    fn step(&mut self, chunk: Vec<f32>, out: &mut Vec<f32>) -> Result<(), String> {
+        let frames = chunk.len();
+        let input = [chunk];
+        let adapter = SequentialSliceOfVecs::new(&input, 1, frames)
+            .map_err(|e| format!("resampler input adapter rejected {frames} frames: {e}"))?;
+
+        let capacity = self.resampler.output_frames_max();
+        let mut buffer = [vec![0.0f32; capacity]];
+        let mut output = SequentialSliceOfVecs::new_mut(&mut buffer, 1, capacity)
+            .map_err(|e| format!("resampler output adapter rejected {capacity} frames: {e}"))?;
+        let (_, produced) = self
+            .resampler
+            .process_into_buffer(&adapter, &mut output, None)
+            .map_err(|e| format!("resampler error: {e}"))?;
+
+        let skip = self.delay_left.min(produced);
+        self.delay_left -= skip;
+        self.frames_out += produced - skip;
+        out.extend_from_slice(&buffer[0][skip..produced]);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

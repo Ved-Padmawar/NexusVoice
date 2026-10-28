@@ -1,6 +1,6 @@
 use super::{
-    common_prefix_len, from_ms, lead_speech_offset, normalize_word, trailing_overlap,
-    StreamingSession, VAD_CHUNK_16K, VAD_PAD_FRAMES,
+    common_prefix_len, final_speech_offset, from_ms, lead_speech_offset, normalize_word,
+    trailing_overlap, StreamingSession, VAD_CHUNK_16K, VAD_PAD_FRAMES,
 };
 use crate::inference::transcript::{TimedSegment, Word};
 
@@ -621,4 +621,63 @@ fn the_gate_is_capped_so_a_very_slow_model_still_refreshes() {
 
     assert!((session.decode_gate_secs() - 5.0).abs() < f64::EPSILON);
     assert!(session.would_decode(6 * 16_000, 16_000));
+}
+
+// ── audio window ───────────────────────────────────────────────────────
+
+#[test]
+fn ingest_converts_each_piece_once_and_counts_it_as_fed() {
+    let mut session = StreamingSession::new();
+    let rate = 48_000;
+    session.ingest(&vec![0.1; rate as usize], rate).unwrap();
+    session.ingest(&vec![0.1; rate as usize], rate).unwrap();
+
+    assert_eq!(session.fed(), 2 * rate as usize);
+    // Two seconds of 48 kHz audio, less the few samples the filter still holds back.
+    assert!(
+        session.window_16k.len().abs_diff(32_000) < 1_200,
+        "got {}",
+        session.window_16k.len()
+    );
+}
+
+#[test]
+fn advancing_the_window_drops_the_matching_16k_audio() {
+    let mut session = StreamingSession::new();
+    let rate = 48_000;
+    session.ingest(&vec![0.1; 4 * rate as usize], rate).unwrap();
+    let before = session.window_16k.len();
+
+    session.advance_window(rate as usize, rate);
+
+    assert_eq!(session.window_start, rate as usize);
+    assert_eq!(session.window_16k.len(), before - 16_000);
+}
+
+#[test]
+fn a_failed_conversion_restarts_from_the_window_start() {
+    let mut session = StreamingSession::new();
+    let rate = 16_000;
+    session.ingest(&vec![0.1; 3 * rate as usize], rate).unwrap();
+    session.advance_window(rate as usize, rate);
+
+    session.restart_conversion();
+
+    assert_eq!(session.fed(), rate as usize);
+    assert_eq!(session.window_16k.len(), 0);
+    assert!(session.converter.is_none());
+}
+
+// ── silence ────────────────────────────────────────────────────────────
+
+#[test]
+fn quiet_speech_is_found_on_the_levelled_audio() {
+    let quiet: Vec<f32> = voiced(2 * 16_000).iter().map(|s| s * 0.03).collect();
+    assert_eq!(lead_speech_offset(&quiet), None, "raw audio should miss it");
+    assert!(final_speech_offset(&quiet).is_some());
+}
+
+#[test]
+fn a_silent_recording_has_no_speech_to_decode() {
+    assert_eq!(final_speech_offset(&vec![0.0; 3 * 16_000]), None);
 }

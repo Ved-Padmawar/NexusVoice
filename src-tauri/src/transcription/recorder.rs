@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
-use crate::audio::{error::friendly_capture_error, MicStream, WaveformMeter};
+use crate::audio::{chime::Chime, error::friendly_capture_error, MicStream, WaveformMeter};
 use crate::events::{
     RecordingStateChanged, TranscriptionComplete, TranscriptionError, TranscriptionWarning,
 };
@@ -107,6 +107,7 @@ pub struct Recorder {
     /// Shared with the capture callback: drops samples while set.
     paused: Arc<AtomicBool>,
     capture: Capture,
+    chime: Chime,
     focus: Mutex<Option<FocusTarget>>,
     lease: Mutex<Option<EngineLease>>,
 }
@@ -138,6 +139,7 @@ impl Recorder {
                 streamed: Arc::new(Mutex::new(None)),
                 stream_done: Arc::new((Mutex::new(true), Condvar::new())),
             },
+            chime: Chime::new(),
             focus: Mutex::new(None),
             lease: Mutex::new(None),
         }
@@ -306,7 +308,7 @@ impl Recorder {
         else {
             // The mic is delivering now, so the chime means "listening".
             if app.state::<Settings>().pill().settings.start_sound {
-                crate::audio::chime::play_start();
+                self.chime.play();
             }
             return Ok(());
         };
@@ -336,6 +338,9 @@ impl Recorder {
         self.capture.capturing.store(true, Ordering::SeqCst);
         // Arm first: it clears the previous error, which the open below may set.
         self.capture.mic.arm();
+        if app.state::<Settings>().pill().settings.start_sound {
+            self.chime.warm();
+        }
         self.capture
             .mic
             .warm_up(app.state::<Settings>().input_device());
@@ -351,6 +356,7 @@ impl Recorder {
             RecordError::NotRecording,
         )?;
         self.paused.store(true, Ordering::SeqCst);
+        self.chime.cancel();
         Ok(())
     }
 
@@ -422,6 +428,7 @@ impl Recorder {
             self.change_phase(&mut phase, Phase::Finalizing);
         }
         self.capture.capturing.store(false, Ordering::SeqCst);
+        self.chime.cancel();
         self.capture.mic.disarm();
         // The next recording clears the buffer this worker still reads.
         self.wait_for_stream_done().await;
@@ -463,6 +470,7 @@ impl Recorder {
         // the watcher could unload the engine this stop is about to use.
         app.state::<EngineCache>().touch();
         self.capture.capturing.store(false, Ordering::SeqCst);
+        self.chime.cancel();
 
         let mic = Arc::clone(&self.capture.mic);
         tauri::async_runtime::spawn_blocking(move || mic.disarm_after_post_roll())
