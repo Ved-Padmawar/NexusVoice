@@ -5,7 +5,9 @@ import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { cn } from '../../shared/utils'
 import { formatModelSize, isStreaming, modelNameToId, sortForDisplay, type ModelId } from './models'
-import { NO_MODELS, refreshActiveModel, startDownload, switchModel, useCatalog, useDownload } from './queries'
+import {
+  NO_MODELS, refreshActiveModel, startDownload, switchModel, useActiveModel, useCatalog, useDownload,
+} from './queries'
 import { useAppStore } from '../../app/store/useAppStore'
 import { Button } from '../../shared/ui/Button'
 import type { HardwareProfile } from '../../shared/types'
@@ -59,11 +61,12 @@ export function ModelPickerModal() {
     }
   }
 
-  // The entry is removed when the download finishes, which is the close signal.
   const download = useDownload(selected).data
+  // Close once Rust reports the model on disk; a missing entry may just be unread.
+  const onDisk = useActiveModel().data?.downloaded === true
   useEffect(() => {
-    if (confirmed && !download) setModelChosen(true)
-  }, [confirmed, download, setModelChosen])
+    if (confirmed && onDisk) setModelChosen(true)
+  }, [confirmed, onDisk, setModelChosen])
 
   const recommended = profile ? modelNameToId(profile.recommendedModel, catalog) : null
   const selectedModel = catalog.find(m => m.id === selected) ?? null
