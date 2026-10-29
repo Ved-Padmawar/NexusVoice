@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::llm::config::{FormatConfig, Profile};
+use crate::text::llm::config::{FormatConfig, Profile};
 
 use super::Secrets;
 

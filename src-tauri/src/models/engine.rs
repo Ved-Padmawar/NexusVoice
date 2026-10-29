@@ -1,0 +1,359 @@
+//! Transcription engine: a loaded model plus its decode session.
+
+use std::path::Path;
+
+use transcribe_cpp::{
+    Model, ModelOptions, RunExtension, RunOptions, Session, SessionOptions, TimestampKind,
+    WhisperRunOptions,
+};
+
+use crate::models::catalog::ModelEntry;
+use crate::models::provider::{detect_backend, select_model};
+use crate::models::transcript::{TimedSegment, Word};
+
+/// Sung/noise content; the whole segment is dropped.
+const MUSIC_NOTE: char = '♪';
+
+/// Above this probability a window is treated as non-speech.
+const NO_SPEECH_THOLD: f32 = 0.6;
+/// Repetition guard against hallucination loops.
+const COMPRESSION_RATIO_THOLD: f32 = 2.4;
+/// Fallback ladder: a decode failing the thresholds retries at t = 0.2, 0.4, …
+const TEMPERATURE: f32 = 0.0;
+const TEMPERATURE_INC: f32 = 0.2;
+/// Disables the ladder for provisional passes.
+const TEMPERATURE_INC_OFF: f32 = 0.0;
+const LOGPROB_THOLD: f32 = -1.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pass {
+    Streaming,
+    Final,
+}
+
+pub struct TranscriptionEngine {
+    session: Session,
+    /// Kept for device queries after load.
+    model: Model,
+    /// Finest granularity this model accepts, resolved once at load.
+    timestamps: TimestampKind,
+    /// Whether the model drives its own streaming session, read once at load.
+    supports_streaming: bool,
+    /// Hint passed to every decode; `None` detects per decode. Always a code
+    /// this model advertises.
+    language: Option<String>,
+    /// Codes the model accepts; empty means it advertises none.
+    languages: Vec<String>,
+    pub entry: &'static ModelEntry,
+}
+
+impl TranscriptionEngine {
+    /// Load the model selected by `override_id` (or hardware) from `models_dir`.
+    /// `language` is the ISO code every decode is pinned to; `None` auto-detects.
+    pub fn new(
+        models_dir: &Path,
+        override_id: Option<&str>,
+        language: Option<&str>,
+    ) -> Result<Self, String> {
+        let backend = detect_backend();
+        let entry = select_model(backend, override_id);
+
+        let model_path = models_dir.join(&entry.filename);
+        if !model_path.exists() {
+            return Err(format!("model not found: {}", model_path.display()));
+        }
+
+        let model = Model::load_with(&model_path, &ModelOptions::default())
+            .map_err(|e| format!("failed to load model {}: {e}", entry.display_name))?;
+
+        // The bound backend may differ from the request (e.g. CPU fallback).
+        log::info!(
+            "loaded {} (arch {}, backend {})",
+            entry.display_name,
+            model.arch(),
+            model.backend()
+        );
+
+        // Half the cores, leaving headroom for capture and the UI thread.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let n_threads = (std::thread::available_parallelism().map_or(4, std::num::NonZero::get) / 2)
+            .clamp(1, 4) as i32;
+
+        let session = model
+            .session_with(&SessionOptions {
+                n_threads,
+                ..Default::default()
+            })
+            .map_err(|e| format!("failed to create session: {e}"))?;
+
+        // Asking for finer than the model offers is rejected outright.
+        let caps = model
+            .capabilities()
+            .map_err(|e| format!("failed to read capabilities of {}: {e}", entry.display_name))?;
+        let timestamps = match caps.max_timestamp_kind {
+            TimestampKind::None => TimestampKind::None,
+            TimestampKind::Segment => TimestampKind::Segment,
+            _ => TimestampKind::Word,
+        };
+        log::info!("timestamp granularity: {timestamps:?}");
+
+        let mut engine = Self {
+            session,
+            model,
+            timestamps,
+            supports_streaming: caps.supports_streaming,
+            language: None,
+            languages: caps.languages,
+            entry,
+        };
+        engine.set_language(language);
+
+        // Warmup pass so the first real transcription isn't stalled by load.
+        let silence = vec![0.0f32; 16_000];
+        let _ = engine.transcribe_segments(&silence, "", Pass::Final);
+        log::info!("engine warmed up");
+
+        Ok(engine)
+    }
+
+    /// Repoint the language without rebuilding — a model load costs seconds and
+    /// nothing about it depends on the language.
+    pub fn set_language(&mut self, language: Option<&str>) {
+        self.language = self.accepted_language(language);
+    }
+
+    /// Codes this model advertises. Empty means it accepts any hint.
+    pub fn languages(&self) -> &[String] {
+        &self.languages
+    }
+
+    /// The language the transcript is known to be in: the pinned hint, else the
+    /// model's only language. `None` when the model auto-detects among several.
+    pub fn output_language(&self) -> Option<&str> {
+        self.language
+            .as_deref()
+            .or(match self.languages.as_slice() {
+                [only] => Some(only.as_str()),
+                _ => None,
+            })
+    }
+
+    /// [`resolve_language`] over this model's codes, logged when not honoured.
+    fn accepted_language(&self, language: Option<&str>) -> Option<String> {
+        use crate::models::language::primary_of;
+
+        let resolved = resolve_language(&self.languages, language);
+        // A locale match still honours the request; a fallback does not.
+        if let Some(code) = language {
+            let honoured = resolved
+                .as_deref()
+                .is_some_and(|picked| primary_of(picked) == primary_of(code));
+            if !honoured {
+                log::warn!(
+                    "{} does not support language {code}; using {}",
+                    self.entry.display_name,
+                    resolved.as_deref().unwrap_or("auto-detect")
+                );
+            }
+        }
+        resolved
+    }
+
+    /// Backend the model bound to: "cuda", "vulkan" or "cpu".
+    pub fn backend(&self) -> String {
+        // `Model::backend` names the device ("CUDA0"); the kind is what we show.
+        self.model
+            .device()
+            .map_or_else(|_| "cpu".to_string(), |device| device.kind)
+    }
+
+    /// Whether the loaded model can drive its own streaming session.
+    pub fn supports_streaming(&self) -> bool {
+        self.supports_streaming
+    }
+
+    /// Borrow the session mutably, for the streaming path.
+    pub fn session_mut(&mut self) -> &mut Session {
+        &mut self.session
+    }
+
+    /// A finished stream reports truncation only here, not through its status.
+    pub fn was_truncated(&self) -> bool {
+        self.session.was_truncated()
+    }
+
+    /// Run options for a streaming session — no prompt, since streaming models
+    /// carry their own context across feeds.
+    pub fn stream_run_options(&self) -> RunOptions {
+        self.run_options("", Pass::Final)
+    }
+
+    fn run_options(&self, prompt: &str, pass: Pass) -> RunOptions {
+        // A non-whisper arch rejects this extension with INVALID_ARG.
+        let family = self.entry.is_whisper().then(|| {
+            RunExtension::Whisper(WhisperRunOptions {
+                initial_prompt: (!prompt.is_empty()).then(|| prompt.to_string()),
+                temperature: Some(TEMPERATURE),
+                temperature_inc: Some(match pass {
+                    Pass::Streaming => TEMPERATURE_INC_OFF,
+                    Pass::Final => TEMPERATURE_INC,
+                }),
+                compression_ratio_thold: Some(COMPRESSION_RATIO_THOLD),
+                logprob_thold: Some(LOGPROB_THOLD),
+                no_speech_thold: Some(NO_SPEECH_THOLD),
+                ..Default::default()
+            })
+        });
+
+        RunOptions {
+            // Word timestamps drive the pipeline's mid-segment trim.
+            timestamps: self.timestamps,
+            // English-only models know nothing else, whatever the setting says.
+            language: if self.entry.multilingual {
+                self.language.clone()
+            } else {
+                self.accepted_language(Some("en"))
+            },
+            family,
+            ..Default::default()
+        }
+    }
+
+    /// Transcribe 16 kHz mono f32 samples into timed segments.
+    pub fn transcribe_segments(
+        &mut self,
+        samples_16k: &[f32],
+        prompt: &str,
+        pass: Pass,
+    ) -> Result<Vec<TimedSegment>, String> {
+        // Decoders require at least a second of audio at 16 kHz.
+        const MIN_SAMPLES: usize = 16_000;
+        let padded;
+        let samples = if samples_16k.len() < MIN_SAMPLES {
+            padded = {
+                let mut v = samples_16k.to_vec();
+                v.resize(MIN_SAMPLES, 0.0);
+                v
+            };
+            padded.as_slice()
+        } else {
+            samples_16k
+        };
+
+        let options = self.run_options(prompt, pass);
+        match self.session.run(samples, &options) {
+            Ok(transcript) => Ok(build_segments(&transcript)),
+            // Stopped early (repetition loop or length budget): keep the text before it.
+            Err(e) => match e.partial() {
+                Some(partial) => {
+                    log::warn!("decode stopped early, keeping the partial: {e}");
+                    Ok(build_segments(partial))
+                }
+                None => Err(format!("transcribe failed: {e}")),
+            },
+        }
+    }
+}
+
+/// Keep `language` only if the model advertises it — an unadvertised code is
+/// rejected outright, failing every decode. A bare code matches the model's
+/// locale for it (`en` → `en-GB`), since models advertise BCP-47; an
+/// unsupported one falls back to the model's English, else auto-detect.
+fn resolve_language(advertised: &[String], language: Option<&str>) -> Option<String> {
+    use crate::models::language::{primary_of, DEFAULT};
+
+    let code = language?;
+    if advertised.is_empty() || advertised.iter().any(|l| l == code) {
+        return Some(code.to_string());
+    }
+    if let Some(locale) = advertised.iter().find(|l| primary_of(l) == code) {
+        return Some(locale.clone());
+    }
+    advertised
+        .iter()
+        .find(|l| primary_of(l) == DEFAULT)
+        .cloned()
+}
+
+/// Fold a transcript's word rows into the per-segment shape the pipeline wants.
+fn build_segments(transcript: &transcribe_cpp::Transcript) -> Vec<TimedSegment> {
+    let mut segments: Vec<TimedSegment> = Vec::with_capacity(transcript.segments.len());
+
+    for (idx, seg) in transcript.segments.iter().enumerate() {
+        if seg.text.contains(MUSIC_NOTE) {
+            continue;
+        }
+
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let seg_index = idx as i32;
+        let mut words: Vec<Word> = transcript
+            .words
+            .iter()
+            .filter(|w| w.seg_index == seg_index)
+            .map(|w| Word {
+                text: strip_hallucination_tokens(&w.text).trim().to_string(),
+                // Milliseconds here; the pipeline works in centiseconds.
+                end_cs: (w.t1_ms >= 0).then_some(w.t1_ms / 10),
+            })
+            .collect();
+
+        // A model that emitted no word rows still yields usable text.
+        if words.is_empty() {
+            words = split_segment_text(&seg.text);
+        }
+
+        words.retain(|w| !w.text.is_empty());
+        if words.is_empty() {
+            continue;
+        }
+
+        segments.push(TimedSegment {
+            words,
+            end_ms: seg.t1_ms,
+        });
+    }
+
+    segments
+}
+
+/// Split a segment on whitespace when the model emitted no word rows. The words
+/// carry no end time: trimming at the segment's end would drop later words.
+fn split_segment_text(text: &str) -> Vec<Word> {
+    strip_hallucination_tokens(text)
+        .split_whitespace()
+        .map(|w| Word {
+            text: w.to_string(),
+            end_cs: None,
+        })
+        .collect()
+}
+
+/// Remove silence/noise hallucination tokens wherever they appear (case-insensitive).
+/// Collapses the doubled space left behind.
+fn strip_hallucination_tokens(segment: &str) -> String {
+    const TOKENS: [&str; 5] = [
+        "[blank_audio]",
+        "[silence]",
+        "[noise]",
+        "[music]",
+        "(music)",
+    ];
+
+    let mut out = segment.to_string();
+    for token in TOKENS {
+        loop {
+            let lower = out.to_ascii_lowercase();
+            let Some(pos) = lower.find(token) else { break };
+            out.replace_range(pos..pos + token.len(), "");
+        }
+    }
+    // Token removal can leave "word  word" — collapse runs of spaces.
+    while out.contains("  ") {
+        out = out.replace("  ", " ");
+    }
+    out
+}
+
+#[cfg(test)]
+#[path = "../../tests/unit/models/engine.rs"]
+mod tests;

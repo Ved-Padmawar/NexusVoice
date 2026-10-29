@@ -13,9 +13,9 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::inference::idle::ModelUnload;
-use crate::llm::FormatConfig;
+use crate::models::idle::ModelUnload;
 use crate::sync::lock_recovering;
+use crate::text::llm::FormatConfig;
 
 use formatter::{FormatterSettings, FormatterUpdate, FormatterView};
 pub use secrets::Secrets;

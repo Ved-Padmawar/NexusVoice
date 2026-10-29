@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::llm::FormatConfig;
+use crate::text::llm::FormatConfig;
 
 use super::formatter::{Endpoint, FormatterSettings};
 use super::{HotkeyBindings, Secrets, SettingsFile};

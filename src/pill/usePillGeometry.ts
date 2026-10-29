@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
-import { commands } from '../bindings'
+import { commands } from '../shared/bindings'
 
 const CAPSULE_H = 32
 export const CARD_W = 332
