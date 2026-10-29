@@ -11,6 +11,6 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false
   },
-  "include": ["src/bindings.ts"],
+  "include": ["src/shared/bindings.ts"],
   "exclude": []
 }

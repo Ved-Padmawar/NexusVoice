@@ -1,0 +1,269 @@
+use sqlx::SqlitePool;
+
+use crate::data::dto::transcript::CreateTranscript;
+use crate::data::rows::transcript::Transcript;
+
+/// Last row of a page — identifies a row, not an index.
+///
+/// `created_at` must be `SQLite`'s `YYYY-MM-DD HH:MM:SS` text form, which is what
+/// [`TranscriptResponse`](crate::bridge::commands::dto::TranscriptResponse) emits, so a
+/// cursor echoed back by the frontend compares lexicographically against the column.
+#[derive(Debug, Clone, Copy)]
+pub struct Cursor<'a> {
+    pub created_at: &'a str,
+    pub id: i64,
+}
+
+/// A row value, not the spelled-out `a < ? OR (a = ? AND b < ?)`: SQLite seeks
+/// the keyset index on a row value but scans it on the OR form.
+fn keyset_sql(sort_desc: bool, has_cursor: bool) -> &'static str {
+    match (sort_desc, has_cursor) {
+        (true, true) => {
+            "SELECT id, content, word_count, duration_seconds, target_app, created_at
+             FROM transcripts
+             WHERE (? IS NULL OR created_at >= ?)
+               AND (? IS NULL OR created_at <= ?)
+               AND (created_at, id) < (?, ?)
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?"
+        }
+        (false, true) => {
+            "SELECT id, content, word_count, duration_seconds, target_app, created_at
+             FROM transcripts
+             WHERE (? IS NULL OR created_at >= ?)
+               AND (? IS NULL OR created_at <= ?)
+               AND (created_at, id) > (?, ?)
+             ORDER BY created_at ASC, id ASC
+             LIMIT ?"
+        }
+        (true, false) => {
+            "SELECT id, content, word_count, duration_seconds, target_app, created_at
+             FROM transcripts
+             WHERE (? IS NULL OR created_at >= ?)
+               AND (? IS NULL OR created_at <= ?)
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?"
+        }
+        (false, false) => {
+            "SELECT id, content, word_count, duration_seconds, target_app, created_at
+             FROM transcripts
+             WHERE (? IS NULL OR created_at >= ?)
+               AND (? IS NULL OR created_at <= ?)
+             ORDER BY created_at ASC, id ASC
+             LIMIT ?"
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct TranscriptRepository {
+    pool: SqlitePool,
+}
+
+impl TranscriptRepository {
+    pub const fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+
+    pub async fn create(&self, input: CreateTranscript) -> Result<Transcript, sqlx::Error> {
+        sqlx::query_as::<_, Transcript>(
+            "INSERT INTO transcripts (content, word_count, duration_seconds, target_app)
+             VALUES (?, ?, ?, ?)
+             RETURNING id, content, word_count, duration_seconds, target_app, created_at",
+        )
+        .bind(input.content)
+        .bind(input.word_count)
+        .bind(input.duration_seconds)
+        .bind(input.target_app)
+        .fetch_one(&self.pool)
+        .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn get_by_id(&self, id: i64) -> Result<Option<Transcript>, sqlx::Error> {
+        sqlx::query_as::<_, Transcript>(
+            "SELECT id, content, word_count, duration_seconds, target_app, created_at FROM transcripts WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    /// Returns (`total_sessions`, `total_words`, `total_duration_seconds`) from `transcript_stats`.
+    pub async fn get_stats(&self) -> Result<(i64, i64, f64), sqlx::Error> {
+        sqlx::query_as("SELECT sessions, words, duration_seconds FROM transcript_stats")
+            .fetch_one(&self.pool)
+            .await
+    }
+
+    /// Words dictated per local day over the last `days` days (today included),
+    /// oldest first; days with no dictation are absent. `created_at` is UTC, so
+    /// `utc_offset_minutes` shifts it into the user's day, and the lower bound is
+    /// their local midnight shifted back to UTC so it can seek the keyset index.
+    pub async fn daily_words(
+        &self,
+        days: i64,
+        utc_offset_minutes: i64,
+    ) -> Result<Vec<(String, i64)>, sqlx::Error> {
+        sqlx::query_as(
+            "SELECT date(created_at, ?1) AS day, SUM(word_count)
+             FROM transcripts
+             WHERE created_at >= datetime('now', ?1, 'start of day', ?2, ?3)
+             GROUP BY day
+             ORDER BY day",
+        )
+        .bind(format!("{utc_offset_minutes:+} minutes"))
+        .bind(format!("{} days", 1 - days))
+        .bind(format!("{:+} minutes", -utc_offset_minutes))
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Keyset-paginated fetch: returns rows strictly after `cursor`, ordered by the
+    /// `(created_at, id)` tuple. Unlike LIMIT/OFFSET, a cursor names a row, so an
+    /// insert or delete mid-scroll can't shift the window into repeats or skips.
+    pub async fn list_keyset(
+        &self,
+        limit: i64,
+        cursor: Option<Cursor<'_>>,
+        from: Option<&str>,
+        to: Option<&str>,
+        sort_desc: bool,
+    ) -> Result<Vec<Transcript>, sqlx::Error> {
+        let mut q = sqlx::query_as::<_, Transcript>(keyset_sql(sort_desc, cursor.is_some()))
+            .bind(from)
+            .bind(from)
+            .bind(to)
+            .bind(to);
+        if let Some(c) = cursor {
+            q = q.bind(c.created_at).bind(c.id);
+        }
+        q.bind(limit).fetch_all(&self.pool).await
+    }
+
+    pub async fn delete_by_id(&self, id: i64) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM transcripts WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Transforms a user query into an FTS5 query string: each word plus a
+    /// prefix variant (`word*`), OR-ed together.
+    ///
+    /// Every term is emitted as a **quoted FTS5 string literal** so user input
+    /// containing FTS syntax characters (`"`, `-`, `:`, `*`, `(`, `^`, etc.) is
+    /// treated as literal text instead of breaking the MATCH grammar.
+    pub fn build_fts_query(query: &str) -> String {
+        // Wrap a token as a quoted FTS5 literal, doubling embedded quotes.
+        fn quote(token: &str) -> String {
+            format!("\"{}\"", token.replace('"', "\"\""))
+        }
+
+        let fts_terms: Vec<String> = query
+            .split_whitespace()
+            .filter_map(|w| {
+                let w_lower = w.to_lowercase();
+                // Skip tokens with no FTS-meaningful characters (e.g. lone punctuation),
+                // which would otherwise produce an empty quoted literal.
+                if !w_lower.chars().any(char::is_alphanumeric) {
+                    return None;
+                }
+                let mut variants: Vec<String> = vec![quote(&w_lower)];
+
+                // Prefix match for partial typing — `*` must sit OUTSIDE the quotes.
+                if w_lower.len() >= 3 {
+                    variants.push(format!("{}*", quote(&w_lower)));
+                }
+
+                Some(variants.join(" OR "))
+            })
+            .collect();
+
+        fts_terms.join(" OR ")
+    }
+
+    /// FTS5 search with optional date range and sort order.
+    ///
+    /// Ordered by `rowid` (= `transcripts.id`), not by `created_at`. Ordering by
+    /// `created_at` forces SQLite to materialize *every* match into a temp B-tree
+    /// and sort it before `LIMIT` discards all but a page — cost scales with the
+    /// number of matches, not the page size, so a common word costs ~70 ms per
+    /// 50 k matched rows. Ordering by `rowid` lets FTS5 walk its own index and
+    /// stop at `LIMIT` (~0.1 ms).
+    ///
+    /// This is equivalent **only because `created_at` is never written
+    /// explicitly**: `create` omits the column, so it always takes
+    /// `CURRENT_TIMESTAMP` and ids therefore rise with time. Backdating a row
+    /// would break both this ordering and the cursor below.
+    pub async fn search(
+        &self,
+        query: &str,
+        limit: i64,
+        cursor: Option<Cursor<'_>>,
+        from: Option<&str>,
+        to: Option<&str>,
+        sort_desc: bool,
+    ) -> Result<Vec<Transcript>, sqlx::Error> {
+        let sql = match (sort_desc, cursor.is_some()) {
+            (true, true) => {
+                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.target_app, t.created_at
+                 FROM transcripts_fts
+                 JOIN transcripts t ON transcripts_fts.rowid = t.id
+                 WHERE transcripts_fts MATCH ?
+                   AND (? IS NULL OR t.created_at >= ?)
+                   AND (? IS NULL OR t.created_at <= ?)
+                   AND transcripts_fts.rowid < ?
+                 ORDER BY transcripts_fts.rowid DESC
+                 LIMIT ?"
+            }
+            (false, true) => {
+                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.target_app, t.created_at
+                 FROM transcripts_fts
+                 JOIN transcripts t ON transcripts_fts.rowid = t.id
+                 WHERE transcripts_fts MATCH ?
+                   AND (? IS NULL OR t.created_at >= ?)
+                   AND (? IS NULL OR t.created_at <= ?)
+                   AND transcripts_fts.rowid > ?
+                 ORDER BY transcripts_fts.rowid ASC
+                 LIMIT ?"
+            }
+            (true, false) => {
+                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.target_app, t.created_at
+                 FROM transcripts_fts
+                 JOIN transcripts t ON transcripts_fts.rowid = t.id
+                 WHERE transcripts_fts MATCH ?
+                   AND (? IS NULL OR t.created_at >= ?)
+                   AND (? IS NULL OR t.created_at <= ?)
+                 ORDER BY transcripts_fts.rowid DESC
+                 LIMIT ?"
+            }
+            (false, false) => {
+                "SELECT t.id, t.content, t.word_count, t.duration_seconds, t.target_app, t.created_at
+                 FROM transcripts_fts
+                 JOIN transcripts t ON transcripts_fts.rowid = t.id
+                 WHERE transcripts_fts MATCH ?
+                   AND (? IS NULL OR t.created_at >= ?)
+                   AND (? IS NULL OR t.created_at <= ?)
+                 ORDER BY transcripts_fts.rowid ASC
+                 LIMIT ?"
+            }
+        };
+
+        let mut q = sqlx::query_as::<_, Transcript>(sql)
+            .bind(query)
+            .bind(from)
+            .bind(from)
+            .bind(to)
+            .bind(to);
+        if let Some(c) = cursor {
+            q = q.bind(c.id);
+        }
+        q.bind(limit).fetch_all(&self.pool).await
+    }
+}
+
+#[cfg(test)]
+#[path = "../../../tests/unit/data/repositories/transcript.rs"]
+mod tests;

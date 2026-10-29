@@ -2,13 +2,15 @@
 //! ships. A missing output device only loses the sound.
 //!
 //! A Bluetooth sink drops the start of a stream it was just woken for, so the
-//! output stays open between recordings and the chime is mixed into it.
+//! output stays open between recordings and the chime is mixed into it. Only a
+//! freshly opened Bluetooth output waits for the sink to wake.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 use super::capture::device_name;
+use crate::platform::audio_output::default_output_is_bluetooth;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, I24, U24};
 
@@ -21,7 +23,9 @@ const AMPLITUDE: f32 = 0.18;
 
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const TICK: Duration = Duration::from_secs(5);
-const WAKE_TIME: Duration = Duration::from_millis(1500);
+/// How long a Bluetooth sink takes to wake. Also used when the platform cannot
+/// tell, so a Bluetooth headset never loses the chime.
+const BLUETOOTH_WAKE: Duration = Duration::from_millis(1500);
 
 pub(crate) fn sample_at(t: f32) -> f32 {
     NOTES
@@ -72,20 +76,31 @@ pub struct Chime {
     commands: mpsc::Sender<Command>,
     /// Cleared by [`Self::cancel`], so a chime still waiting on the output never sounds late.
     wanted: Arc<AtomicBool>,
+    /// Mirrors the keep-ready microphone: the output is never released as idle.
+    keep_open: Arc<AtomicBool>,
 }
 
 impl Chime {
     pub fn new() -> Self {
         let (commands, rx) = mpsc::channel();
         let wanted = Arc::new(AtomicBool::new(false));
-        let thread_wanted = Arc::clone(&wanted);
+        let keep_open = Arc::new(AtomicBool::new(false));
+        let (thread_wanted, thread_keep_open) = (Arc::clone(&wanted), Arc::clone(&keep_open));
         let spawned = std::thread::Builder::new()
             .name("start-chime".into())
-            .spawn(move || supervise(&rx, &thread_wanted));
+            .spawn(move || supervise(&rx, &thread_wanted, &thread_keep_open));
         if let Err(e) = spawned {
             log::warn!("start sound thread failed: {e}");
         }
-        Self { commands, wanted }
+        Self {
+            commands,
+            wanted,
+            keep_open,
+        }
+    }
+
+    pub fn set_keep_open(&self, keep: bool) {
+        self.keep_open.store(keep, Ordering::SeqCst);
     }
 
     pub fn warm(&self) {
@@ -111,7 +126,8 @@ struct Control {
 struct Output {
     _stream: cpal::Stream,
     device: String,
-    opened: Instant,
+    /// When the sink is ready for sound.
+    awake_at: Instant,
     control: Arc<Control>,
 }
 
@@ -127,14 +143,14 @@ impl Output {
     }
 
     fn trigger(&self, wanted: &AtomicBool) {
-        std::thread::sleep(WAKE_TIME.saturating_sub(self.opened.elapsed()));
+        std::thread::sleep(self.awake_at.saturating_duration_since(Instant::now()));
         if wanted.swap(false, Ordering::SeqCst) {
             self.control.play.store(true, Ordering::SeqCst);
         }
     }
 }
 
-fn supervise(rx: &mpsc::Receiver<Command>, wanted: &AtomicBool) {
+fn supervise(rx: &mpsc::Receiver<Command>, wanted: &AtomicBool, keep_open: &AtomicBool) {
     let mut output: Option<Output> = None;
     let mut last_used = Instant::now();
     loop {
@@ -151,7 +167,10 @@ fn supervise(rx: &mpsc::Receiver<Command>, wanted: &AtomicBool) {
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                if output.is_some() && last_used.elapsed() >= IDLE_TIMEOUT {
+                if output.is_some()
+                    && !keep_open.load(Ordering::SeqCst)
+                    && last_used.elapsed() >= IDLE_TIMEOUT
+                {
                     log::debug!("releasing idle start sound output");
                     output = None;
                 }
@@ -204,11 +223,18 @@ fn open() -> Result<Output, String> {
     stream
         .play()
         .map_err(|e| format!("failed to start stream: {e}"))?;
-    log::info!("start sound output open on {name}");
+    let opened = Instant::now();
+    let bluetooth = default_output_is_bluetooth();
+    log::info!("start sound output open on {name} (bluetooth: {bluetooth:?})");
+    let wake = if bluetooth == Some(false) {
+        Duration::ZERO
+    } else {
+        BLUETOOTH_WAKE
+    };
     Ok(Output {
         _stream: stream,
         device: name,
-        opened: Instant::now(),
+        awake_at: opened + wake,
         control,
     })
 }

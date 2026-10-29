@@ -3,7 +3,7 @@ use sqlx::SqlitePool;
 
 /// Via the migrator, not a hand `;` split — the triggers contain semicolons.
 async fn apply_schema(pool: &SqlitePool) {
-    sqlx::migrate!("src/database/migrations")
+    sqlx::migrate!("src/data/migrations")
         .run(pool)
         .await
         .expect("schema applies");

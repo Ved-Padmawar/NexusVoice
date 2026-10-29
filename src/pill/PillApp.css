@@ -435,7 +435,7 @@ body {
    PILL THEMES — override defaults when data-pill-theme is set
    ================================================================ */
 
-/* Per-theme --p-* values, shared rules below. Mirror src/lib/pillThemes.ts. */
+/* Per-theme --p-* values, shared rules below. Mirror src/pill/pillThemes.ts. */
 .pill[data-pill-theme="steel"] {
   --p-bg: #141820; --p-border: rgba(148,168,200,0.15); --p-border-live: rgba(148,168,200,0.30);
   --p-accent: #b8cce0; --p-fg: rgba(222,230,240,0.88); --p-dim: rgba(200,215,235,0.5);

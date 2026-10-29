@@ -4,10 +4,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { listen, type EventCallback } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { PillApp } from '../../pill/PillApp'
-import type { PillSettings } from '../../types'
+import type { PillSettings } from '../../shared/types'
 
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({ setAlwaysOnTop: vi.fn().mockResolvedValue(undefined), startDragging: vi.fn().mockResolvedValue(undefined) }) }))
-vi.mock('../../components/WaveformCanvas', () => ({ WaveformCanvas: () => <canvas /> }))
+vi.mock('../../shared/ui/WaveformCanvas', () => ({ WaveformCanvas: () => <canvas /> }))
 
 // jsdom has no CSS transition engine. Model the browser's completion promise;
 // the real-WebView suite checks the interpolated dimensions and fade timing.
