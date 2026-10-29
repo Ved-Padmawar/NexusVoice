@@ -1,14 +1,12 @@
 import { ClosedCaptioningIcon, MicrophoneIcon } from '@phosphor-icons/react'
 import { Switch } from '../../shared/ui/Switch'
-import { useAppStore } from '../../app/store/useAppStore'
 import { pillThemeDef } from '../../pill/pillThemes'
+import { updatePill, usePillSettings } from './queries'
 import './LiveTranscriptToggle.css'
 
 /** Expand the pill into a live transcript card as you speak. */
 export function LiveTranscriptToggle() {
-  const liveTranscript = useAppStore((s) => s.pill.liveTranscript)
-  const updatePill = useAppStore((s) => s.updatePill)
-  const pillTheme = useAppStore((s) => s.pill.theme)
+  const { liveTranscript, theme: pillTheme } = usePillSettings()
   const theme = pillThemeDef(pillTheme)
 
   return (

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { memo, useCallback, useState, type ReactNode } from 'react'
 import { MicrophoneSection } from './MicrophoneSection'
 import { LanguageSection } from './LanguageSection'
 import { HotkeySection } from './HotkeySection'
@@ -6,7 +6,7 @@ import { TextInjectionSection } from './TextInjectionSection'
 import { FormattingToggle } from './FormattingToggle'
 import { LiveTranscriptToggle } from './LiveTranscriptToggle'
 import { StartSoundToggle } from './StartSoundToggle'
-import { useAppStore } from '../../app/store/useAppStore'
+import { useActiveModel } from '../models/queries'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -20,13 +20,9 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 /** Input first: it is what the rest of the app assumes is already right. */
 export const GeneralTab = memo(function GeneralTab() {
   // Language support is per-model — the picker hides itself for English-only.
-  const modelId = useAppStore((s) => s.selectedModel)
-  const refreshModelInfo = useAppStore((s) => s.refreshModelInfo)
+  const modelId = useActiveModel().data?.id ?? null
   const [langSupported, setLangSupported] = useState(false)
   const onLangSupportedChange = useCallback((v: boolean) => setLangSupported(v), [])
-
-  // Settings can open straight here, before anything resolved the model.
-  useEffect(() => { void refreshModelInfo() }, [refreshModelInfo])
 
   return (
     <div className="flex flex-col gap-5">

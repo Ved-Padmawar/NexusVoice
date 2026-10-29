@@ -1,12 +1,11 @@
-import { useShallow } from 'zustand/react/shallow'
 import { memo, useEffect, useRef } from 'react'
-import { useAppStore } from '../../app/store/useAppStore'
 import { Swatch } from '../../shared/ui/Swatch'
 import { WaveformCanvas } from '../../shared/ui/WaveformCanvas'
 import { BARS, ease } from '../../shared/waveform'
 import { subscribeWhileVisible } from '../../shared/frameClock'
 import { pillThemeDef, type PillThemeDef } from '../../pill/pillThemes'
 import type { WaveformStyle } from '../../shared/types'
+import { updatePill, usePillSettings } from './queries'
 
 type StyleDef = {
   id: WaveformStyle
@@ -173,11 +172,7 @@ function StyleSwatch({ s, active, onPick, levelsRef, theme }: {
 
 /** How the pill draws your voice while it records. */
 export const WaveformTab = memo(function WaveformTab() {
-  const { waveformStyle, pillTheme, updatePill } = useAppStore(useShallow(s => ({
-    waveformStyle: s.pill.waveformStyle,
-    pillTheme: s.pill.theme,
-    updatePill: s.updatePill,
-  })))
+  const { waveformStyle, theme: pillTheme } = usePillSettings()
   const rootRef = useRef<HTMLDivElement | null>(null)
   const levelsRef = usePreviewLevels(rootRef)
   const theme = pillThemeDef(pillTheme)

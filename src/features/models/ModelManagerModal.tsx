@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { formatModelSize } from './models'
 import { VENDORS, vendorForFamily, isRaster } from '../../shared/vendors'
-import { useAppStore } from '../../app/store/useAppStore'
+import { NO_MODELS, useCatalog } from './queries'
 import { Modal } from '../../shared/ui/Modal'
 import { VendorMark } from '../../shared/ui/VendorMark'
 import type { DownloadedModel } from '../../shared/types'
@@ -18,7 +18,7 @@ type Props = {
 export function ModelManagerModal({ open, onClose }: Props) {
   const [models, setModels] = useState<DownloadedModel[]>([])
   const [deleting, setDeleting] = useState<string | null>(null)
-  const catalog = useAppStore(s => s.catalog)
+  const catalog = useCatalog().data ?? NO_MODELS
 
   const load = useCallback(() => {
     commands.getDownloadedModels()

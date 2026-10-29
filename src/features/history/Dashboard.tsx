@@ -6,9 +6,8 @@ import {
   TrashIcon, WarningCircleIcon,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { useAppStore } from '../../app/store/useAppStore'
+import { useHotkeys } from '../settings/queries'
 import {
   useDailyWords,
   useTranscripts,
@@ -502,14 +501,9 @@ function DayWave() {
 }
 
 export function Dashboard() {
-  const hasHotkey = useAppStore(s => s.hasHotkey)
-  // The keys to show in the hint; the store only knows whether one is set.
-  const [hotkey, setHotkey] = useState<string | null>(null)
-  useEffect(() => {
-    if (!hasHotkey) return
-    commands.getHotkeys().then(h => setHotkey(h.pushToTalk)).catch(() => {})
-  }, [hasHotkey])
-  const keys = hasHotkey ? hotkey : null
+  const pushToTalk = useHotkeys(hotkeys => hotkeys.pushToTalk)
+  const keys = pushToTalk.data ?? null
+  const missingHotkey = pushToTalk.isSuccess && keys === null
   const navigate = useNavigate()
   const [searchTerm, setSearchTerm] = useState('')
   const [filters, setFilters] = useState<TranscriptFilters>(NO_FILTERS)
@@ -558,7 +552,7 @@ export function Dashboard() {
 
   return (
     <div data-no-topbar-fade className="page-scroll min-h-0 overflow-y-auto overscroll-none px-7 pb-8 before:block before:h-3 before:content-['']">
-      {!hasHotkey && (
+      {missingHotkey && (
         <div className="mb-4 flex items-center gap-3 rounded-xl bg-warning-soft py-2.5 pr-2.5 pl-4 text-sm text-fg ring-1 ring-inset ring-warning/30">
           <WarningCircleIcon size={18} weight="fill" className="shrink-0 text-warning" />
           <span className="flex-1">No hotkey set. NexusVoice can't hear you until a hotkey is set.</span>

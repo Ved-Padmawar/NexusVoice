@@ -5,6 +5,7 @@ import { WarningCircleIcon, CheckCircleIcon, DownloadSimpleIcon, HardDrivesIcon,
 import { Button } from '../../shared/ui/Button'
 import { commands } from '../../shared/bindings'
 import { useAppStore } from '../../app/store/useAppStore'
+import { cancelCudaDownload, downloadCuda, useCuda } from './cuda'
 
 const ICON_BUTTON =
   'flex items-center justify-center w-6 h-6 shrink-0 rounded-sm text-muted bg-transparent border-none cursor-pointer transition-colors duration-120 hover:text-danger hover:bg-danger-soft'
@@ -12,10 +13,8 @@ const ICON_BUTTON =
 /** Offers the CUDA pack on NVIDIA GPUs, and a retry when replacing an
  * unverified pack failed. */
 export function CudaOfferModal() {
-  const cuda = useAppStore(s => s.cuda)
+  const cuda = useCuda().data
   const error = useAppStore(s => s.cudaError)
-  const downloadCuda = useAppStore(s => s.downloadCuda)
-  const cancelDownload = useAppStore(s => s.cancelCudaDownload)
   const close = useAppStore(s => s.closeCudaOffer)
   const [gpuName, setGpuName] = useState<string | null>(null)
 
@@ -49,7 +48,7 @@ export function CudaOfferModal() {
         </div>
         <PackFacts />
         {progress !== null ? (
-          <Transfer progress={progress} verifying={cuda.verifying} onCancel={cancelDownload} />
+          <Transfer progress={progress} verifying={cuda.verifying} onCancel={cancelCudaDownload} />
         ) : (
           <Actions>
             <Button variant="outline" onClick={close}>Not now</Button>
@@ -62,7 +61,7 @@ export function CudaOfferModal() {
         <Badge><LightningIcon size={17} weight="bold" /></Badge>
         <Title>Downloading CUDA</Title>
         <Text>You can keep using NexusVoice on Vulkan while this finishes.</Text>
-        <Transfer progress={progress} verifying={cuda?.verifying ?? false} onCancel={cancelDownload} />
+        <Transfer progress={progress} verifying={cuda?.verifying ?? false} onCancel={cancelCudaDownload} />
       </>
     ) : error ? (
       <>

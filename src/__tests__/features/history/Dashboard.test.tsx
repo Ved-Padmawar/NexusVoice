@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { Dashboard } from '../../../features/history/Dashboard'
-import { useAppStore } from '../../../app/store/useAppStore'
 import { invoke } from '@tauri-apps/api/core'
 import { renderWithQuery } from '../../utils'
 import type { Transcript, UsageStats } from '../../../shared/types'
@@ -54,14 +53,16 @@ type Backend = {
   transcripts?: Transcript[]
   search?: Transcript[]
   stats?: UsageStats | null
+  pushToTalk?: string | null
 }
 
-function mockBackend({ transcripts = [], search = [], stats = null }: Backend = {}) {
+function mockBackend({ transcripts = [], search = [], stats = null, pushToTalk = 'Ctrl+Space' }: Backend = {}) {
   mockInvoke.mockImplementation((cmd) => {
     if (cmd === 'get_transcripts') return Promise.resolve(transcripts)
     if (cmd === 'search_transcripts') return Promise.resolve(search)
     if (cmd === 'get_usage_stats') return Promise.resolve(stats)
     if (cmd === 'get_daily_words') return Promise.resolve([])
+    if (cmd === 'get_hotkeys') return Promise.resolve({ pushToTalk, dictation: null, dictationCommit: null })
     return Promise.resolve(undefined)
   })
 }
@@ -73,7 +74,6 @@ beforeEach(() => {
   mockInvoke.mockReset()
   observed.clear()
   mockBackend()
-  useAppStore.setState({ hasHotkey: true })
 })
 
 describe('Dashboard — empty state', () => {
@@ -82,10 +82,10 @@ describe('Dashboard — empty state', () => {
     expect(await screen.findByText(/your first dictation lands here/i)).toBeInTheDocument()
   })
 
-  it('shows hotkey warning when no hotkey set', () => {
-    useAppStore.setState({ hasHotkey: false })
+  it('shows hotkey warning when no hotkey set', async () => {
+    mockBackend({ pushToTalk: null })
     renderDashboard()
-    expect(screen.getByText(/until a hotkey is set/i)).toBeInTheDocument()
+    expect(await screen.findByText(/until a hotkey is set/i)).toBeInTheDocument()
   })
 })
 
@@ -261,12 +261,9 @@ describe('Dashboard — infinite scroll sentinel', () => {
 
   it('renders a row once when the next page repeats it', async () => {
     let call = 0
-    mockInvoke.mockImplementation((cmd) => {
-      if (cmd === 'get_transcripts') return Promise.resolve(call++ === 0 ? fullPage : [fullPage[49]])
-      if (cmd === 'get_usage_stats') return Promise.resolve(null)
-      if (cmd === 'get_daily_words') return Promise.resolve([])
-      return Promise.resolve(undefined)
-    })
+    const base = mockInvoke.getMockImplementation()!
+    mockInvoke.mockImplementation((cmd, args) =>
+      cmd === 'get_transcripts' ? Promise.resolve(call++ === 0 ? fullPage : [fullPage[49]]) : base(cmd, args))
     renderDashboard()
     await waitFor(() => expect(observed.size).toBeGreaterThan(0))
     act(() => fireIntersect?.())

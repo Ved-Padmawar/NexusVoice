@@ -1,21 +1,19 @@
-import { useShallow } from 'zustand/react/shallow'
 import { useState, useCallback, useRef, useEffect, memo } from 'react'
 import { toast } from 'sonner'
 import { KeyboardIcon, MicrophoneIcon, FloppyDiskIcon, XIcon, PencilSimpleIcon, RecordIcon, type Icon } from '@phosphor-icons/react'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { useAppStore } from '../../app/store/useAppStore'
 import { SUPER_KEY_LABEL } from '../../shared/platform'
-import type { HotkeyBindings, HotkeyKind } from '../../shared/types'
+import type { HotkeyKind } from '../../shared/types'
 import { Button } from '../../shared/ui/Button'
 import { Kbd } from '../../shared/ui/Kbd'
+import { setCachedHotkey, useHotkeys } from './queries'
 
 type HotkeyConfig = {
   kind: HotkeyKind
   title: string
   description: string
   icon: Icon
-  storeFlag: 'hasHotkey' | 'hasDictationHotkey' | 'hasDictationCommitHotkey'
 }
 
 function getKeyName(key: string, code: string): string {
@@ -66,10 +64,9 @@ const KeyBadges = memo(function KeyBadges({ keys }: { keys: string[] }) {
   )
 })
 
-function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
+function HotkeyCard({ config, currentHotkey }: {
   config: HotkeyConfig
   currentHotkey: string | null
-  setCurrentHotkey: (hotkey: string | null) => void
 }) {
   const [pressedKeys, setPressedKeys] = useState<string[]>([])
   const [isListening, setIsListening] = useState(false)
@@ -163,8 +160,7 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
     setSaving(true)
     try {
       await commands.setHotkey(config.kind, shortcut)
-      setCurrentHotkey(shortcut)
-      useAppStore.setState({ [config.storeFlag]: true })
+      setCachedHotkey(config.kind, shortcut)
       setPressedKeys([])
       keysRef.current.clear()
       toast.success(`${config.title} hotkey saved`)
@@ -180,8 +176,7 @@ function HotkeyCard({ config, currentHotkey, setCurrentHotkey }: {
   const handleRemoveHotkey = async () => {
     try {
       await commands.setHotkey(config.kind, null)
-      setCurrentHotkey(null)
-      useAppStore.setState({ [config.storeFlag]: false })
+      setCachedHotkey(config.kind, null)
     } catch (e: unknown) {
       toast.error(extractErrorMessage(e, `Failed to remove the ${config.title.toLowerCase()} hotkey.`))
     }
@@ -262,50 +257,28 @@ const HOTKEY_CONFIGS: HotkeyConfig[] = [
     title: 'Recording',
     description: 'Hold to record, let go to paste.',
     icon: KeyboardIcon,
-    storeFlag: 'hasHotkey',
   },
   {
     kind: 'dictation',
     title: 'Dictation',
     description: 'Start, pause or resume hands-free.',
     icon: MicrophoneIcon,
-    storeFlag: 'hasDictationHotkey',
   },
   {
     kind: 'dictationCommit',
     title: 'Finish dictation',
     description: 'Save without the pill’s button.',
     icon: FloppyDiskIcon,
-    storeFlag: 'hasDictationCommitHotkey',
   },
 ]
 
 export function HotkeySection() {
-  const { hasHotkey, hasDictationHotkey, hasDictationCommitHotkey } = useAppStore(useShallow(s => ({
-    hasHotkey: s.hasHotkey,
-    hasDictationHotkey: s.hasDictationHotkey,
-    hasDictationCommitHotkey: s.hasDictationCommitHotkey,
-  })))
-  const [currentHotkeys, setCurrentHotkeys] = useState<HotkeyBindings>({
-    pushToTalk: null,
-    dictation: null,
-    dictationCommit: null,
-  })
-
-  useEffect(() => {
-    if (!hasHotkey && !hasDictationHotkey && !hasDictationCommitHotkey) return
-    commands.getHotkeys().then(setCurrentHotkeys).catch(() => {})
-  }, [hasHotkey, hasDictationHotkey, hasDictationCommitHotkey])
+  const hotkeys = useHotkeys().data
 
   return (
     <div className="flex flex-col divide-y divide-line-soft rounded-2xl bg-panel ring-1 ring-line-soft ring-inset">
       {HOTKEY_CONFIGS.map(config => (
-        <HotkeyCard
-          key={config.kind}
-          config={config}
-          currentHotkey={currentHotkeys[config.kind]}
-          setCurrentHotkey={(hotkey) => setCurrentHotkeys(current => ({ ...current, [config.kind]: hotkey }))}
-        />
+        <HotkeyCard key={config.kind} config={config} currentHotkey={hotkeys?.[config.kind] ?? null} />
       ))}
     </div>
   )

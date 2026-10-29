@@ -10,6 +10,7 @@ import { Button } from '../../shared/ui/Button'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { formatModelSize } from '../models/models'
+import { cancelCudaDownload, downloadCuda, removeCuda, useCuda } from '../models/cuda'
 import type { DownloadedModel, HardwareProfile } from '../../shared/types'
 import { useAppStore } from '../../app/store/useAppStore'
 import logoUrl from '../../assets/logo.png'
@@ -78,14 +79,8 @@ const Download = ({ onClick }: { onClick: () => void }) => (
 
 /** Download, restart into, or remove the on-demand CUDA pack. NVIDIA only. */
 function CudaCard({ activeBackend }: { activeBackend: string | null }) {
-  const cuda = useAppStore(s => s.cuda)
+  const cuda = useCuda().data
   const error = useAppStore(s => s.cudaError)
-  const refreshCuda = useAppStore(s => s.refreshCuda)
-  const downloadCuda = useAppStore(s => s.downloadCuda)
-  const cancelDownload = useAppStore(s => s.cancelCudaDownload)
-  const removeCuda = useAppStore(s => s.removeCuda)
-
-  useEffect(() => { void refreshCuda() }, [refreshCuda])
 
   if (!cuda?.supported) return null
 
@@ -98,7 +93,7 @@ function CudaCard({ activeBackend }: { activeBackend: string | null }) {
   const detail = (text: string) => (error ? { detail: error, detailTone: 'danger' as const } : { detail: text })
 
   if (progress !== null) {
-    return <StatusCard icon={icon} tone="accent" title={cuda.verifying ? 'Verifying CUDA' : 'Downloading CUDA'} progress={progress} onCancel={cancelDownload} />
+    return <StatusCard icon={icon} tone="accent" title={cuda.verifying ? 'Verifying CUDA' : 'Downloading CUDA'} progress={progress} onCancel={cancelCudaDownload} />
   }
   switch (cuda.pack) {
     case 'pendingInstall':

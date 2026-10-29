@@ -4,11 +4,11 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Toaster } from 'sonner'
 
-import { QueryClientProvider } from '@tanstack/react-query'
-
 import { useAppStore } from './store/useAppStore'
-import { queryClient } from './queryClient'
 import { addTranscript } from '../features/history/queries'
+import { listenForModelEvents } from '../features/models/queries'
+import { listenForCudaEvents, useCuda } from '../features/models/cuda'
+import { followPillSettings } from '../features/settings/queries'
 import { ROUTES } from './routes'
 import { useEventListener, useDelayedFlag } from '../shared/hooks'
 import { Layout } from './Layout'
@@ -54,13 +54,12 @@ const CudaOfferModal = lazy(() => import('../features/models/CudaOfferModal').th
 const ModelPickerModal = lazy(() => import('../features/models/ModelPickerModal').then(m => ({ default: m.ModelPickerModal })))
 
 function App() {
-  const { theme, starting, modelChosen, cudaOfferOpen, startup, listenForModelEvents } = useAppStore(useShallow(s => ({
+  const { theme, starting, modelChosen, cudaOfferOpen, startup } = useAppStore(useShallow(s => ({
     theme: s.theme,
     starting: s.starting,
     modelChosen: s.modelChosen,
     cudaOfferOpen: s.cudaOfferOpen,
     startup: s.startup,
-    listenForModelEvents: s.listenForModelEvents,
   })))
   const [initialRoute] = useState(() => useAppStore.getState().activeRoute)
 
@@ -87,17 +86,12 @@ function App() {
   }, [startup])
 
   useEffect(() => {
-    const cleanup = listenForModelEvents()
-    return () => { cleanup.then(fn => fn()).catch(() => {}) }
-  }, [listenForModelEvents])
-
-  useEffect(() => {
-    const cleanup = useAppStore.getState().listenForCudaEvents()
-    return () => { cleanup.then(fn => fn()).catch(() => {}) }
+    const cleanups = [listenForModelEvents(), listenForCudaEvents()]
+    return () => { cleanups.forEach(cleanup => cleanup.then(fn => fn()).catch(() => {})) }
   }, [])
 
   // Not tied to setup: new installs see it once the picker closes, upgrades on launch.
-  const cudaKnown = useAppStore(s => s.cuda !== null)
+  const cudaKnown = useCuda().data !== undefined
   useEffect(() => {
     if (!starting && modelChosen && cudaKnown) useAppStore.getState().offerCuda()
   }, [starting, modelChosen, cudaKnown])
@@ -111,7 +105,7 @@ function App() {
 
   useEventListener('transcriptSaved', addTranscript)
 
-  useEffect(() => useAppStore.getState().followPillSettings(), [])
+  useEffect(followPillSettings, [])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -139,23 +133,21 @@ function App() {
   }
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <AppRoutes initialRoute={initialRoute} />
-        {/* No fallback: nothing should flash on screen while the chunk loads. */}
-        {cudaOfferOpen && (
-          <Suspense fallback={null}>
-            <CudaOfferModal />
-          </Suspense>
-        )}
-        {!modelChosen && (
-          <Suspense fallback={null}>
-            <ModelPickerModal />
-          </Suspense>
-        )}
-        <Toaster position="bottom-right" />
-      </BrowserRouter>
-    </QueryClientProvider>
+    <BrowserRouter>
+      <AppRoutes initialRoute={initialRoute} />
+      {/* No fallback: nothing should flash on screen while the chunk loads. */}
+      {cudaOfferOpen && (
+        <Suspense fallback={null}>
+          <CudaOfferModal />
+        </Suspense>
+      )}
+      {!modelChosen && (
+        <Suspense fallback={null}>
+          <ModelPickerModal />
+        </Suspense>
+      )}
+      <Toaster position="bottom-right" />
+    </BrowserRouter>
   )
 }
 

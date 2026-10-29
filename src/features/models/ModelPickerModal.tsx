@@ -5,38 +5,30 @@ import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { cn } from '../../shared/utils'
 import { formatModelSize, isStreaming, modelNameToId, sortForDisplay, type ModelId } from './models'
+import { NO_MODELS, refreshActiveModel, startDownload, switchModel, useCatalog, useDownload } from './queries'
 import { useAppStore } from '../../app/store/useAppStore'
 import { Button } from '../../shared/ui/Button'
 import type { HardwareProfile } from '../../shared/types'
 
 export function ModelPickerModal() {
   const setModelChosen = useAppStore(s => s.setModelChosen)
-  const startDownload = useAppStore(s => s.startDownload)
-  const refreshModelInfo = useAppStore(s => s.refreshModelInfo)
-  const catalog = useAppStore(s => s.catalog)
-  const refreshCatalog = useAppStore(s => s.refreshCatalog)
+  const catalogQuery = useCatalog()
+  const catalog = catalogQuery.data ?? NO_MODELS
 
   const [profile, setProfile] = useState<HardwareProfile | null>(null)
   const [selected, setSelected] = useState<ModelId | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
-  // Otherwise Confirm sits disabled with no explanation when a probe fails.
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [reloadKey, setReloadKey] = useState(0)
+  // Otherwise Confirm sits disabled with no explanation when the probe fails.
+  const [hardwareError, setHardwareError] = useState<string | null>(null)
+  const loadError = catalogQuery.isError ? 'Could not load the model catalog.' : hardwareError
 
+  // Returning user whose modelChosen got reset but model is on disk: skip the modal.
   useEffect(() => {
-    // Returning user whose modelChosen got reset but model is on disk: skip the modal.
-    commands.getModelInfo()
+    refreshActiveModel()
       .then(info => { if (info.downloaded) setModelChosen(true) })
       .catch(() => {})
-
-    // refreshCatalog swallows its own errors, so an empty catalog is the signal.
-    void refreshCatalog().then(() => {
-      setLoadError(
-        useAppStore.getState().catalog.length === 0 ? 'Could not load the model catalog.' : null,
-      )
-    })
-  }, [setModelChosen, refreshCatalog, reloadKey])
+  }, [setModelChosen])
 
   useEffect(() => {
     if (catalog.length === 0) return
@@ -47,7 +39,7 @@ export function ModelPickerModal() {
       })
       .catch((e: unknown) => {
         // A model can still be picked by hand; only the recommendation is lost.
-        setLoadError(extractErrorMessage(e, 'Could not detect your hardware'))
+        setHardwareError(extractErrorMessage(e, 'Could not detect your hardware'))
       })
   }, [catalog])
 
@@ -55,10 +47,8 @@ export function ModelPickerModal() {
     if (!selected) return
     setConfirming(true)
     try {
-      await commands.setModelOverride(selected)
-      await refreshModelInfo()
       // Already on disk (picked a previously-downloaded model): skip the download step.
-      if (useAppStore.getState().activeModelDownloaded) {
+      if ((await switchModel(selected)).downloaded) {
         setModelChosen(true)
         return
       }
@@ -70,7 +60,7 @@ export function ModelPickerModal() {
   }
 
   // The entry is removed when the download finishes, which is the close signal.
-  const download = useAppStore(s => (selected ? s.downloads[selected] : undefined))
+  const download = useDownload(selected).data
   useEffect(() => {
     if (confirmed && !download) setModelChosen(true)
   }, [confirmed, download, setModelChosen])
@@ -227,7 +217,7 @@ export function ModelPickerModal() {
                 <Button
                   variant="primary"
                   className="shrink-0 min-w-44"
-                  onClick={() => setReloadKey(k => k + 1)}
+                  onClick={() => void catalogQuery.refetch()}
                 >
                   <ArrowsClockwiseIcon size={12} weight="bold" />
                   Try again

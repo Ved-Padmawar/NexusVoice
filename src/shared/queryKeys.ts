@@ -13,4 +13,10 @@ export const queryKeys = {
   // Under `stats`, so whatever refreshes the totals refreshes this too.
   dailyWords: (days: number) => ['stats', 'daily', days] as const,
   dictionary: ['dictionary'] as const,
+  catalog: ['catalog'] as const,
+  activeModel: ['activeModel'] as const,
+  downloads: ['downloads'] as const,
+  hotkeys: ['hotkeys'] as const,
+  pillSettings: ['pillSettings'] as const,
+  cuda: ['cuda'] as const,
 }

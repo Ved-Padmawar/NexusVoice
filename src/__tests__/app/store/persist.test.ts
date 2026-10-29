@@ -61,26 +61,11 @@ describe('persist — partialize', () => {
     ])
   })
 
-  it('never persists the model selection', () => {
-    // The backend's saved model is the single source of truth. A copy here
-    // would survive a backend change and disagree with it after a restart.
-    useAppStore.setState({ selectedModel: 'whisper-tiny', activeModelName: 'Whisper Tiny' })
-    const keys = Object.keys(persisted())
-    expect(keys).not.toContain('selectedModel')
-    expect(keys).not.toContain('activeModelName')
-    expect(keys).not.toContain('catalog')
-  })
-
   it('never persists transient or in-flight state', () => {
-    // Rehydrating any of these would show a stale download or a dead error
-    // banner on a fresh launch.
-    useAppStore.setState({
-      downloads: { a: { status: 'running', progress: 50 } },
-      startupError: 'disk is full',
-      starting: true,
-      modelReady: true,
-    })
-    for (const key of ['downloads', 'startupError', 'starting', 'modelReady', 'updateStatus']) {
+    // Rehydrating any of these would show a dead error banner or an open
+    // dialog on a fresh launch.
+    useAppStore.setState({ startupError: 'disk is full', starting: true, cudaError: 'offline', cudaOfferOpen: true })
+    for (const key of ['startupError', 'starting', 'cudaError', 'cudaOfferOpen', 'updateStatus']) {
       expect(Object.keys(persisted()), `${key} must not be persisted`).not.toContain(key)
     }
   })

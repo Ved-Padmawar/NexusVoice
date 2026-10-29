@@ -1,11 +1,10 @@
 import { SpeakerHighIcon } from '@phosphor-icons/react'
 import { Switch } from '../../shared/ui/Switch'
-import { useAppStore } from '../../app/store/useAppStore'
+import { updatePill, usePillSettings } from './queries'
 
 /** A short chime once the microphone is live, in either recording mode. */
 export function StartSoundToggle() {
-  const startSound = useAppStore((s) => s.pill.startSound)
-  const updatePill = useAppStore((s) => s.updatePill)
+  const { startSound } = usePillSettings()
 
   return (
     <div className="flex items-center gap-3 rounded-2xl bg-panel p-4 ring-1 ring-line-soft ring-inset">

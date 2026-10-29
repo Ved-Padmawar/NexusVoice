@@ -1,9 +1,11 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { attachConsole } from '@tauri-apps/plugin-log'
+import { QueryClientProvider } from '@tanstack/react-query'
 import '../index.css'
 import App from './App.tsx'
 import { ErrorBoundary } from './ErrorBoundary'
+import { queryClient } from './queryClient'
 import { useAppStore } from './store/useAppStore'
 import { showMainWindow } from './showMainWindow'
 
@@ -18,7 +20,9 @@ setTimeout(showMainWindow, 1200)
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
     </ErrorBoundary>
   </StrictMode>,
 )

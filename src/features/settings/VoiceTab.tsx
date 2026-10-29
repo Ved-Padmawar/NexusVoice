@@ -14,8 +14,9 @@ import { ModelManagerModal } from '../models/ModelManagerModal'
 import { vendorForFamily } from '../../shared/vendors'
 import { cn } from '../../shared/utils'
 import type { DownloadedModel, HardwareProfile } from '../../shared/types'
-import { useAppStore } from '../../app/store/useAppStore'
-import type { Download as ModelDownload } from '../models/modelSlice'
+import {
+  NO_MODELS, cancelDownload, startDownload, switchModel, useActiveModel, useCatalog, useDownload, usePendingDownloads,
+} from '../models/queries'
 import { ModelUnloadSection } from './ModelUnloadSection'
 
 const VENDOR_NAME: Record<string, string> = {
@@ -116,7 +117,7 @@ function ModelCard({
   onCancel: () => void
 }) {
   // Per-card subscription: a progress tick re-renders only this card.
-  const download: ModelDownload | undefined = useAppStore(s => s.downloads[model.id])
+  const download = useDownload(model.id).data
   const streaming = isStreaming(model)
   const vendor = vendorForFamily(model.family)
   const failed = download?.status === 'error'
@@ -230,15 +231,9 @@ export function VoiceTab() {
   const [managerOpen, setManagerOpen] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
 
-  const catalog = useAppStore(s => s.catalog)
-  const refreshCatalog = useAppStore(s => s.refreshCatalog)
-  const pendingCount = useAppStore(s => Object.keys(s.downloads).length)
-  const selected = useAppStore(s => s.selectedModel)
-  const setSelectedModel = useAppStore(s => s.setSelectedModel)
-  const refreshModelInfo = useAppStore(s => s.refreshModelInfo)
-  const refreshDownloads = useAppStore(s => s.refreshDownloads)
-  const startDownload = useAppStore(s => s.startDownload)
-  const cancelDownload = useAppStore(s => s.cancelDownload)
+  const catalog = useCatalog().data ?? NO_MODELS
+  const pendingCount = usePendingDownloads().data
+  const selected = useActiveModel().data?.id ?? null
 
   const refreshOnDisk = useCallback(() => {
     commands.getDownloadedModels().then(setOnDisk).catch(() => setOnDisk([]))
@@ -246,10 +241,7 @@ export function VoiceTab() {
 
   useEffect(() => {
     commands.getHardwareProfile().then(setProfile).catch(() => {})
-    void refreshModelInfo()
-    void refreshCatalog()
-    void refreshDownloads()
-  }, [refreshModelInfo, refreshCatalog, refreshDownloads])
+  }, [])
 
   // Reads the disk on mount, and again when a finished download adds a file.
   useEffect(() => { refreshOnDisk() }, [pendingCount, refreshOnDisk])
@@ -279,11 +271,9 @@ export function VoiceTab() {
 
   // Only offered for a model on disk, so the override can't point at nothing.
   const handleUseModel = async (v: ModelId) => {
-    setSelectedModel(v)
     setModelSaving(true)
     try {
-      await commands.setModelOverride(v)
-      await refreshModelInfo()
+      await switchModel(v)
       toast.success('Model updated')
     } catch { /* ignore */ }
     finally { setModelSaving(false) }
@@ -330,7 +320,6 @@ export function VoiceTab() {
         onClose={() => {
           setManagerOpen(false)
           refreshOnDisk()
-          void refreshModelInfo()
         }}
       />
     </div>

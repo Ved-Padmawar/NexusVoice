@@ -3,7 +3,6 @@ import { persist } from 'zustand/middleware'
 import type { PillSettings } from '../../shared/bindings'
 import { createAppSlice, type AppSlice } from './appSlice'
 import { createCudaSlice, type CudaSlice } from '../../features/models/cudaSlice'
-import { createModelSlice, type ModelSlice } from '../../features/models/modelSlice'
 import { createUiSlice, DEFAULT_THEME, THEME_NAMES, type UiSlice } from './uiSlice'
 import { createUpdateSlice, type UpdateSlice } from './updateSlice'
 import { stashLegacyPill } from './legacyPill'
@@ -12,13 +11,13 @@ export const STORE_PERSIST_KEY = 'nexus-voice-storage'
 
 export { THEME_NAMES, type ThemeName } from './uiSlice'
 
-export type AppState = AppSlice & ModelSlice & UiSlice & UpdateSlice & CudaSlice
+/** State the frontend owns. Backend data lives in the query cache. */
+export type AppState = AppSlice & UiSlice & UpdateSlice & CudaSlice
 
 export const useAppStore = create<AppState>()(
   persist(
     (...args) => ({
       ...createAppSlice(...args),
-      ...createModelSlice(...args),
       ...createUiSlice(...args),
       ...createUpdateSlice(...args),
       ...createCudaSlice(...args),

@@ -1,9 +1,8 @@
-import { useShallow } from 'zustand/react/shallow'
 import { memo } from 'react'
-import { useAppStore } from '../../app/store/useAppStore'
 import { Swatch } from '../../shared/ui/Swatch'
 import { PILL_THEMES, type PillThemeDef } from '../../pill/pillThemes'
 import type { PillTheme } from '../../shared/types'
+import { updatePill, usePillSettings } from './queries'
 
 function MiniPill({ theme }: { theme: PillThemeDef }) {
   return (
@@ -54,10 +53,7 @@ function PillStrip({ t }: { t: PillThemeDef }) {
 
 /** The pill floats over other apps, so it is themed separately. */
 export const PillTab = memo(function PillTab() {
-  const { pillTheme, updatePill } = useAppStore(useShallow(s => ({
-    pillTheme: s.pill.theme,
-    updatePill: s.updatePill,
-  })))
+  const pillTheme = usePillSettings().theme
   const current = PILL_THEMES.find((t) => t.id === pillTheme) ?? PILL_THEMES[0]
 
   const handleSelect = (id: PillTheme) => { void updatePill({ theme: id }) }

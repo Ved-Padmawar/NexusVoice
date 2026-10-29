@@ -10,7 +10,7 @@ use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 use super::capture::device_name;
-use crate::platform::audio_output::default_output_is_bluetooth;
+use crate::platform::audio_output::playback_is_bluetooth;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, I24, U24};
 
@@ -224,7 +224,7 @@ fn open() -> Result<Output, String> {
         .play()
         .map_err(|e| format!("failed to start stream: {e}"))?;
     let opened = Instant::now();
-    let bluetooth = default_output_is_bluetooth();
+    let bluetooth = playback_is_bluetooth();
     log::info!("start sound output open on {name} (bluetooth: {bluetooth:?})");
     let wake = if bluetooth == Some(false) {
         Duration::ZERO

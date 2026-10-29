@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import App from "../../app/App";
+import { renderWithQuery } from "../utils";
 import { useAppStore } from "../../app/store/useAppStore";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -46,14 +47,14 @@ describe("App", () => {
   });
 
   it("renders the app shell after load", async () => {
-    render(<App />);
+    renderWithQuery(<App />);
     await waitFor(() => {
       expect(screen.getByAltText("NexusVoice")).toBeInTheDocument();
     });
   });
 
   it("shows the dashboard, with no sign-in step", async () => {
-    render(<App />);
+    renderWithQuery(<App />);
     await waitFor(() => {
       expect(screen.getByRole("link", { name: /dashboard/i })).toBeInTheDocument();
     });
