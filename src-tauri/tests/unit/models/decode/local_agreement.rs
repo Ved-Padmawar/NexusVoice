@@ -1,6 +1,6 @@
 use super::{
     common_prefix_len, final_speech_offset, from_ms, lead_speech_offset, normalize_word,
-    trailing_overlap, StreamingSession, VAD_CHUNK_16K, VAD_PAD_FRAMES,
+    trailing_overlap, LeadingSpeech, StreamingSession, VAD_CHUNK_16K, VAD_PAD_FRAMES,
 };
 use crate::models::transcript::{TimedSegment, Word};
 
@@ -666,6 +666,52 @@ fn a_failed_conversion_restarts_from_the_window_start() {
     assert_eq!(session.fed(), rate as usize);
     assert_eq!(session.window_16k.len(), 0);
     assert!(session.converter.is_none());
+}
+
+#[test]
+fn incremental_earshot_matches_a_fresh_scan_at_every_speech_onset() {
+    let mut delayed = vec![0.0; 31 * VAD_CHUNK_16K + 19];
+    delayed.extend(voiced(8_000));
+    let quiet: Vec<f32> = voiced(8_000).iter().map(|s| s * 0.03).collect();
+    for samples in [voiced(8_000), delayed, quiet, vec![0.0; 16_000]] {
+        let expected = lead_speech_offset(&samples);
+        for piece in [1, 7, 255, 256, 257, 3_200, 16_000] {
+            let mut lead = LeadingSpeech::default();
+            let mut end = 0;
+            while end < samples.len() {
+                end = (end + piece).min(samples.len());
+                let found = lead.scan(&samples[..end]);
+                assert!(lead.scanned <= end);
+                if found.is_some() {
+                    assert_eq!(found, expected, "piece size {piece}");
+                    // Finding speech releases the detector and keeps the offset stable.
+                    assert!(lead.detector.is_none());
+                    assert_eq!(lead.scan(&samples), expected);
+                    break;
+                }
+                assert_eq!(lead.scanned, end / VAD_CHUNK_16K * VAD_CHUNK_16K);
+            }
+            assert_eq!(lead.scan(&samples), expected, "piece size {piece}");
+        }
+    }
+}
+
+#[test]
+fn conversion_restart_resets_the_incremental_vad_timeline() {
+    let mut session = StreamingSession::new();
+    session.ingest(&vec![0.0; 16_000], 16_000).unwrap();
+    assert_eq!(session.leading_speech.scan(&session.window_16k), None);
+    assert!(session.leading_speech.scanned > 0);
+
+    session.restart_conversion();
+    assert_eq!(session.leading_speech.scanned, 0);
+    assert!(session.leading_speech.detector.is_none());
+    let speech = voiced(8_000);
+    session.ingest(&speech, 16_000).unwrap();
+    assert_eq!(
+        session.leading_speech.scan(&session.window_16k),
+        lead_speech_offset(&speech)
+    );
 }
 
 // ── silence ────────────────────────────────────────────────────────────

@@ -29,7 +29,7 @@ fn is_spaceless(c: char) -> bool {
 
 /// Join words into a transcript, attaching trailing punctuation to its word and
 /// leaving no space between two spaceless-script characters.
-pub fn join_words(words: &[Word]) -> String {
+pub fn join_words<'a>(words: impl IntoIterator<Item = &'a Word>) -> String {
     let mut out = String::new();
     for w in words {
         let t = w.text.trim();

@@ -80,6 +80,7 @@ pub struct StreamingSession {
     hyp_committed: usize,
     segments: Vec<TimedSegment>,
     lead_trimmed: bool,
+    leading_speech: LeadingSpeech,
 }
 
 impl StreamingSession {
@@ -119,6 +120,7 @@ impl StreamingSession {
         self.converter = None;
         self.window_16k.clear();
         self.fed = self.window_start;
+        self.leading_speech = LeadingSpeech::default();
     }
 
     fn advance_window(&mut self, new_start: usize, native_rate: u32) {
@@ -143,7 +145,7 @@ impl StreamingSession {
         let total_len = self.fed;
         if !self.lead_trimmed {
             // `decoded_len` stays put so the next poll re-checks the grown buffer.
-            let Some(skip_16k) = lead_speech_offset(&self.window_16k) else {
+            let Some(skip_16k) = self.leading_speech.scan(&self.window_16k) else {
                 return;
             };
             self.window_start += from_16k(skip_16k, native_rate);
@@ -194,17 +196,16 @@ impl StreamingSession {
     /// Transcript so far, split into LocalAgreement-confirmed text and the
     /// hypothesis tail still open to revision.
     pub fn partial(&self) -> (String, String) {
-        let pending: Vec<Word> = self
+        let mut pending = self
             .segments
             .iter()
             .flat_map(|s| &s.words)
             .skip(self.hyp_committed)
-            .cloned()
-            .collect();
-        let tentative = if pending.is_empty() {
+            .peekable();
+        let tentative = if pending.peek().is_none() {
             String::new()
         } else {
-            format!(" {}", join_words(&pending).trim())
+            format!(" {}", join_words(pending).trim())
         };
         (self.text(), tentative)
     }
@@ -212,12 +213,7 @@ impl StreamingSession {
     /// Align away what the hypothesis restates, then commit what two hypotheses
     /// now agree on.
     fn absorb(&mut self) {
-        let hyp: Vec<Word> = self
-            .segments
-            .iter()
-            .flat_map(|s| &s.words)
-            .cloned()
-            .collect();
+        let hyp: Vec<&Word> = self.segments.iter().flat_map(|s| &s.words).collect();
         let norm: Vec<String> = hyp.iter().map(|w| normalize_word(&w.text)).collect();
 
         let overlap = trailing_overlap(&self.committed_norm, &norm);
@@ -228,7 +224,7 @@ impl StreamingSession {
             .iter()
             .zip(&fresh_norm[..agreed])
         {
-            self.committed.push(word.clone());
+            self.committed.push((*word).clone());
             self.committed_norm.push(n.clone());
         }
         self.prev_norm = fresh_norm[agreed..].to_vec();
@@ -358,10 +354,10 @@ impl StreamingSession {
         match guard.transcribe_segments(&leveled, &prompt, Pass::Final) {
             Ok(segments) => {
                 let truncated = guard.was_truncated();
-                let hyp: Vec<Word> = segments.iter().flat_map(|s| &s.words).cloned().collect();
+                let hyp: Vec<Word> = segments.into_iter().flat_map(|s| s.words).collect();
                 let norm: Vec<String> = hyp.iter().map(|w| normalize_word(&w.text)).collect();
                 let overlap = trailing_overlap(&self.committed_norm, &norm);
-                self.committed.extend_from_slice(&hyp[overlap..]);
+                self.committed.extend(hyp.into_iter().skip(overlap));
                 Ok(FinalText {
                     text: self.text(),
                     complete: !truncated,
@@ -422,6 +418,40 @@ fn from_16k(samples_16k: usize, native_rate: u32) -> usize {
 #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)] // clamped non-negative; ms fits usize
 fn from_ms(ms: i64, native_rate: u32) -> usize {
     (ms.max(0) as usize) * native_rate as usize / 1000
+}
+
+/// Scan each raw earshot frame once until the first speech onset. Partial
+/// frames remain in the audio window until the next feed completes them.
+#[derive(Default)]
+struct LeadingSpeech {
+    detector: Option<Box<earshot::Detector>>,
+    scanned: usize,
+    found: Option<usize>,
+}
+
+impl LeadingSpeech {
+    fn scan(&mut self, samples_16k: &[f32]) -> Option<usize> {
+        if self.found.is_some() {
+            return self.found;
+        }
+        let frames = samples_16k[self.scanned..].as_chunks::<VAD_CHUNK_16K>().0;
+        if frames.is_empty() {
+            return None;
+        }
+        let vad = self
+            .detector
+            .get_or_insert_with(earshot::Detector::default_boxed);
+        for frame in frames {
+            let start = self.scanned;
+            self.scanned += VAD_CHUNK_16K;
+            if vad.predict_f32(frame) >= VAD_SPEECH_ENTER {
+                self.found = Some(start.saturating_sub(VAD_PAD_FRAMES * VAD_CHUNK_16K));
+                self.detector = None;
+                break;
+            }
+        }
+        self.found
+    }
 }
 
 /// First sample of confident speech in a 16 kHz buffer, padded back by
