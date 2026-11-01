@@ -2,9 +2,9 @@ import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
 import type { SettingsTab } from '../routes'
 
-export const THEME_NAMES = ['steel', 'midnight', 'indigo', 'orchid', 'canvas', 'dawn', 'breeze', 'blossom'] as const
+export const THEME_NAMES = ['steel', 'midnight', 'mocha', 'crimson', 'canvas', 'dawn', 'breeze', 'blossom'] as const
 export type ThemeName = typeof THEME_NAMES[number]
-export const DEFAULT_THEME: ThemeName = 'indigo'
+export const DEFAULT_THEME: ThemeName = 'steel'
 
 export type UiSlice = {
   theme: ThemeName

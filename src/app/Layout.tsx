@@ -100,7 +100,7 @@ export function Layout() {
 
   return (
     <div className="app-shell grid h-dvh grid-cols-[200px_minmax(0,1fr)] overflow-hidden bg-bg text-base">
-      <aside className="relative z-10 flex h-full min-h-0 flex-col border-r border-line bg-panel">
+      <aside className="relative z-10 flex h-full min-h-0 flex-col border-r border-line bg-sidebar">
         <div className="flex items-center px-3.5 pt-7 pb-3.5" data-tauri-drag-region>
           <Link to={ROUTES.DASHBOARD} className="no-drag flex items-center gap-2.25">
             <img src={logoUrl} alt="NexusVoice" className="size-9 shrink-0 rounded-md" />

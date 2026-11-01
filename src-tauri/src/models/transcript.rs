@@ -9,14 +9,15 @@ pub struct Word {
     pub end_cs: Option<i64>,
 }
 
-/// One whisper segment: its cleaned words plus where it ends on the decode's
+/// One decoded segment: its cleaned words plus where it ends on the decode's
 /// audio timeline. The end time is what lets the streaming pipeline trim the
 /// audio window at a segment boundary.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TimedSegment {
     pub words: Vec<Word>,
     /// Segment end relative to the start of the decoded audio, in milliseconds.
-    pub end_ms: i64,
+    /// `None` when the model reports no timestamps at all.
+    pub end_ms: Option<i64>,
 }
 
 /// Chinese and Japanese text, with its punctuation, is written without spaces.

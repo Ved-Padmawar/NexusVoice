@@ -16,6 +16,7 @@
   --color-bg-alt: var(--bg-alt);
   --color-field: var(--field);
   --color-panel: var(--panel);
+  --color-sidebar: var(--sidebar);
   --color-surface: var(--surface);
   --color-surface-hover: var(--surface-hover);
   --color-line: var(--border);
@@ -68,15 +69,7 @@
    Window themes. [data-theme] is set on <html>; previews set it on
    their own element, so each one resolves its own values.
    ================================================================ */
-:root, [data-theme="indigo"] {
-  color-scheme: dark;
-  --bg: #0e0f1f; --bg-alt: #0a0b18; --panel: #141629; --surface: #1b1e35; --border: #2f3356;
-  --fg: #eceefb; --fg-2: #c5c9e6; --muted: #959bc0;
-  --accent: #8b93f8; --accent-ink: #a5adfb; --accent-fg: #0b0c24; --accent-2: #93c5fd;
-  --success: #6ee7b7; --warning: #fcc66a; --danger: #ff7a95;
-  --shadow-rgb: 4 4 20; --shadow-a: 0.55;
-}
-[data-theme="steel"] {
+:root, [data-theme="steel"] {
   color-scheme: dark;
   --bg: #0f131a; --bg-alt: #0b0e14; --panel: #151a23; --surface: #1c232e; --border: #2c3646;
   --fg: #e4eaf3; --fg-2: #b8c2d1; --muted: #8a97ab;
@@ -92,13 +85,21 @@
   --success: #4ade9a; --warning: #fbbf4a; --danger: #ff6b81;
   --shadow-rgb: 0 0 0; --shadow-a: 0.6;
 }
-[data-theme="orchid"] {
+[data-theme="mocha"] {
   color-scheme: dark;
-  --bg: #120e19; --bg-alt: #0d0a13; --panel: #191423; --surface: #221b2f; --border: #3a2f4e;
-  --fg: #f1ebf8; --fg-2: #d0c5e1; --muted: #a093b6;
-  --accent: #ec84f7; --accent-ink: #ef94f8; --accent-fg: #220a27; --accent-2: #86d7fc;
-  --success: #6fe0a8; --warning: #fcc66a; --danger: #ff7a95;
-  --shadow-rgb: 8 0 16; --shadow-a: 0.55;
+  --bg: #181514; --bg-alt: #120f0e; --panel: #1f1b19; --surface: #2a2523; --border: #463f3b;
+  --fg: #efe9e4; --fg-2: #cfc4bb; --muted: #9b8f86;
+  --accent: #cdb27e; --accent-ink: #dcc596; --accent-fg: #1f1708; --accent-2: #86a3bd;
+  --success: #6fcf9f; --warning: #e6c25e; --danger: #f07a6e;
+  --shadow-rgb: 10 6 4; --shadow-a: 0.55;
+}
+[data-theme="crimson"] {
+  color-scheme: dark;
+  --bg: #170a0d; --bg-alt: #110608; --panel: #200f13; --surface: #2d161c; --border: #55303a;
+  --fg: #f6e9eb; --fg-2: #dcc2c7; --muted: #ac8a92;
+  --accent: #f25c72; --accent-ink: #fa8496; --accent-fg: #2c0610; --accent-2: #d9b878;
+  --success: #6fcf9f; --warning: #eebd5c; --danger: #ff8a80;
+  --shadow-rgb: 20 0 4; --shadow-a: 0.6;
 }
 [data-theme="canvas"] {
   color-scheme: light;
@@ -151,7 +152,9 @@
   --shadow-md: 0 6px 16px -4px rgb(var(--shadow-rgb) / var(--shadow-a)), 0 2px 4px rgb(var(--shadow-rgb) / calc(var(--shadow-a) * 0.5));
   --shadow-lg: 0 24px 48px -12px rgb(var(--shadow-rgb) / calc(var(--shadow-a) * 1.4)), 0 6px 14px rgb(var(--shadow-rgb) / var(--shadow-a));
 }
-[data-theme="canvas"], [data-theme="dawn"], [data-theme="breeze"], [data-theme="blossom"] { --field: var(--panel); }
+/* Light panels are near-white, so their sidebar takes the tinted bg-alt. */
+:root, [data-theme] { --sidebar: var(--panel); }
+[data-theme="canvas"], [data-theme="dawn"], [data-theme="breeze"], [data-theme="blossom"] { --field: var(--panel); --sidebar: var(--bg-alt); }
 
 /* ================================================================
    Base

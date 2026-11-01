@@ -19,15 +19,16 @@ beforeEach(() => { takeLegacyPill() })
 describe('persist — migrate', () => {
   it('hands the pill preferences older versions kept to the backend', () => {
     // The backend owns them now, so the pill window reads the same values.
-    const out = migrate({ theme: 'orchid', pillTheme: 'dawn', waveformStyle: 'memo', liveTranscript: true }, 1)
+    const out = migrate({ theme: 'midnight', pillTheme: 'dawn', waveformStyle: 'memo', liveTranscript: true }, 1)
     expect(takeLegacyPill()).toEqual({ theme: 'dawn', waveformStyle: 'memo', liveTranscript: true })
-    expect(out).toEqual({ theme: 'orchid' })
+    expect(out).toEqual({ theme: 'midnight' })
   })
 
   it('moves a retired window theme to the default', () => {
-    // Abyss and Pine have no stylesheet any more; kept, the window renders unthemed.
-    expect(migrate({ theme: 'abyss' }, 2)).toEqual({ theme: 'indigo' })
-    expect(migrate({ theme: 'pine' }, 2)).toEqual({ theme: 'indigo' })
+    // Indigo and Orchid were retired after v3, so they arrive from v3 blobs too.
+    for (const theme of ['abyss', 'pine', 'indigo', 'orchid']) {
+      expect(migrate({ theme }, 3)).toEqual({ theme: 'steel' })
+    }
   })
 
   it('rewrites the removed "steps" waveform style to "spectrum" on the way', () => {
@@ -37,7 +38,7 @@ describe('persist — migrate', () => {
   })
 
   it('hands nothing over from a blob already at the current version', () => {
-    migrate({ theme: 'steel' }, 3)
+    migrate({ theme: 'steel' }, 4)
     expect(takeLegacyPill()).toBeNull()
   })
 

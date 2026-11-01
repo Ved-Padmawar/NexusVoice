@@ -24,8 +24,13 @@ const MAX_NEW_AUDIO_SECS: f64 = 5.0;
 const DUTY_CYCLE: f64 = 0.5;
 /// Well under the 15 s reference default: keeps mid-recording decodes cheap on Vulkan.
 const TRIM_AFTER_SECS: f64 = 8.0;
-/// Window length past which a segment-boundary trim gives way to a word-level cut.
+/// Window length past which a trim with no segment boundary tries finer cuts.
 const FORCE_TRIM_SECS: f64 = 12.0;
+/// A pause cut may reach only `1 / PAUSE_COVERAGE_DIVISOR` of the speech the
+/// committed words are estimated to cover; the margin absorbs uneven pace.
+const PAUSE_COVERAGE_DIVISOR: usize = 2;
+/// Consecutive non-speech frames (~190 ms) that count as a pause.
+const PAUSE_FRAMES: usize = 12;
 /// Audio a trim must leave behind — decoders need ≥1 s.
 const MIN_WINDOW_SECS: f64 = 2.0;
 const PROMPT_TAIL_WORDS: usize = 30;
@@ -184,13 +189,7 @@ impl StreamingSession {
         self.segments = segments;
         self.absorb();
 
-        let window_secs = to_secs(total_len - self.window_start, native_rate);
-        if window_secs > TRIM_AFTER_SECS
-            && !self.trim(total_len, native_rate)
-            && window_secs > FORCE_TRIM_SECS
-        {
-            self.force_trim(total_len, native_rate);
-        }
+        self.trim(total_len, native_rate);
     }
 
     /// Transcript so far, split into LocalAgreement-confirmed text and the
@@ -255,10 +254,23 @@ impl StreamingSession {
         join_words(&self.committed[start..outside])
     }
 
-    /// Drop the audio behind the last completed segment boundary inside the
-    /// committed prefix. Purely a buffer cut — the text is already committed.
-    /// The last segment never qualifies: it is still growing.
-    fn trim(&mut self, total_len: usize, native_rate: u32) -> bool {
+    /// Drop audio the committed text already covers: cut at a segment boundary,
+    /// else a word boundary, else a pause. A step with no times to cut on
+    /// passes, so none needs to know which model produced the hypothesis.
+    fn trim(&mut self, total_len: usize, native_rate: u32) {
+        let window_secs = to_secs(total_len - self.window_start, native_rate);
+        if window_secs <= TRIM_AFTER_SECS || self.trim_at_segment(total_len, native_rate) {
+            return;
+        }
+        if window_secs > FORCE_TRIM_SECS && !self.trim_at_word(total_len, native_rate) {
+            self.trim_at_pause(native_rate);
+        }
+    }
+
+    /// Cut at the last completed segment boundary inside the committed prefix.
+    /// Purely a buffer cut — the text is already committed. The last segment
+    /// never qualifies: it is still growing.
+    fn trim_at_segment(&mut self, total_len: usize, native_rate: u32) -> bool {
         let mut cum_words = 0;
         let mut cut: Option<(usize, usize, i64)> = None; // (segment idx, words, end_ms)
         for (i, seg) in self
@@ -268,12 +280,15 @@ impl StreamingSession {
             .take(self.segments.len().saturating_sub(1))
         {
             cum_words += seg.words.len();
+            let Some(end_ms) = seg.end_ms else {
+                continue;
+            };
             if cum_words > self.hyp_committed {
                 continue;
             }
-            let boundary = self.window_start + from_ms(seg.end_ms, native_rate);
+            let boundary = self.window_start + from_ms(end_ms, native_rate);
             if to_secs(total_len.saturating_sub(boundary), native_rate) >= MIN_WINDOW_SECS {
-                cut = Some((i, cum_words, seg.end_ms));
+                cut = Some((i, cum_words, end_ms));
             }
         }
 
@@ -289,23 +304,24 @@ impl StreamingSession {
         true
     }
 
-    /// Fallback when [`Self::trim`] finds no segment boundary: cuts inside the
-    /// first segment at a committed word boundary.
-    fn force_trim(&mut self, total_len: usize, native_rate: u32) {
+    /// Cut inside the first segment at the last committed word that has an end
+    /// time.
+    fn trim_at_word(&mut self, total_len: usize, native_rate: u32) -> bool {
         let Some(first) = self.segments.first() else {
-            return;
+            return false;
         };
         let take_words = self.hyp_committed.min(first.words.len());
-        let Some(cut_word_idx) = (0..take_words)
+        let Some((cut_word_idx, end_cs)) = first.words[..take_words]
+            .iter()
+            .enumerate()
             .rev()
-            .find(|&i| first.words[i].end_cs.is_some())
+            .find_map(|(i, w)| w.end_cs.map(|cs| (i, cs)))
         else {
-            return;
+            return false;
         };
-        let end_cs = first.words[cut_word_idx].end_cs.expect("checked above");
         let boundary = self.window_start + from_ms(end_cs * 10, native_rate);
         if to_secs(total_len.saturating_sub(boundary), native_rate) < MIN_WINDOW_SECS {
-            return;
+            return false;
         }
 
         let words = cut_word_idx + 1;
@@ -315,6 +331,24 @@ impl StreamingSession {
             self.segments.remove(0);
         }
         self.hyp_committed -= words;
+        true
+    }
+
+    /// Last resort when nothing has usable times: cut at a pause the committed
+    /// text covers (see [`PAUSE_COVERAGE_DIVISOR`]). Silence splits no word,
+    /// and restated committed text is aligned away by [`Self::absorb`]. The
+    /// hypothesis no longer matches the audio, so it is dropped, but
+    /// `prev_norm` stays: resetting it at every cut would stop two hypotheses
+    /// from ever agreeing.
+    fn trim_at_pause(&mut self, native_rate: u32) -> bool {
+        let hyp_words: usize = self.segments.iter().map(|s| s.words.len()).sum();
+        let Some(cut) = last_covered_pause(&self.window_16k, self.hyp_committed, hyp_words) else {
+            return false;
+        };
+        self.advance_window(self.window_start + from_16k(cut, native_rate), native_rate);
+        self.segments.clear();
+        self.hyp_committed = 0;
+        true
     }
 
     /// Decode the remaining window and append whatever follows the committed
@@ -472,6 +506,46 @@ fn final_speech_offset(samples_16k: &[f32]) -> Option<usize> {
             VAD_LEVELED_SPEECH_ENTER,
         )
     })
+}
+
+/// Middle of the last [`PAUSE_FRAMES`]-long run of non-speech frames that sits
+/// within the share of speech `committed` of `total` words covers.
+fn last_covered_pause(samples_16k: &[f32], committed: usize, total: usize) -> Option<usize> {
+    if total == 0 {
+        return None;
+    }
+    let mut vad = earshot::Detector::default_boxed();
+    let speech: Vec<bool> = samples_16k
+        .as_chunks::<VAD_CHUNK_16K>()
+        .0
+        .iter()
+        .map(|frame| vad.predict_f32(frame) >= VAD_SPEECH_ENTER)
+        .collect();
+    let speech_frames = speech.iter().filter(|&&s| s).count();
+    let covered = speech_frames * committed / (total * PAUSE_COVERAGE_DIVISOR);
+
+    let mut heard = 0;
+    let mut run_start = 0;
+    let mut run = 0;
+    let mut middle = None;
+    for (i, &is_speech) in speech.iter().enumerate() {
+        if is_speech {
+            heard += 1;
+            if heard > covered {
+                break;
+            }
+            run = 0;
+            continue;
+        }
+        if run == 0 {
+            run_start = i;
+        }
+        run += 1;
+        if run >= PAUSE_FRAMES {
+            middle = Some(run_start + run / 2);
+        }
+    }
+    middle.map(|frame| frame * VAD_CHUNK_16K)
 }
 
 fn speech_offset(samples_16k: &[f32], enter: f32) -> Option<usize> {

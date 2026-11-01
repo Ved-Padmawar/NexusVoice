@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.20.3-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.20.4-violet?style=flat-square)
 
 </div>
 
@@ -51,7 +51,7 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **Your clipboard kept (Windows)** — whatever you had copied is put back after the paste, and the transcript stays out of clipboard history
 - **Unload when idle (optional)** — free the model's memory after 2, 5, 10, 15 or 60 minutes without dictation (Settings → Voice); the next dictation reloads it
 - **Smart formatting (optional)** — clean up punctuation and turn spoken lists into real lists using any OpenAI-compatible LLM. Off by default; works fully local with Ollama or LM Studio, or with a cloud provider (OpenAI, OpenRouter) if you prefer
-- **8 themes** — Abyss, Midnight, Steel, Pine (dark) + Canvas, Dawn, Breeze, Blossom (light)
+- **8 themes** — Steel, Midnight, Mocha, Crimson (dark) + Canvas, Dawn, Breeze, Blossom (light)
 - **Compact pill overlay** — draggable recording indicator that stays on top while you work
 - **Dashboard** — transcription history, word count, session stats
 - **System tray** — runs silently in the background

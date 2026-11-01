@@ -20,8 +20,8 @@ type ThemeDef = {
 const THEMES: ThemeDef[] = [
   { name: 'steel',    label: 'Steel',    blurb: 'Graphite with brass',    mode: 'dark',  bg: '#0f131a', panel: '#151a23', accent: '#b9cde2', border: '#2c3646', surface: '#1c232e', muted: '#8a97ab', fg: '#e4eaf3' },
   { name: 'midnight', label: 'Midnight', blurb: 'Ink navy and cyan',      mode: 'dark',  bg: '#05080e', panel: '#0b0f17', accent: '#22d3d3', border: '#253044', surface: '#121824', muted: '#8992a6', fg: '#edf0f6' },
-  { name: 'indigo',   label: 'Indigo',   blurb: 'Blue-violet night',      mode: 'dark',  bg: '#0e0f1f', panel: '#141629', accent: '#8b93f8', border: '#2f3356', surface: '#1b1e35', muted: '#959bc0', fg: '#eceefb' },
-  { name: 'orchid',   label: 'Orchid',   blurb: 'Aubergine and orchid',   mode: 'dark',  bg: '#120e19', panel: '#191423', accent: '#ec84f7', border: '#3a2f4e', surface: '#221b2f', muted: '#a093b6', fg: '#f1ebf8' },
+  { name: 'mocha',    label: 'Mocha',    blurb: 'Coffee and champagne',   mode: 'dark',  bg: '#181514', panel: '#1f1b19', accent: '#cdb27e', border: '#463f3b', surface: '#2a2523', muted: '#9b8f86', fg: '#efe9e4' },
+  { name: 'crimson',  label: 'Crimson',  blurb: 'Oxblood and rose',       mode: 'dark',  bg: '#170a0d', panel: '#200f13', accent: '#f25c72', border: '#55303a', surface: '#2d161c', muted: '#ac8a92', fg: '#f6e9eb' },
   { name: 'canvas',   label: 'Canvas',   blurb: 'Cool paper, cobalt',     mode: 'light', bg: '#e9edf4', panel: '#ffffff', accent: '#3456d6', border: '#c9d0dd', surface: '#f4f6fa', muted: '#596279', fg: '#141927' },
   { name: 'dawn',     label: 'Dawn',     blurb: 'Parchment and orange',   mode: 'light', bg: '#f2e3d3', panel: '#fffaf3', accent: '#b9500a', border: '#e0c7ab', surface: '#fbefe2', muted: '#7a604c', fg: '#2b1d12' },
   { name: 'breeze',   label: 'Breeze',   blurb: 'Sea glass and teal',     mode: 'light', bg: '#d9eaee', panel: '#f7fbfc', accent: '#0c6f82', border: '#b6d2d8', surface: '#e9f3f5', muted: '#4b6a73', fg: '#0f2a33' },
@@ -29,9 +29,11 @@ const THEMES: ThemeDef[] = [
 ]
 
 function ThemePreview({ t }: { t: ThemeDef }) {
+  // Mirrors --sidebar in index.css.
+  const sidebar = t.mode === 'light' ? `color-mix(in oklab, ${t.bg} 70%, ${t.border})` : t.panel
   return (
     <div className="relative h-full w-full overflow-hidden rounded-md" style={{ background: t.bg }}>
-      <div className="absolute inset-y-0 left-0 w-13" style={{ background: t.panel, borderRight: `1px solid ${t.border}` }}>
+      <div className="absolute inset-y-0 left-0 w-13" style={{ background: sidebar, borderRight: `1px solid ${t.border}` }}>
         <div className="flex items-center gap-1.5 px-2 pt-2.5">
           <div className="size-1.75 rounded-xs" style={{ background: t.accent }} />
           <div className="h-0.75 w-6 rounded-full opacity-70" style={{ background: t.muted }} />
@@ -101,7 +103,12 @@ function ThemeStrip({ t }: { t: ThemeDef }) {
         <span
           key={i}
           className="size-5 rounded-full"
-          style={{ background: c, boxShadow: i < 2 ? 'inset 0 0 0 1px color-mix(in oklab, var(--fg) 25%, transparent)' : '0 0 0 2px var(--panel)' }}
+          style={{
+            background: c,
+            boxShadow: i < 2 && t.mode === 'light'
+              ? 'inset 0 0 0 1px color-mix(in oklab, var(--fg) 25%, transparent)'
+              : '0 0 0 2px var(--panel)',
+          }}
         />
       ))}
     </span>

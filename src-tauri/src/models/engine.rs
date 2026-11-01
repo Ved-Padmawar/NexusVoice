@@ -206,7 +206,7 @@ impl TranscriptionEngine {
         });
 
         RunOptions {
-            // Word timestamps drive the pipeline's mid-segment trim.
+            // Decides how finely the pipeline can trim.
             timestamps: self.timestamps,
             // English-only models know nothing else, whatever the setting says.
             language: if self.entry.multilingual {
@@ -277,6 +277,8 @@ fn resolve_language(advertised: &[String], language: Option<&str>) -> Option<Str
 
 /// Fold a transcript's word rows into the per-segment shape the pipeline wants.
 fn build_segments(transcript: &transcribe_cpp::Transcript) -> Vec<TimedSegment> {
+    // A model without timestamps reports every segment as ending at 0 ms.
+    let timed = transcript.timestamp_kind != TimestampKind::None;
     let mut segments: Vec<TimedSegment> = Vec::with_capacity(transcript.segments.len());
 
     for (idx, seg) in transcript.segments.iter().enumerate() {
@@ -309,7 +311,7 @@ fn build_segments(transcript: &transcribe_cpp::Transcript) -> Vec<TimedSegment> 
 
         segments.push(TimedSegment {
             words,
-            end_ms: seg.t1_ms,
+            end_ms: timed.then_some(seg.t1_ms),
         });
     }
 

@@ -1,6 +1,7 @@
 use super::{
-    common_prefix_len, final_speech_offset, from_ms, lead_speech_offset, normalize_word,
-    trailing_overlap, LeadingSpeech, StreamingSession, VAD_CHUNK_16K, VAD_PAD_FRAMES,
+    common_prefix_len, final_speech_offset, from_ms, last_covered_pause, lead_speech_offset,
+    normalize_word, trailing_overlap, LeadingSpeech, StreamingSession, VAD_CHUNK_16K,
+    VAD_PAD_FRAMES,
 };
 use crate::models::transcript::{TimedSegment, Word};
 
@@ -182,7 +183,7 @@ fn hypothesis(texts: &[&str], end_ms: i64) -> Vec<TimedSegment> {
             .enumerate()
             .map(|(i, t)| word(t, i64::try_from(i).expect("test index") * 400 + 400))
             .collect(),
-        end_ms,
+        end_ms: Some(end_ms),
     }]
 }
 
@@ -269,18 +270,18 @@ fn trim_cuts_at_a_committed_segment_boundary_without_touching_text() {
     session.segments = vec![
         TimedSegment {
             words: vec![word(" one", 400), word(" two", 800)],
-            end_ms: 800,
+            end_ms: Some(800),
         },
         TimedSegment {
             words: vec![word(" three", 1200)],
-            end_ms: 1200,
+            end_ms: Some(1200),
         },
     ];
     session.set_committed(&["one", "two"]);
     session.hyp_committed = 2;
     let total_len = 20 * native_rate as usize;
 
-    assert!(session.trim(total_len, native_rate));
+    assert!(session.trim_at_segment(total_len, native_rate));
 
     // Audio and hypothesis advance; the transcript is untouched.
     assert_eq!(session.text(), "one two");
@@ -296,17 +297,17 @@ fn trim_is_a_noop_when_no_segment_is_fully_committed() {
     session.segments = vec![
         TimedSegment {
             words: vec![word(" one", 400), word(" two", 800)],
-            end_ms: 800,
+            end_ms: Some(800),
         },
         TimedSegment {
             words: vec![word(" three", 1200)],
-            end_ms: 1200,
+            end_ms: Some(1200),
         },
     ];
     session.set_committed(&["one"]);
     session.hyp_committed = 1;
 
-    assert!(!session.trim(20 * native_rate as usize, native_rate));
+    assert!(!session.trim_at_segment(20 * native_rate as usize, native_rate));
     assert_eq!(session.window_start, 0);
 }
 
@@ -320,11 +321,11 @@ fn committing_continues_across_a_trim() {
         session.segments = vec![
             TimedSegment {
                 words: vec![word(" one", 400), word(" two", 800)],
-                end_ms: 800,
+                end_ms: Some(800),
             },
             TimedSegment {
                 words: vec![word(" three", 1200)],
-                end_ms: 1200,
+                end_ms: Some(1200),
             },
         ];
         session.absorb();
@@ -333,7 +334,7 @@ fn committing_continues_across_a_trim() {
     assert_eq!(session.hyp_committed, 3);
 
     // The first segment is fully committed, so it can be cut away.
-    assert!(session.trim(20 * native_rate as usize, native_rate));
+    assert!(session.trim_at_segment(20 * native_rate as usize, native_rate));
     assert_eq!(session.window_start, from_ms(800, native_rate));
     assert_eq!(session.hyp_committed, 1, "only \"three\" is still in view");
 
@@ -348,7 +349,7 @@ fn committing_continues_across_a_trim() {
 }
 
 #[test]
-fn force_trim_cuts_at_a_committed_word_boundary() {
+fn word_trim_cuts_at_a_committed_word_boundary() {
     let mut session = StreamingSession::new();
     let native_rate = 16_000;
     session.segments = vec![TimedSegment {
@@ -359,13 +360,13 @@ fn force_trim_cuts_at_a_committed_word_boundary() {
             word(" four", 1600),
             word(" five", 2000),
         ],
-        end_ms: 2000,
+        end_ms: Some(2000),
     }];
     session.set_committed(&["one", "two", "three", "four"]);
     session.hyp_committed = 4;
     let total_len = 20 * native_rate as usize;
 
-    session.force_trim(total_len, native_rate);
+    assert!(session.trim_at_word(total_len, native_rate));
 
     // A buffer cut only — the text was committed on agreement, not here.
     assert_eq!(session.text(), "one two three four");
@@ -376,19 +377,19 @@ fn force_trim_cuts_at_a_committed_word_boundary() {
 }
 
 #[test]
-fn force_trim_is_a_noop_when_nothing_is_committed() {
+fn word_trim_is_a_noop_when_nothing_is_committed() {
     let mut session = StreamingSession::new();
     let native_rate = 16_000;
     session.segments = hypothesis(&[" one", " two"], 2000);
     session.hyp_committed = 0;
 
-    session.force_trim(20 * native_rate as usize, native_rate);
+    assert!(!session.trim_at_word(20 * native_rate as usize, native_rate));
 
     assert_eq!(session.window_start, 0);
 }
 
 #[test]
-fn force_trim_is_a_noop_without_word_end_times() {
+fn word_trim_is_a_noop_without_word_end_times() {
     let mut session = StreamingSession::new();
     let native_rate = 16_000;
     session.segments = vec![TimedSegment {
@@ -396,31 +397,130 @@ fn force_trim_is_a_noop_without_word_end_times() {
             text: " hello".to_string(),
             end_cs: None,
         }],
-        end_ms: 2000,
+        end_ms: Some(2000),
     }];
     session.set_committed(&["hello"]);
     session.hyp_committed = 1;
 
-    session.force_trim(20 * native_rate as usize, native_rate);
+    assert!(!session.trim_at_word(20 * native_rate as usize, native_rate));
 
     assert_eq!(session.text(), "hello");
     assert_eq!(session.window_start, 0);
 }
 
 #[test]
-fn force_trim_is_a_noop_when_it_would_leave_too_little_window() {
+fn word_trim_is_a_noop_when_it_would_leave_too_little_window() {
     let mut session = StreamingSession::new();
     let native_rate = 16_000;
     session.segments = vec![TimedSegment {
         words: vec![word(" hello", 1990)],
-        end_ms: 2000,
+        end_ms: Some(2000),
     }];
     session.set_committed(&["hello"]);
     session.hyp_committed = 1;
 
-    session.force_trim(20 * native_rate as usize, native_rate);
+    assert!(!session.trim_at_word(20 * native_rate as usize, native_rate));
 
     assert_eq!(session.window_start, 0);
+}
+
+// ── models without timestamps ──────────────────────────────────────────
+
+/// Speech, a one second pause, then more speech: a 13 s window whose only
+/// cuttable pause sits at 4.5 s, outside the audio a pause cut must keep.
+fn window_with_a_pause() -> Vec<f32> {
+    let mut audio = voiced(4 * 16_000);
+    audio.extend(vec![0.0; 16_000]);
+    audio.extend(voiced(8 * 16_000));
+    audio
+}
+
+/// A session holding `window_with_a_pause` whose hypothesis carries no times.
+fn untimed_session() -> StreamingSession {
+    let mut session = StreamingSession::new();
+    session.window_16k = window_with_a_pause();
+    session.fed = session.window_16k.len();
+    session.segments = vec![TimedSegment {
+        words: vec![
+            Word {
+                text: " one".to_string(),
+                end_cs: None,
+            },
+            Word {
+                text: " two".to_string(),
+                end_cs: None,
+            },
+        ],
+        end_ms: None,
+    }];
+    session.set_committed(&["one", "two"]);
+    session.hyp_committed = 2;
+    session.prev_norm = words(&["three"]);
+    session
+}
+
+#[test]
+fn segment_trim_skips_segments_without_end_times() {
+    // An untimed model reports every segment at 0 ms; cutting there would
+    // claim a boundary that does not exist.
+    let mut session = untimed_session();
+    session.segments.push(session.segments[0].clone());
+
+    assert!(!session.trim_at_segment(13 * 16_000, 16_000));
+    assert_eq!(session.window_start, 0);
+}
+
+#[test]
+fn last_covered_pause_is_none_in_unbroken_speech() {
+    assert_eq!(last_covered_pause(&voiced(4 * 16_000), 2, 2), None);
+}
+
+#[test]
+fn last_covered_pause_lands_inside_the_silence() {
+    let pause =
+        last_covered_pause(&window_with_a_pause(), 2, 2).expect("the pause should be found");
+
+    assert!(
+        (4 * 16_000..5 * 16_000).contains(&pause),
+        "cut at {pause} is outside the silence"
+    );
+}
+
+#[test]
+fn pause_trim_cuts_in_the_silence_and_keeps_the_unconfirmed_tail() {
+    let mut session = untimed_session();
+    let before = session.window_16k.len();
+
+    assert!(session.trim_at_pause(16_000));
+
+    assert!((4 * 16_000..5 * 16_000).contains(&session.window_start));
+    assert_eq!(session.window_16k.len(), before - session.window_start);
+    assert_eq!(session.segments.len(), 0);
+    assert_eq!(session.prev_norm, words(&["three"]));
+    assert_eq!(session.hyp_committed, 0);
+    assert_eq!(session.text(), "one two", "a buffer cut never touches text");
+}
+
+#[test]
+fn pause_trim_stays_within_the_committed_text() {
+    // Half the words are committed, so the pause a third of the way through the
+    // speech may hold words nobody has confirmed yet.
+    let mut session = untimed_session();
+    session.hyp_committed = 1;
+
+    assert!(!session.trim_at_pause(16_000));
+    assert_eq!(session.window_start, 0);
+    assert_eq!(session.hyp_committed, 1);
+}
+
+#[test]
+fn a_long_untimed_window_is_cut_at_a_pause() {
+    // No segment or word times: the chain reaches the pause cut on its own.
+    let mut session = untimed_session();
+
+    session.trim(13 * 16_000, 16_000);
+
+    assert!((4 * 16_000..5 * 16_000).contains(&session.window_start));
 }
 
 // ── would_decode ───────────────────────────────────────────────────────
@@ -577,18 +677,18 @@ fn trim_refuses_a_cut_that_would_leave_too_little_audio() {
     session.segments = vec![
         TimedSegment {
             words: vec![word(" one", 400)],
-            end_ms: 9_500,
+            end_ms: Some(9_500),
         },
         TimedSegment {
             words: vec![word(" two", 10_000)],
-            end_ms: 10_000,
+            end_ms: Some(10_000),
         },
     ];
     session.set_committed(&["one"]);
     session.hyp_committed = 1;
 
     // Buffer is 10 s; cutting at 9.5 s would leave 0.5 s.
-    assert!(!session.trim(10 * native_rate as usize, native_rate));
+    assert!(!session.trim_at_segment(10 * native_rate as usize, native_rate));
     assert_eq!(session.window_start, 0, "window must not move");
     assert_eq!(session.segments.len(), 2);
 }

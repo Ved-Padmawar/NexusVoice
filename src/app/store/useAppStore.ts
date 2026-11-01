@@ -27,7 +27,7 @@ export const useAppStore = create<AppState>()(
       // Main-window prefs only. The backend owns the model selection and the
       // pill's preferences, which the pill window reads too.
       partialize: (state) => ({ theme: state.theme, activeRoute: state.activeRoute, activeSettingsTab: state.activeSettingsTab, modelChosen: state.modelChosen, cudaOfferSeen: state.cudaOfferSeen }),
-      version: 3,
+      version: 4,
       migrate: (persisted, from) => {
         const { pillTheme, waveformStyle, liveTranscript, ...rest } = (persisted ?? {}) as Record<string, unknown>
         if (from < 2) {
@@ -37,11 +37,11 @@ export const useAppStore = create<AppState>()(
           const set = Object.entries(pill).filter(([, v]) => v !== undefined)
           if (set.length > 0) stashLegacyPill(Object.fromEntries(set) as Partial<PillSettings>)
         }
+        // A retired theme has no stylesheet and would render unthemed.
+        if (rest.theme !== undefined && !(THEME_NAMES as readonly unknown[]).includes(rest.theme)) {
+          rest.theme = DEFAULT_THEME
+        }
         if (from < 3) {
-          // Abyss and Pine were retired; a theme with no stylesheet renders unthemed.
-          if (rest.theme !== undefined && !(THEME_NAMES as readonly unknown[]).includes(rest.theme)) {
-            rest.theme = DEFAULT_THEME
-          }
           // The pill's themes moved into Appearance; hotkeys into General.
           if (rest.activeSettingsTab === 'pill') rest.activeSettingsTab = 'appearance'
           if (rest.activeSettingsTab === 'shortcuts') rest.activeSettingsTab = 'general'
