@@ -5,3 +5,8 @@ export function extractErrorMessage(e: unknown, fallback: string): string {
   }
   return fallback
 }
+
+/** Whether a value thrown from Rust is the `ApiError` with this `code`. */
+export function hasErrorCode(e: unknown, code: string): boolean {
+  return typeof e === 'object' && e !== null && 'code' in e && e.code === code
+}

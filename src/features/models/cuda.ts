@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { relaunch } from '@tauri-apps/plugin-process'
+import { relaunchApp } from '../../shared/relaunch'
 import { toast } from 'sonner'
 import { commands, events } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
@@ -66,7 +66,7 @@ export async function listenForCudaEvents(): Promise<() => void> {
       void refreshCuda()
       // The open dialog shows its own Restart.
       if (!useAppStore.getState().cudaOfferOpen) toast.success('CUDA is ready. Restart NexusVoice to use it.', {
-        action: { label: 'Restart', onClick: () => { void relaunch() } },
+        action: { label: 'Restart', onClick: () => { void relaunchApp() } },
       })
     }),
     events.cudaDownloadCancelled.listen(() => { void refreshCuda() }),

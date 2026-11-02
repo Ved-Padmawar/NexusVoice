@@ -1,6 +1,7 @@
 import { check } from '@tauri-apps/plugin-updater'
-import { relaunch } from '@tauri-apps/plugin-process'
-import { extractErrorMessage } from '../../shared/errors'
+import { toast } from 'sonner'
+import { commands } from '../../shared/bindings'
+import { extractErrorMessage, hasErrorCode } from '../../shared/errors'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
 
@@ -15,7 +16,8 @@ export type UpdateSlice = {
   updateProgress: number
   updateError: string | null
   checkForUpdate: () => Promise<void>
-  installUpdate: () => Promise<void>
+  downloadUpdate: () => Promise<void>
+  /** Install the downloaded update and restart into it. */
   restartForUpdate: () => Promise<void>
 }
 
@@ -31,6 +33,7 @@ export const createUpdateSlice: StateCreator<AppState, [], [], UpdateSlice> = (s
       const update = await check()
       if (update?.available) {
         updateHandle = update
+        installation = null
         set({ updateStatus: 'available', updateVersion: update.version })
       } else {
         set({ updateStatus: 'up-to-date', updateVersion: null })
@@ -40,14 +43,14 @@ export const createUpdateSlice: StateCreator<AppState, [], [], UpdateSlice> = (s
     }
   },
 
-  installUpdate: async () => {
+  downloadUpdate: async () => {
     const update = updateHandle
     if (!update || get().updateStatus === 'downloading') return
     set({ updateStatus: 'downloading', updateProgress: 0, updateError: null })
     try {
       let total = 0
       let downloaded = 0
-      await update.downloadAndInstall((progress) => {
+      await update.download((progress) => {
         if (progress.event === 'Started') {
           total = progress.data.contentLength ?? 0
         } else if (progress.event === 'Progress') {
@@ -57,19 +60,33 @@ export const createUpdateSlice: StateCreator<AppState, [], [], UpdateSlice> = (s
           const pct = Math.round((downloaded / total) * 100)
           if (pct !== get().updateProgress) set({ updateProgress: pct })
         } else if (progress.event === 'Finished') {
-          set({ updateStatus: 'ready', updateProgress: 100 })
+          set({ updateProgress: 100 })
         }
       })
+      set({ updateStatus: 'ready' })
     } catch (e) {
       set({ updateStatus: 'error', updateError: extractErrorMessage(e, 'Download failed') })
     }
   },
 
   restartForUpdate: async () => {
+    const update = updateHandle
+    if (!update) return
     try {
-      await relaunch()
+      // Kept, so a double click installs once.
+      installation ??= install(update).catch((e: unknown) => {
+        installation = null
+        throw e
+      })
+      await installation
+      await commands.relaunchApp()
     } catch (e) {
-      set({ updateStatus: 'error', updateError: extractErrorMessage(e, 'Restart failed') })
+      if (hasErrorCode(e, 'recording_in_progress')) {
+        // Still ready: Restart works once the dictation ends.
+        toast.error(extractErrorMessage(e, 'Finish the current dictation first'))
+      } else {
+        set({ updateStatus: 'error', updateError: extractErrorMessage(e, 'Restart failed') })
+      }
     }
   },
 })
@@ -77,3 +94,18 @@ export const createUpdateSlice: StateCreator<AppState, [], [], UpdateSlice> = (s
 /** The plugin's updater handle. Kept outside the store because it is a live
  *  object with methods, not serializable state. */
 let updateHandle: Awaited<ReturnType<typeof check>> | null = null
+
+/** The install of `updateHandle`, once started. */
+let installation: Promise<void> | null = null
+
+/** Installing can end the process (Windows), so Rust first refuses new
+ *  recordings, and lets them back in if the install fails. */
+async function install(update: NonNullable<typeof updateHandle>) {
+  await commands.prepareRestart()
+  try {
+    await update.install()
+  } catch (e) {
+    await commands.cancelRestart()
+    throw e
+  }
+}

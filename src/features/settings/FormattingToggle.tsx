@@ -67,11 +67,21 @@ export function FormattingToggle() {
   const configured = isConfigured(config.provider, active)
   const dim = config.enabled ? '' : 'opacity-50'
 
+  const [saving, setSaving] = useState(false)
+
   const persist = async (next: FormatterView) => {
+    const previous = config
     setConfig(next)
-    await commands.setFormatConfig(keepingKeys(next)).catch(() => {
+    setSaving(true)
+    try {
+      await commands.setFormatConfig(keepingKeys(next))
+    } catch {
       toast.error('Failed to save formatting settings')
-    })
+      // Rust kept the old setting; show that, not the one we hoped to save.
+      setConfig(await commands.getFormatConfig().catch(() => previous))
+    } finally {
+      setSaving(false)
+    }
   }
 
   const toggle = async (next: boolean) => {
@@ -98,7 +108,7 @@ export function FormattingToggle() {
           <SparkleIcon size={16} weight="duotone" />
         </span>
         <p className="flex-1 text-sm font-semibold text-fg">Smart formatting</p>
-        <Switch checked={config.enabled} onChange={(on) => void toggle(on)} aria-label="Smart formatting" />
+        <Switch checked={config.enabled} disabled={saving} onChange={(on) => void toggle(on)} aria-label="Smart formatting" />
       </div>
       <p className="text-xs text-pretty text-muted">
         Sends each transcript to your LLM to fix punctuation and turn spoken lists into real ones. If it fails, you get the raw transcript.

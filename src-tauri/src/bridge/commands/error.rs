@@ -71,6 +71,10 @@ impl From<RecordError> for ApiError {
             }
             RecordError::Unavailable(e) => Self::new("model_unavailable", e),
             RecordError::Capture(e) => Self::new("capture_failed", e),
+            RecordError::Failed => {
+                Self::new("recorder_failed", "the recorder hit an internal error")
+            }
+            RecordError::Restarting => Self::new("restarting", "NexusVoice is restarting"),
         }
     }
 }

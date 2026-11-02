@@ -77,10 +77,27 @@ async getHotkeys() : Promise<HotkeyBindings> {
     return await TAURI_INVOKE("get_hotkeys");
 },
 /**
+ * What is bound with the OS right now. A saved shortcut another application
+ * holds is saved but missing here.
+ */
+async getBoundHotkeys() : Promise<HotkeyBindings> {
+    return await TAURI_INVOKE("get_bound_hotkeys");
+},
+/**
  * Bind `hotkey` to `kind`, or unbind it with `None`.
  */
 async setHotkey(kind: HotkeyKind, hotkey: string | null) : Promise<null> {
     return await TAURI_INVOKE("set_hotkey", { kind, hotkey });
+},
+/**
+ * Release the shortcuts while a new one is being captured. Not saved; they
+ * come back on `resume_hotkeys`, a `set_hotkey`, or after a timeout.
+ */
+async suspendHotkeys() : Promise<null> {
+    return await TAURI_INVOKE("suspend_hotkeys");
+},
+async resumeHotkeys() : Promise<null> {
+    return await TAURI_INVOKE("resume_hotkeys");
 },
 async getPillSettings() : Promise<PillSettingsSnapshot> {
     return await TAURI_INVOKE("get_pill_settings");
@@ -212,6 +229,22 @@ async logFrontend(level: string, message: string, context: string | null) : Prom
  */
 async waitForAppReady() : Promise<null> {
     return await TAURI_INVOKE("wait_for_app_ready");
+},
+/**
+ * Refuse new recordings before installing an update, until `cancel_restart`.
+ * Fails while a dictation is still being recorded or transcribed.
+ */
+async prepareRestart() : Promise<null> {
+    return await TAURI_INVOKE("prepare_restart");
+},
+async cancelRestart() : Promise<void> {
+    await TAURI_INVOKE("cancel_restart");
+},
+/**
+ * Restart the app, unless a dictation is still being recorded or transcribed.
+ */
+async relaunchApp() : Promise<null> {
+    return await TAURI_INVOKE("relaunch_app");
 }
 }
 

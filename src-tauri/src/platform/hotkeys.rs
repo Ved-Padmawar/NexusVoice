@@ -1,5 +1,7 @@
 //! Global shortcuts: bound with the OS while the app runs, saved in settings.
 
+use std::time::Duration;
+
 use serde::Deserialize;
 use specta::Type;
 use tauri::{AppHandle, Manager};
@@ -8,6 +10,10 @@ use tokio::sync::Mutex;
 
 use crate::session::{recorder::Action, Recorder};
 use crate::settings::{HotkeyBindings, Settings};
+use crate::sync::lock_recovering;
+
+/// How long the key editor may hold the shortcuts released before they return.
+const CAPTURE_LEASE: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -69,6 +75,8 @@ pub fn conflicts(bindings: &HotkeyBindings, kind: HotkeyKind, hotkey: &str) -> b
 #[derive(Default)]
 pub struct Hotkeys {
     bound: Mutex<HotkeyBindings>,
+    /// Ends the current capture lease on its own if it is never released.
+    lease_expiry: std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
 
 impl Hotkeys {
@@ -107,10 +115,49 @@ impl Hotkeys {
             return Err(e);
         }
         *bound = next;
+        self.end_lease();
         *kind.slot(&mut saved) = hotkey;
         settings
             .set_hotkeys(saved)
             .map_err(|e| HotkeyError::Save(e.to_string()))
+    }
+
+    /// The shortcuts the OS actually granted, which can be fewer than saved.
+    pub async fn bound(&self) -> HotkeyBindings {
+        self.bound.lock().await.clone()
+    }
+
+    /// Release every shortcut with the OS until `resume`, a `set`, or the lease expires.
+    pub async fn suspend(&self, app: &AppHandle) -> Result<(), HotkeyError> {
+        let _bound = self.bound.lock().await;
+        app.global_shortcut()
+            .unregister_all()
+            .map_err(|e| HotkeyError::Unregister(e.to_string()))?;
+
+        let handle = app.clone();
+        let expiry = tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(CAPTURE_LEASE).await;
+            handle
+                .state::<Self>()
+                .restore(&handle, &handle.state::<Settings>())
+                .await;
+        });
+        if let Some(previous) = lock_recovering(&self.lease_expiry).replace(expiry) {
+            previous.abort();
+        }
+        Ok(())
+    }
+
+    /// End the capture lease and bind the saved shortcuts again, each on its own.
+    pub async fn resume(&self, app: &AppHandle, settings: &Settings) {
+        self.end_lease();
+        self.restore(app, settings).await;
+    }
+
+    fn end_lease(&self) {
+        if let Some(expiry) = lock_recovering(&self.lease_expiry).take() {
+            expiry.abort();
+        }
     }
 }
 

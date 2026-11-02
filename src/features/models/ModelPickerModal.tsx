@@ -23,7 +23,8 @@ export function ModelPickerModal() {
   const [confirmed, setConfirmed] = useState(false)
   // Otherwise Confirm sits disabled with no explanation when the probe fails.
   const [hardwareError, setHardwareError] = useState<string | null>(null)
-  const loadError = catalogQuery.isError ? 'Could not load the model catalog.' : hardwareError
+  const [startError, setStartError] = useState<string | null>(null)
+  const loadError = catalogQuery.isError ? 'Could not load the model catalog.' : hardwareError ?? startError
 
   // Returning user whose modelChosen got reset but model is on disk: skip the modal.
   useEffect(() => {
@@ -54,11 +55,22 @@ export function ModelPickerModal() {
         setModelChosen(true)
         return
       }
-      void startDownload(selected)
+      if (!(await startDownload(selected))) {
+        setStartError('Could not start the download.')
+        setConfirming(false)
+        return
+      }
+      setStartError(null)
       setConfirmed(true)
     } catch {
       setConfirming(false)
     }
+  }
+
+  // After a failed download: back to the list to retry or pick another.
+  const backToChoice = () => {
+    setConfirmed(false)
+    setConfirming(false)
   }
 
   const download = useDownload(selected).data
@@ -191,7 +203,17 @@ export function ModelPickerModal() {
         </div>
 
         <div className="shrink-0 px-6 py-3 border-t border-line-soft">
-          {confirmed ? (
+          {confirmed && download?.status === 'error' ? (
+            <div className="flex items-center justify-between gap-4 transition-opacity starting:opacity-0">
+              <p className="text-[11px] min-w-0 truncate text-danger">
+                {download.error ?? 'Download failed'}
+              </p>
+              <Button variant="tinted" className="shrink-0 min-w-44" onClick={backToChoice}>
+                <ArrowsClockwiseIcon size={12} weight="bold" />
+                Try again
+              </Button>
+            </div>
+          ) : confirmed ? (
             <div className="flex flex-col gap-2 transition-opacity starting:opacity-0">
               <div className="flex items-center justify-between text-[11px] mb-1">
                 <span className="text-fg-2">

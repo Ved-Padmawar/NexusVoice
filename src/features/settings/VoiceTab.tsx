@@ -251,11 +251,11 @@ export function VoiceTab() {
   // `selected` is set even with nothing downloaded, so require the file too.
   const loadedVariant = selected && onDiskVariants.has(selected) ? selected : null
 
-  // In use first, then what is on disk, then the rest; smallest first within each.
+  // On disk first, then the rest; smallest first. Choosing a model never reorders.
   const ordered = useMemo(() => {
-    const rank = (m: CatalogModel) => (m.id === loadedVariant ? 0 : onDiskVariants.has(m.id) ? 1 : 2)
+    const rank = (m: CatalogModel) => (onDiskVariants.has(m.id) ? 0 : 1)
     return [...catalog].sort((a, b) => rank(a) - rank(b) || a.sizeBytes - b.sizeBytes)
-  }, [catalog, loadedVariant, onDiskVariants])
+  }, [catalog, onDiskVariants])
 
   const diskBytes = onDisk.reduce((a, m) => a + m.sizeBytes, 0)
 

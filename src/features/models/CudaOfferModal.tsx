@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { relaunch } from '@tauri-apps/plugin-process'
+import { relaunchApp } from '../../shared/relaunch'
 import { WarningCircleIcon, CheckCircleIcon, DownloadSimpleIcon, HardDrivesIcon, ArrowsClockwiseIcon, ArrowCounterClockwiseIcon, ShieldCheckIcon, XIcon, LightningIcon } from '@phosphor-icons/react'
 import { Button } from '../../shared/ui/Button'
 import { commands } from '../../shared/bindings'
@@ -82,7 +82,7 @@ export function CudaOfferModal() {
         <Text>Restart NexusVoice to start transcribing on CUDA.</Text>
         <Actions>
           <Button variant="outline" onClick={close}>Later</Button>
-          <Button variant="tinted" onClick={() => relaunch()}><ArrowCounterClockwiseIcon size={11} weight="bold" />Restart now</Button>
+          <Button variant="tinted" onClick={relaunchApp}><ArrowCounterClockwiseIcon size={11} weight="bold" />Restart now</Button>
         </Actions>
       </>
     ) : (

@@ -1,7 +1,7 @@
 //! Background work for the recording in progress: the waveform feed and the
 //! decoders that run while the user speaks.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
@@ -24,9 +24,43 @@ const STREAM_POLL: Duration = Duration::from_millis(200);
 /// Waveform frame interval, ~30 Hz.
 const WAVEFORM_TICK: Duration = Duration::from_millis(33);
 
+/// Counts recordings. A worker that outlives its recording holds a stale
+/// ticket: it stops, and anything it still produces is discarded.
+#[derive(Clone, Default)]
+pub struct Generation(Arc<AtomicU64>);
+
+impl Generation {
+    /// Start a recording; every earlier ticket becomes stale.
+    pub fn begin(&self) -> Ticket {
+        let id = self.0.fetch_add(1, Ordering::SeqCst) + 1;
+        Ticket {
+            id,
+            latest: Arc::clone(&self.0),
+        }
+    }
+
+    /// Make every ticket stale, for a worker the recording stopped waiting on.
+    pub fn retire(&self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[derive(Clone)]
+pub struct Ticket {
+    id: u64,
+    latest: Arc<AtomicU64>,
+}
+
+impl Ticket {
+    pub fn is_current(&self) -> bool {
+        self.latest.load(Ordering::SeqCst) == self.id
+    }
+}
+
 /// State the capture callback and the workers share with the recorder.
 #[derive(Clone)]
 pub struct Capture {
+    pub generation: Generation,
     /// Set while the user is recording; the workers run until it drops.
     pub capturing: Arc<AtomicBool>,
     pub audio: Arc<Mutex<Vec<f32>>>,
@@ -43,16 +77,17 @@ pub struct Capture {
     pub stream_done: Arc<(Mutex<bool>, Condvar)>,
 }
 
-pub fn spawn_all(app: &AppHandle, capture: &Capture) {
+pub fn spawn_all(app: &AppHandle, capture: &Capture, ticket: &Ticket) {
     *lock_recovering(&capture.stream_done.0) = false;
-    spawn_waveform(app, capture.clone());
-    spawn_local_agreement(app, capture.clone());
-    spawn_native_stream(app, capture.clone());
+    spawn_waveform(app, capture.clone(), ticket.clone());
+    spawn_local_agreement(app, capture.clone(), ticket.clone());
+    spawn_native_stream(app, capture.clone(), ticket.clone());
 }
 
-/// Push one live-transcript frame to the pill, skipping empty ones.
-fn emit_partial(app: &AppHandle, (committed, tentative): (String, String)) {
-    if committed.is_empty() && tentative.is_empty() {
+/// Push one live-transcript frame to the pill, skipping empty ones and any
+/// from a recording that has been replaced.
+fn emit_partial(app: &AppHandle, ticket: &Ticket, (committed, tentative): (String, String)) {
+    if !ticket.is_current() || (committed.is_empty() && tentative.is_empty()) {
         return;
     }
     let _ = TranscriptionPartial {
@@ -62,13 +97,21 @@ fn emit_partial(app: &AppHandle, (committed, tentative): (String, String)) {
     .emit_to(app, "pill");
 }
 
-/// Signals on drop, so every early return unblocks finalize.
-struct StreamDone(Arc<(Mutex<bool>, Condvar)>);
+/// Signals on drop, so every early return unblocks finalize. A stale worker
+/// stays silent; the flag belongs to the newer recording.
+struct StreamDone {
+    flag: Arc<(Mutex<bool>, Condvar)>,
+    ticket: Ticket,
+}
 
 impl Drop for StreamDone {
     fn drop(&mut self) {
-        *lock_recovering(&self.0 .0) = true;
-        self.0 .1.notify_all();
+        let (lock, cvar) = &*self.flag;
+        let mut done = lock_recovering(lock);
+        if self.ticket.is_current() {
+            *done = true;
+            cvar.notify_all();
+        }
     }
 }
 
@@ -76,14 +119,17 @@ impl Drop for StreamDone {
 /// finished transcript for finalize to collect. The engine may still be
 /// loading, so this worker and the growing-window one both start, and each
 /// exits if the other owns the recording.
-fn spawn_native_stream(app: &AppHandle, capture: Capture) {
+fn spawn_native_stream(app: &AppHandle, capture: Capture, ticket: Ticket) {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let _done = StreamDone(Arc::clone(&capture.stream_done));
+        let _done = StreamDone {
+            flag: Arc::clone(&capture.stream_done),
+            ticket: ticket.clone(),
+        };
         let cache = app.state::<EngineCache>();
 
         let engine = loop {
-            if !capture.capturing.load(Ordering::SeqCst) {
+            if !capture.capturing.load(Ordering::SeqCst) || !ticket.is_current() {
                 return;
             }
             if let Some(engine) = cache.loaded() {
@@ -114,6 +160,10 @@ fn spawn_native_stream(app: &AppHandle, capture: Capture) {
             let capturing = capture.capturing.load(Ordering::SeqCst) || capture.mic.is_armed();
             let chunk = {
                 let buf = lock_recovering(&capture.audio);
+                // Under the lock `prepare` clears with, so `fed` stays in range.
+                if !ticket.is_current() {
+                    break;
+                }
                 let chunk = buf[fed..].to_vec();
                 fed = buf.len();
                 chunk
@@ -136,7 +186,7 @@ fn spawn_native_stream(app: &AppHandle, capture: Capture) {
                 match prepared {
                     Ok(prepared) => {
                         if !prepared.is_empty() && stream.feed(&prepared) {
-                            emit_partial(&app, stream.partial());
+                            emit_partial(&app, &ticket, stream.partial());
                         }
                     }
                     Err(e) => stream.drop_chunk(&e),
@@ -148,22 +198,27 @@ fn spawn_native_stream(app: &AppHandle, capture: Capture) {
             std::thread::sleep(STREAM_POLL);
         }
 
-        let _ = TranscriptionPartialEnd.emit(&app);
+        if ticket.is_current() {
+            let _ = TranscriptionPartialEnd.emit(&app);
+        }
         let text = stream.finalize();
         let truncated = guard.was_truncated();
-        *lock_recovering(&capture.streamed) = text.map(|text| Streamed { text, truncated });
+        let mut streamed = lock_recovering(&capture.streamed);
+        if ticket.is_current() {
+            *streamed = text.map(|text| Streamed { text, truncated });
+        }
     });
 }
 
 /// Feed the growing buffer to the `StreamingSession` so finalize only has the
 /// tail left to decode. Without a loaded engine, finalize decodes everything
 /// in one pass.
-fn spawn_local_agreement(app: &AppHandle, capture: Capture) {
+fn spawn_local_agreement(app: &AppHandle, capture: Capture, ticket: Ticket) {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let cache = app.state::<EngineCache>();
         let mut route_logged = false;
-        while capture.capturing.load(Ordering::SeqCst) {
+        while capture.capturing.load(Ordering::SeqCst) && ticket.is_current() {
             std::thread::sleep(STREAM_POLL);
             let Some(engine) = cache.loaded() else {
                 continue;
@@ -179,6 +234,10 @@ fn spawn_local_agreement(app: &AppHandle, capture: Capture) {
             // takes the session first too, so it waits out an in-flight decode
             // and this worker exits on the emptied slot.
             let mut slot = lock_recovering(&capture.session);
+            // Checked under the lock `prepare` takes to replace the session.
+            if !ticket.is_current() {
+                break;
+            }
             let Some(session) = slot.as_mut() else {
                 break;
             };
@@ -208,20 +267,22 @@ fn spawn_local_agreement(app: &AppHandle, capture: Capture) {
                 cache.discard();
                 break;
             }
-            emit_partial(&app, session.partial());
+            emit_partial(&app, &ticket, session.partial());
         }
-        let _ = TranscriptionPartialEnd.emit(&app);
+        if ticket.is_current() {
+            let _ = TranscriptionPartialEnd.emit(&app);
+        }
     });
 }
 
 /// Emit waveform levels while recording. The same tick warns once if the mic
 /// dies, so the user stops talking into it.
-fn spawn_waveform(app: &AppHandle, capture: Capture) {
+fn spawn_waveform(app: &AppHandle, capture: Capture, ticket: Ticket) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let mut tick = tokio::time::interval(WAVEFORM_TICK);
         let mut warned = false;
-        while capture.capturing.load(Ordering::SeqCst) {
+        while capture.capturing.load(Ordering::SeqCst) && ticket.is_current() {
             tick.tick().await;
             let _ = PillWaveform(capture.waveform.levels()).emit_to(&app, "pill");
             if !warned && capture.mic.is_dead() {
@@ -233,6 +294,12 @@ fn spawn_waveform(app: &AppHandle, capture: Capture) {
                 .emit(&app);
             }
         }
-        let _ = PillWaveform([0.0; BANDS]).emit_to(&app, "pill");
+        if ticket.is_current() {
+            let _ = PillWaveform([0.0; BANDS]).emit_to(&app, "pill");
+        }
     });
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/session/workers.rs"]
+mod tests;

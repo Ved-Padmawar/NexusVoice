@@ -177,11 +177,7 @@ async fn format(app: &AppHandle, text: String, focus: Option<&FocusTarget>) -> S
     }
     let category = focus.map(|f| f.category);
     match crate::text::llm::client::format_transcript(&config, &text, category).await {
-        Ok(formatted) if !formatted.trim().is_empty() => formatted,
-        Ok(_) => {
-            log::warn!("formatter returned empty output; using the raw transcript");
-            text
-        }
+        Ok(formatted) => formatted,
         Err(e) => {
             log::warn!("formatter failed ({e}); using the raw transcript");
             text

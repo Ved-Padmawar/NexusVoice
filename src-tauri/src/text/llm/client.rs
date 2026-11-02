@@ -6,6 +6,7 @@
 use std::time::Duration;
 
 use super::anthropic;
+use super::completion::Completion;
 use super::config::FormatConfig;
 use super::openai::{self, ChatMessage, ChatRequest};
 use super::prompt::build_system_prompt;
@@ -38,7 +39,7 @@ pub async fn format_transcript(
     let system = build_system_prompt(destination);
 
     let active = cfg.active();
-    let text = if cfg.provider == "anthropic" {
+    let completion = if cfg.provider == "anthropic" {
         anthropic::send(cfg, &system, raw, max_tokens, 0.3, REQUEST_TIMEOUT).await?
     } else {
         let body = ChatRequest {
@@ -60,7 +61,23 @@ pub async fn format_transcript(
         openai::send_chat(cfg, &body, REQUEST_TIMEOUT).await?
     };
 
-    Ok(strip_artifacts(&text))
+    accept(&completion)
+}
+
+/// The reply as the formatted transcript, or why it can't be used. The caller
+/// pastes the raw transcript instead.
+fn accept(completion: &Completion) -> Result<String, String> {
+    if completion.truncated {
+        return Err("reply was cut off at the token limit".to_string());
+    }
+    let text = strip_artifacts(&completion.text);
+    if text.is_empty() {
+        return Err("reply was empty".to_string());
+    }
+    if starts_with_think_tag(&text) {
+        return Err("reply ends inside an unfinished reasoning block".to_string());
+    }
+    Ok(text)
 }
 
 /// Validate a config with a minimal reachability ping — a one-word prompt with a
@@ -104,18 +121,24 @@ fn max_tokens_for(raw: &str) -> u32 {
 /// Strip reasoning tags some models emit (e.g. Qwen `<think>…</think>`) and any
 /// stray chat markers, then trim.
 fn strip_artifacts(text: &str) -> String {
-    const OPEN: &str = "<think>";
-    const CLOSE: &str = "</think>";
-
     let mut s = text.trim();
     // Models emit several blocks, and the tag casing is not guaranteed.
-    while s.len() >= OPEN.len() && s[..OPEN.len()].eq_ignore_ascii_case(OPEN) {
-        let Some(end) = s.to_ascii_lowercase().find(CLOSE) else {
+    while starts_with_think_tag(s) {
+        let Some(end) = s.to_ascii_lowercase().find(THINK_CLOSE) else {
             break;
         };
-        s = s[end + CLOSE.len()..].trim_start();
+        s = s[end + THINK_CLOSE.len()..].trim_start();
     }
     s.trim().to_string()
+}
+
+const THINK_OPEN: &str = "<think>";
+const THINK_CLOSE: &str = "</think>";
+
+fn starts_with_think_tag(s: &str) -> bool {
+    // `get` returns None off a char boundary instead of panicking.
+    s.get(..THINK_OPEN.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(THINK_OPEN))
 }
 
 #[cfg(test)]

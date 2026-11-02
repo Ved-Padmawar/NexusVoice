@@ -14,7 +14,6 @@ import type { CudaStatus } from '../../../shared/types'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }))
-vi.mock('@tauri-apps/plugin-process', () => ({ relaunch: vi.fn() }))
 
 const mockInvoke = vi.mocked(invoke)
 const mockListen = vi.mocked(listen)

@@ -6,20 +6,25 @@ import { Switch } from '../../shared/ui/Switch'
 
 export function KeepMicOpenToggle() {
   const [keepOpen, setKeepOpen] = useState(false)
+  // Locked until the first read and during a save: it shows only what Rust confirmed.
+  const [busy, setBusy] = useState(true)
 
   useEffect(() => {
     commands.getKeepMicOpen()
       .then(setKeepOpen)
       .catch((e) => toast.error(extractErrorMessage(e, 'Could not read the microphone setting')))
+      .finally(() => setBusy(false))
   }, [])
 
   const change = async (keep: boolean) => {
-    setKeepOpen(keep)
+    setBusy(true)
     try {
       await commands.setKeepMicOpen(keep)
+      setKeepOpen(keep)
     } catch (e) {
-      setKeepOpen(!keep)
       toast.error(extractErrorMessage(e, 'Could not save the microphone setting'))
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -30,7 +35,7 @@ export function KeepMicOpenToggle() {
       className="flex shrink-0 cursor-pointer items-center gap-2 text-xs font-semibold text-fg-2"
     >
       Keep ready
-      <Switch checked={keepOpen} onChange={(on) => { void change(on) }} aria-label="Keep the microphone ready" />
+      <Switch checked={keepOpen} disabled={busy} onChange={(on) => { void change(on) }} aria-label="Keep the microphone ready" />
     </label>
   )
 }

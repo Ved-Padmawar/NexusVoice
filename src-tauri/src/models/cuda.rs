@@ -542,11 +542,9 @@ fn validate_manifest(manifest: &Manifest, platform: &str) -> Result<(), String> 
         ],
         _ => return Err("unsupported CUDA platform".to_string()),
     };
-    if manifest.platform != platform
-        || manifest.release != RELEASE_TAG
-        || manifest.files.len() != expected.len()
-    {
-        return Err("CUDA manifest platform, release or file set mismatch".to_string());
+    // `release` is not compared: a pack outlives app updates; the engine match decides.
+    if manifest.platform != platform || manifest.files.len() != expected.len() {
+        return Err("CUDA manifest platform or file set mismatch".to_string());
     }
     for (file, name) in manifest.files.iter().zip(expected) {
         // Exact basenames also reject separators, ADS, prefixes, reserved names,

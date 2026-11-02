@@ -72,12 +72,15 @@ const dropDownload = (id: string) =>
     return rest
   })
 
-export async function startDownload(id: ModelId) {
+/** Resolves false when the backend refused to start the download. */
+export async function startDownload(id: ModelId): Promise<boolean> {
   setDownload(id, { status: 'queued', progress: 0 })
   try {
     await commands.startModelDownload(id)
+    return true
   } catch {
     dropDownload(id)
+    return false
   }
 }
 

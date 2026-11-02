@@ -19,7 +19,7 @@ use crate::settings::Settings;
 use crate::sync::lock_recovering;
 
 use super::finalize::{self, Recording};
-use super::workers::{self, Capture};
+use super::workers::{self, Capture, Generation};
 
 /// The post-roll alone is 0.2 s, so this only drops a tap.
 const MIN_DURATION_SECS: f64 = 0.3;
@@ -98,10 +98,16 @@ pub enum RecordError {
     Finalizing,
     Capture(String),
     Unavailable(String),
+    /// The recorder's own task panicked.
+    Failed,
+    /// The app is about to restart.
+    Restarting,
 }
 
 pub struct Recorder {
     phase: Mutex<Phase>,
+    /// Set and read under `phase`, so no recording slips in once a restart holds.
+    restarting: AtomicBool,
     revision: AtomicU32,
     inputs: OnceLock<tokio::sync::mpsc::UnboundedSender<Request>>,
     /// Shared with the capture callback: drops samples while set.
@@ -126,10 +132,12 @@ impl Recorder {
         ));
         Self {
             phase: Mutex::new(Phase::Idle),
+            restarting: AtomicBool::new(false),
             revision: AtomicU32::new(0),
             inputs: OnceLock::new(),
             paused,
             capture: Capture {
+                generation: Generation::default(),
                 capturing: Arc::new(AtomicBool::new(false)),
                 audio,
                 sample_rate,
@@ -182,7 +190,7 @@ impl Recorder {
                     let result = if request.stale(finished_at) {
                         Err(RecordError::Finalizing)
                     } else {
-                        recorder.apply(&app, request.action).await
+                        recorder.apply_supervised(&app, request.action).await
                     };
                     if result.is_ok()
                         && before != RecordingStatus::Idle
@@ -229,6 +237,28 @@ impl Recorder {
         response.await.map_err(|_| RecordError::NotRunning)?
     }
 
+    /// Runs `apply` as its own task, so a panic cannot end the request loop.
+    async fn apply_supervised(&self, app: &AppHandle, action: Action) -> Result<(), RecordError> {
+        let task_app = app.clone();
+        let outcome = tauri::async_runtime::spawn(async move {
+            task_app.state::<Self>().apply(&task_app, action).await
+        })
+        .await;
+        outcome.unwrap_or_else(|e| {
+            log::error!("recorder task failed: {e}");
+            self.recover(app);
+            Err(RecordError::Failed)
+        })
+    }
+
+    /// Back to idle after a task died holding the recording.
+    fn recover(&self, app: &AppHandle) {
+        self.capture.mic.disarm();
+        self.reset();
+        let _ = TranscriptionError("Recording failed unexpectedly. Please try again.".to_string())
+            .emit(app);
+    }
+
     async fn apply(&self, app: &AppHandle, action: Action) -> Result<(), RecordError> {
         match action {
             Action::Press => self.start(app, Mode::PushToTalk).await,
@@ -252,10 +282,29 @@ impl Recorder {
         }
     }
 
+    /// Refuse new recordings until `release_restart`. False while a dictation is
+    /// still being recorded or transcribed.
+    pub fn hold_for_restart(&self) -> bool {
+        let phase = lock_recovering(&self.phase);
+        let idle = *phase == Phase::Idle;
+        if idle {
+            self.restarting.store(true, Ordering::SeqCst);
+        }
+        idle
+    }
+
+    pub fn release_restart(&self) {
+        let _phase = lock_recovering(&self.phase);
+        self.restarting.store(false, Ordering::SeqCst);
+    }
+
     fn claim_start(&self, mode: Mode) -> Result<(), RecordError> {
         let mut phase = lock_recovering(&self.phase);
         if *phase != Phase::Idle {
             return Err(RecordError::AlreadyRunning);
+        }
+        if self.restarting.load(Ordering::SeqCst) {
+            return Err(RecordError::Restarting);
         }
         self.change_phase(&mut phase, Phase::Recording(mode));
         Ok(())
@@ -322,6 +371,8 @@ impl Recorder {
     /// The mic is held open across recordings, so arming is an atomic store,
     /// not a device open.
     fn prepare(&self, app: &AppHandle, focus: Option<FocusTarget>) {
+        // First, so leftover workers go stale before their buffers are replaced.
+        let ticket = self.capture.generation.begin();
         self.paused.store(false, Ordering::SeqCst);
         {
             let rate = *lock_recovering(&self.capture.sample_rate) as usize;
@@ -346,7 +397,7 @@ impl Recorder {
             .warm_up(app.state::<Settings>().input_device());
 
         load_engine(app);
-        workers::spawn_all(app, &self.capture);
+        workers::spawn_all(app, &self.capture, &ticket);
     }
 
     fn pause(&self) -> Result<(), RecordError> {
@@ -555,17 +606,20 @@ impl Recorder {
     /// stops, so reading it straight away would lose the tail.
     async fn wait_for_stream_done(&self) {
         let done = Arc::clone(&self.capture.stream_done);
-        tauri::async_runtime::spawn_blocking(move || {
+        let timed_out = tauri::async_runtime::spawn_blocking(move || {
             let (lock, cvar) = &*done;
             let (_guard, wait) = cvar
                 .wait_timeout_while(lock_recovering(lock), STREAM_DONE_TIMEOUT, |done| !*done)
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if wait.timed_out() {
-                log::warn!("stream-done signal missed; finalizing without the streamed tail");
-            }
+            wait.timed_out()
         })
         .await
-        .ok();
+        .unwrap_or(true);
+        if timed_out {
+            log::warn!("stream-done signal missed; finalizing without the streamed tail");
+            // Before finish takes the buffer, so the worker stops instead of reading it.
+            self.capture.generation.retire();
+        }
     }
 }
 
@@ -637,6 +691,27 @@ mod tests {
         recorder.claim_start(Mode::PushToTalk).unwrap();
         tauri::async_runtime::block_on(recorder.cancel());
         assert_eq!(recorder.snapshot().status, RecordingStatus::Idle);
+    }
+
+    #[test]
+    fn a_restart_hold_refuses_new_recordings_until_released() {
+        let recorder = Recorder::new();
+        assert!(recorder.hold_for_restart());
+        assert!(matches!(
+            recorder.claim_start(Mode::PushToTalk),
+            Err(RecordError::Restarting)
+        ));
+        recorder.release_restart();
+        recorder.claim_start(Mode::PushToTalk).unwrap();
+    }
+
+    #[test]
+    fn a_restart_cannot_hold_while_a_dictation_runs() {
+        let recorder = Recorder::new();
+        recorder.claim_start(Mode::Dictation).unwrap();
+        assert!(!recorder.hold_for_restart());
+        recorder.reset();
+        recorder.claim_start(Mode::PushToTalk).unwrap();
     }
 
     #[test]

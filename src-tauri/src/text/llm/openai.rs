@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use super::completion::Completion;
 use super::config::FormatConfig;
 
 #[derive(Serialize)]
@@ -36,6 +37,14 @@ struct ChatResponse {
 #[derive(Deserialize)]
 struct Choice {
     message: ResponseMessage,
+    finish_reason: Option<String>,
+}
+
+impl Choice {
+    /// `length` is the API's word for "stopped at `max_tokens`".
+    fn truncated(&self) -> bool {
+        self.finish_reason.as_deref() == Some("length")
+    }
 }
 
 #[derive(Deserialize)]
@@ -43,13 +52,13 @@ struct ResponseMessage {
     content: String,
 }
 
-/// Send a chat-completions request and return the first choice's content.
+/// Send a chat-completions request and return the first choice.
 /// Shared by `format_transcript` and `test_connection` in `client.rs`.
 pub async fn send_chat(
     cfg: &FormatConfig,
     body: &ChatRequest<'_>,
     timeout: Duration,
-) -> Result<String, String> {
+) -> Result<Completion, String> {
     // One shared client (connection pool + TLS config) for the process;
     // the timeout differs per call so it is applied per request.
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
@@ -83,7 +92,10 @@ pub async fn send_chat(
         .choices
         .into_iter()
         .next()
-        .map(|c| c.message.content)
+        .map(|choice| Completion {
+            truncated: choice.truncated(),
+            text: choice.message.content,
+        })
         .ok_or_else(|| "response contained no choices".to_string())
 }
 

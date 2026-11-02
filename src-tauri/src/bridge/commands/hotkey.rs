@@ -13,6 +13,14 @@ pub fn get_hotkeys(settings: State<'_, Settings>) -> HotkeyBindings {
     settings.hotkeys()
 }
 
+/// What is bound with the OS right now. A saved shortcut another application
+/// holds is saved but missing here.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_bound_hotkeys(hotkeys: State<'_, Hotkeys>) -> Result<HotkeyBindings, ApiError> {
+    Ok(hotkeys.bound().await)
+}
+
 /// Bind `hotkey` to `kind`, or unbind it with `None`.
 #[tauri::command]
 #[specta::specta]
@@ -25,6 +33,25 @@ pub async fn set_hotkey(
 ) -> Result<(), ApiError> {
     let hotkey = hotkey.map(normalize_hotkey).transpose()?;
     Ok(hotkeys.set(&app, &settings, kind, hotkey).await?)
+}
+
+/// Release the shortcuts while a new one is being captured. Not saved; they
+/// come back on `resume_hotkeys`, a `set_hotkey`, or after a timeout.
+#[tauri::command]
+#[specta::specta]
+pub async fn suspend_hotkeys(app: AppHandle, hotkeys: State<'_, Hotkeys>) -> Result<(), ApiError> {
+    Ok(hotkeys.suspend(&app).await?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn resume_hotkeys(
+    app: AppHandle,
+    settings: State<'_, Settings>,
+    hotkeys: State<'_, Hotkeys>,
+) -> Result<(), ApiError> {
+    hotkeys.resume(&app, &settings).await;
+    Ok(())
 }
 
 fn normalize_hotkey(hotkey: String) -> Result<String, ApiError> {

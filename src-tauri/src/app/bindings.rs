@@ -24,7 +24,10 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::delete_dictionary_entry,
             commands::get_injection_status,
             commands::get_hotkeys,
+            commands::get_bound_hotkeys,
             commands::set_hotkey,
+            commands::suspend_hotkeys,
+            commands::resume_hotkeys,
             commands::get_pill_settings,
             commands::set_pill_settings,
             commands::get_model_info,
@@ -52,6 +55,9 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::set_pill_hitbox,
             commands::log_frontend,
             commands::wait_for_app_ready,
+            commands::prepare_restart,
+            commands::cancel_restart,
+            commands::relaunch_app,
         ])
         .events(tauri_specta::collect_events![
             events::RecordingStateChanged,

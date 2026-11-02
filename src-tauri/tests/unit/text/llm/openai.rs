@@ -92,3 +92,21 @@ fn a_response_with_no_choices_parses_but_has_nothing_to_return() {
     let parsed: ChatResponse = serde_json::from_str(r#"{"choices": []}"#).expect("parse");
     assert!(parsed.choices.is_empty());
 }
+
+#[test]
+fn a_length_finish_reason_marks_the_reply_truncated() {
+    let cut: ChatResponse = serde_json::from_str(
+        r#"{"choices": [{"message": {"content": "half a sen"}, "finish_reason": "length"}]}"#,
+    )
+    .expect("parse");
+    let done: ChatResponse = serde_json::from_str(
+        r#"{"choices": [{"message": {"content": "whole."}, "finish_reason": "stop"}]}"#,
+    )
+    .expect("parse");
+    let unreported: ChatResponse =
+        serde_json::from_str(r#"{"choices": [{"message": {"content": "whole."}}]}"#)
+            .expect("parse");
+    assert!(cut.choices[0].truncated());
+    assert!(!done.choices[0].truncated());
+    assert!(!unreported.choices[0].truncated());
+}

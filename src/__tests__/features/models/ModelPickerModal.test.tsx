@@ -59,6 +59,20 @@ describe('ModelPickerModal', () => {
     expect(useAppStore.getState().modelChosen).toBe(false)
   })
 
+  it('stays on the model list with an error when the download cannot start', async () => {
+    const base = mockInvoke.getMockImplementation()!
+    mockInvoke.mockImplementation((cmd, args) =>
+      cmd === 'start_model_download' ? Promise.reject({ code: 'io', message: 'no' }) : base(cmd, args))
+    renderWithQuery(<ModelPickerModal />)
+    const confirm = await screen.findByRole('button', { name: /download & continue/i })
+    await waitFor(() => expect(confirm).toBeEnabled())
+    fireEvent.click(confirm)
+
+    expect(await screen.findByText('Could not start the download.')).toBeInTheDocument()
+    expect(screen.queryByText(/download complete/i)).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: /download & continue/i })).toBeEnabled())
+  })
+
   it('closes once the backend reports the model on disk', async () => {
     await confirmDownload()
     onDisk = true

@@ -68,3 +68,52 @@ async fn a_stream_without_content_length_cannot_write_past_the_limit() {
     assert!(error.contains("exceeds expected size"));
     assert!(part.metadata().unwrap().len() <= 4);
 }
+
+#[test]
+fn reads_the_first_byte_of_a_content_range() {
+    assert_eq!(parse_range_start("bytes 100-199/200"), Some(100));
+    assert_eq!(parse_range_start("bytes 0-9/10"), Some(0));
+}
+
+#[test]
+fn a_malformed_content_range_has_no_start() {
+    for header in ["", "100-199/200", "bytes */200", "bytes abc-199/200"] {
+        assert_eq!(parse_range_start(header), None, "{header:?}");
+    }
+}
+
+#[test]
+fn the_startup_sweep_keeps_out_while_a_download_holds_the_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let part = dir.path().join("model.part");
+    std::fs::write(&part, b"in flight").unwrap();
+
+    let lock = DownloadLock::acquire(dir.path(), "model").unwrap();
+    clean_stale_parts(dir.path());
+    assert!(
+        part.exists(),
+        "another process's active download must survive"
+    );
+
+    drop(lock);
+    clean_stale_parts(dir.path());
+    assert!(!part.exists(), "debris goes once nothing is downloading");
+    assert!(!dir.path().join("model.lock").exists());
+}
+
+#[test]
+fn different_models_can_download_together() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = DownloadLock::acquire(dir.path(), "a.gguf").unwrap();
+    assert!(DownloadLock::acquire(dir.path(), "b.gguf").is_ok());
+    drop(first);
+}
+
+#[test]
+fn the_same_model_cannot_download_twice() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = DownloadLock::acquire(dir.path(), "a.gguf").unwrap();
+    assert!(DownloadLock::acquire(dir.path(), "a.gguf").is_err());
+    drop(first);
+    assert!(DownloadLock::acquire(dir.path(), "a.gguf").is_ok());
+}

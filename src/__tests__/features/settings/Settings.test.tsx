@@ -18,6 +18,7 @@ const mockInvoke = vi.mocked(invoke)
 const respond = (hotkeys = { pushToTalk: null as string | null, dictation: null, dictationCommit: null }) =>
   mockInvoke.mockImplementation((cmd) => Promise.resolve(({
     get_hotkeys: hotkeys,
+    get_bound_hotkeys: hotkeys,
     get_model_catalog: [],
     get_model_info: { modelName: 'Whisper Tiny', downloaded: true, downloading: false },
     list_input_devices: [],
@@ -49,6 +50,53 @@ async function renderSettings() {
 beforeEach(() => {
   mockInvoke.mockReset()
   respond()
+})
+
+describe('FormattingToggle', () => {
+  it('shows the saved setting again when turning it off fails to save', async () => {
+    const saved = {
+      enabled: true,
+      provider: 'ollama',
+      profiles: { ollama: { baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5-3b-instruct', hasApiKey: false } },
+    }
+    const base = mockInvoke.getMockImplementation()!
+    mockInvoke.mockImplementation((cmd, args) => {
+      if (cmd === 'get_format_config') return Promise.resolve(saved)
+      if (cmd === 'set_format_config') return Promise.reject({ code: 'io', message: 'disk full' })
+      return base(cmd, args)
+    })
+    await renderSettings()
+    const toggle = await screen.findByRole('switch', { name: /smart formatting/i })
+    await waitFor(() => expect(toggle).toBeChecked())
+
+    fireEvent.click(toggle)
+
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_format_config', expect.anything()))
+    await waitFor(() => expect(toggle).toBeChecked())
+  })
+
+  it('shows the previous setting when the save and the re-read both fail', async () => {
+    const saved = {
+      enabled: true,
+      provider: 'ollama',
+      profiles: { ollama: { baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5-3b-instruct', hasApiKey: false } },
+    }
+    const base = mockInvoke.getMockImplementation()!
+    let reads = 0
+    mockInvoke.mockImplementation((cmd, args) => {
+      if (cmd === 'get_format_config') return reads++ === 0 ? Promise.resolve(saved) : Promise.reject({ code: 'io', message: 'gone' })
+      if (cmd === 'set_format_config') return Promise.reject({ code: 'io', message: 'disk full' })
+      return base(cmd, args)
+    })
+    await renderSettings()
+    const toggle = await screen.findByRole('switch', { name: /smart formatting/i })
+    await waitFor(() => expect(toggle).toBeChecked())
+
+    fireEvent.click(toggle)
+
+    await waitFor(() => expect(reads).toBe(2))
+    await waitFor(() => expect(toggle).toBeChecked())
+  })
 })
 
 describe('HotkeySection', () => {
@@ -94,6 +142,18 @@ describe('HotkeySection', () => {
     expect(cachedPushToTalk()).toBe('Ctrl+A')
   })
 
+  it('keeps the Windows key as a modifier', async () => {
+    await renderSettings()
+    fireEvent.click(recordingRecorder())
+    fireEvent.keyDown(window, { key: 'Control', code: 'ControlLeft' })
+    fireEvent.keyDown(window, { key: 'Meta', code: 'MetaLeft' })
+    fireEvent.keyDown(window, { key: 'K', code: 'KeyK' })
+    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+Super+K' })
+    })
+  })
+
   it('cancels and clears pressed keys', async () => {
     await renderSettings()
     fireEvent.click(recordingRecorder())
@@ -102,24 +162,50 @@ describe('HotkeySection', () => {
     expect(screen.getAllByText(/click to set/i).length).toBeGreaterThan(0)
   })
 
+  it('binds the hotkeys again when editing is cancelled', async () => {
+    await renderSettings()
+    fireEvent.click(recordingRecorder())
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+    expect(mockInvoke).toHaveBeenCalledWith('resume_hotkeys')
+  })
+
   it('shows the saved hotkey on mount', async () => {
     respond({ pushToTalk: 'Ctrl+Space', dictation: null, dictationCommit: null })
     await renderSettings()
     expect(await screen.findByText('Space')).toBeInTheDocument()
   })
 
-  it('puts a saved hotkey back when the page closes mid-edit', async () => {
+  it('warns when a saved hotkey is not the one the OS granted', async () => {
+    const saved = { pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null }
+    const base = mockInvoke.getMockImplementation()!
+    mockInvoke.mockImplementation((cmd, args) =>
+      cmd === 'get_hotkeys' ? Promise.resolve(saved)
+        : cmd === 'get_bound_hotkeys' ? Promise.resolve({ ...saved, pushToTalk: null })
+          : base(cmd, args))
+    await renderSettings()
+    expect(await screen.findByText(/another app is using this shortcut/i)).toBeInTheDocument()
+  })
+
+  it('releases the hotkeys while editing without changing the saved one', async () => {
+    respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
+    await renderSettings()
+    fireEvent.click(await screen.findByRole('button', { name: /change recording hotkey/i }))
+
+    expect(mockInvoke).toHaveBeenCalledWith('suspend_hotkeys')
+    expect(mockInvoke).not.toHaveBeenCalledWith('set_hotkey', expect.anything())
+  })
+
+  it('binds the hotkeys again when the page closes mid-edit', async () => {
     respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
     const { unmount } = await renderSettings()
     fireEvent.click(await screen.findByRole('button', { name: /change recording hotkey/i }))
-    expect(mockInvoke).toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: null })
 
     unmount()
 
-    expect(mockInvoke).toHaveBeenLastCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+A' })
+    expect(mockInvoke).toHaveBeenCalledWith('resume_hotkeys')
   })
 
-  it('does not restore the old hotkey after a new one is saved', async () => {
+  it('does not resume the hotkeys after a new one is saved', async () => {
     respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
     const { unmount } = await renderSettings()
     fireEvent.click(await screen.findByRole('button', { name: /change recording hotkey/i }))
@@ -132,7 +218,24 @@ describe('HotkeySection', () => {
 
     unmount()
 
-    expect(mockInvoke).not.toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+A' })
+    expect(mockInvoke).not.toHaveBeenCalledWith('resume_hotkeys')
+  })
+
+  it('binds the hotkeys again right away when a save fails', async () => {
+    respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
+    const base = mockInvoke.getMockImplementation()!
+    mockInvoke.mockImplementation((cmd, args) =>
+      cmd === 'set_hotkey' ? Promise.reject({ code: 'hotkey', message: 'in use' }) : base(cmd, args))
+    await renderSettings()
+    fireEvent.click(await screen.findByRole('button', { name: /change recording hotkey/i }))
+    fireEvent.keyDown(window, { key: 'Control', code: 'ControlLeft' })
+    fireEvent.keyDown(window, { key: 'B', code: 'KeyB' })
+    fireEvent.keyUp(window, { key: 'B', code: 'KeyB' })
+    await waitFor(() => expect(screen.queryByText(/press the keys/i)).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('resume_hotkeys'))
+    await waitFor(() => expect(screen.queryByRole('button', { name: /save/i })).not.toBeInTheDocument())
   })
 
   describe('closing the page while a save is pending', () => {
@@ -153,13 +256,13 @@ describe('HotkeySection', () => {
       unmount()
     })
 
-    it('does not restore the old hotkey over it', () => {
-      expect(mockInvoke).not.toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+A' })
+    it('does not resume the hotkeys over it', () => {
+      expect(mockInvoke).not.toHaveBeenCalledWith('resume_hotkeys')
     })
 
-    it('restores the old hotkey if the save fails', async () => {
+    it('resumes the hotkeys if the save fails', async () => {
       await act(async () => { rejectSave({ code: 'hotkey', message: 'in use' }) })
-      expect(mockInvoke).toHaveBeenLastCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+A' })
+      expect(mockInvoke).toHaveBeenCalledWith('resume_hotkeys')
     })
   })
 

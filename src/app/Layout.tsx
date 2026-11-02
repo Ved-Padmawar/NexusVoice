@@ -40,7 +40,7 @@ function UpdateCard() {
   const status = useAppStore(s => s.updateStatus)
   const version = useAppStore(s => s.updateVersion)
   const progress = useAppStore(s => s.updateProgress)
-  const installUpdate = useAppStore(s => s.installUpdate)
+  const downloadUpdate = useAppStore(s => s.downloadUpdate)
   const restartForUpdate = useAppStore(s => s.restartForUpdate)
 
   if (status !== 'available' && status !== 'downloading' && status !== 'ready') return null
@@ -49,7 +49,7 @@ function UpdateCard() {
     <div className="grid px-2 pb-2">
       <button
         type="button"
-        onClick={installUpdate}
+        onClick={downloadUpdate}
         tabIndex={status === 'available' ? 0 : -1}
         className={cn(PHASE, phase(status === 'available'), 'inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-accent-soft px-3.5 text-xs font-semibold text-accent-ink ring-1 ring-accent-line ring-inset hover:bg-accent/25 hover:ring-accent')}
       >

@@ -4,7 +4,7 @@ import {
   FolderOpenIcon, GraphicsCardIcon, HardDrivesIcon, LightningIcon, MemoryIcon, TrashIcon,
   WarningCircleIcon, XIcon,
 } from '@phosphor-icons/react'
-import { relaunch } from '@tauri-apps/plugin-process'
+import { relaunchApp } from '../../shared/relaunch'
 import { toast } from 'sonner'
 import { Button } from '../../shared/ui/Button'
 import { commands } from '../../shared/bindings'
@@ -88,7 +88,7 @@ function CudaCard({ activeBackend }: { activeBackend: string | null }) {
   const active = activeBackend === 'cuda'
   const icon = <LightningIcon weight="duotone" />
   const restart = (
-    <Button variant="outline" onClick={() => relaunch()}><ArrowClockwiseIcon size={12} weight="bold" />Restart</Button>
+    <Button variant="outline" onClick={relaunchApp}><ArrowClockwiseIcon size={12} weight="bold" />Restart</Button>
   )
   const detail = (text: string) => (error ? { detail: error, detailTone: 'danger' as const } : { detail: text })
 
@@ -140,7 +140,7 @@ function UpdateCard() {
   const progress = useAppStore(s => s.updateProgress)
   const error = useAppStore(s => s.updateError)
   const checkForUpdate = useAppStore(s => s.checkForUpdate)
-  const installUpdate = useAppStore(s => s.installUpdate)
+  const downloadUpdate = useAppStore(s => s.downloadUpdate)
   const restartForUpdate = useAppStore(s => s.restartForUpdate)
 
   const check = (label: string) => (
@@ -178,7 +178,7 @@ function UpdateCard() {
           tone="accent"
           title={`v${version} is available`}
           detail={`You’re on v${__APP_VERSION__}`}
-          action={<Button variant="primary" onClick={installUpdate}><DownloadSimpleIcon size={12} weight="bold" />Install</Button>}
+          action={<Button variant="primary" onClick={downloadUpdate}><DownloadSimpleIcon size={12} weight="bold" />Install</Button>}
         />
       )
     case 'ready':

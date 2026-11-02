@@ -64,6 +64,15 @@ fn strip_artifacts_keeps_an_unclosed_think_block_verbatim() {
 }
 
 #[test]
+fn strip_artifacts_leaves_non_ascii_text_alone_without_panicking() {
+    // Byte 7 falls inside a character for all of these.
+    for input in ["你好世界", "नमस्ते दुनिया", "😀😀😀😀", "héllo wörld"]
+    {
+        assert_eq!(strip_artifacts(input), input);
+    }
+}
+
+#[test]
 fn strip_artifacts_of_a_think_only_response_is_empty() {
     // The caller treats empty as "formatter produced nothing" and falls back to
     // the raw transcript, which is the right outcome here.
@@ -131,4 +140,38 @@ fn the_token_cap_handles_an_enormous_input_without_overflowing() {
     // `u32::try_from` saturates rather than panicking in release or wrapping.
     let huge = "a".repeat(200_000);
     assert_eq!(max_tokens_for(&huge), 100_256);
+}
+
+// ── accept ─────────────────────────────────────────────────────────────
+
+fn reply(text: &str) -> Completion {
+    Completion {
+        text: text.to_string(),
+        truncated: false,
+    }
+}
+
+#[test]
+fn accept_keeps_a_formatted_reply() {
+    let formatted = "So the meeting is on Tuesday at 3, and we need to bring the budget.";
+    assert_eq!(accept(&reply(formatted)).unwrap(), formatted);
+}
+
+#[test]
+fn accept_rejects_a_reply_cut_off_at_the_token_limit() {
+    let cut = Completion {
+        truncated: true,
+        ..reply("So the meeting is on Tuesday at 3, and we need")
+    };
+    assert!(accept(&cut).is_err());
+}
+
+#[test]
+fn accept_rejects_an_empty_reply() {
+    assert!(accept(&reply("<think>hmm</think>")).is_err());
+}
+
+#[test]
+fn accept_rejects_an_unfinished_reasoning_block() {
+    assert!(accept(&reply("<think>the user wants me to")).is_err());
 }

@@ -4,6 +4,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::data::Database;
 use crate::platform::pill::clickthrough::PillHitbox;
+use crate::session::Recorder;
 
 use super::error::ApiError;
 
@@ -14,6 +15,35 @@ use super::error::ApiError;
 pub async fn wait_for_app_ready(db: State<'_, Database>) -> Result<(), ApiError> {
     db.pool().await?;
     Ok(())
+}
+
+/// Refuse new recordings before installing an update, until `cancel_restart`.
+/// Fails while a dictation is still being recorded or transcribed.
+#[tauri::command]
+#[specta::specta]
+pub fn prepare_restart(recorder: State<'_, Recorder>) -> Result<(), ApiError> {
+    if recorder.hold_for_restart() {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            "recording_in_progress",
+            "Finish the current dictation before restarting",
+        ))
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_restart(recorder: State<'_, Recorder>) {
+    recorder.release_restart();
+}
+
+/// Restart the app, unless a dictation is still being recorded or transcribed.
+#[tauri::command]
+#[specta::specta]
+pub fn relaunch_app(app: AppHandle, recorder: State<'_, Recorder>) -> Result<(), ApiError> {
+    prepare_restart(recorder)?;
+    app.restart()
 }
 
 /// Forward a log record from the webview into the unified backend log file,

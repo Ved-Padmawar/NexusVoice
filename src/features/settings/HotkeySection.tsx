@@ -7,7 +7,7 @@ import { SUPER_KEY_LABEL } from '../../shared/platform'
 import type { HotkeyKind } from '../../shared/types'
 import { Button } from '../../shared/ui/Button'
 import { Kbd } from '../../shared/ui/Kbd'
-import { setCachedHotkey, useHotkeys } from './queries'
+import { refreshBoundHotkeys, setCachedHotkey, useBoundHotkeys, useHotkeys } from './queries'
 
 type HotkeyConfig = {
   kind: HotkeyKind
@@ -46,7 +46,7 @@ function buildShortcut(keys: string[]): string {
   const mods: string[] = []
   let main = ''
   for (const k of keys) {
-    if (['Ctrl', 'Alt', 'Shift', 'Win', 'Cmd'].includes(k)) {
+    if (['Ctrl', 'Alt', 'Shift', 'Super', 'Win', 'Cmd'].includes(k)) {
       mods.push(k === 'Win' || k === 'Cmd' ? 'Super' : k)
     } else {
       main = k
@@ -64,44 +64,41 @@ const KeyBadges = memo(function KeyBadges({ keys }: { keys: string[] }) {
   )
 })
 
-function HotkeyCard({ config, currentHotkey }: {
+function HotkeyCard({ config, currentHotkey, inactive }: {
   config: HotkeyConfig
   currentHotkey: string | null
+  /** Saved, but the OS did not grant it, usually because another app holds it. */
+  inactive: boolean
 }) {
   const [pressedKeys, setPressedKeys] = useState<string[]>([])
   const [isListening, setIsListening] = useState(false)
   const [saving, setSaving] = useState(false)
   const hotkeyRef = useRef<HTMLDivElement>(null)
   const keysRef = useRef<Set<string>>(new Set())
-  const unboundRef = useRef<string | null>(null)
-  const mountedRef = useRef(false)
+  const suspendedRef = useRef(false)
   const Icon = config.icon
 
-  const restoreCurrentHotkey = useCallback(() => {
-    const hotkey = unboundRef.current
-    unboundRef.current = null
-    if (hotkey) commands.setHotkey(config.kind, hotkey).catch(() => {})
-  }, [config.kind])
+  const resumeHotkeys = useCallback(() => {
+    if (!suspendedRef.current) return
+    suspendedRef.current = false
+    // A shortcut another app took meanwhile shows as not active.
+    commands.resumeHotkeys().then(refreshBoundHotkeys).catch(() => {})
+  }, [])
 
-  useEffect(() => {
-    mountedRef.current = true
-    return () => {
-      mountedRef.current = false
-      restoreCurrentHotkey()
-    }
-  }, [restoreCurrentHotkey])
+  // Closing the page mid-edit binds the shortcuts again.
+  useEffect(() => resumeHotkeys, [resumeHotkeys])
 
-  // Unbound while recording, or pressing the current combination would fire it.
+  // Released while recording, or pressing an existing combination would fire it.
   const startListening = useCallback(() => {
     if (saving) return
-    if (currentHotkey && !unboundRef.current) {
-      unboundRef.current = currentHotkey
-      commands.setHotkey(config.kind, null).catch(() => {})
+    if (!suspendedRef.current) {
+      suspendedRef.current = true
+      commands.suspendHotkeys().catch(() => {})
     }
     setIsListening(true)
     setPressedKeys([])
     keysRef.current.clear()
-  }, [config.kind, currentHotkey, saving])
+  }, [saving])
 
   useEffect(() => {
     if (!isListening) return
@@ -124,7 +121,7 @@ function HotkeyCard({ config, currentHotkey }: {
         setIsListening(false)
         setPressedKeys([])
         keysRef.current.clear()
-        restoreCurrentHotkey()
+        resumeHotkeys()
       }
     }
     window.addEventListener('keydown', onDown, true)
@@ -135,13 +132,13 @@ function HotkeyCard({ config, currentHotkey }: {
       window.removeEventListener('keyup', onUp, true)
       document.removeEventListener('mousedown', onOutside)
     }
-  }, [isListening, restoreCurrentHotkey])
+  }, [isListening, resumeHotkeys])
 
   const cancelListening = () => {
     setIsListening(false)
     setPressedKeys([])
     keysRef.current.clear()
-    restoreCurrentHotkey()
+    resumeHotkeys()
   }
 
   const handleSaveHotkey = async () => {
@@ -155,20 +152,22 @@ function HotkeyCard({ config, currentHotkey }: {
       return
     }
     // Claimed before the await so closing the page mid-save can't restore it.
-    const previous = unboundRef.current
-    unboundRef.current = null
+    const wasSuspended = suspendedRef.current
+    suspendedRef.current = false
     setSaving(true)
     try {
       await commands.setHotkey(config.kind, shortcut)
       setCachedHotkey(config.kind, shortcut)
-      setPressedKeys([])
-      keysRef.current.clear()
+      void refreshBoundHotkeys()
       toast.success(`${config.title} hotkey saved`)
     } catch (e: unknown) {
-      unboundRef.current = previous
-      if (!mountedRef.current) restoreCurrentHotkey()
+      // A failed save ends the edit, so the saved shortcuts come back now.
+      suspendedRef.current = wasSuspended
+      resumeHotkeys()
       toast.error(extractErrorMessage(e, `Failed to register the ${config.title.toLowerCase()} hotkey.`))
     } finally {
+      setPressedKeys([])
+      keysRef.current.clear()
       setSaving(false)
     }
   }
@@ -177,6 +176,7 @@ function HotkeyCard({ config, currentHotkey }: {
     try {
       await commands.setHotkey(config.kind, null)
       setCachedHotkey(config.kind, null)
+      void refreshBoundHotkeys()
     } catch (e: unknown) {
       toast.error(extractErrorMessage(e, `Failed to remove the ${config.title.toLowerCase()} hotkey.`))
     }
@@ -194,7 +194,11 @@ function HotkeyCard({ config, currentHotkey }: {
 
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-semibold text-fg">{config.title}</span>
-        <span className="block truncate text-xs text-muted">{config.description}</span>
+        {inactive ? (
+          <span className="block truncate text-xs text-danger">Not active: another app is using this shortcut</span>
+        ) : (
+          <span className="block truncate text-xs text-muted">{config.description}</span>
+        )}
       </span>
 
       <button
@@ -274,12 +278,16 @@ const HOTKEY_CONFIGS: HotkeyConfig[] = [
 
 export function HotkeySection() {
   const hotkeys = useHotkeys().data
+  const bound = useBoundHotkeys().data
 
   return (
     <div className="flex flex-col divide-y divide-line-soft rounded-2xl bg-panel ring-1 ring-line-soft ring-inset">
-      {HOTKEY_CONFIGS.map(config => (
-        <HotkeyCard key={config.kind} config={config} currentHotkey={hotkeys?.[config.kind] ?? null} />
-      ))}
+      {HOTKEY_CONFIGS.map(config => {
+        const saved = hotkeys?.[config.kind] ?? null
+        // Until the OS state is read, assume it matches rather than flash a warning.
+        const inactive = saved !== null && bound !== undefined && bound[config.kind] !== saved
+        return <HotkeyCard key={config.kind} config={config} currentHotkey={saved} inactive={inactive} />
+      })}
     </div>
   )
 }

@@ -22,11 +22,24 @@ describe('KeepMicOpenToggle', () => {
   it('persists a change via set_keep_mic_open', async () => {
     mockInvoke.mockResolvedValue(false)
     render(<KeepMicOpenToggle />)
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('get_keep_mic_open'))
+    await waitFor(() => expect(screen.getByRole('switch')).toBeEnabled())
 
     fireEvent.click(screen.getByRole('switch'))
 
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_keep_mic_open', { keep: true }))
-    expect(screen.getByRole('switch')).toBeChecked()
+    await waitFor(() => expect(screen.getByRole('switch')).toBeChecked())
+  })
+
+  it('keeps showing the confirmed setting when a save fails', async () => {
+    mockInvoke.mockImplementation((cmd) =>
+      cmd === 'set_keep_mic_open' ? Promise.reject({ code: 'io', message: 'disk full' }) : Promise.resolve(false))
+    render(<KeepMicOpenToggle />)
+    await waitFor(() => expect(screen.getByRole('switch')).toBeEnabled())
+
+    fireEvent.click(screen.getByRole('switch'))
+
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_keep_mic_open', { keep: true }))
+    await waitFor(() => expect(screen.getByRole('switch')).toBeEnabled())
+    expect(screen.getByRole('switch')).not.toBeChecked()
   })
 })

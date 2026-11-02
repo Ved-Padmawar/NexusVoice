@@ -21,6 +21,8 @@ use crate::models::library::Downloads;
 /// Error string the caller matches on to detect a user-initiated cancel.
 pub const CANCELLED: &str = "download_cancelled";
 
+const LOCK_FILE: &str = ".downloads.lock";
+
 /// Attempts per file before giving up; each retry resumes rather than restarts.
 const MAX_ATTEMPTS: u32 = 4;
 /// Backoff before attempt N is `RETRY_BASE_DELAY * 2^(N-1)` — 1s, 2s, 4s.
@@ -47,6 +49,7 @@ pub async fn download_model(
         return Ok(());
     }
 
+    let _lock = DownloadLock::acquire(models_dir, &entry.filename)?;
     let id = entry.id.as_str();
     download_file(&entry.url, &dest, &cancel, entry.size_bytes, |pct| {
         downloads.set_progress(id, pct);
@@ -157,6 +160,11 @@ async fn transfer(
     // A server that ignores Range replies 200 with the whole file; start over so
     // appended bytes line up with the response.
     let resuming = status == reqwest::StatusCode::PARTIAL_CONTENT;
+    if resuming && range_start(&response) != Some(have) {
+        // Appending bytes from another offset would corrupt the file.
+        let _ = tokio::fs::remove_file(part).await;
+        return Err("server resumed from the wrong offset".to_string());
+    }
     if have > 0 && !resuming {
         have = 0;
     }
@@ -218,6 +226,22 @@ async fn transfer(
     Ok(())
 }
 
+/// First byte of the range a 206 response carries.
+fn range_start(response: &reqwest::Response) -> Option<u64> {
+    let header = response.headers().get(reqwest::header::CONTENT_RANGE)?;
+    parse_range_start(header.to_str().ok()?)
+}
+
+/// The `100` in `bytes 100-199/200`.
+fn parse_range_start(header: &str) -> Option<u64> {
+    header
+        .strip_prefix("bytes ")?
+        .split('-')
+        .next()?
+        .parse()
+        .ok()
+}
+
 /// Percentage of `total` that `written` represents, saturating at 100. A `total`
 /// of 0 (no Content-Length) reports 0 rather than dividing by zero.
 fn pct_of(written: u64, total: u64) -> u8 {
@@ -227,15 +251,61 @@ fn pct_of(written: u64, total: u64) -> u8 {
     u8::try_from((written * 100 / total).min(100)).unwrap_or(100)
 }
 
-/// Delete leftover `.part` files from downloads interrupted by a crash or quit.
-/// Called at startup, when nothing can be mid-transfer.
+/// Held for a download's length. Shared on the folder, so downloads overlap and
+/// other builds' startup sweeps stay out; exclusive on the model, so two
+/// processes never write the same `.part`.
+pub struct DownloadLock {
+    _folder: std::fs::File,
+    _model: std::fs::File,
+}
+
+impl DownloadLock {
+    pub fn acquire(models_dir: &Path, filename: &str) -> Result<Self, String> {
+        let open = |name: &str| {
+            open_lock_file(&models_dir.join(name))
+                .map_err(|e| format!("model folder unavailable: {e}"))
+        };
+        let folder = open(LOCK_FILE)?;
+        folder
+            .try_lock_shared()
+            .map_err(|e| format!("model folder is busy: {e}"))?;
+        let model = open(&format!("{filename}.lock"))?;
+        model
+            .try_lock()
+            .map_err(|_| "another NexusVoice is already downloading this model".to_string())?;
+        Ok(Self {
+            _folder: folder,
+            _model: model,
+        })
+    }
+}
+
+fn open_lock_file(path: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(path)
+}
+
+/// Delete the `.part` and model lock files left by a crash or quit. Skipped
+/// while any process is mid-download.
 pub fn clean_stale_parts(models_dir: &Path) {
+    let Ok(lock) = open_lock_file(&models_dir.join(LOCK_FILE)) else {
+        return;
+    };
+    if lock.try_lock().is_err() {
+        return;
+    }
     let Ok(entries) = std::fs::read_dir(models_dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().is_some_and(|ext| ext == "part") {
+        let stale = path
+            .extension()
+            .is_some_and(|ext| ext == "part" || ext == "lock");
+        if stale && entry.file_name() != LOCK_FILE {
             let _ = std::fs::remove_file(&path);
         }
     }

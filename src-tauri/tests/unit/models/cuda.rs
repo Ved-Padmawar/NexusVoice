@@ -84,6 +84,13 @@ fn the_engine_version_must_match() {
 }
 
 #[test]
+fn a_pack_from_an_earlier_app_release_stays_valid() {
+    let mut manifest = valid_manifest(PLATFORM.unwrap());
+    manifest.release = "v0.0.1".to_string();
+    validate_manifest(&manifest, PLATFORM.unwrap()).unwrap();
+}
+
+#[test]
 fn an_unsigned_staged_pack_cannot_replace_an_existing_pack() {
     let data = tempfile::tempdir().unwrap();
     install(&data.path().join(PACK_DIR), "0.0.0-old");

@@ -5,16 +5,19 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { check } from '@tauri-apps/plugin-updater'
-import { relaunch } from '@tauri-apps/plugin-process'
+import { invoke } from '@tauri-apps/api/core'
+import { toast } from 'sonner'
 import { useAppStore } from '../../../app/store/useAppStore'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }))
 vi.mock('@tauri-apps/plugin-updater', () => ({ check: vi.fn() }))
-vi.mock('@tauri-apps/plugin-process', () => ({ relaunch: vi.fn() }))
+vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 
 const mockCheck = vi.mocked(check)
-const mockRelaunch = vi.mocked(relaunch)
+const mockInvoke = vi.mocked(invoke)
+
+const BUSY = { code: 'recording_in_progress', message: 'Finish the current dictation before restarting' }
 
 type Progress =
   | { event: 'Started'; data: { contentLength?: number } }
@@ -25,9 +28,10 @@ type Progress =
 const handle = (version: string, events: Progress[] = []) => ({
   available: true,
   version,
-  downloadAndInstall: vi.fn(async (onProgress: (p: Progress) => void) => {
+  download: vi.fn(async (onProgress: (p: Progress) => void) => {
     for (const e of events) onProgress(e)
   }),
+  install: vi.fn(async () => {}),
 })
 
 const state = () => useAppStore.getState()
@@ -84,10 +88,10 @@ describe('checkForUpdate', () => {
   })
 })
 
-describe('installUpdate', () => {
+describe('downloadUpdate', () => {
   it('does nothing when no update has been found', async () => {
-    // `installUpdate` with no handle must be inert, not throw.
-    await expect(state().installUpdate()).resolves.toBeUndefined()
+    // `downloadUpdate` with no handle must be inert, not throw.
+    await expect(state().downloadUpdate()).resolves.toBeUndefined()
   })
 
   it('reports download progress as a percentage of the total', async () => {
@@ -99,7 +103,7 @@ describe('installUpdate', () => {
       ]) as never,
     )
     await state().checkForUpdate()
-    await state().installUpdate()
+    await state().downloadUpdate()
     // Chunks accumulate: 250 + 250 of 1000.
     expect(state().updateProgress).toBe(50)
   })
@@ -113,9 +117,32 @@ describe('installUpdate', () => {
       ]) as never,
     )
     await state().checkForUpdate()
-    await state().installUpdate()
+    await state().downloadUpdate()
     expect(state().updateStatus).toBe('ready')
     expect(state().updateProgress).toBe(100)
+  })
+
+  it('is not ready until the download call itself resolves', async () => {
+    // `Finished` is only an event; the download is complete when the call returns.
+    let finishInstall!: () => void
+    const pending = {
+      available: true,
+      version: '1.17.0',
+      download: vi.fn(async (onProgress: (p: Progress) => void) => {
+        onProgress({ event: 'Finished', data: {} })
+        await new Promise<void>(r => { finishInstall = r })
+      }),
+    }
+    mockCheck.mockResolvedValue(pending as never)
+    await state().checkForUpdate()
+
+    const install = state().downloadUpdate()
+    await vi.waitFor(() => expect(state().updateProgress).toBe(100))
+    expect(state().updateStatus).toBe('downloading')
+
+    finishInstall()
+    await install
+    expect(state().updateStatus).toBe('ready')
   })
 
   it('leaves progress at zero when the server sends no content length', async () => {
@@ -128,27 +155,27 @@ describe('installUpdate', () => {
       ]) as never,
     )
     await state().checkForUpdate()
-    await state().installUpdate()
+    await state().downloadUpdate()
     expect(state().updateProgress).toBe(0)
     expect(Number.isNaN(state().updateProgress)).toBe(false)
   })
 
   it('ignores a second install while one is downloading', async () => {
-    // Two concurrent downloadAndInstall calls race over the same file.
+    // Two concurrent download calls race over the same file.
     let release!: () => void
     const blocked = {
       available: true,
       version: '1.17.0',
-      downloadAndInstall: vi.fn(() => new Promise<void>(r => { release = r })),
+      download: vi.fn(() => new Promise<void>(r => { release = r })),
     }
     mockCheck.mockResolvedValue(blocked as never)
     await state().checkForUpdate()
 
-    const first = state().installUpdate()
+    const first = state().downloadUpdate()
     await vi.waitFor(() => expect(state().updateStatus).toBe('downloading'))
-    await state().installUpdate()
+    await state().downloadUpdate()
 
-    expect(blocked.downloadAndInstall).toHaveBeenCalledTimes(1)
+    expect(blocked.download).toHaveBeenCalledTimes(1)
     release()
     await first
   })
@@ -157,27 +184,66 @@ describe('installUpdate', () => {
     const failing = {
       available: true,
       version: '1.17.0',
-      downloadAndInstall: vi.fn(() => Promise.reject({ message: 'checksum mismatch' })),
+      download: vi.fn(() => Promise.reject({ message: 'checksum mismatch' })),
     }
     mockCheck.mockResolvedValue(failing as never)
     await state().checkForUpdate()
-    await expect(state().installUpdate()).resolves.toBeUndefined()
+    await expect(state().downloadUpdate()).resolves.toBeUndefined()
     expect(state().updateStatus).toBe('error')
     expect(state().updateError).toBe('checksum mismatch')
   })
 })
 
 describe('restartForUpdate', () => {
-  it('relaunches the app', async () => {
-    mockRelaunch.mockResolvedValue(undefined)
+  it('holds new recordings in Rust, installs, then relaunches', async () => {
+    const update = handle('1.17.0')
+    mockCheck.mockResolvedValue(update as never)
+    await state().checkForUpdate()
+    mockInvoke.mockResolvedValue(undefined)
+
     await state().restartForUpdate()
-    expect(mockRelaunch).toHaveBeenCalledOnce()
+
+    expect(mockInvoke.mock.calls.map(([cmd]) => cmd)).toEqual(['prepare_restart', 'relaunch_app'])
+    expect(update.install).toHaveBeenCalledOnce()
+    expect(mockInvoke.mock.invocationCallOrder[0]).toBeLessThan(update.install.mock.invocationCallOrder[0])
   })
 
-  it('reports a failed relaunch instead of leaving the user waiting', async () => {
-    mockRelaunch.mockRejectedValue({ message: 'permission denied' })
+  it('does not install while a dictation is running, and keeps the update ready', async () => {
+    const update = handle('1.17.0')
+    mockCheck.mockResolvedValue(update as never)
+    await state().checkForUpdate()
+    useAppStore.setState({ updateStatus: 'ready' })
+    mockInvoke.mockRejectedValue(BUSY)
+
     await expect(state().restartForUpdate()).resolves.toBeUndefined()
+
+    expect(update.install).not.toHaveBeenCalled()
+    expect(state().updateStatus).toBe('ready')
+    expect(toast.error).toHaveBeenCalledWith(BUSY.message)
+  })
+
+  it('reports a failed install and lets recordings start again', async () => {
+    const update = { ...handle('1.17.0'), install: vi.fn(() => Promise.reject({ message: 'bad signature' })) }
+    mockCheck.mockResolvedValue(update as never)
+    await state().checkForUpdate()
+    mockInvoke.mockResolvedValue(undefined)
+
+    await state().restartForUpdate()
+
+    expect(mockInvoke).toHaveBeenCalledWith('cancel_restart')
+    expect(mockInvoke).not.toHaveBeenCalledWith('relaunch_app')
     expect(state().updateStatus).toBe('error')
-    expect(state().updateError).toBe('permission denied')
+    expect(state().updateError).toBe('bad signature')
+  })
+
+  it('installs once when Restart is clicked twice', async () => {
+    const update = handle('1.17.0')
+    mockCheck.mockResolvedValue(update as never)
+    await state().checkForUpdate()
+    mockInvoke.mockResolvedValue(undefined)
+
+    await Promise.all([state().restartForUpdate(), state().restartForUpdate()])
+
+    expect(update.install).toHaveBeenCalledOnce()
   })
 })

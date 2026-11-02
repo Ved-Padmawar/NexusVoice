@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use super::completion::Completion;
 use super::config::FormatConfig;
 
 const ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
@@ -29,6 +30,17 @@ struct Message<'a> {
 struct Response {
     #[serde(default)]
     content: Vec<Block>,
+    stop_reason: Option<String>,
+}
+
+impl Response {
+    /// The reply stopped at a limit rather than finishing.
+    fn truncated(&self) -> bool {
+        matches!(
+            self.stop_reason.as_deref(),
+            Some("max_tokens" | "model_context_window_exceeded")
+        )
+    }
 }
 
 #[derive(Deserialize)]
@@ -50,7 +62,7 @@ pub async fn send(
     max_tokens: u32,
     temperature: f32,
     timeout: Duration,
-) -> Result<String, String> {
+) -> Result<Completion, String> {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     let client = CLIENT.get_or_init(reqwest::Client::new);
     let active = cfg.active();
@@ -94,7 +106,10 @@ pub async fn send(
         .await
         .map_err(|e| format!("invalid response body: {e}"))?;
 
-    Ok(concat_text_blocks(parsed))
+    Ok(Completion {
+        truncated: parsed.truncated(),
+        text: concat_text_blocks(parsed),
+    })
 }
 
 /// Pure, so it's testable without a transport.

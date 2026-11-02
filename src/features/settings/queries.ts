@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { commands, type PillSettings, type PillSettingsSnapshot } from '../../shared/bindings'
 import { logger } from '../../shared/logger'
-import { LIVE, queryClient } from '../../app/queryClient'
+import { LIVE, live, queryClient, readFresh } from '../../app/queryClient'
 import { takeLegacyPill } from '../../app/store/legacyPill'
 import { subscribePillSettings } from '../../pill/pillSettings'
 import { queryKeys } from '../../shared/queryKeys'
@@ -16,6 +16,16 @@ const hotkeysOptions = {
 export function useHotkeys<T = HotkeyBindings>(select?: (hotkeys: HotkeyBindings) => T) {
   return useQuery({ ...hotkeysOptions, select })
 }
+
+const boundHotkeysOptions = live(queryKeys.boundHotkeys, () => commands.getBoundHotkeys())
+
+/** The shortcuts the OS granted, which can be fewer than the saved ones. */
+export function useBoundHotkeys() {
+  return useQuery(boundHotkeysOptions)
+}
+
+/** Read what the OS holds again after a binding changed. */
+export const refreshBoundHotkeys = () => readFresh(boundHotkeysOptions).catch(() => {})
 
 /** Record a binding Rust just accepted. */
 export const setCachedHotkey = (kind: HotkeyKind, hotkey: string | null) =>

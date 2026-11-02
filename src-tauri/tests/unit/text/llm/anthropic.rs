@@ -11,6 +11,7 @@ fn concat_text_blocks_joins_multiple_text_blocks() {
                 text: "world.".to_string(),
             },
         ],
+        stop_reason: None,
     };
     assert_eq!(concat_text_blocks(parsed), "Hello, world.");
 }
@@ -24,13 +25,17 @@ fn concat_text_blocks_skips_non_text_blocks() {
                 text: "kept".to_string(),
             },
         ],
+        stop_reason: None,
     };
     assert_eq!(concat_text_blocks(parsed), "kept");
 }
 
 #[test]
 fn concat_text_blocks_empty_content_is_empty_string() {
-    let parsed = Response { content: vec![] };
+    let parsed = Response {
+        content: vec![],
+        stop_reason: None,
+    };
     assert_eq!(concat_text_blocks(parsed), "");
 }
 
@@ -107,4 +112,18 @@ fn the_endpoint_and_api_version_are_pinned() {
     // thing aiming the request. `anthropic-version` is required by the API.
     assert_eq!(ENDPOINT, "https://api.anthropic.com/v1/messages");
     assert_eq!(API_VERSION, "2023-06-01");
+}
+
+#[test]
+fn a_limit_stop_reason_marks_the_reply_truncated() {
+    let stopped = |reason: &str| -> bool {
+        let json = format!(r#"{{"content": [], "stop_reason": "{reason}"}}"#);
+        serde_json::from_str::<Response>(&json)
+            .expect("parse")
+            .truncated()
+    };
+    assert!(stopped("max_tokens"));
+    assert!(stopped("model_context_window_exceeded"));
+    assert!(!stopped("end_turn"));
+    assert!(!stopped("stop_sequence"));
 }
