@@ -37,6 +37,21 @@
       "detail": "Lightweight model for low-end hardware. Good for simple dictation where speed is preferred."
     },
     {
+      "id": "parakeet-tdt-ctc-110m",
+      "display_name": "Parakeet TDT-CTC 110M",
+      "family": "parakeet",
+      "pipelines": ["single-shot"],
+      "default_pipeline": "single-shot",
+      "filename": "parakeet-tdt_ctc-110m-Q8_0.gguf",
+      "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/parakeet-tdt_ctc-110m-Q8_0.gguf",
+      "size_bytes": 135373280,
+      "multilingual": false,
+      "languages": ["en"],
+      "tier": 22,
+      "description": "Tiny English, near-instant",
+      "detail": "NVIDIA NeMo Parakeet TDT-CTC 110M. Very small English-only model that is near-instant even on CPU."
+    },
+    {
       "id": "moonshine-streaming-small",
       "display_name": "Moonshine Streaming Small",
       "family": "moonshine",
@@ -105,6 +120,21 @@
       "detail": "Great for most machines. Works well on integrated GPUs and CPUs with 6+ GB RAM."
     },
     {
+      "id": "parakeet-tdt-0.6b-v2",
+      "display_name": "Parakeet TDT 0.6B v2",
+      "family": "parakeet",
+      "pipelines": ["single-shot"],
+      "default_pipeline": "single-shot",
+      "filename": "parakeet-tdt-0.6b-v2-Q8_0.gguf",
+      "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/parakeet-tdt-0.6b-v2-Q8_0.gguf",
+      "size_bytes": 729574912,
+      "multilingual": false,
+      "languages": ["en"],
+      "tier": 42,
+      "description": "Fast, accurate English",
+      "detail": "NVIDIA NeMo Parakeet TDT v2. Offline English-only transcription that runs well on any hardware."
+    },
+    {
       "id": "qwen3-asr-0.6b",
       "display_name": "Qwen3-ASR 0.6B",
       "family": "qwen3-asr",
@@ -137,6 +167,21 @@
       "tier": 45,
       "description": "Multilingual, very fast",
       "detail": "NVIDIA NeMo Parakeet TDT v3. Offline multilingual transcription with excellent speed."
+    },
+    {
+      "id": "parakeet-ultra",
+      "display_name": "Parakeet Ultra",
+      "family": "parakeet",
+      "pipelines": ["single-shot"],
+      "default_pipeline": "single-shot",
+      "filename": "parakeet-ultra-Q8_0.gguf",
+      "url": "https://huggingface.co/thevedp/nexusvoice-models/resolve/main/parakeet-ultra-Q8_0.gguf",
+      "size_bytes": 740363168,
+      "multilingual": true,
+      "languages": ["en", "de", "fr", "es", "it", "pt", "ru", "uk", "hr", "sl", "lv", "lt", "et", "fi", "sv", "da", "nl", "pl", "cs", "sk", "hu", "ro", "bg", "el", "mt"],
+      "tier": 45,
+      "description": "Most accurate for European languages",
+      "detail": "NVIDIA NeMo Parakeet Ultra. Offline transcription with the best accuracy across 25 European languages."
     },
     {
       "id": "nemotron-asr-streaming-0.6b",
