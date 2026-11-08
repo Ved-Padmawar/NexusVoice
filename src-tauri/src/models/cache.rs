@@ -19,16 +19,45 @@ use super::TranscriptionEngine;
 
 pub type SharedEngine = Arc<Mutex<TranscriptionEngine>>;
 
-#[derive(Default)]
-struct Slot {
-    engine: Option<SharedEngine>,
+/// Generic over the engine only so tests can install one without a model.
+struct Slot<E = SharedEngine> {
+    engine: Option<E>,
+    /// Bumped by every unload; a load begun under an older value is stale.
+    generation: u64,
     /// Recordings still using the engine. Unloading under one would hand its
     /// finalize a different model than the one that decoded its partials.
     leases: usize,
     unload_pending: bool,
 }
 
-impl Slot {
+// Derived, it would require `E: Default`, which an engine is not.
+impl<E> Default for Slot<E> {
+    fn default() -> Self {
+        Self {
+            engine: None,
+            generation: 0,
+            leases: 0,
+            unload_pending: false,
+        }
+    }
+}
+
+impl<E> Slot<E> {
+    /// Unload, and void any load in flight: it may be building the old model.
+    fn supersede(&mut self) -> bool {
+        self.generation += 1;
+        self.unload()
+    }
+
+    /// Install `engine` unless the slot was superseded since its load began.
+    fn install(&mut self, engine: E, generation: u64) -> bool {
+        if self.generation != generation {
+            return false;
+        }
+        self.engine = Some(engine);
+        true
+    }
+
     fn unload(&mut self) -> bool {
         if self.leases > 0 {
             self.unload_pending = true;
@@ -91,16 +120,48 @@ impl EngineCache {
     /// Load, GPU init and warmup take seconds, so they run on a blocking
     /// thread with no lock held; blocking the runtime would stall every
     /// command.
+    /// A model switch mid-load drops the stale engine and loads the new pick.
     pub async fn get_or_load(&self, settings: &Settings) -> Result<SharedEngine, String> {
         self.touch();
         if let Some(engine) = self.loaded() {
             return Ok(engine);
         }
         let _loading = self.loading.lock().await;
-        if let Some(engine) = self.loaded() {
+        loop {
+            let generation = match self.loaded_or_generation() {
+                Ok(engine) => return Ok(engine),
+                Err(generation) => generation,
+            };
+            let saved = settings.language();
+            let engine = self.build(settings, saved.as_deref()).await?;
+            let backend = engine.backend();
+            let languages = engine.languages().to_vec();
+            let engine = Arc::new(Mutex::new(engine));
+            if !lock_recovering(&self.slot).install(Arc::clone(&engine), generation) {
+                log::info!("model changed while loading; loading the new selection");
+                continue;
+            }
+            reset_unsupported_language(settings, &languages, saved.as_deref());
+            *self
+                .backend
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(backend);
             return Ok(engine);
         }
+    }
 
+    /// The loaded engine, or the generation a load starting now runs under.
+    fn loaded_or_generation(&self) -> Result<SharedEngine, u64> {
+        let slot = lock_recovering(&self.slot);
+        slot.engine.clone().ok_or(slot.generation)
+    }
+
+    /// Build the selected model's engine off the runtime.
+    async fn build(
+        &self,
+        settings: &Settings,
+        saved_language: Option<&str>,
+    ) -> Result<TranscriptionEngine, String> {
         let mut model = settings.model();
         let entry = select_model(detect_backend(), model.as_deref());
         // The selected model may still be downloading. Load whatever is present
@@ -116,23 +177,13 @@ impl EngineCache {
             model = Some(fallback.id.clone());
         }
 
-        let saved = settings.language();
-        let hint = language::resolve(saved.as_deref()).map(str::to_string);
+        let hint = language::resolve(saved_language).map(str::to_string);
         let models_dir = self.models_dir.clone();
-        let engine = tauri::async_runtime::spawn_blocking(move || {
+        tauri::async_runtime::spawn_blocking(move || {
             TranscriptionEngine::new(&models_dir, model.as_deref(), hint.as_deref())
         })
         .await
-        .map_err(|e| format!("engine load task failed: {e}"))??;
-
-        reset_unsupported_language(settings, engine.languages(), saved.as_deref());
-        *self
-            .backend
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(engine.backend());
-        let engine = Arc::new(Mutex::new(engine));
-        lock_recovering(&self.slot).engine = Some(Arc::clone(&engine));
-        Ok(engine)
+        .map_err(|e| format!("engine load task failed: {e}"))?
     }
 
     /// Load the selected model in the background. A missing model is not an
@@ -170,9 +221,10 @@ impl EngineCache {
         });
     }
 
-    /// Unload now, or once the recordings holding the engine finish.
+    /// Unload now, or once the recordings holding the engine finish. A load in
+    /// flight is superseded.
     pub fn unload(&self) -> bool {
-        lock_recovering(&self.slot).unload()
+        lock_recovering(&self.slot).supersede()
     }
 
     /// Drop an engine that panicked, even mid-recording: it cannot be trusted.

@@ -69,6 +69,41 @@ async fn a_stream_without_content_length_cannot_write_past_the_limit() {
     assert!(part.metadata().unwrap().len() <= 4);
 }
 
+#[tokio::test]
+async fn a_cancel_does_not_wait_for_a_stalled_server_to_answer() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    // Accepts, then never sends a status line: `send` would sit out READ_TIMEOUT.
+    let server = tokio::spawn(async move {
+        let (_stream, _) = listener.accept().await.unwrap();
+        std::future::pending::<()>().await;
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let cancel = CancellationToken::new();
+    let canceller = cancel.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        canceller.cancel();
+    });
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        transfer(
+            &format!("http://{address}/model"),
+            &dir.path().join("model.part"),
+            &cancel,
+            4,
+            &mut |_| {},
+        ),
+    )
+    .await;
+    server.abort();
+    assert_eq!(
+        result.expect("cancel must not wait out the read timeout"),
+        Err(CANCELLED.to_string())
+    );
+}
+
 #[test]
 fn reads_the_first_byte_of_a_content_range() {
     assert_eq!(parse_range_start("bytes 100-199/200"), Some(100));

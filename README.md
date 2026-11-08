@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.20.6-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.20.7-violet?style=flat-square)
 
 </div>
 
@@ -93,11 +93,11 @@ Moonshine families. A few of the picks:
 
 | Model                       |   Size   | Notes                              |
 |-----------------------------|:--------:|------------------------------------|
-| Whisper Large v3 Turbo      | 886&nbsp;MB | Best accuracy, fast on GPU      |
+| Whisper Large v3 Turbo      | 693&nbsp;MB | Best accuracy, fast on GPU      |
 | Whisper Medium              | 583&nbsp;MB | Great accuracy, runs well on CPU |
-| Parakeet Unified EN 0.6B    | 731&nbsp;MB | Live or on-release, English only |
-| Parakeet TDT 0.6B v3        | 740&nbsp;MB | Multilingual, very fast         |
-| Nemotron ASR Streaming 0.6B | 751&nbsp;MB | Live, built for realtime dictation |
+| Parakeet Unified EN 0.6B    | 602&nbsp;MB | Live or on-release, English only |
+| Parakeet TDT 0.6B v3        | 610&nbsp;MB | Multilingual, very fast         |
+| Nemotron ASR Streaming 0.6B | 621&nbsp;MB | Live, built for realtime dictation |
 | Moonshine Streaming Small   | 199&nbsp;MB | Live, low memory use            |
 | Whisper Tiny                | 44&nbsp;MB  | Fastest, lowest accuracy        |
 

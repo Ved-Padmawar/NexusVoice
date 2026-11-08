@@ -1,5 +1,6 @@
 //! Data commands: transcripts, usage stats and the dictionary.
 
+use chrono::{DateTime, Local, NaiveDate, NaiveTime, TimeDelta, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -114,22 +115,66 @@ impl PageQuery {
         !self.sort_asc.unwrap_or(false)
     }
 
-    fn start_bound(&self) -> Option<&str> {
-        self.from.as_deref()
+    fn created_at_range(&self) -> Result<CreatedAtRange, ApiError> {
+        self.created_at_range_in(&Local)
     }
 
-    /// Inclusive upper bound. The picker sends a bare `YYYY-MM-DD` but
-    /// `created_at` is `YYYY-MM-DD HH:MM:SS`, compared lexicographically, so a
-    /// bare date would exclude the whole day it names.
-    fn end_bound(&self) -> Option<String> {
-        self.to.as_deref().map(|t| {
-            if t.len() == 10 {
-                format!("{t} 23:59:59")
-            } else {
-                t.to_string()
-            }
+    /// `from` and `to` are local `YYYY-MM-DD` days but `created_at` is UTC, so
+    /// each day widens to the UTC instants it spans in `tz`.
+    fn created_at_range_in<Tz: TimeZone>(&self, tz: &Tz) -> Result<CreatedAtRange, ApiError> {
+        let start = self
+            .from
+            .as_deref()
+            .map(|day| day_start_utc(parse_day(day)?, tz))
+            .transpose()?;
+        let end = self
+            .to
+            .as_deref()
+            .map(|day| {
+                let next = parse_day(day)?.succ_opt().ok_or_else(date_out_of_range)?;
+                Ok::<_, ApiError>(day_start_utc(next, tz)? - TimeDelta::seconds(1))
+            })
+            .transpose()?;
+        Ok(CreatedAtRange {
+            start: start.map(sqlite_datetime),
+            end: end.map(sqlite_datetime),
         })
     }
+}
+
+/// Inclusive bounds in `created_at`'s text form, so they compare
+/// lexicographically against the column.
+struct CreatedAtRange {
+    start: Option<String>,
+    end: Option<String>,
+}
+
+fn parse_day(day: &str) -> Result<NaiveDate, ApiError> {
+    NaiveDate::parse_from_str(day, "%Y-%m-%d")
+        .map_err(|_| ApiError::new("invalid_input", "date filter must be YYYY-MM-DD"))
+}
+
+fn date_out_of_range() -> ApiError {
+    ApiError::new("invalid_input", "date filter is out of range")
+}
+
+/// First instant of `day` in `tz`. Where a DST change skips midnight, the day
+/// starts when the clocks resume, an hour later.
+fn day_start_utc<Tz: TimeZone>(day: NaiveDate, tz: &Tz) -> Result<DateTime<Utc>, ApiError> {
+    let midnight = day.and_time(NaiveTime::MIN);
+    tz.from_local_datetime(&midnight)
+        .earliest()
+        .or_else(|| {
+            tz.from_local_datetime(&(midnight + TimeDelta::hours(1)))
+                .earliest()
+        })
+        .map(|start| start.with_timezone(&Utc))
+        .ok_or_else(date_out_of_range)
+}
+
+/// `SQLite`'s `CURRENT_TIMESTAMP` form, which `created_at` holds.
+fn sqlite_datetime(at: DateTime<Utc>) -> String {
+    at.format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
 #[tauri::command]
@@ -138,14 +183,14 @@ pub async fn get_transcripts(
     db: State<'_, Database>,
     page: PageQuery,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
+    let range = page.created_at_range()?;
     let repo = TranscriptRepository::new(db.pool().await?);
-    let to = page.end_bound();
     let items = repo
         .list_keyset(
             page.limit(),
             page.cursor(),
-            page.start_bound(),
-            to.as_deref(),
+            range.start.as_deref(),
+            range.end.as_deref(),
             page.sort_desc(),
         )
         .await?;
@@ -171,16 +216,16 @@ pub async fn search_transcripts(
         return Ok(vec![]);
     }
 
+    let range = page.created_at_range()?;
     // Propagate real DB/FTS errors instead of masking them as empty results.
     let repo = TranscriptRepository::new(db.pool().await?);
-    let to = page.end_bound();
     let items = repo
         .search(
             &fts_query,
             page.limit(),
             page.cursor(),
-            page.start_bound(),
-            to.as_deref(),
+            range.start.as_deref(),
+            range.end.as_deref(),
             page.sort_desc(),
         )
         .await?;

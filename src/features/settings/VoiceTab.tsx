@@ -6,6 +6,7 @@ import {
 import { commands } from '../../shared/bindings'
 import { formatModelSize, isStreaming, modelNameToId, type CatalogModel, type ModelId } from '../models/models'
 import { toast } from 'sonner'
+import { extractErrorMessage } from '../../shared/errors'
 import { Button } from '../../shared/ui/Button'
 import { Popover } from '../../shared/ui/Popover'
 import { Segmented } from '../../shared/ui/Segmented'
@@ -275,7 +276,9 @@ export function VoiceTab() {
     try {
       await switchModel(v)
       toast.success('Model updated')
-    } catch { /* ignore */ }
+    } catch (e) {
+      toast.error(extractErrorMessage(e, 'Could not switch model'))
+    }
     finally { setModelSaving(false) }
   }
 

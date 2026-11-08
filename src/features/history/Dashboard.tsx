@@ -229,6 +229,12 @@ function DateFieldButton({ value, expanded, onClick, ref }: {
 
 const fieldLabel = 'text-xs font-semibold text-fg-2'
 
+/** The editor's state for applied filters: a range whose ends match is one day. */
+function datesOf({ from, to }: TranscriptFilters): { mode: DateMode; dates: Dates } {
+  if (from && from === to) return { mode: 'on', dates: { from: '', to: '', on: from } }
+  return { mode: 'range', dates: { from: from ?? '', to: to ?? '', on: '' } }
+}
+
 type FilterDropdownProps = {
   filters: TranscriptFilters
   onChange: (filters: TranscriptFilters) => void
@@ -237,8 +243,8 @@ type FilterDropdownProps = {
 function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
   const { from: filterFrom, to: filterTo, sortAsc: filterSortAsc } = filters
   const [open, setOpen] = useState(false)
-  const [dateMode, setDateMode] = useState<DateMode>('range')
-  const [dates, setDates] = useState<Dates>({ from: filterFrom ?? '', to: filterTo ?? '', on: '' })
+  const [dateMode, setDateMode] = useState(() => datesOf(filters).mode)
+  const [dates, setDates] = useState(() => datesOf(filters).dates)
   const [sortAsc, setSortAsc] = useState(filterSortAsc)
   const [calField, setCalField] = useState<DateKey | null>(null)
   const [calView, setCalView] = useState(() => new Date())
@@ -251,7 +257,9 @@ function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
 
   const handleOpenChange = (next: boolean) => {
     if (next) {
-      setDates({ from: filterFrom ?? '', to: filterTo ?? '', on: '' })
+      const applied = datesOf(filters)
+      setDateMode(applied.mode)
+      setDates(applied.dates)
       setSortAsc(filterSortAsc)
     }
     setCalField(null)
@@ -279,8 +287,9 @@ function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
   }
 
   const apply = () => {
-    if (dateMode === 'on' && dates.on) {
-      onChange({ from: dates.on, to: dates.on, sortAsc })
+    // Only the visible mode counts, so a cleared day can't fall back to a hidden range.
+    if (dateMode === 'on') {
+      onChange({ from: dates.on || null, to: dates.on || null, sortAsc })
     } else {
       onChange({ from: dates.from || null, to: dates.to || null, sortAsc })
     }

@@ -151,10 +151,13 @@ async fn transfer(
         request = request.header(reqwest::header::RANGE, format!("bytes={have}-"));
     }
 
-    let response = request
-        .send()
-        .await
-        .map_err(|e| format!("download request failed: {e}"))?;
+    // A stalled server holds `send` for up to the connect + read timeouts.
+    let response = tokio::select! {
+        () = cancel.cancelled() => return Err(CANCELLED.to_string()),
+        response = request.send() => {
+            response.map_err(|e| format!("download request failed: {e}"))?
+        }
+    };
     let status = response.status();
 
     // A server that ignores Range replies 200 with the whole file; start over so

@@ -213,6 +213,39 @@ describe('Dashboard — filter', () => {
     expect(screen.queryByText('From')).not.toBeInTheDocument()
   })
 
+  const applyTodayAsOneDay = () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
+    fireEvent.click(screen.getByText('One day'))
+    fireEvent.click(screen.getByRole('button', { name: /pick a date/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Today' }))
+    fireEvent.click(screen.getByText(/^apply$/i))
+  }
+
+  it('reopens a one-day filter showing its day', () => {
+    renderDashboard()
+    applyTodayAsOneDay()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
+    const today = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date())
+    expect(screen.getByText('On')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: today })).toBeInTheDocument()
+  })
+
+  it('clearing a one-day filter applies no dates', () => {
+    renderDashboard()
+    applyTodayAsOneDay()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
+    fireEvent.click(screen.getByRole('button', { name: /\d{4}$/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    fireEvent.click(screen.getByText(/^apply$/i))
+
+    // Reopening reflects what was applied: an empty range, not the old day.
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
+    expect(screen.getByText('From')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /pick a date/i })).toHaveLength(2)
+  })
+
   it('refetches with the applied sort order', async () => {
     mockBackend({ transcripts: sampleTranscripts })
     renderDashboard()
