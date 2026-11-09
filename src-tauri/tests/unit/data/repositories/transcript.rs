@@ -385,20 +385,11 @@ async fn a_bare_end_date_would_exclude_its_own_day() {
 
 #[test]
 fn fts_query_quotes_each_term_and_lowercases_it() {
+    // The star sits outside the quotes: `"term*"` matches a literal asterisk,
+    // `"term"*` is the prefix operator.
     assert_eq!(
         TranscriptRepository::build_fts_query("Meeting"),
         "\"meeting\" OR \"meeting\"*"
-    );
-}
-
-#[test]
-fn fts_query_puts_the_prefix_star_outside_the_quotes() {
-    // `"term*"` matches a literal asterisk; `"term"*` is the prefix operator.
-    let q = TranscriptRepository::build_fts_query("report");
-    assert!(q.contains("\"report\"*"), "{q}");
-    assert!(
-        !q.contains("report*\""),
-        "star must sit outside the quotes: {q}"
     );
 }
 

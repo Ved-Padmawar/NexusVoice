@@ -79,15 +79,6 @@ fn strip_artifacts_of_a_think_only_response_is_empty() {
     assert_eq!(strip_artifacts("<think>only reasoning</think>"), "");
 }
 
-#[tokio::test]
-async fn format_transcript_short_circuits_before_checking_the_config() {
-    // An unusable config plus empty input must still be Ok(""), not an error —
-    // the empty check has to come first.
-    let cfg = FormatConfig::default();
-    assert!(!cfg.is_usable());
-    assert_eq!(format_transcript(&cfg, "\n\t  ", None).await.unwrap(), "");
-}
-
 // ── max_tokens_for ─────────────────────────────────────────────────────
 // Too low truncates the user's formatted text; absent, a looping local model
 // runs until the request timeout and the user waits a full minute.

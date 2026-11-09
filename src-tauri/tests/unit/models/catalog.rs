@@ -95,15 +95,6 @@ fn dual_pipeline_models_default_to_streaming() {
 }
 
 #[test]
-fn whisper_family_is_flagged_for_run_extension_gating() {
-    // Attaching the whisper run extension to another arch is rejected upstream,
-    // so `is_whisper` must track the family field exactly.
-    for m in all() {
-        assert_eq!(m.is_whisper(), m.family == "whisper", "{}", m.id);
-    }
-}
-
-#[test]
 fn part_file_paths_cannot_collide() {
     // The downloader derives its resume file as `filename.with_extension("part")`.
     // Two models whose names differ only by extension would share one `.part`

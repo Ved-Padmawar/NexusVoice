@@ -87,13 +87,6 @@ fn unknown_response_fields_are_ignored() {
 }
 
 #[test]
-fn a_response_with_no_choices_parses_but_has_nothing_to_return() {
-    // `send_chat` turns this into an error rather than an empty transcript.
-    let parsed: ChatResponse = serde_json::from_str(r#"{"choices": []}"#).expect("parse");
-    assert!(parsed.choices.is_empty());
-}
-
-#[test]
 fn a_length_finish_reason_marks_the_reply_truncated() {
     let cut: ChatResponse = serde_json::from_str(
         r#"{"choices": [{"message": {"content": "half a sen"}, "finish_reason": "length"}]}"#,

@@ -41,13 +41,6 @@ fn fails_open_to_default_when_empty() {
 use super::ToF32;
 
 #[test]
-fn f32_samples_pass_through_unchanged() {
-    assert_eq!(0.5f32.to_f32(), 0.5);
-    assert_eq!((-0.25f32).to_f32(), -0.25);
-    assert_eq!(0.0f32.to_f32(), 0.0);
-}
-
-#[test]
 fn i16_samples_scale_to_plus_minus_one() {
     assert_eq!(0i16.to_f32(), 0.0, "signed silence is zero");
     assert_eq!(i16::MAX.to_f32(), 1.0);

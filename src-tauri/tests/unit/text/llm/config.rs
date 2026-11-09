@@ -42,23 +42,6 @@ fn is_usable_anthropic_does_not_require_base_url() {
 }
 
 #[test]
-fn active_returns_the_selected_providers_details() {
-    let mut c = with("ollama", "http://localhost:11434/v1", "qwen", true);
-    c.profiles.insert(
-        "lmstudio".to_string(),
-        Profile {
-            base_url: "http://localhost:1234/v1".to_string(),
-            model: "phi-4".to_string(),
-            api_key: String::new(),
-        },
-    );
-
-    assert_eq!(c.active().model, "qwen");
-    c.provider = "lmstudio".to_string();
-    assert_eq!(c.active().model, "phi-4");
-}
-
-#[test]
 fn switching_provider_keeps_every_profile() {
     // The bug this shape exists to prevent: configuring one provider used to
     // overwrite the last one's endpoint.

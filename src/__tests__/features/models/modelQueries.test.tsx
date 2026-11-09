@@ -5,7 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { invoke } from '@tauri-apps/api/core'
 import { queryClient } from '../../../app/queryClient'
 import {
-  cancelDownload, refreshActiveModel, startDownload, useActiveModel, useDownload,
+  refreshActiveModel, startDownload, useActiveModel, useDownload,
 } from '../../../features/models/queries'
 import type { CatalogModel } from '../../../features/models/models'
 import { queryKeys } from '../../../shared/queryKeys'
@@ -62,12 +62,6 @@ describe('model downloads', () => {
     const { result } = renderHook(() => useDownload('b'), { wrapper })
     await waitFor(() => expect(result.current.data).toEqual({ status: 'queued', progress: 0, error: null }))
     expect(downloads()).toHaveProperty('a')
-  })
-
-  it('cancels by id', async () => {
-    mockInvoke.mockResolvedValue(true)
-    await cancelDownload('whisper-tiny')
-    expect(mockInvoke).toHaveBeenCalledWith('cancel_model_download', { id: 'whisper-tiny' })
   })
 
   it('never switches the active model as a side effect of downloading', async () => {

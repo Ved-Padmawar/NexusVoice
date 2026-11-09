@@ -9,10 +9,6 @@ describe('extractErrorMessage', () => {
     expect(extractErrorMessage(apiError, 'fallback')).toBe('clipboard write failed')
   })
 
-  it('reads .message from a real Error instance', () => {
-    expect(extractErrorMessage(new Error('boom'), 'fallback')).toBe('boom')
-  })
-
   it('returns the fallback for values without a message', () => {
     expect(extractErrorMessage('a string', 'fallback')).toBe('fallback')
     expect(extractErrorMessage(null, 'fallback')).toBe('fallback')

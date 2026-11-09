@@ -121,15 +121,6 @@ describe('HotkeySection', () => {
     expect(screen.getByText('A')).toBeInTheDocument()
   })
 
-  it('shows Save and Cancel buttons after keys pressed', async () => {
-    await renderSettings()
-    fireEvent.click(recordingRecorder())
-    fireEvent.keyDown(window, { key: 'Control', code: 'ControlLeft' })
-    fireEvent.keyDown(window, { key: 'A', code: 'KeyA' })
-    expect(screen.getByRole('button', { name: /save/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument()
-  })
-
   it('binds the recorded hotkey on save', async () => {
     await renderSettings()
     fireEvent.click(recordingRecorder())

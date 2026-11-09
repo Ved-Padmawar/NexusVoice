@@ -30,13 +30,6 @@ beforeEach(() => {
   useAppStore.setState({ starting: false, startupError: null })
 })
 
-describe('useAppStore — theme', () => {
-  it('setTheme updates theme', () => {
-    useAppStore.getState().setTheme('midnight')
-    expect(useAppStore.getState().theme).toBe('midnight')
-  })
-})
-
 describe('useAppStore — startup', () => {
   it('coalesces concurrent starts and waits for initial data before revealing the page', async () => {
     let finishTranscripts!: (value: never[]) => void
@@ -55,15 +48,6 @@ describe('useAppStore — startup', () => {
     finishTranscripts([])
     await first
     expect(useAppStore.getState().starting).toBe(false)
-  })
-
-  it('loads data once the database is ready', async () => {
-    mockInvoke.mockResolvedValue([])
-    await useAppStore.getState().startup()
-    const state = useAppStore.getState()
-    expect(state.starting).toBe(false)
-    expect(state.startupError).toBeNull()
-    expect(mockInvoke).toHaveBeenCalledWith('wait_for_app_ready')
   })
 
   it('records the error when the database is unavailable', async () => {

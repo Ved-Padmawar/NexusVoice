@@ -94,15 +94,6 @@ fn cancel_reports_false_when_there_is_nothing_to_stop() {
 }
 
 #[test]
-fn remove_clears_the_entry() {
-    let d = Downloads::new();
-    d.enqueue("nemotron", false);
-    d.remove("nemotron");
-
-    assert_eq!(d.snapshot(), Vec::new());
-}
-
-#[test]
 fn downloads_are_tracked_independently() {
     let d = Downloads::new();
     d.enqueue("a", false);

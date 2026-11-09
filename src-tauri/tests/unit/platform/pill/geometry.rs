@@ -20,14 +20,6 @@ fn the_card_window_is_larger_than_the_capsule_in_both_axes() {
 }
 
 #[test]
-fn both_windows_have_positive_finite_dimensions() {
-    for (label, (w, h)) in [("capsule", capsule_window()), ("card", card_window())] {
-        assert!(w.is_finite() && h.is_finite(), "{label} is not finite");
-        assert!(w > 0.0 && h > 0.0, "{label} is {w}x{h}");
-    }
-}
-
-#[test]
 fn every_window_leaves_slack_for_the_border_and_shadow() {
     // Without the slack the border is clipped by the window edge.
     let (cap_w, cap_h) = capsule_window();

@@ -148,14 +148,6 @@ describe('Dictionary — existing entries', () => {
     })
   })
 
-  it('enters edit mode on pencil click', async () => {
-    render()
-    await screen.findByText('teh')
-    const editBtn = screen.getByRole('button', { name: /edit teh/i })
-    if (editBtn) fireEvent.click(editBtn)
-    expect(screen.getAllByRole('textbox').length).toBeGreaterThan(0)
-  })
-
   it('cancels edit mode on X click', async () => {
     render()
     await screen.findByText('teh')

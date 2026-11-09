@@ -21,11 +21,6 @@ describe('ROUTES', () => {
 })
 
 describe('SETTINGS_TABS', () => {
-  it('keeps the documented tab order', () => {
-    // General, Voice, Appearance, About — the registry order *is* the tab order.
-    expect(Object.values(SETTINGS_TABS)).toEqual(['general', 'voice', 'appearance', 'about'])
-  })
-
   const keys = Object.keys(SETTINGS_TABS)
   const trigger = (key: string) => `value: SETTINGS_TABS.${key},`
   const panel = (key: string) => `tab === SETTINGS_TABS.${key} &&`

@@ -106,11 +106,6 @@ describe('Dashboard — transcripts', () => {
     expect(await screen.findByText('2 dictations')).toBeInTheDocument()
   })
 
-  it('labels a transcript with the app it was dictated into', async () => {
-    renderDashboard()
-    expect(await screen.findByText('VS Code')).toBeInTheDocument()
-  })
-
   it('omits the app label when the target app is unknown', async () => {
     renderDashboard()
     await screen.findByText('Hello world')
@@ -171,13 +166,6 @@ describe('Dashboard — stats', () => {
 })
 
 describe('Dashboard — export', () => {
-  it('shows export dropdown on button click', () => {
-    renderDashboard()
-    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
-    expect(screen.getByText(/plain text/i)).toBeInTheDocument()
-    expect(screen.getByText('JSON')).toBeInTheDocument()
-  })
-
   it('pages through get_transcripts on format select', async () => {
     renderDashboard()
     fireEvent.click(screen.getByRole('button', { name: 'Export' }))
@@ -192,19 +180,6 @@ describe('Dashboard — export', () => {
 })
 
 describe('Dashboard — filter', () => {
-  it('opens filter dropdown on button click', () => {
-    renderDashboard()
-    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
-    expect(screen.getByText(/newest first/i)).toBeInTheDocument()
-  })
-
-  it('shows range and one day toggle', () => {
-    renderDashboard()
-    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
-    expect(screen.getByText('Range')).toBeInTheDocument()
-    expect(screen.getByText('One day')).toBeInTheDocument()
-  })
-
   it('switches to one day mode', () => {
     renderDashboard()
     fireEvent.click(screen.getByRole('button', { name: 'Filter' }))

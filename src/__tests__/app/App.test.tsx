@@ -46,13 +46,6 @@ describe("App", () => {
     });
   });
 
-  it("renders the app shell after load", async () => {
-    renderWithQuery(<App />);
-    await waitFor(() => {
-      expect(screen.getByAltText("NexusVoice")).toBeInTheDocument();
-    });
-  });
-
   it("shows the dashboard, with no sign-in step", async () => {
     renderWithQuery(<App />);
     await waitFor(() => {

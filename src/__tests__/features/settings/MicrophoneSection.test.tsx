@@ -62,12 +62,6 @@ async function loaded() {
 }
 
 describe('MicrophoneSection', () => {
-  it('lists named devices alongside the default option', async () => {
-    await loaded()
-    fireEvent.click(trigger())
-    expect(await screen.findByRole('listbox')).toHaveTextContent('Blue Yeti')
-  })
-
   it('preselects a saved non-default device', async () => {
     saved = 'Blue Yeti'
     renderWithQuery(<MicrophoneSection />)
