@@ -22,6 +22,9 @@ const catalogOptions = live(queryKeys.catalog, () => commands.getModelCatalog())
 
 const activeModelOptions = live(queryKeys.activeModel, () => commands.getModelInfo())
 
+/** Support is per model, so every model change re-reads it. */
+export const languageOptions = live(queryKeys.languageOptions, () => commands.getLanguageOptions())
+
 const downloadsOptions = live(queryKeys.downloads, async (): Promise<Downloads> => Object.fromEntries(
   (await commands.getActiveDownloads()).map(({ id, status, progress, error }) => [id, { status, progress, error }]),
 ))
@@ -41,6 +44,10 @@ export function useActiveModel() {
     [catalog],
   )
   return useQuery({ ...activeModelOptions, select })
+}
+
+export function useLanguageOptions() {
+  return useQuery(languageOptions)
 }
 
 export function useDownload(id: ModelId | null) {
@@ -66,11 +73,13 @@ export function useDownloadSummary() {
 
 export const refreshActiveModel = () => readFresh(activeModelOptions)
 
-/** Make `id` the model Rust loads. Resolves to the new active model and
- * whether the recording in progress keeps the previous one. */
+/** The active model changed: re-read it and the languages it offers. */
+const rereadModel = () => Promise.allSettled([refreshActiveModel(), readFresh(languageOptions)])
+
+/** Make `id`, a model on disk, the one Rust loads. */
 export async function switchModel(id: ModelId) {
-  const { afterRecording } = await commands.setModelOverride(id)
-  return { info: await refreshActiveModel(), afterRecording }
+  await commands.setModelOverride(id)
+  await rereadModel()
 }
 
 const setDownload = (id: string, patch: Partial<Download>) =>
@@ -86,11 +95,12 @@ const dropDownload = (id: string) =>
     return rest
   })
 
-/** Resolves false when the backend refused to start the download. */
-export async function startDownload(id: ModelId): Promise<boolean> {
+/** Resolves false when the backend refused to start the download. With
+ * `activate`, Rust makes the model the active one once it is on disk. */
+export async function startDownload(id: ModelId, { activate = false } = {}): Promise<boolean> {
   setDownload(id, { status: 'queued', progress: 0 })
   try {
-    await commands.startModelDownload(id)
+    await commands.startModelDownload(id, activate)
     return true
   } catch {
     dropDownload(id)
@@ -103,8 +113,6 @@ export async function cancelDownload(id: ModelId) {
     await commands.cancelModelDownload(id)
   } catch { /* the cancelled event drops it */ }
 }
-
-const rereadActiveModel = () => { refreshActiveModel().catch(() => {}) }
 
 /** Keep the download registry current. Both windows follow it, keyed by model id. */
 export async function listenForDownloadEvents(): Promise<() => void> {
@@ -122,11 +130,14 @@ export async function listenForDownloadEvents(): Promise<() => void> {
 export async function listenForModelEvents(): Promise<() => void> {
   const unlisteners = await Promise.all([
     listenForDownloadEvents(),
-    events.modelDownloadComplete.listen(rereadActiveModel),
+    // A finished download can be the active model's file.
+    events.modelDownloadComplete.listen(() => void rereadModel()),
     // Deleting the active model unloads it, or switches to another on disk.
-    events.modelEvicted.listen(rereadActiveModel),
-    events.modelSwitched.listen(rereadActiveModel),
+    events.modelEvicted.listen(() => void rereadModel()),
+    // Also a download that asked to become the active model once on disk.
+    events.modelSwitched.listen(() => void rereadModel()),
     events.languageReset.listen(() => {
+      readFresh(languageOptions).catch(() => {})
       toast.info('This model does not support your dictation language. Switched to English.')
     }),
   ])

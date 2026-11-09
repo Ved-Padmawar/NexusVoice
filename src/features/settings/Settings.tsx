@@ -50,7 +50,7 @@ export function Settings() {
     <div
       className={cn(
         'min-h-0 px-7 pt-3',
-        voice ? 'flex flex-col overflow-hidden [scrollbar-gutter:stable]' : 'page-scroll settings-scroll overflow-y-auto overscroll-none',
+        voice ? 'flex flex-col overflow-hidden scrollbar-gutter-stable' : 'page-scroll settings-scroll overflow-y-auto overscroll-none',
       )}
     >
       <div className="flex items-center gap-4">

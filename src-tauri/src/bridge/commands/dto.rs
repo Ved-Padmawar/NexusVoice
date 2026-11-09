@@ -126,11 +126,3 @@ impl InjectionStatus {
         }
     }
 }
-
-/// When a change to what records the voice takes effect.
-#[derive(Debug, Clone, Copy, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ChangeTiming {
-    /// The recording in progress keeps what it started with.
-    pub after_recording: bool,
-}

@@ -1,11 +1,37 @@
 import { useQuery } from '@tanstack/react-query'
-import { commands, type PillSettings, type PillSettingsSnapshot } from '../../shared/bindings'
+import {
+  commands, events, type PillSettings, type PillSettingsSnapshot, type RecordingInput, type RecordingSnapshot,
+} from '../../shared/bindings'
 import { logger } from '../../shared/logger'
-import { LIVE, live, queryClient, readFresh } from '../../app/queryClient'
+import { LIVE, live, patchLive, queryClient, readFresh } from '../../app/queryClient'
 import { takeLegacyPill } from '../../app/store/legacyPill'
 import { subscribePillSettings } from '../../pill/pillSettings'
 import { queryKeys } from '../../shared/queryKeys'
 import type { HotkeyBindings, HotkeyKind } from '../../shared/types'
+
+/** Not event-driven: devices come and go, so each visit enumerates them again. */
+export const inputDevices = live(queryKeys.inputDevices, () => commands.listInputDevices())
+
+export function useInputDevices() {
+  return useQuery({ ...inputDevices, refetchOnMount: 'always' })
+}
+
+const recordingOptions = live(queryKeys.recording, () => commands.getRecordingState())
+
+/** Keep the recording snapshot current; a revision rejects a late older one. */
+export function listenForRecordingState() {
+  return events.recordingStateChanged.listen(({ payload }) =>
+    patchLive(recordingOptions, (current: RecordingSnapshot) =>
+      payload.revision > current.revision ? payload : current))
+}
+
+/** True while the recording in progress keeps its previous `input`. */
+export function useKeptByRecording(input: RecordingInput) {
+  return useQuery({
+    ...recordingOptions,
+    select: (snapshot: RecordingSnapshot) => snapshot.deferred.includes(input),
+  }).data === true
+}
 
 const hotkeysOptions = {
   queryKey: queryKeys.hotkeys,

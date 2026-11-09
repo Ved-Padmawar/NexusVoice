@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
+use tokio::sync::watch;
 
 use crate::bridge::events::LanguageReset;
 use crate::settings::Settings;
@@ -28,6 +29,10 @@ struct Slot<E = SharedEngine> {
     /// finalize a different model than the one that decoded its partials.
     leases: usize,
     unload_pending: bool,
+    /// The saved language, as last handed to the engine or waiting for it.
+    language: Option<String>,
+    /// `language` waits for the recordings holding the engine to finish.
+    language_pending: bool,
 }
 
 // Derived, it would require `E: Default`, which an engine is not.
@@ -38,11 +43,53 @@ impl<E> Default for Slot<E> {
             generation: 0,
             leases: 0,
             unload_pending: false,
+            language: None,
+            language_pending: false,
         }
     }
 }
 
+/// Changes waiting for the recordings in progress to finish.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Deferred {
+    pub model: bool,
+    pub language: bool,
+}
+
+impl<E: Clone> Slot<E> {
+    /// Record the saved language. Returns the engine to repoint before the slot
+    /// unlocks, or `None` while a recording holds it.
+    fn want_language(&mut self, saved: Option<String>) -> Option<E> {
+        self.language = saved;
+        if self.leases > 0 && self.engine.is_some() {
+            self.language_pending = true;
+            return None;
+        }
+        self.engine.clone()
+    }
+
+    /// A lease ended. Once none is left, applies what waited on the recordings
+    /// and returns the engine to repoint at the waiting language.
+    fn release(&mut self) -> Option<E> {
+        self.leases -= 1;
+        if self.unload_pending && self.unload() {
+            log::info!("unloaded the engine the finished recording was using");
+        }
+        if self.leases > 0 || !std::mem::take(&mut self.language_pending) {
+            return None;
+        }
+        self.engine.clone()
+    }
+}
+
 impl<E> Slot<E> {
+    fn deferred(&self) -> Deferred {
+        Deferred {
+            model: self.unload_pending && self.engine.is_some(),
+            language: self.language_pending,
+        }
+    }
+
     /// Unload, and void any load in flight: it may be building the old model.
     fn supersede(&mut self) -> bool {
         self.generation += 1;
@@ -64,6 +111,8 @@ impl<E> Slot<E> {
             return false;
         }
         self.unload_pending = false;
+        // The next engine is built with the saved language.
+        self.language_pending = false;
         self.engine.take().is_some()
     }
 }
@@ -79,25 +128,46 @@ pub struct EngineCache {
     backend: RwLock<Option<String>>,
     /// Signalled when a lease drops.
     released: Arc<tokio::sync::Notify>,
+    deferred: Arc<watch::Sender<Deferred>>,
 }
 
-/// Holds the engine for one recording. Dropping it applies an unload that
-/// was requested meanwhile.
+/// Holds the engine for one recording. Dropping it applies the unload or
+/// language change that was requested meanwhile.
 pub struct EngineLease {
     slot: Arc<Mutex<Slot>>,
     released: Arc<tokio::sync::Notify>,
+    deferred: Arc<watch::Sender<Deferred>>,
 }
 
 impl Drop for EngineLease {
     fn drop(&mut self) {
-        {
-            let mut slot = lock_recovering(&self.slot);
-            slot.leases -= 1;
-            if slot.unload_pending && slot.unload() {
-                log::info!("unloaded the engine the finished recording was using");
+        edit(&self.slot, &self.deferred, |slot| {
+            if let Some(engine) = slot.release() {
+                repoint_language(&engine, slot.language.as_deref());
             }
-        }
+        });
         self.released.notify_waiters();
+    }
+}
+
+/// Change the slot, and announce it when that changed what recordings defer.
+fn edit<R>(
+    slot: &Mutex<Slot>,
+    deferred: &watch::Sender<Deferred>,
+    change: impl FnOnce(&mut Slot) -> R,
+) -> R {
+    let mut slot = lock_recovering(slot);
+    let result = change(&mut slot);
+    let now = slot.deferred();
+    deferred.send_if_modified(|seen| std::mem::replace(seen, now) != now);
+    result
+}
+
+/// Called under the slot lock with no lease held, so no recording can start
+/// until the language is in place.
+fn repoint_language(engine: &SharedEngine, saved: Option<&str>) {
+    if let Ok(mut engine) = engine.lock() {
+        engine.set_language(language::resolve(saved));
     }
 }
 
@@ -110,6 +180,7 @@ impl EngineCache {
             used_at: Mutex::new(Instant::now()),
             backend: RwLock::new(None),
             released: Arc::new(tokio::sync::Notify::new()),
+            deferred: Arc::new(watch::Sender::new(Deferred::default())),
         }
     }
 
@@ -118,7 +189,22 @@ impl EngineCache {
         EngineLease {
             slot: Arc::clone(&self.slot),
             released: Arc::clone(&self.released),
+            deferred: Arc::clone(&self.deferred),
         }
+    }
+
+    /// What the recordings in progress keep from before a change.
+    pub fn deferred(&self) -> Deferred {
+        lock_recovering(&self.slot).deferred()
+    }
+
+    /// Wakes whenever `deferred` changes.
+    pub fn watch_deferred(&self) -> watch::Receiver<Deferred> {
+        self.deferred.subscribe()
+    }
+
+    fn edit<R>(&self, change: impl FnOnce(&mut Slot) -> R) -> R {
+        edit(&self.slot, &self.deferred, change)
     }
 
     /// Returns once no unload waits on a recording. Until then the slot still
@@ -164,7 +250,20 @@ impl EngineCache {
             let backend = engine.backend();
             let languages = engine.languages().to_vec();
             let engine = Arc::new(Mutex::new(engine));
-            if !lock_recovering(&self.slot).install(Arc::clone(&engine), generation) {
+            let installed = self.edit(|slot| {
+                if !slot.install(Arc::clone(&engine), generation) {
+                    return false;
+                }
+                // A language saved while this model loaded missed the build.
+                let current = settings.language();
+                if current == saved {
+                    slot.language = current;
+                } else if let Some(engine) = slot.want_language(current) {
+                    repoint_language(&engine, slot.language.as_deref());
+                }
+                true
+            });
+            if !installed {
                 log::info!("model changed while loading; loading the new selection");
                 continue;
             }
@@ -234,19 +333,13 @@ impl EngineCache {
         });
     }
 
-    /// Point the loaded engine at the saved language. Language is a per-run
-    /// option, so the engine is repointed rather than reloaded.
-    pub fn apply_language(app: &AppHandle) {
-        let Some(engine) = app.state::<Self>().loaded() else {
-            return;
-        };
-        // A streaming recording holds the engine until it ends: wait off the
-        // runtime, and read the saved choice once locked so the latest wins.
-        let app = app.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            if let Ok(mut engine) = engine.lock() {
-                let saved = app.state::<Settings>().language();
-                engine.set_language(language::resolve(saved.as_deref()));
+    /// Repoint the engine at the saved language (a per-run option, so no
+    /// reload). Done before returning; a recording in progress waits instead.
+    pub fn apply_language(&self, settings: &Settings) {
+        // Read under the slot lock, so concurrent saves apply in order.
+        self.edit(|slot| {
+            if let Some(engine) = slot.want_language(settings.language()) {
+                repoint_language(&engine, slot.language.as_deref());
             }
         });
     }
@@ -254,20 +347,12 @@ impl EngineCache {
     /// Unload now, or once the recordings holding the engine finish. A load in
     /// flight is superseded.
     pub fn unload(&self) -> bool {
-        lock_recovering(&self.slot).supersede()
-    }
-
-    /// Unload for a model change. True when a recording keeps the old engine.
-    pub fn switch_model(&self) -> bool {
-        let mut slot = lock_recovering(&self.slot);
-        slot.supersede();
-        // With nothing loaded yet, the recording's own load picks up the new model.
-        slot.unload_pending && slot.engine.is_some()
+        self.edit(Slot::supersede)
     }
 
     /// Drop an engine that panicked, even mid-recording: it cannot be trusted.
     pub fn discard(&self) {
-        lock_recovering(&self.slot).engine = None;
+        self.edit(|slot| slot.engine = None);
     }
 
     pub fn in_use(&self) -> bool {

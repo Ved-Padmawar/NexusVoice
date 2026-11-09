@@ -39,6 +39,8 @@ struct DownloadEntry {
     /// Awaited alongside the network read, so a cancel interrupts immediately
     /// instead of waiting for the current chunk to finish.
     cancel: CancellationToken,
+    /// Make the model the active one once it is on disk.
+    activate: bool,
 }
 
 /// Every download in flight or waiting, keyed by model id. Success and cancel
@@ -61,13 +63,15 @@ impl Downloads {
     }
 
     /// Registers a queued download, returning its cancel token. A model already
-    /// queued or running keeps its existing entry and returns `None`.
-    pub fn enqueue(&self, id: &str) -> Option<CancellationToken> {
+    /// queued or running keeps its entry (gaining `activate` if asked) and
+    /// returns `None`.
+    pub fn enqueue(&self, id: &str, activate: bool) -> Option<CancellationToken> {
         let mut entries = self.lock();
-        if entries
-            .get(id)
-            .is_some_and(|e| e.status != DownloadStatus::Error)
+        if let Some(entry) = entries
+            .get_mut(id)
+            .filter(|e| e.status != DownloadStatus::Error)
         {
+            entry.activate |= activate;
             return None;
         }
         let cancel = CancellationToken::new();
@@ -78,9 +82,14 @@ impl Downloads {
                 progress: 0,
                 error: None,
                 cancel: cancel.clone(),
+                activate,
             },
         );
         Some(cancel)
+    }
+
+    pub fn activates(&self, id: &str) -> bool {
+        self.lock().get(id).is_some_and(|e| e.activate)
     }
 
     pub fn set_running(&self, id: &str) {
@@ -173,13 +182,29 @@ impl ModelLibrary {
     }
 
     /// Make `entry` the active model and warm it in the background, so the
-    /// first recording after a switch isn't stalled by the load. True when the
-    /// recording in progress keeps the previous model.
-    pub fn select(app: &AppHandle, entry: &ModelEntry) -> std::io::Result<bool> {
+    /// first recording after a switch isn't stalled by the load.
+    pub fn select(app: &AppHandle, entry: &ModelEntry) -> std::io::Result<()> {
         app.state::<Settings>().set_model(Some(entry.id.clone()))?;
-        let after_recording = app.state::<EngineCache>().switch_model();
+        app.state::<EngineCache>().unload();
         EngineCache::warm(app);
-        Ok(after_recording)
+        Ok(())
+    }
+
+    /// Publish a model now on disk. Switches to it first when its download
+    /// asked to, so the complete event already finds it active.
+    fn complete(app: &AppHandle, downloads: &Downloads, entry: &ModelEntry) {
+        let id = entry.id.clone();
+        if downloads.activates(&id) {
+            if let Err(e) = Self::select(app, entry) {
+                let error = format!("Downloaded, but could not switch to it: {e}");
+                downloads.set_error(&id, error.clone());
+                let _ = ModelDownloadError { id, error }.emit(app);
+                return;
+            }
+            let _ = ModelSwitched.emit(app);
+        }
+        downloads.remove(&id);
+        let _ = ModelDownloadComplete { id }.emit(app);
     }
 
     /// Delete a downloaded model. Deleting the active one switches to the best
@@ -201,22 +226,22 @@ impl ModelLibrary {
         Ok(())
     }
 
-    /// Fetch a model in the background. Never changes the active model, so a
-    /// failed or cancelled download can't leave the choice pointing at a
-    /// missing file. Beyond `MAX_CONCURRENT_DOWNLOADS` it waits in `Queued`.
-    pub fn start_download(&self, app: &AppHandle, entry: &'static ModelEntry) {
+    /// Fetch a model in the background. Beyond `MAX_CONCURRENT_DOWNLOADS` it
+    /// waits in `Queued`. With `activate`, it becomes the active model only
+    /// once on disk, so the choice never points at a missing file.
+    pub fn start_download(&self, app: &AppHandle, entry: &'static ModelEntry, activate: bool) {
         let id = entry.id.clone();
+        // Already in flight: re-emitting `start` would rewind the caller's
+        // progress bar to 0.
+        let Some(cancel) = self.downloads.enqueue(&id, activate) else {
+            return;
+        };
         // Already on disk: only the complete event clears the caller's
         // optimistic `queued`, so emit one rather than returning quietly.
         if self.is_downloaded(entry) {
-            let _ = ModelDownloadComplete { id }.emit(app);
+            Self::complete(app, &self.downloads, entry);
             return;
         }
-        // Already in flight: re-emitting `start` would rewind the caller's
-        // progress bar to 0.
-        let Some(cancel) = self.downloads.enqueue(&id) else {
-            return;
-        };
 
         let downloads = Arc::clone(&self.downloads);
         let models_dir = self.models_dir.clone();
@@ -238,10 +263,7 @@ impl ModelLibrary {
             let _ = ModelDownloadRunning { id: id.clone() }.emit(&app);
 
             match download_model(&models_dir, entry, &app, &downloads, cancel).await {
-                Ok(()) => {
-                    downloads.remove(&id);
-                    let _ = ModelDownloadComplete { id }.emit(&app);
-                }
+                Ok(()) => Self::complete(&app, &downloads, entry),
                 Err(e) if e == CANCELLED => {
                     downloads.remove(&id);
                     let _ = ModelDownloadCancelled { id }.emit(&app);

@@ -19,6 +19,7 @@ import {
   NO_MODELS, cancelDownload, startDownload, switchModel, useActiveModel, useCatalog, useDownload, usePendingDownloads,
 } from '../models/queries'
 import { ModelUnloadSection } from './ModelUnloadSection'
+import { useKeptByRecording } from './queries'
 
 const VENDOR_NAME: Record<string, string> = {
   openai: 'OpenAI', nvidia: 'NVIDIA', ibm: 'IBM', qwen: 'Qwen', moonshine: 'Moonshine',
@@ -101,6 +102,7 @@ function Description({ model }: { model: CatalogModel }) {
 function ModelCard({
   model,
   loaded,
+  waiting,
   installed,
   recommended,
   disabled,
@@ -110,6 +112,8 @@ function ModelCard({
 }: {
   model: CatalogModel
   loaded: boolean
+  /** Chosen, but the recording in progress finishes on the previous model. */
+  waiting: boolean
   installed: boolean
   recommended: boolean
   disabled: boolean
@@ -170,7 +174,9 @@ function ModelCard({
         {installed ? (
           loaded ? (
             <span className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent text-xs font-semibold text-accent-fg">
-              <CheckIcon size={12} weight="bold" />In use
+              {waiting
+                ? <><HourglassMediumIcon size={12} weight="bold" />From your next recording</>
+                : <><CheckIcon size={12} weight="bold" />In use</>}
             </span>
           ) : (
             <Button variant="chip" onClick={onUse} disabled={disabled} className={ACTION}>
@@ -251,6 +257,7 @@ export function VoiceTab() {
   const recommendedVariant = profile ? modelNameToId(profile.recommendedModel, catalog) : null
   // `selected` is set even with nothing downloaded, so require the file too.
   const loadedVariant = selected && onDiskVariants.has(selected) ? selected : null
+  const modelKept = useKeptByRecording('model')
 
   // On disk first, then the rest; smallest first. Choosing a model never reorders.
   const ordered = useMemo(() => {
@@ -274,9 +281,8 @@ export function VoiceTab() {
   const handleUseModel = async (v: ModelId) => {
     setModelSaving(true)
     try {
-      const { afterRecording } = await switchModel(v)
-      if (afterRecording) toast.info('Model updated. The dictation in progress finishes on the previous model.')
-      else toast.success('Model updated')
+      await switchModel(v)
+      toast.success('Model updated')
     } catch (e) {
       toast.error(extractErrorMessage(e, 'Could not switch model'))
     }
@@ -298,7 +304,7 @@ export function VoiceTab() {
 
       {/* Room for the in-use card's outline and the last row; the scrollbar sits
           in the page's right gutter instead of over the cards. */}
-      <div className="voice-scroll mt-4 -mr-3.5 min-h-0 flex-1 overflow-y-auto overscroll-none pt-0.5 pr-1 pb-8 [scrollbar-gutter:stable]">
+      <div className="voice-scroll mt-4 -mr-3.5 min-h-0 flex-1 overflow-y-auto overscroll-none pt-0.5 pr-1 pb-8 scrollbar-gutter-stable">
         {shown.length === 0 && (
           <p className="py-16 text-center text-sm text-muted">No models here yet.</p>
         )}
@@ -308,6 +314,7 @@ export function VoiceTab() {
               key={model.id}
               model={model}
               loaded={loadedVariant === model.id}
+              waiting={loadedVariant === model.id && modelKept}
               installed={onDiskVariants.has(model.id)}
               recommended={recommendedVariant === model.id}
               disabled={modelSaving}

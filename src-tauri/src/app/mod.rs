@@ -173,6 +173,7 @@ fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(Recorder::new());
     app.state::<Recorder>()
         .set_keep_mic_open(app.state::<Settings>().keep_mic_open());
+    Recorder::follow_engine(app.handle());
     app.manage(Hotkeys::default());
 
     spawn_open_database(app.handle().clone(), app_data_dir.join("nexusvoice.db"));

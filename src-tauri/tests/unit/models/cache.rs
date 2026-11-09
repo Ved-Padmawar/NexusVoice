@@ -80,14 +80,16 @@ fn a_warmup_with_nothing_pending_proceeds_at_once() {
 }
 
 #[test]
-fn a_switch_reports_whether_a_recording_keeps_the_old_model() {
+fn a_switch_is_deferred_only_while_a_recording_holds_a_loaded_engine() {
     let cache = EngineCache::new(std::env::temp_dir());
     // Idle: nothing holds the engine, so the switch applies now.
-    assert!(!cache.switch_model());
+    cache.unload();
+    assert_eq!(cache.deferred(), Deferred::default());
 
     // Recording with no engine loaded yet: its own load picks up the new model.
     let lease = cache.lease();
-    assert!(!cache.switch_model());
+    cache.unload();
+    assert_eq!(cache.deferred(), Deferred::default());
     drop(lease);
 
     // Recording on a loaded engine: it keeps that engine until it finishes.
@@ -97,5 +99,63 @@ fn a_switch_reports_whether_a_recording_keeps_the_old_model() {
         ..Default::default()
     };
     slot.supersede();
-    assert!(slot.unload_pending && slot.engine.is_some());
+    assert!(slot.deferred().model);
+    assert_eq!(slot.release(), None);
+    assert!(slot.engine.is_none());
+    assert_eq!(slot.deferred(), Deferred::default());
+}
+
+#[test]
+fn a_language_saved_mid_recording_waits_for_the_last_recording_to_finish() {
+    let mut slot = Slot::<&str> {
+        engine: Some("engine"),
+        leases: 2,
+        ..Default::default()
+    };
+    // The recordings keep the language they started with.
+    assert_eq!(slot.want_language(Some("fr".into())), None);
+    assert!(slot.deferred().language);
+    assert_eq!(slot.language.as_deref(), Some("fr"));
+
+    // Only the last one to finish hands the engine the waiting language.
+    assert_eq!(slot.release(), None);
+    assert!(slot.deferred().language);
+    assert_eq!(slot.release(), Some("engine"));
+    assert_eq!(slot.deferred(), Deferred::default());
+
+    // Idle: the engine is repointed at once, nothing waits.
+    assert_eq!(slot.want_language(Some("de".into())), Some("engine"));
+    assert!(!slot.deferred().language);
+}
+
+#[test]
+fn an_unload_drops_a_waiting_language_with_the_engine() {
+    let mut slot = Slot::<&str> {
+        engine: Some("old model"),
+        leases: 1,
+        ..Default::default()
+    };
+    slot.want_language(Some("fr".into()));
+    slot.supersede();
+    assert_eq!(
+        slot.deferred(),
+        Deferred {
+            model: true,
+            language: true
+        }
+    );
+    // The next engine is built with the saved language, so nothing is repointed.
+    assert_eq!(slot.release(), None);
+    assert_eq!(slot.deferred(), Deferred::default());
+}
+
+#[test]
+fn a_language_saved_with_no_engine_loaded_waits_for_nothing() {
+    let mut slot = Slot::<&str> {
+        leases: 1,
+        ..Default::default()
+    };
+    // The recording's own load reads the saved language.
+    assert_eq!(slot.want_language(Some("fr".into())), None);
+    assert!(!slot.deferred().language);
 }

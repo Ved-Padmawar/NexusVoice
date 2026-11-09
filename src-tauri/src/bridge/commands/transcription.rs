@@ -2,13 +2,13 @@
 
 use tauri::{AppHandle, State};
 
+use crate::models::cache::EngineCache;
 use crate::session::{
     recorder::{Action, RecordingSnapshot},
     Recorder,
 };
 use crate::settings::Settings;
 
-use super::dto::ChangeTiming;
 use super::error::ApiError;
 
 #[tauri::command]
@@ -64,20 +64,19 @@ pub fn list_input_devices(settings: State<'_, Settings>) -> Vec<InputDeviceInfo>
         .collect()
 }
 
-/// Choose an input device by name; `None` follows the OS default. A recording
-/// in progress keeps its device; the next one opens the new choice.
+/// Choose an input device by name; `None` follows the OS default.
 #[tauri::command]
 #[specta::specta]
 pub fn set_input_device(
+    app: AppHandle,
     settings: State<'_, Settings>,
     recorder: State<'_, Recorder>,
     name: Option<String>,
-) -> Result<ChangeTiming, ApiError> {
+) -> Result<(), ApiError> {
     let name = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
     settings.set_input_device(name)?;
-    Ok(ChangeTiming {
-        after_recording: !recorder.close_mic_if_idle(),
-    })
+    recorder.change_mic(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -100,6 +99,9 @@ pub fn set_keep_mic_open(
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_recording_state(recorder: State<'_, Recorder>) -> RecordingSnapshot {
-    recorder.snapshot()
+pub fn get_recording_state(
+    recorder: State<'_, Recorder>,
+    engine: State<'_, EngineCache>,
+) -> RecordingSnapshot {
+    recorder.snapshot(&engine)
 }

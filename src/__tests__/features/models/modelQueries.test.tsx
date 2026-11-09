@@ -30,7 +30,14 @@ describe('model downloads', () => {
     mockInvoke.mockResolvedValue(undefined)
     await startDownload('whisper-tiny')
     expect(downloads()?.['whisper-tiny']).toEqual({ status: 'queued', progress: 0 })
-    expect(mockInvoke).toHaveBeenCalledWith('start_model_download', { id: 'whisper-tiny' })
+    expect(mockInvoke).toHaveBeenCalledWith('start_model_download', { id: 'whisper-tiny', activate: false })
+  })
+
+  it('asks Rust to switch to a model only once its download lands', async () => {
+    mockInvoke.mockResolvedValue(undefined)
+    await startDownload('whisper-tiny', { activate: true })
+    expect(mockInvoke).toHaveBeenCalledWith('start_model_download', { id: 'whisper-tiny', activate: true })
+    expect(mockInvoke).not.toHaveBeenCalledWith('set_model_override', expect.anything())
   })
 
   it('drops the entry when the backend refuses the download', async () => {

@@ -1,12 +1,12 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { LightningIcon, CheckIcon, HardDrivesIcon, GraphicsCardIcon, GlobeIcon, BroadcastIcon, DownloadSimpleIcon, CircleNotchIcon, ArrowsClockwiseIcon } from '@phosphor-icons/react'
-import { commands } from '../../shared/bindings'
+import { commands, events } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { cn } from '../../shared/utils'
 import { formatModelSize, isStreaming, modelNameToId, sortForDisplay, type ModelId } from './models'
 import {
-  NO_MODELS, refreshActiveModel, startDownload, switchModel, useActiveModel, useCatalog, useDownload,
+  NO_MODELS, refreshActiveModel, startDownload, useActiveModel, useCatalog, useDownload,
 } from './queries'
 import { useAppStore } from '../../app/store/useAppStore'
 import { Button } from '../../shared/ui/Button'
@@ -46,39 +46,41 @@ export function ModelPickerModal() {
       })
   }, [catalog])
 
+  // Rust switches to the pick once it is on disk; never before.
   const handleConfirm = async () => {
     if (!selected) return
     setConfirming(true)
-    try {
-      // Already on disk (picked a previously-downloaded model): skip the download step.
-      if ((await switchModel(selected)).info.downloaded) {
-        setModelChosen(true)
-        return
-      }
-      if (!(await startDownload(selected))) {
-        setStartError('Could not start the download.')
-        setConfirming(false)
-        return
-      }
-      setStartError(null)
-      setConfirmed(true)
-    } catch {
+    if (!(await startDownload(selected, { activate: true }))) {
+      setStartError('Could not start the download.')
       setConfirming(false)
+      return
     }
+    setStartError(null)
+    setConfirmed(true)
   }
 
-  // After a failed download: back to the list to retry or pick another.
-  const backToChoice = () => {
+  // After a failed or cancelled download: back to the list.
+  const backToChoice = useCallback(() => {
     setConfirmed(false)
     setConfirming(false)
-  }
+  }, [])
+
+  // A cancel from elsewhere leaves nothing to wait for.
+  useEffect(() => {
+    if (!confirmed) return
+    const unlisten = events.modelDownloadCancelled.listen(e => {
+      if (e.payload.id === selected) backToChoice()
+    })
+    return () => { void unlisten.then(fn => fn()) }
+  }, [confirmed, selected, backToChoice])
 
   const download = useDownload(selected).data
-  // Close once Rust reports the model on disk; a missing entry may just be unread.
-  const onDisk = useActiveModel().data?.downloaded === true
+  // Close once Rust reports the pick active and on disk.
+  const active = useActiveModel().data
+  const switched = active?.id === selected && active.downloaded
   useEffect(() => {
-    if (confirmed && onDisk) setModelChosen(true)
-  }, [confirmed, onDisk, setModelChosen])
+    if (confirmed && switched) setModelChosen(true)
+  }, [confirmed, switched, setModelChosen])
 
   const recommended = profile ? modelNameToId(profile.recommendedModel, catalog) : null
   const selectedModel = catalog.find(m => m.id === selected) ?? null

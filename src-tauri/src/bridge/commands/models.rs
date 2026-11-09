@@ -12,7 +12,6 @@ use crate::models::library::{DownloadStatus, ModelLibrary};
 use crate::models::provider::canonical_override;
 use crate::settings::Settings;
 
-use super::dto::ChangeTiming;
 use super::error::ApiError;
 
 fn unknown_model() -> ApiError {
@@ -113,12 +112,19 @@ pub fn delete_model(
     Ok(library.delete(&app, entry)?)
 }
 
-/// Make a model the active one.
+/// Make a model on disk the active one.
 #[tauri::command]
 #[specta::specta]
-pub fn set_model_override(app: AppHandle, variant: String) -> Result<ChangeTiming, ApiError> {
-    let after_recording = ModelLibrary::select(&app, catalog_entry(&variant)?)?;
-    Ok(ChangeTiming { after_recording })
+pub fn set_model_override(
+    app: AppHandle,
+    library: State<'_, ModelLibrary>,
+    variant: String,
+) -> Result<(), ApiError> {
+    let entry = catalog_entry(&variant)?;
+    if !library.is_downloaded(entry) {
+        return Err(ApiError::new("not_found", "model is not downloaded"));
+    }
+    Ok(ModelLibrary::select(&app, entry)?)
 }
 
 #[derive(Debug, Serialize, specta::Type)]
@@ -201,8 +207,8 @@ pub fn get_language_options(settings: State<'_, Settings>) -> LanguageSettings {
 #[tauri::command]
 #[specta::specta]
 pub fn set_language(
-    app: AppHandle,
     settings: State<'_, Settings>,
+    engine: State<'_, EngineCache>,
     code: Option<String>,
 ) -> Result<(), ApiError> {
     let model = ModelLibrary::active(&settings);
@@ -212,7 +218,7 @@ pub fn set_language(
         }
     }
     settings.set_language(code)?;
-    EngineCache::apply_language(&app);
+    engine.apply_language(&settings);
     Ok(())
 }
 
@@ -287,16 +293,18 @@ pub fn get_model_info(
     }
 }
 
+/// With `activate`, the model becomes the active one once it is on disk.
 #[tauri::command]
 #[specta::specta]
 pub fn start_model_download(
     app: AppHandle,
     library: State<'_, ModelLibrary>,
     id: String,
+    activate: bool,
 ) -> Result<(), ApiError> {
     let entry = catalog::find(&id)
         .ok_or_else(|| ApiError::new("unknown_model", "no such model in the catalog"))?;
-    library.start_download(&app, entry);
+    library.start_download(&app, entry, activate);
     Ok(())
 }
 

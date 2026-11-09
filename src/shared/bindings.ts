@@ -16,10 +16,9 @@ async listInputDevices() : Promise<InputDeviceInfo[]> {
     return await TAURI_INVOKE("list_input_devices");
 },
 /**
- * Choose an input device by name; `None` follows the OS default. A recording
- * in progress keeps its device; the next one opens the new choice.
+ * Choose an input device by name; `None` follows the OS default.
  */
-async setInputDevice(name: string | null) : Promise<ChangeTiming> {
+async setInputDevice(name: string | null) : Promise<null> {
     return await TAURI_INVOKE("set_input_device", { name });
 },
 async getKeepMicOpen() : Promise<boolean> {
@@ -111,8 +110,11 @@ async setPillSettings(pill: PillSettings) : Promise<PillSettingsSnapshot> {
 async getModelInfo() : Promise<ModelInfoResponse> {
     return await TAURI_INVOKE("get_model_info");
 },
-async startModelDownload(id: string) : Promise<null> {
-    return await TAURI_INVOKE("start_model_download", { id });
+/**
+ * With `activate`, the model becomes the active one once it is on disk.
+ */
+async startModelDownload(id: string, activate: boolean) : Promise<null> {
+    return await TAURI_INVOKE("start_model_download", { id, activate });
 },
 /**
  * Every download queued, running or holding an error, so the UI can
@@ -129,9 +131,9 @@ async cancelModelDownload(id: string) : Promise<void> {
     await TAURI_INVOKE("cancel_model_download", { id });
 },
 /**
- * Make a model the active one.
+ * Make a model on disk the active one.
  */
-async setModelOverride(variant: string) : Promise<ChangeTiming> {
+async setModelOverride(variant: string) : Promise<null> {
     return await TAURI_INVOKE("set_model_override", { variant });
 },
 /**
@@ -314,14 +316,6 @@ export type CatalogModel = { id: string; displayName: string; family: string;
  * Every decode path this model supports.
  */
 pipelines: Pipeline[]; defaultPipeline: Pipeline; sizeBytes: number; multilingual: boolean; description: string; detail: string; downloaded: boolean; isActive: boolean }
-/**
- * When a change to what records the voice takes effect.
- */
-export type ChangeTiming = { 
-/**
- * The recording in progress keeps what it started with.
- */
-afterRecording: boolean }
 export type CudaDownloadCancelled = null
 export type CudaDownloadComplete = null
 export type CudaDownloadError = string
@@ -504,7 +498,16 @@ export type ProfileUpdate = { baseUrl: string; model: string;
  */
 apiKey: string | null }
 export type ProfileView = { baseUrl: string; model: string; hasApiKey: boolean }
-export type RecordingSnapshot = { revision: number; status: RecordingStatus }
+/**
+ * What a recording captures and decodes with. Each recording keeps the ones
+ * it started with.
+ */
+export type RecordingInput = "model" | "microphone" | "language"
+export type RecordingSnapshot = { revision: number; status: RecordingStatus; 
+/**
+ * Saved changes the recording in progress does not use.
+ */
+deferred: RecordingInput[] }
 export type RecordingStateChanged = RecordingSnapshot
 export type RecordingStatus = "idle" | "recording" | "dictation" | "dictation-paused" | "processing"
 export type TranscriptResponse = { id: number; content: string; wordCount: number; durationSeconds: number | null; 
