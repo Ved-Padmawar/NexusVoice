@@ -494,10 +494,15 @@ impl Recorder {
 
     /// Release the device so the next recording opens the newly chosen one.
     /// A recording in progress keeps its stream.
-    pub fn close_mic_if_idle(&self) {
-        if *lock_recovering(&self.phase) == Phase::Idle {
+    /// Holds the phase across the close, so a start can't slip in between and
+    /// lose its fresh stream. True when the mic was released.
+    pub fn close_mic_if_idle(&self) -> bool {
+        let phase = lock_recovering(&self.phase);
+        let idle = *phase == Phase::Idle;
+        if idle {
             self.capture.mic.close();
         }
+        idle
     }
 
     /// The app is exiting: stop everything and release the device.
@@ -712,6 +717,20 @@ mod tests {
         assert!(!recorder.hold_for_restart());
         recorder.reset();
         recorder.claim_start(Mode::PushToTalk).unwrap();
+    }
+
+    #[test]
+    fn a_device_change_releases_the_mic_only_while_idle() {
+        let recorder = Recorder::new();
+        assert!(recorder.close_mic_if_idle());
+        recorder.claim_start(Mode::PushToTalk).unwrap();
+        recorder.capture.mic.arm();
+        // The recording keeps its stream; the change applies to the next one.
+        assert!(!recorder.close_mic_if_idle());
+        assert!(recorder.capture.mic.is_armed());
+        recorder.capture.mic.disarm();
+        recorder.reset();
+        assert!(recorder.close_mic_if_idle());
     }
 
     #[test]

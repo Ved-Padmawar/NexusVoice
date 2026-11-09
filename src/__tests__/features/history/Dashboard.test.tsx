@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router'
 import { Dashboard } from '../../../features/history/Dashboard'
 import { invoke } from '@tauri-apps/api/core'
 import { renderWithQuery } from '../../utils'
+import { addTranscript } from '../../../features/history/queries'
 import type { Transcript, UsageStats } from '../../../shared/types'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
@@ -318,5 +319,34 @@ describe('Dashboard — database failure', () => {
     expect(await screen.findByText('Hello world')).toBeInTheDocument()
     expect(statsCalls()).toBeGreaterThan(before)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
+describe('Dashboard day groups', () => {
+  it('keeps the day mounted when a new dictation joins it', async () => {
+    mockBackend({ transcripts: sampleTranscripts })
+    renderDashboard()
+    const day = (await screen.findByText('Hello world')).closest('section')!
+    await act(async () => {
+      await addTranscript({ id: 3, content: 'Fresh dictation', wordCount: 2, durationSeconds: 1, targetApp: null, createdAt: new Date().toISOString() })
+    })
+    expect(await screen.findByText('Fresh dictation')).toBeInTheDocument()
+    // Same node: the group was updated in place, not torn down and rebuilt.
+    expect(screen.getByText('Hello world').closest('section')).toBe(day)
+    expect(day.isConnected).toBe(true)
+  })
+})
+
+describe('Dashboard day groups across years', () => {
+  it('keeps the same weekday and date from different years apart', async () => {
+    // Monday 8 Nov in both years: identical labels without the year.
+    const at = (id: number, createdAt: string): Transcript => ({ id, content: `Entry ${id}`, wordCount: 2, durationSeconds: 1, targetApp: null, createdAt })
+    mockBackend({ transcripts: [at(1, '2021-11-08T12:00:00'), at(2, '2010-11-08T12:00:00')] })
+    renderDashboard()
+    const newer = (await screen.findByText('Entry 1')).closest('section')!
+    const older = screen.getByText('Entry 2').closest('section')!
+    expect(older).not.toBe(newer)
+    expect(newer).toHaveTextContent('2021')
+    expect(older).toHaveTextContent('2010')
   })
 })

@@ -45,7 +45,8 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
     const previous = selected
     setSelected(value)
     try {
-      await commands.setInputDevice(value === DEFAULT_VALUE ? null : value)
+      const { afterRecording } = await commands.setInputDevice(value === DEFAULT_VALUE ? null : value)
+      if (afterRecording) toast.info('Microphone changed. The recording in progress keeps the previous one.')
     } catch (e) {
       setSelected(previous)
       toast.error(extractErrorMessage(e, 'Could not set microphone'))

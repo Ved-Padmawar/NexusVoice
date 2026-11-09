@@ -75,8 +75,8 @@ export function FormattingToggle() {
     setSaving(true)
     try {
       await commands.setFormatConfig(keepingKeys(next))
-    } catch {
-      toast.error('Failed to save formatting settings')
+    } catch (e) {
+      toast.error(extractErrorMessage(e, 'Failed to save formatting settings'))
       // Rust kept the old setting; show that, not the one we hoped to save.
       setConfig(await commands.getFormatConfig().catch(() => previous))
     } finally {
@@ -204,6 +204,11 @@ function ProviderForm({
 
   const canSubmit = isConfigured(providerId, { baseUrl, model })
 
+  // A test's answer only describes the draft it sent.
+  const draftKey = JSON.stringify([providerId, baseUrl.trim(), model.trim(), apiKey.trim(), removeKey])
+  const currentDraft = useRef(draftKey)
+  useEffect(() => { currentDraft.current = draftKey }, [draftKey])
+
   // The test result shows briefly; a stale one would mislead.
   const flashResult = (result: 'ok' | 'fail') => {
     setTestResult(result)
@@ -215,11 +220,19 @@ function ProviderForm({
     if (!canSubmit) return
     setTesting(true)
     setTestResult('idle')
+    const tested = draftKey
+    const changed = () => {
+      if (currentDraft.current === tested) return false
+      toast.info('Settings changed during the test. Test again to check them.')
+      return true
+    }
     try {
       await commands.testFormatConnection(draft())
+      if (changed()) return
       flashResult('ok')
       toast.success('Connection successful')
     } catch (e) {
+      if (changed()) return
       flashResult('fail')
       const msg = extractErrorMessage(e, 'could not reach endpoint')
       toast.error(`Connection failed: ${msg}`)

@@ -4,7 +4,6 @@ use super::*;
 fn enqueue_registers_a_queued_entry() {
     let d = Downloads::new();
     assert!(d.enqueue("whisper-tiny").is_some());
-    assert!(d.is_pending("whisper-tiny"));
 
     let snap = d.snapshot();
     assert_eq!(snap.len(), 1);
@@ -31,7 +30,7 @@ fn a_failed_download_can_be_retried() {
     d.set_error("whisper-tiny", "network unreachable".into());
 
     // An error is terminal for the run but not for the model.
-    assert!(!d.is_pending("whisper-tiny"));
+    assert_eq!(d.snapshot()[0].1, DownloadStatus::Error);
     assert!(d.enqueue("whisper-tiny").is_some());
     assert_eq!(d.snapshot()[0].1, DownloadStatus::Queued);
 }
@@ -81,7 +80,6 @@ fn remove_clears_the_entry() {
     d.enqueue("nemotron");
     d.remove("nemotron");
 
-    assert!(!d.is_pending("nemotron"));
     assert_eq!(d.snapshot(), Vec::new());
 }
 

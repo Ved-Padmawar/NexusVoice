@@ -274,8 +274,9 @@ export function VoiceTab() {
   const handleUseModel = async (v: ModelId) => {
     setModelSaving(true)
     try {
-      await switchModel(v)
-      toast.success('Model updated')
+      const { afterRecording } = await switchModel(v)
+      if (afterRecording) toast.info('Model updated. The dictation in progress finishes on the previous model.')
+      else toast.success('Model updated')
     } catch (e) {
       toast.error(extractErrorMessage(e, 'Could not switch model'))
     }

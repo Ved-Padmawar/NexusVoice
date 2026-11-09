@@ -8,6 +8,7 @@ use crate::session::{
 };
 use crate::settings::Settings;
 
+use super::dto::ChangeTiming;
 use super::error::ApiError;
 
 #[tauri::command]
@@ -63,19 +64,20 @@ pub fn list_input_devices(settings: State<'_, Settings>) -> Vec<InputDeviceInfo>
         .collect()
 }
 
-/// Choose an input device by name; `None` follows the OS default. Takes
-/// effect on the next recording.
+/// Choose an input device by name; `None` follows the OS default. A recording
+/// in progress keeps its device; the next one opens the new choice.
 #[tauri::command]
 #[specta::specta]
 pub fn set_input_device(
     settings: State<'_, Settings>,
     recorder: State<'_, Recorder>,
     name: Option<String>,
-) -> Result<(), ApiError> {
+) -> Result<ChangeTiming, ApiError> {
     let name = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
     settings.set_input_device(name)?;
-    recorder.close_mic_if_idle();
-    Ok(())
+    Ok(ChangeTiming {
+        after_recording: !recorder.close_mic_if_idle(),
+    })
 }
 
 #[tauri::command]

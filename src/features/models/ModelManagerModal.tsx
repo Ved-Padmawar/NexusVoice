@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { TrashIcon, XIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
+import { extractErrorMessage } from '../../shared/errors'
 import { formatModelSize } from './models'
 import { VENDORS, vendorForFamily, isRaster } from '../../shared/vendors'
 import { NO_MODELS, useCatalog } from './queries'
@@ -34,8 +35,8 @@ export function ModelManagerModal({ open, onClose }: Props) {
       await commands.deleteModel(variant)
       toast.success(`${displayName} deleted`)
       load()
-    } catch {
-      toast.error('Failed to delete model')
+    } catch (e) {
+      toast.error(extractErrorMessage(e, 'Failed to delete model'))
     } finally {
       setDeleting(null)
     }

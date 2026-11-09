@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MicrophoneSection } from '../../../features/settings/MicrophoneSection'
 import { invoke } from '@tauri-apps/api/core'
+import { toast } from 'sonner'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 
 const mockInvoke = vi.mocked(invoke)
 
@@ -56,5 +57,17 @@ describe('MicrophoneSection', () => {
     await waitFor(() =>
       expect(mockInvoke).toHaveBeenCalledWith('set_input_device', { name: 'Blue Yeti' })
     )
+  })
+
+  it('says when a recording in progress keeps the previous device', async () => {
+    mockInvoke.mockImplementation(cmd => Promise.resolve(cmd === 'set_input_device' ? { afterRecording: true } : DEVICES))
+    render(<MicrophoneSection />)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Microphone' })).toHaveTextContent(/Default — Realtek Microphone/)
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Microphone' }))
+    fireEvent.click(await screen.findByText('Blue Yeti'))
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith(expect.stringMatching(/recording in progress keeps the previous/)))
+    expect(screen.getByRole('button', { name: 'Microphone' })).toHaveTextContent('Blue Yeti')
   })
 })

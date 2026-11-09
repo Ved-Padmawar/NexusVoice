@@ -51,12 +51,26 @@ export function usePendingDownloads() {
   return useQuery({ ...downloadsOptions, select: (downloads: Downloads) => Object.keys(downloads).length })
 }
 
+/** The furthest-behind pending download's progress, or null when none is.
+ * A finished download never lowers it; a newly started one does. */
+function summarizeDownloads(downloads: Downloads): number | null {
+  const pending = Object.values(downloads).filter(d => d.status !== 'error')
+  if (pending.length === 0) return null
+  return Math.min(...pending.map(d => d.progress))
+}
+
+/** One figure for every download in flight, so concurrent ones don't take turns. */
+export function useDownloadSummary() {
+  return useQuery({ ...downloadsOptions, select: summarizeDownloads })
+}
+
 export const refreshActiveModel = () => readFresh(activeModelOptions)
 
-/** Make `id` the model Rust loads; resolves to the new active model. */
+/** Make `id` the model Rust loads. Resolves to the new active model and
+ * whether the recording in progress keeps the previous one. */
 export async function switchModel(id: ModelId) {
-  await commands.setModelOverride(id)
-  return refreshActiveModel()
+  const { afterRecording } = await commands.setModelOverride(id)
+  return { info: await refreshActiveModel(), afterRecording }
 }
 
 const setDownload = (id: string, patch: Partial<Download>) =>
@@ -92,17 +106,23 @@ export async function cancelDownload(id: ModelId) {
 
 const rereadActiveModel = () => { refreshActiveModel().catch(() => {}) }
 
-export async function listenForModelEvents(): Promise<() => void> {
+/** Keep the download registry current. Both windows follow it, keyed by model id. */
+export async function listenForDownloadEvents(): Promise<() => void> {
   const unlisteners = await Promise.all([
     events.modelDownloadStart.listen(e => setDownload(e.payload.id, { status: 'queued', progress: 0, error: null })),
     events.modelDownloadRunning.listen(e => setDownload(e.payload.id, { status: 'running' })),
     events.modelDownloadProgress.listen(e => setDownload(e.payload.id, { status: 'running', progress: e.payload.pct })),
-    events.modelDownloadComplete.listen((e) => {
-      dropDownload(e.payload.id)
-      rereadActiveModel()
-    }),
+    events.modelDownloadComplete.listen(e => dropDownload(e.payload.id)),
     events.modelDownloadError.listen(e => setDownload(e.payload.id, { status: 'error', error: e.payload.error || 'Download failed' })),
     events.modelDownloadCancelled.listen(e => dropDownload(e.payload.id)),
+  ])
+  return () => unlisteners.forEach(fn => fn())
+}
+
+export async function listenForModelEvents(): Promise<() => void> {
+  const unlisteners = await Promise.all([
+    listenForDownloadEvents(),
+    events.modelDownloadComplete.listen(rereadActiveModel),
     // Deleting the active model unloads it, or switches to another on disk.
     events.modelEvicted.listen(rereadActiveModel),
     events.modelSwitched.listen(rereadActiveModel),

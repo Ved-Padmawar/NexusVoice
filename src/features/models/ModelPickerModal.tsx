@@ -51,7 +51,7 @@ export function ModelPickerModal() {
     setConfirming(true)
     try {
       // Already on disk (picked a previously-downloaded model): skip the download step.
-      if ((await switchModel(selected)).downloaded) {
+      if ((await switchModel(selected)).info.downloaded) {
         setModelChosen(true)
         return
       }

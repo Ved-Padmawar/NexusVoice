@@ -78,11 +78,11 @@ describe('reads racing events', () => {
     let finishFirst!: (info: unknown) => void
     mockInvoke
       .mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve }))
-      .mockResolvedValueOnce({ modelName: 'Parakeet V3', downloaded: true, downloading: false })
+      .mockResolvedValueOnce({ modelName: 'Parakeet V3', downloaded: true })
 
     const first = refreshActiveModel()
     await refreshActiveModel()
-    finishFirst({ modelName: 'Whisper Tiny', downloaded: true, downloading: false })
+    finishFirst({ modelName: 'Whisper Tiny', downloaded: true })
     await first
 
     expect(queryClient.getQueryData<{ modelName: string }>(queryKeys.activeModel)?.modelName).toBe('Parakeet V3')
@@ -157,14 +157,14 @@ describe('active model', () => {
       reads += 1
       return reads === 1
         ? new Promise(resolve => { finishOldRead = resolve })
-        : Promise.resolve({ modelName: 'Parakeet V3', downloaded: true, downloading: false })
+        : Promise.resolve({ modelName: 'Parakeet V3', downloaded: true })
     })
     // The first read is in flight when the switch lands.
     renderHook(() => useActiveModel(), { wrapper })
     await waitFor(() => expect(reads).toBe(1))
 
     const fresh = await refreshActiveModel()
-    finishOldRead({ modelName: 'Whisper Tiny', downloaded: true, downloading: false })
+    finishOldRead({ modelName: 'Whisper Tiny', downloaded: true })
 
     expect(fresh.modelName).toBe('Parakeet V3')
     await waitFor(() =>
@@ -177,7 +177,7 @@ describe('active model', () => {
       { id: 'parakeet-v3', displayName: 'Parakeet V3' },
     ] as CatalogModel[]
     queryClient.setQueryData(queryKeys.catalog, catalog)
-    queryClient.setQueryData(queryKeys.activeModel, { modelName: 'Parakeet V3', downloaded: false, downloading: true })
+    queryClient.setQueryData(queryKeys.activeModel, { modelName: 'Parakeet V3', downloaded: false })
 
     const { result } = renderHook(() => useActiveModel(), { wrapper })
 

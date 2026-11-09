@@ -77,19 +77,27 @@ pub struct EngineCache {
     /// Copied out at load: the engine mutex is held for a whole streaming
     /// recording.
     backend: RwLock<Option<String>>,
+    /// Signalled when a lease drops.
+    released: Arc<tokio::sync::Notify>,
 }
 
 /// Holds the engine for one recording. Dropping it applies an unload that
 /// was requested meanwhile.
-pub struct EngineLease(Arc<Mutex<Slot>>);
+pub struct EngineLease {
+    slot: Arc<Mutex<Slot>>,
+    released: Arc<tokio::sync::Notify>,
+}
 
 impl Drop for EngineLease {
     fn drop(&mut self) {
-        let mut slot = lock_recovering(&self.0);
-        slot.leases -= 1;
-        if slot.unload_pending && slot.unload() {
-            log::info!("unloaded the engine the finished recording was using");
+        {
+            let mut slot = lock_recovering(&self.slot);
+            slot.leases -= 1;
+            if slot.unload_pending && slot.unload() {
+                log::info!("unloaded the engine the finished recording was using");
+            }
         }
+        self.released.notify_waiters();
     }
 }
 
@@ -101,12 +109,31 @@ impl EngineCache {
             loading: tokio::sync::Mutex::new(()),
             used_at: Mutex::new(Instant::now()),
             backend: RwLock::new(None),
+            released: Arc::new(tokio::sync::Notify::new()),
         }
     }
 
     pub fn lease(&self) -> EngineLease {
         lock_recovering(&self.slot).leases += 1;
-        EngineLease(Arc::clone(&self.slot))
+        EngineLease {
+            slot: Arc::clone(&self.slot),
+            released: Arc::clone(&self.released),
+        }
+    }
+
+    /// Returns once no unload waits on a recording. Until then the slot still
+    /// holds the superseded engine, and a load would just return it.
+    async fn superseded_released(&self) {
+        loop {
+            let released = self.released.notified();
+            tokio::pin!(released);
+            // Registered before the check, so a lease dropping in between still wakes us.
+            released.as_mut().enable();
+            if !lock_recovering(&self.slot).unload_pending {
+                return;
+            }
+            released.await;
+        }
     }
 
     /// The engine if one is loaded; never starts a load.
@@ -187,13 +214,16 @@ impl EngineCache {
     }
 
     /// Load the selected model in the background. A missing model is not an
-    /// error here; recording surfaces that.
+    /// error here; recording surfaces that. A mid-recording switch warms once
+    /// that recording lets go.
     pub fn warm(app: &AppHandle) {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
+            let cache = app.state::<Self>();
+            cache.superseded_released().await;
             let settings = app.state::<Settings>();
             let before = settings.language();
-            if let Err(e) = app.state::<Self>().get_or_load(&settings).await {
+            if let Err(e) = cache.get_or_load(&settings).await {
                 log::info!("engine warmup skipped: {e}");
                 return;
             }
@@ -225,6 +255,14 @@ impl EngineCache {
     /// flight is superseded.
     pub fn unload(&self) -> bool {
         lock_recovering(&self.slot).supersede()
+    }
+
+    /// Unload for a model change. True when a recording keeps the old engine.
+    pub fn switch_model(&self) -> bool {
+        let mut slot = lock_recovering(&self.slot);
+        slot.supersede();
+        // With nothing loaded yet, the recording's own load picks up the new model.
+        slot.unload_pending && slot.engine.is_some()
     }
 
     /// Drop an engine that panicked, even mid-recording: it cannot be trusted.

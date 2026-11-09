@@ -16,10 +16,10 @@ async listInputDevices() : Promise<InputDeviceInfo[]> {
     return await TAURI_INVOKE("list_input_devices");
 },
 /**
- * Choose an input device by name; `None` follows the OS default. Takes
- * effect on the next recording.
+ * Choose an input device by name; `None` follows the OS default. A recording
+ * in progress keeps its device; the next one opens the new choice.
  */
-async setInputDevice(name: string | null) : Promise<null> {
+async setInputDevice(name: string | null) : Promise<ChangeTiming> {
     return await TAURI_INVOKE("set_input_device", { name });
 },
 async getKeepMicOpen() : Promise<boolean> {
@@ -131,7 +131,7 @@ async cancelModelDownload(id: string) : Promise<void> {
 /**
  * Make a model the active one.
  */
-async setModelOverride(variant: string) : Promise<null> {
+async setModelOverride(variant: string) : Promise<ChangeTiming> {
     return await TAURI_INVOKE("set_model_override", { variant });
 },
 /**
@@ -314,6 +314,14 @@ export type CatalogModel = { id: string; displayName: string; family: string;
  * Every decode path this model supports.
  */
 pipelines: Pipeline[]; defaultPipeline: Pipeline; sizeBytes: number; multilingual: boolean; description: string; detail: string; downloaded: boolean; isActive: boolean }
+/**
+ * When a change to what records the voice takes effect.
+ */
+export type ChangeTiming = { 
+/**
+ * The recording in progress keeps what it started with.
+ */
+afterRecording: boolean }
 export type CudaDownloadCancelled = null
 export type CudaDownloadComplete = null
 export type CudaDownloadError = string
@@ -423,7 +431,7 @@ export type ModelDownloadStart = { id: string }
  * The active model was deleted and no other is on disk.
  */
 export type ModelEvicted = null
-export type ModelInfoResponse = { downloaded: boolean; downloading: boolean; modelName: string }
+export type ModelInfoResponse = { downloaded: boolean; modelName: string }
 /**
  * The active model was deleted and another on disk took its place.
  */

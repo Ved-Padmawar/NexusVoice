@@ -403,12 +403,19 @@ function SearchBox({ onSearch }: { onSearch: (term: string) => void }) {
 
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
 const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
+const dayYearFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })
 
 function dayLabel(date: Date) {
   const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(date).setHours(0, 0, 0, 0)) / 86_400_000)
   if (days === 0) return 'Today'
   if (days === 1) return 'Yesterday'
-  return dayFmt.format(date)
+  return (date.getFullYear() === new Date().getFullYear() ? dayFmt : dayYearFmt).format(date)
+}
+
+/** The local calendar day, e.g. `2026-11-09`: unique across years, unlike a label. */
+function calendarDay(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 function splitClock(date: Date) {
@@ -423,10 +430,12 @@ type DayGroup = { key: string; label: string; items: Transcript[] }
 function groupByDay(items: Transcript[]) {
   const groups: DayGroup[] = []
   for (const item of items) {
-    const label = dayLabel(parseSqliteDate(item.createdAt))
+    const date = parseSqliteDate(item.createdAt)
+    const key = calendarDay(date)
     const last = groups.at(-1)
-    if (last?.label === label) last.items.push(item)
-    else groups.push({ key: `${label}-${item.id}`, label, items: [item] })
+    if (last?.key === key) last.items.push(item)
+    // Keyed by day, not first row, so a new row doesn't remount the day.
+    else groups.push({ key, label: dayLabel(date), items: [item] })
   }
   return groups
 }

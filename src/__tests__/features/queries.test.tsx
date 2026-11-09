@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
-import { onlineManager, QueryClientProvider } from '@tanstack/react-query'
+import { focusManager, onlineManager, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { queryClient } from '../../app/queryClient'
 import { queryKeys } from '../../shared/queryKeys'
 import { addTranscript, NO_FILTERS, PAGE_SIZE, useDeleteTranscript, useTranscripts, useTranscriptSearch, type TranscriptPage, type TranscriptPages } from '../../features/history/queries'
-import { useUpdateDictionary } from '../../features/dictionary/queries'
+import { refreshDictionaryUses, useDictionary, useUpdateDictionary } from '../../features/dictionary/queries'
 import type { Transcript } from '../../shared/types'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
@@ -149,5 +149,56 @@ describe('local Query cache', () => {
     await act(async () => { await addTranscript(row(2)) })
     await act(async () => { resolve([row(1)]); await request })
     await waitFor(() => expect(ids(result.current.data)).toEqual([2, 1]))
+  })
+})
+
+describe('coordination contracts', () => {
+  it('settles a dictionary save only once the list shows it', async () => {
+    let answerList: (entries: unknown[]) => void = () => {}
+    let listCalls = 0
+    vi.mocked(invoke).mockImplementation((cmd) => {
+      if (cmd === 'get_dictionary') {
+        listCalls += 1
+        return listCalls === 1 ? Promise.resolve([]) : new Promise(resolve => { answerList = resolve })
+      }
+      return Promise.resolve(null)
+    })
+    const { result } = renderHook(() => ({ list: useDictionary(), update: useUpdateDictionary() }), { wrapper })
+    await waitFor(() => expect(result.current.list.isSuccess).toBe(true))
+    let settled = false
+    act(() => { void result.current.update.mutateAsync({ term: 'teh', replacement: 'the' }).then(() => { settled = true }) })
+    await waitFor(() => expect(listCalls).toBe(2))
+    expect(settled).toBe(false)
+    await act(async () => { answerList([{ id: 1, term: 'teh', replacement: 'the', hits: 0 }]) })
+    await waitFor(() => expect(settled).toBe(true))
+    expect(result.current.list.data).toHaveLength(1)
+  })
+
+  it('refreshes a search whose refetch was skipped while the window was hidden', async () => {
+    const searches = () => vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === 'search_transcripts').length
+    renderHook(() => useTranscriptSearch('foo', NO_FILTERS), { wrapper })
+    await waitFor(() => expect(searches()).toBe(1))
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    await act(async () => { await addTranscript(row(7)) })
+    expect(searches()).toBe(1)
+    hidden.mockReturnValue(false)
+    act(() => { focusManager.setFocused(true) })
+    await waitFor(() => expect(searches()).toBe(2))
+    focusManager.setFocused(undefined)
+  })
+
+  it('re-reads dictionary uses after a dictation, or once the hidden window is shown', async () => {
+    const reads = () => vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === 'get_dictionary').length
+    renderHook(() => useDictionary(), { wrapper })
+    await waitFor(() => expect(reads()).toBe(1))
+    await act(async () => { await refreshDictionaryUses() })
+    await waitFor(() => expect(reads()).toBe(2))
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    await act(async () => { await refreshDictionaryUses() })
+    expect(reads()).toBe(2)
+    hidden.mockReturnValue(false)
+    act(() => { focusManager.setFocused(true) })
+    await waitFor(() => expect(reads()).toBe(3))
+    focusManager.setFocused(undefined)
   })
 })

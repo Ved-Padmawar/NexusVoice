@@ -97,6 +97,8 @@ export function useTranscriptSearch(query: string, filters: TranscriptFilters) {
     getNextPageParam,
     enabled: query.length > 0,
     placeholderData: keepPreviousData,
+    // Same contract as the feed: `addTranscript` may skip the refetch while hidden.
+    ...EVENT_DRIVEN,
   })
 }
 

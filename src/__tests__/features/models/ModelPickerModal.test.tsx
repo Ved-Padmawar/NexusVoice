@@ -35,7 +35,8 @@ beforeEach(() => {
       case 'get_model_catalog': return Promise.resolve([MODEL])
       case 'get_hardware_profile':
         return Promise.resolve({ gpuName: 'GPU', executionProvider: 'cpu', vramGb: 0, recommendedModel: 'Whisper Tiny' })
-      case 'get_model_info': return Promise.resolve({ modelName: 'Whisper Tiny', downloaded: onDisk, downloading: false })
+      case 'get_model_info': return Promise.resolve({ modelName: 'Whisper Tiny', downloaded: onDisk })
+      case 'set_model_override': return Promise.resolve({ afterRecording: false })
       // The initial download list never arrives in these tests.
       case 'get_active_downloads': return new Promise(() => {})
       default: return Promise.resolve(null)

@@ -12,6 +12,7 @@ use crate::models::library::{DownloadStatus, ModelLibrary};
 use crate::models::provider::canonical_override;
 use crate::settings::Settings;
 
+use super::dto::ChangeTiming;
 use super::error::ApiError;
 
 fn unknown_model() -> ApiError {
@@ -115,8 +116,9 @@ pub fn delete_model(
 /// Make a model the active one.
 #[tauri::command]
 #[specta::specta]
-pub fn set_model_override(app: AppHandle, variant: String) -> Result<(), ApiError> {
-    Ok(ModelLibrary::select(&app, catalog_entry(&variant)?)?)
+pub fn set_model_override(app: AppHandle, variant: String) -> Result<ChangeTiming, ApiError> {
+    let after_recording = ModelLibrary::select(&app, catalog_entry(&variant)?)?;
+    Ok(ChangeTiming { after_recording })
 }
 
 #[derive(Debug, Serialize, specta::Type)]
@@ -269,7 +271,6 @@ pub fn get_hardware_profile(engine: State<'_, EngineCache>) -> HardwareProfileRe
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfoResponse {
     pub downloaded: bool,
-    pub downloading: bool,
     pub model_name: String,
 }
 
@@ -282,7 +283,6 @@ pub fn get_model_info(
     let entry = ModelLibrary::active(&settings);
     ModelInfoResponse {
         downloaded: library.is_downloaded(entry),
-        downloading: library.is_downloading(&entry.id),
         model_name: entry.display_name.clone(),
     }
 }

@@ -60,12 +60,6 @@ impl Downloads {
         lock_recovering(&self.entries)
     }
 
-    pub fn is_pending(&self, id: &str) -> bool {
-        self.lock()
-            .get(id)
-            .is_some_and(|e| e.status != DownloadStatus::Error)
-    }
-
     /// Registers a queued download, returning its cancel token. A model already
     /// queued or running keeps its existing entry and returns `None`.
     pub fn enqueue(&self, id: &str) -> Option<CancellationToken> {
@@ -170,10 +164,6 @@ impl ModelLibrary {
         best_on_disk(&self.models_dir, except)
     }
 
-    pub fn is_downloading(&self, id: &str) -> bool {
-        self.downloads.is_pending(id)
-    }
-
     pub fn downloads(&self) -> Vec<(String, DownloadStatus, u8, Option<String>)> {
         self.downloads.snapshot()
     }
@@ -183,12 +173,13 @@ impl ModelLibrary {
     }
 
     /// Make `entry` the active model and warm it in the background, so the
-    /// first recording after a switch isn't stalled by the load.
-    pub fn select(app: &AppHandle, entry: &ModelEntry) -> std::io::Result<()> {
+    /// first recording after a switch isn't stalled by the load. True when the
+    /// recording in progress keeps the previous model.
+    pub fn select(app: &AppHandle, entry: &ModelEntry) -> std::io::Result<bool> {
         app.state::<Settings>().set_model(Some(entry.id.clone()))?;
-        app.state::<EngineCache>().unload();
+        let after_recording = app.state::<EngineCache>().switch_model();
         EngineCache::warm(app);
-        Ok(())
+        Ok(after_recording)
     }
 
     /// Delete a downloaded model. Deleting the active one switches to the best

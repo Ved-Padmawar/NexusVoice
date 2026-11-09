@@ -6,6 +6,7 @@ import { extractErrorMessage } from '../shared/errors'
 import { useEventListener } from '../shared/hooks'
 import { subscribePillSettings } from './pillSettings'
 import { subscribeRecordingState } from './recordingState'
+import { listenForDownloadEvents, useDownloadSummary } from '../features/models/queries'
 import { WaveformCanvas } from '../shared/ui/WaveformCanvas'
 import { pillThemeDef } from './pillThemes'
 import { CARD_W, usePillGeometry } from './usePillGeometry'
@@ -87,10 +88,15 @@ function captureErrorLabel(message: string): string {
   return message
 }
 
+type SessionState = Exclude<PillState, 'downloading'>
+
 export function PillApp() {
-  const [state, setState] = useState<PillState>('idle')
+  const [session, setSession] = useState<SessionState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
-  const [downloadPct, setDownloadPct] = useState(0)
+  // From Rust's download registry, shared with the Voice tab. Null when idle.
+  const downloadPct = useDownloadSummary().data ?? null
+  // Downloads show only when nothing else needs the pill.
+  const state: PillState = session === 'idle' && downloadPct !== null ? 'downloading' : session
   const [tooltip, setTooltip] = useState('')
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -165,10 +171,10 @@ export function PillApp() {
   // Resets only if still showing the error — a recording may have started since.
   const showError = useCallback((msg: string) => {
     setErrorMsg(msg)
-    setState('error')
+    setSession('error')
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
     errorTimerRef.current = setTimeout(() => {
-      setState(current => current === 'error' ? 'idle' : current)
+      setSession(current => current === 'error' ? 'idle' : current)
     }, 3000)
   }, [])
 
@@ -177,40 +183,11 @@ export function PillApp() {
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
   }, [])
 
-  // A download event may land first; it is fresher, so it wins.
   useEffect(() => {
-    let cancelled = false
-    commands.getModelInfo()
-      .then(info => {
-        if (cancelled) return
-        setState(current => {
-          if (current === 'downloading') return current
-          if (info.downloading && current === 'idle') {
-            return 'downloading'
-          }
-          return current
-        })
-      })
-      .catch(() => {})
-    return () => { cancelled = true }
+    const stop = listenForDownloadEvents()
+    return () => { void stop.then(fn => fn()).catch(() => {}) }
   }, [])
 
-  useEventListener('modelDownloadStart', () => {
-    setDownloadPct(0)
-    setState(s => s === 'idle' ? 'downloading' : s)
-  })
-  useEventListener('modelDownloadProgress', ({ pct }) => {
-    setDownloadPct(pct)
-    setState(s => s === 'idle' || s === 'downloading' ? 'downloading' : s)
-  })
-  useEventListener('modelDownloadComplete', () => {
-    setState(current => current === 'downloading' ? 'idle' : current)
-  })
-  useEventListener('modelDownloadError', () => setState(current => current === 'downloading' ? 'idle' : current))
-  useEventListener('modelDownloadCancelled', () => {
-    setState(current => current === 'downloading' ? 'idle' : current)
-    setDownloadPct(0)
-  })
   useEventListener('transcriptionPartial', (p) => {
     if (p.committed || p.tentative) setPartial(p)
   })
@@ -220,7 +197,7 @@ export function PillApp() {
   useEffect(() => subscribeRecordingState(snapshot => {
     const next = snapshot.status
     if (next !== 'recording' && next !== 'dictation' && next !== 'dictation-paused') setPartial(null)
-    setState(current => next === 'idle' && (current === 'error' || current === 'downloading') ? current : next)
+    setSession(current => next === 'idle' && current === 'error' ? current : next)
   }), [])
 
   useEventListener('transcriptionComplete', ({ pasteError, saved }) => {
