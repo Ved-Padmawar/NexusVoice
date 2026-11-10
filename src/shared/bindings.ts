@@ -58,13 +58,26 @@ async deleteTranscript(id: number) : Promise<null> {
     return await TAURI_INVOKE("delete_transcript", { id });
 },
 /**
- * `previous_term` names the entry being renamed, if any.
+ * Add an entry, or with `id` edit that one (a rename keeps its use count).
  */
-async updateDictionary(term: string, replacement: string, previousTerm: string | null) : Promise<DictionaryResponse> {
-    return await TAURI_INVOKE("update_dictionary", { term, replacement, previousTerm });
+async updateDictionary(term: string, replacement: string, id: number | null) : Promise<DictionaryResponse> {
+    return await TAURI_INVOKE("update_dictionary", { term, replacement, id });
 },
 async deleteDictionaryEntry(id: number) : Promise<null> {
     return await TAURI_INVOKE("delete_dictionary_entry", { id });
+},
+/**
+ * Write an export into the user's Downloads folder and return where it went.
+ * An existing file is never overwritten: the name gets " (2)", " (3)", ….
+ */
+async saveExport(fileName: string, content: string) : Promise<string> {
+    return await TAURI_INVOKE("save_export", { fileName, content });
+},
+/**
+ * Open the file manager with `path` selected.
+ */
+async revealInFolder(path: string) : Promise<null> {
+    return await TAURI_INVOKE("reveal_in_folder", { path });
 },
 /**
  * Linux-only; the clipboard platforms have nothing to configure.
@@ -443,6 +456,11 @@ export type PackState = "absent" |
  * Usable by this build; loaded unless the driver is missing or too old.
  */
 "installed" | 
+/**
+ * Signed and current, but a library failed its integrity check at start, so
+ * it was not loaded. Downloading again repairs it.
+ */
+"damaged" | 
 /**
  * Downloaded; applied at the next start.
  */

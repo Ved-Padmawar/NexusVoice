@@ -4,8 +4,12 @@
 //! Windows also gives the user's clipboard back once the target has read the
 //! transcript (see [`windows`]). macOS leaves the transcript on the clipboard.
 
+#[cfg(target_os = "windows")]
+mod caret;
 #[cfg(any(target_os = "windows", test))]
 mod settle;
+#[cfg(any(target_os = "windows", test))]
+mod spacing;
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -27,8 +31,8 @@ const CHORD_DELAY: Duration = Duration::from_millis(150);
 /// Returns an error when the transcript cannot be published to the clipboard.
 /// The paste itself completes on a worker thread and is not awaited.
 #[cfg(target_os = "windows")]
-pub async fn type_text(_app: &AppHandle, text: &str) -> Result<(), String> {
-    windows::paste(text).await
+pub async fn type_text(app: &AppHandle, text: &str) -> Result<(), String> {
+    windows::paste(app, text).await
 }
 
 /// # Errors

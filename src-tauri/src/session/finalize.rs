@@ -15,9 +15,9 @@ use crate::data::dto::transcript::CreateTranscript;
 use crate::data::repositories::transcript::TranscriptRepository;
 use crate::data::Database;
 use crate::models::cache::{EngineCache, EngineLease, SharedEngine};
-use crate::models::decode::{FinalText, Streamed, StreamingSession};
+use crate::models::decode::{contains_speech, FinalText, Streamed, StreamingSession};
 use crate::models::transcript::strip_leading_dashes;
-use crate::platform::focus::FocusTarget;
+use crate::platform::focus::{foreground_app, FocusTarget};
 use crate::settings::Settings;
 use crate::text::dictionary::Dictionary;
 use crate::text::remove_fillers;
@@ -34,8 +34,7 @@ pub struct Recording {
     pub samples: Vec<f32>,
     pub sample_rate: u32,
     pub duration_seconds: Option<f64>,
-    /// App that had focus when recording started: shapes the formatter's
-    /// output and labels the transcript.
+    /// App that had focus when recording started: shapes the formatter's output.
     pub focus: Option<FocusTarget>,
 }
 
@@ -56,7 +55,11 @@ pub async fn run(app: &AppHandle, recording: Recording) {
     app.state::<EngineCache>().touch();
     drop(lease);
 
-    let (raw, language, complete) = match decoded {
+    let Decoded {
+        text,
+        complete,
+        heard_speech,
+    } = match decoded {
         Ok(decoded) => decoded,
         Err(message) => {
             let _ = TranscriptionError(message.to_string()).emit(app);
@@ -70,9 +73,14 @@ pub async fn run(app: &AppHandle, recording: Recording) {
         )
         .emit(app);
     }
-    // Whisper emits "- " at the start of short utterances.
-    let text = remove_fillers(strip_leading_dashes(&raw), language.as_deref());
     if text.is_empty() {
+        if heard_speech {
+            log::info!("speech was heard but nothing could be transcribed");
+            let _ =
+                TranscriptionWarning("Couldn't transcribe that. Try again.".to_string()).emit(app);
+        } else {
+            log::info!("no speech detected; nothing to paste");
+        }
         let _ = TranscriptionComplete {
             paste_error: None,
             saved: false,
@@ -88,7 +96,9 @@ pub async fn run(app: &AppHandle, recording: Recording) {
         Err(_) => text,
     };
 
-    let saved = save(app, pool.ok(), &text, duration_seconds, focus).await;
+    // Where the text lands is whatever has focus now, not where recording began.
+    let landed = foreground_app().or(focus);
+    let saved = save(app, pool.ok(), &text, duration_seconds, landed).await;
     let paste_error = crate::platform::injection::type_text(app, &text)
         .await
         .err();
@@ -102,6 +112,16 @@ const ENGINE_FAILED: &str =
     "Transcription engine encountered an error and was reset. Please try again.";
 const AUDIO_FAILED: &str = "Couldn't process the recorded audio. Please try again.";
 
+/// A finished decode, cleaned up and ready to format.
+struct Decoded {
+    text: String,
+    /// `false` when the end of the recording may be missing.
+    complete: bool,
+    /// Voice detection found speech in the recording. Only worked out for an
+    /// empty transcript, the one case that needs it.
+    heard_speech: bool,
+}
+
 /// Engine failures discard the engine, so the next recording loads a fresh one.
 async fn decode(
     app: &AppHandle,
@@ -110,7 +130,7 @@ async fn decode(
     streamed: Option<Streamed>,
     samples: Vec<f32>,
     sample_rate: u32,
-) -> Result<(String, Option<String>, bool), &'static str> {
+) -> Result<Decoded, &'static str> {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let run_buffer = |session| decode_buffer(&app, &engine, session, &samples, sample_rate);
@@ -136,7 +156,14 @@ async fn decode(
             .lock()
             .ok()
             .and_then(|guard| guard.output_language().map(str::to_string));
-        Ok((text, language, complete))
+        // Whisper emits "- " at the start of short utterances.
+        let text = remove_fillers(strip_leading_dashes(&text), language.as_deref());
+        let heard_speech = text.is_empty() && contains_speech(&samples, sample_rate);
+        Ok(Decoded {
+            text,
+            complete,
+            heard_speech,
+        })
     })
     .await
     .unwrap_or_else(|e| {
@@ -180,6 +207,7 @@ async fn format(app: &AppHandle, text: String, focus: Option<&FocusTarget>) -> S
         Ok(formatted) => formatted,
         Err(e) => {
             log::warn!("formatter failed ({e}); using the raw transcript");
+            let _ = TranscriptionWarning("Pasted without formatting.".to_string()).emit(app);
             text
         }
     }
@@ -191,7 +219,7 @@ async fn save(
     pool: Option<sqlx::SqlitePool>,
     text: &str,
     duration_seconds: Option<f64>,
-    focus: Option<FocusTarget>,
+    landed: Option<FocusTarget>,
 ) -> bool {
     #[allow(clippy::cast_possible_wrap)] // word count never exceeds i64::MAX
     let word_count = text.split_whitespace().count() as i64;
@@ -201,7 +229,7 @@ async fn save(
                 content: text.to_string(),
                 word_count,
                 duration_seconds,
-                target_app: focus.map(|f| f.name),
+                target_app: landed.map(|f| f.name),
             })
             .await
             .map_err(|e| e.to_string()),

@@ -5,11 +5,16 @@ import type { ReactNode } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { queryClient } from '../../app/queryClient'
 import { queryKeys } from '../../shared/queryKeys'
-import { addTranscript, NO_FILTERS, PAGE_SIZE, useDeleteTranscript, useTranscripts, useTranscriptSearch, type TranscriptPage, type TranscriptPages } from '../../features/history/queries'
-import { refreshDictionaryUses, useDictionary, useUpdateDictionary } from '../../features/dictionary/queries'
+import { addTranscript, fetchAllTranscripts, NO_FILTERS, PAGE_SIZE, useDeleteTranscript, useTranscripts, useTranscriptSearch, type TranscriptPage, type TranscriptPages } from '../../features/history/queries'
+import { refreshDictionaryUses, useDeleteDictionaryEntry, useDictionary, useUpdateDictionary } from '../../features/dictionary/queries'
+import type { DictionaryResponse } from '../../shared/bindings'
 import type { Transcript } from '../../shared/types'
 
-vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
+type ToastOptions = { onAutoClose?: () => void; onDismiss?: () => void; action?: { onClick: () => void } }
+const toasts = vi.hoisted(() => [] as ToastOptions[])
+vi.mock('sonner', () => ({ toast: Object.assign((_: string, options: ToastOptions) => { toasts.push(options) }, { error: vi.fn() }) }))
+/** The undo window ran out: the real delete goes ahead. */
+const closeUndoToast = () => act(async () => { toasts.at(-1)?.onAutoClose?.() })
 const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 const row = (id: number): Transcript => ({ id, content: `Transcript ${id}`, createdAt: `2026-09-02T12:00:${String(id % 60).padStart(2, '0')}Z`, wordCount: 2, durationSeconds: 1, targetApp: null })
 const page = (rows: Transcript[]): TranscriptPage => {
@@ -19,7 +24,7 @@ const page = (rows: Transcript[]): TranscriptPage => {
 const pages = (rows: Transcript[]): TranscriptPages => ({ pages: [page(rows)], pageParams: [{ cursorCreatedAt: null, cursorId: null }] })
 const ids = (data?: { pages: TranscriptPage[] }) => data?.pages.flatMap(p => p.rows).map(t => t.id)
 const feedKey = queryKeys.transcripts(NO_FILTERS)
-beforeEach(() => { queryClient.clear(); vi.mocked(invoke).mockReset().mockResolvedValue([]) })
+beforeEach(() => { queryClient.clear(); toasts.length = 0; vi.mocked(invoke).mockReset().mockResolvedValue([]) })
 afterEach(() => { cleanup(); queryClient.clear(); onlineManager.setOnline(true) })
 
 describe('local Query cache', () => {
@@ -108,19 +113,64 @@ describe('local Query cache', () => {
     const searchKey = queryKeys.transcriptSearch('hello', NO_FILTERS)
     queryClient.setQueryData(feedKey, { pages: [page([row(3), row(2)]), page([row(1)])], pageParams: [{ cursorCreatedAt: null, cursorId: null }, { cursorCreatedAt: row(2).createdAt, cursorId: 2 }] })
     queryClient.setQueryData(searchKey, pages([row(2)]))
-    const { result } = renderHook(() => useDeleteTranscript(), { wrapper })
-    await act(async () => { await result.current.mutateAsync(2) })
-    expect(queryClient.getQueryData<TranscriptPages>(feedKey)?.pages.map(p => p.rows.map(t => t.id))).toEqual([[3], [1]])
-    expect(ids(queryClient.getQueryData<TranscriptPages>(searchKey))).toEqual([])
+    const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), search: useTranscriptSearch('hello', NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
+    act(() => result.current.del(2))
+    expect(result.current.feed.data?.pages.map(p => p.rows.map(t => t.id))).toEqual([[3], [1]])
+    expect(ids(result.current.search.data)).toEqual([])
+    await closeUndoToast()
     expect(invoke).toHaveBeenCalledTimes(1)
     expect(vi.mocked(invoke).mock.calls[0][0]).toBe('delete_transcript')
+    expect(ids(queryClient.getQueryData<TranscriptPages>(searchKey))).toEqual([])
+  })
+
+  it('puts a deleted transcript back and never deletes it when Undo is clicked', async () => {
+    queryClient.setQueryData(feedKey, pages([row(2), row(1)]))
+    const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
+    act(() => result.current.del(2))
+    expect(ids(result.current.feed.data)).toEqual([1])
+    // Sonner dismisses the toast after its action runs; that must not delete.
+    act(() => { toasts.at(-1)?.action?.onClick(); toasts.at(-1)?.onDismiss?.() })
+    expect(vi.mocked(invoke).mock.calls.some(([cmd]) => cmd === 'delete_transcript')).toBe(false)
+    expect(ids(result.current.feed.data)).toEqual([2, 1])
+  })
+
+  it('keeps a pending delete hidden when a refetch or export returns it, and gone once it commits', async () => {
+    queryClient.setQueryData(feedKey, pages([row(3), row(2), row(1)]))
+    // The database still holds both rows until their undo windows close.
+    vi.mocked(invoke).mockImplementation((cmd) => Promise.resolve(cmd === 'delete_transcript' ? undefined : [row(3), row(2), row(1)]))
+    const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
+    act(() => { result.current.del(2); result.current.del(1) })
+    const [deleteTwo, deleteOne] = [...toasts]
+    act(() => deleteOne.action?.onClick())
+    await act(async () => { await result.current.feed.refetch() })
+    expect(ids(result.current.feed.data)).toEqual([3, 1])
+    let finishRead = () => {}
+    vi.mocked(invoke).mockImplementation(() => new Promise(resolve => { finishRead = () => resolve([row(3), row(2), row(1)]) }))
+    const exported = fetchAllTranscripts('', NO_FILTERS)
+    // Row 2's undo window closes while the export is still reading it.
+    vi.mocked(invoke).mockImplementation((cmd) => Promise.resolve(cmd === 'delete_transcript' ? undefined : [row(3), row(1)]))
+    await act(async () => { deleteTwo.onAutoClose?.() })
+    await waitFor(() => expect(ids(result.current.feed.data)).toEqual([3, 1]))
+    finishRead()
+    expect((await exported).map(t => t.id)).toEqual([3, 1])
+    expect(ids(queryClient.getQueryData<TranscriptPages>(feedKey))).toEqual([3, 1])
+  })
+
+  it('keeps a pending dictionary delete hidden when the list refetches', async () => {
+    const entry = (id: number): DictionaryResponse => ({ id, term: `term ${id}`, replacement: `fix ${id}`, hits: 0, createdAt: '2026-09-02T12:00:00Z' })
+    vi.mocked(invoke).mockResolvedValue([entry(1), entry(2)])
+    const { result } = renderHook(() => ({ list: useDictionary(), del: useDeleteDictionaryEntry() }), { wrapper })
+    await waitFor(() => expect(result.current.list.data).toHaveLength(2))
+    act(() => result.current.del(entry(2)))
+    await act(async () => { await refreshDictionaryUses() })
+    expect(result.current.list.data?.map(e => e.id)).toEqual([1])
   })
 
   it('still offers older pages after a delete shrinks the last loaded page', async () => {
     const rows = Array.from({ length: PAGE_SIZE }, (_, i) => row(PAGE_SIZE - i))
     queryClient.setQueryData(feedKey, pages(rows))
     const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
-    await act(async () => { await result.current.del.mutateAsync(PAGE_SIZE) })
+    act(() => result.current.del(PAGE_SIZE))
     await waitFor(() => expect(ids(result.current.feed.data)).toHaveLength(PAGE_SIZE - 1))
     expect(result.current.feed.hasNextPage).toBe(true)
   })
@@ -133,10 +183,11 @@ describe('local Query cache', () => {
       .mockImplementation((cmd) => Promise.resolve(cmd === 'delete_transcript' ? undefined : [row(2)]))
     const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
     act(() => { void result.current.feed.refetch() })
-    await act(async () => { await result.current.del.mutateAsync(1) })
+    act(() => result.current.del(1))
+    await closeUndoToast()
     await act(async () => { finishStale([row(2), row(1)]) })
     await waitFor(() => expect(ids(queryClient.getQueryData<TranscriptPages>(feedKey))).toEqual([2]))
-    expect(result.current.feed.isFetching).toBe(false)
+    await waitFor(() => expect(queryClient.getQueryState(feedKey)?.fetchStatus).toBe('idle'))
   })
 
   it('prevents an older in-flight response from erasing a new transcript', async () => {

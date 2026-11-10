@@ -61,16 +61,14 @@ impl FormatConfig {
     /// Whether the config has the minimum needed to make a request.
     ///
     /// `anthropic` pins its own endpoint (see `llm::anthropic`), so it doesn't
-    /// need `base_url` — every other provider is OpenAI-compatible and does.
+    /// need `base_url` — every other provider is OpenAI-compatible and needs
+    /// a valid one (see [`check_base_url`]).
     pub fn is_usable(&self) -> bool {
         let p = self.active();
         if !self.enabled || p.model.trim().is_empty() {
             return false;
         }
-        if self.provider == "anthropic" {
-            return true;
-        }
-        !p.base_url.trim().is_empty()
+        self.provider == "anthropic" || check_base_url(&p.base_url).is_ok()
     }
 
     /// Full chat-completions endpoint URL.
@@ -99,6 +97,22 @@ impl FormatConfig {
         } else {
             format!("{base}/v1/chat/completions")
         }
+    }
+}
+
+/// Whether `base_url` is an http(s) address with a host, or why not, in words
+/// for the settings screen. Anything else fails every request the same way.
+pub fn check_base_url(base_url: &str) -> Result<(), &'static str> {
+    let base_url = base_url.trim();
+    if base_url.is_empty() {
+        return Err("Enter the server address, like http://localhost:11434.");
+    }
+    let usable = reqwest::Url::parse(base_url)
+        .is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some());
+    if usable {
+        Ok(())
+    } else {
+        Err("That base URL isn't valid. Use an address like http://localhost:11434.")
     }
 }
 

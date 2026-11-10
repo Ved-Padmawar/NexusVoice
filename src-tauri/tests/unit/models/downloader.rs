@@ -16,18 +16,26 @@ fn pct_of_scales_and_saturates() {
 }
 
 #[test]
-fn clean_stale_parts_removes_only_part_files() {
+fn clean_stale_parts_removes_only_parts_no_catalog_model_resumes() {
     // A private tempdir, not a shared fixed path: two concurrent runs of this
     // suite must not sweep each other's fixture out from under them.
     let dir = tempfile::tempdir().expect("tempdir");
     let part = dir.path().join("ggml-tiny.en-q5_1.part");
     let model = dir.path().join("ggml-tiny.en-q5_1.gguf");
+    let resumable = dir
+        .path()
+        .join(Path::new(&catalog::all()[0].filename).with_extension("part"));
+    std::fs::write(&resumable, b"half a model").unwrap();
     std::fs::write(&part, b"partial").unwrap();
     std::fs::write(&model, b"complete").unwrap();
 
     clean_stale_parts(dir.path());
 
     assert!(!part.exists(), "stale .part should be swept");
+    assert!(
+        resumable.exists(),
+        "a catalog model's .part resumes after a restart"
+    );
     assert!(model.exists(), "finished model must survive");
 }
 
@@ -65,7 +73,7 @@ async fn a_stream_without_content_length_cannot_write_past_the_limit() {
     .await
     .unwrap_err();
     server.join().unwrap();
-    assert!(error.contains("exceeds expected size"));
+    assert_eq!(error, TOO_LARGE);
     assert!(part.metadata().unwrap().len() <= 4);
 }
 
@@ -151,4 +159,14 @@ fn the_same_model_cannot_download_twice() {
     assert!(DownloadLock::acquire(dir.path(), "a.gguf").is_err());
     drop(first);
     assert!(DownloadLock::acquire(dir.path(), "a.gguf").is_ok());
+}
+
+#[test]
+fn a_download_that_cannot_fit_fails_before_transferring() {
+    let dir = tempfile::tempdir().unwrap();
+    let error = ensure_free_space(&dir.path().join("model.gguf"), u64::MAX).unwrap_err();
+    assert!(
+        error.starts_with("Not enough disk space: needs "),
+        "{error}"
+    );
 }

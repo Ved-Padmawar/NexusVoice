@@ -169,11 +169,11 @@ export function ModelPickerModal() {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <span className={cn('text-[12.5px] font-semibold leading-tight truncate transition-colors duration-200', active ? 'text-accent' : 'text-fg')}>
+                      <span className={cn('text-[12.5px] font-semibold leading-tight truncate transition-colors duration-200', active ? 'text-accent-ink' : 'text-fg')}>
                         {displayName}
                       </span>
                       {isRecommended && (
-                        <span className="shrink-0 text-[8.5px] font-bold text-accent bg-accent-soft border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] rounded-xs px-1 py-px uppercase tracking-wider">
+                        <span className="shrink-0 text-[8.5px] font-bold text-accent-ink bg-accent-soft border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] rounded-xs px-1 py-px uppercase tracking-wider">
                           Best
                         </span>
                       )}
@@ -191,7 +191,7 @@ export function ModelPickerModal() {
                         {multilingual ? 'Multilingual' : 'English'}
                       </span>
                       {streaming && (
-                        <span className="flex items-center gap-1 text-accent font-semibold">
+                        <span className="flex items-center gap-1 text-accent-ink font-semibold">
                           <BroadcastIcon size={10} weight="bold" />
                           Live
                         </span>
@@ -221,7 +221,7 @@ export function ModelPickerModal() {
                 <span className="text-fg-2">
                   {download ? 'Downloading model…' : 'Download complete — loading…'}
                 </span>
-                <span className="text-accent font-semibold tabular-nums">
+                <span className="text-accent-ink font-semibold tabular-nums">
                   {download?.progress ?? 100}%
                 </span>
               </div>

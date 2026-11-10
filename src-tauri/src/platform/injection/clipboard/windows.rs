@@ -7,6 +7,11 @@
 //! landed — and the snapshot is restored once reads go quiet. If the user
 //! copies something in the meantime, their copy wins and nothing is restored.
 //!
+//! When the paste cannot land, the transcript is kept on the clipboard instead
+//! and the user is told to paste it themselves: the target is an elevated
+//! window (Windows drops our keystrokes into it), or nothing read the
+//! clipboard before the timeout.
+//!
 //! The promise carries opt-out markers that keep the transcript out of Win+V
 //! history and the cloud clipboard, so history never reads it ahead of the
 //! target.
@@ -19,6 +24,8 @@ use std::cell::RefCell;
 use std::sync::{Mutex, MutexGuard, Once};
 use std::time::{Duration, Instant};
 
+use tauri::AppHandle;
+use tauri_specta::Event;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{
     GlobalFree, SetLastError, ERROR_SUCCESS, HANDLE, HGLOBAL, HINSTANCE, HWND, LPARAM, LRESULT,
@@ -43,7 +50,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_DESTROYCLIPBOARD, WM_RENDERALLFORMATS, WM_RENDERFORMAT, WM_TIMER, WNDCLASSW,
 };
 
+use super::caret;
 use super::settle::{Step, Timeline};
+use super::spacing::needs_space;
+use crate::bridge::events::TranscriptionWarning;
+use crate::platform::focus;
 
 const CLASS_NAME: PCWSTR = w!("NexusVoicePaste");
 const TIMER_ID: usize = 1;
@@ -60,6 +71,9 @@ const PRIVACY_FORMATS: [(PCWSTR, u32); 3] = [
 const OPEN_ATTEMPTS: u32 = 5;
 const OPEN_RETRY: Duration = Duration::from_millis(10);
 
+const ADMIN_WINDOW: &str = "Can't paste into an admin window. Copied — press Ctrl+V.";
+const NOT_PASTED: &str = "Couldn't paste here. Copied — press Ctrl+V.";
+
 /// Held for a paste's whole life. A newer paste waits for the previous one to
 /// settle, so it snapshots the user's clipboard rather than a transcript, and
 /// never restores that clipboard before the previous target has read.
@@ -72,6 +86,9 @@ thread_local! {
 }
 
 struct Paste {
+    app: AppHandle,
+    /// The target is elevated and we are not: the chord would be dropped.
+    admin_window: bool,
     /// NUL-terminated UTF-16.
     text: Vec<u16>,
     snapshot: Vec<SavedFormat>,
@@ -90,23 +107,46 @@ struct SavedFormat {
 }
 
 /// Publish `text` and paste it; returns once the clipboard holds the promise.
+/// A paste that cannot land warns the user through `app` and keeps the text.
 ///
 /// # Errors
 /// Returns an error when the clipboard cannot be snapshotted or published —
 /// the clipboard is then left as it was.
-pub async fn paste(text: &str) -> Result<(), String> {
+pub async fn paste(app: &AppHandle, text: &str) -> Result<(), String> {
+    let admin_window = focus::foreground_outranks_us();
+    let text = if admin_window {
+        text.to_string()
+    } else {
+        spaced(text).await
+    };
     let text: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     let (ready, published) = tokio::sync::oneshot::channel();
+    let app = app.clone();
     std::thread::Builder::new()
         .name("paste".into())
-        .spawn(move || run(text, ready))
+        .spawn(move || run(app, admin_window, text, ready))
         .map_err(|e| format!("failed to start paste thread: {e}"))?;
     published
         .await
         .map_err(|_| "paste thread exited before publishing".to_string())?
 }
 
-fn run(text: Vec<u16>, ready: tokio::sync::oneshot::Sender<Result<(), String>>) {
+/// `text`, with a space in front when it would otherwise run into the word
+/// before the caret.
+async fn spaced(text: &str) -> String {
+    if needs_space(caret::before_caret().await, text) {
+        format!(" {text}")
+    } else {
+        text.to_string()
+    }
+}
+
+fn run(
+    app: AppHandle,
+    admin_window: bool,
+    text: Vec<u16>,
+    ready: tokio::sync::oneshot::Sender<Result<(), String>>,
+) {
     let _turn = lock(&TURN);
     let hwnd = match create_window() {
         Ok(hwnd) => hwnd,
@@ -115,7 +155,7 @@ fn run(text: Vec<u16>, ready: tokio::sync::oneshot::Sender<Result<(), String>>) 
             return;
         }
     };
-    match begin(hwnd, text) {
+    match begin(hwnd, app, admin_window, text) {
         Ok(paste) => {
             PASTE.with(|cell| *cell.borrow_mut() = Some(paste));
             // SAFETY: `hwnd` is this thread's live window.
@@ -146,7 +186,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// Snapshot the clipboard, then publish the transcript in its place.
-fn begin(hwnd: HWND, text: Vec<u16>) -> Result<Paste, String> {
+fn begin(hwnd: HWND, app: AppHandle, admin_window: bool, text: Vec<u16>) -> Result<Paste, String> {
     let snapshot = snapshot(hwnd)?;
     let sequence = match publish(hwnd) {
         Ok(sequence) => sequence,
@@ -156,11 +196,18 @@ fn begin(hwnd: HWND, text: Vec<u16>) -> Result<Paste, String> {
             return Err(e);
         }
     };
+    let published_at = Instant::now();
     Ok(Paste {
+        app,
+        admin_window,
         text,
         snapshot,
         sequence,
-        timeline: Timeline::new(Instant::now()),
+        timeline: if admin_window {
+            Timeline::copy_only(published_at)
+        } else {
+            Timeline::new(published_at)
+        },
         settled: false,
         promised: true,
     })
@@ -280,9 +327,10 @@ fn tick(hwnd: HWND) {
     }
 }
 
-/// Restore the snapshot if the clipboard is still ours, then end the paste.
+/// Restore the snapshot if the clipboard is still ours and the paste landed,
+/// then end the paste. A paste that did not land keeps the transcript instead.
 fn settle(hwnd: HWND) {
-    let Some((snapshot, sequence, ownership_lost)) = with_paste(|paste| {
+    let Some((snapshot, sequence, ownership_lost, kept)) = with_paste(|paste| {
         if paste.settled {
             return None;
         }
@@ -291,6 +339,7 @@ fn settle(hwnd: HWND) {
             std::mem::take(&mut paste.snapshot),
             paste.sequence,
             paste.timeline.ownership_lost(),
+            not_pasted_message(paste),
         ))
     })
     .flatten() else {
@@ -298,25 +347,45 @@ fn settle(hwnd: HWND) {
     };
     let outcome = if ownership_lost {
         Restore::UserCopied
+    } else if let Some((app, message)) = kept {
+        log::warn!("paste did not land; keeping the transcript on the clipboard");
+        let _ = TranscriptionWarning(message.to_string()).emit(&app);
+        Restore::Kept
     } else {
         restore_if_unchanged(hwnd, &snapshot, sequence)
     };
     match outcome {
-        Restore::Restored => {}
+        Restore::Restored | Restore::Kept => {}
         Restore::UserCopied => log::info!("clipboard changed after paste; leaving the user's copy"),
         Restore::Busy => log::warn!("could not reopen the clipboard to restore it"),
     }
-    if outcome != Restore::Busy {
+    // A kept transcript stays a promise: destroying the window renders it.
+    if !matches!(outcome, Restore::Busy | Restore::Kept) {
         with_paste(|paste| paste.promised = false);
     }
     // SAFETY: ends this thread's message loop.
     unsafe { PostQuitMessage(0) };
 }
 
+/// What to tell the user when the transcript could not be pasted, `None` when
+/// the target read it.
+fn not_pasted_message(paste: &Paste) -> Option<(AppHandle, &'static str)> {
+    let message = if paste.admin_window {
+        ADMIN_WINDOW
+    } else if !paste.timeline.was_read() {
+        NOT_PASTED
+    } else {
+        return None;
+    };
+    Some((paste.app.clone(), message))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Restore {
     Restored,
     UserCopied,
+    /// The paste did not land; the transcript stays for the user to paste.
+    Kept,
     /// Another app held the clipboard; the promise is still on it.
     Busy,
 }

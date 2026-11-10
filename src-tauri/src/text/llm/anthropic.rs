@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::completion::Completion;
 use super::config::FormatConfig;
+use super::error;
 
 const ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 const API_VERSION: &str = "2023-06-01";
@@ -89,22 +90,17 @@ pub async fn send(
         req = req.header("x-api-key", key);
     }
 
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| format!("request failed: {e}"))?;
+    let resp = req.send().await.map_err(|e| error::request_failed(&e))?;
 
     let status = resp.status();
     if !status.is_success() {
-        let detail = resp.text().await.unwrap_or_default();
-        let snippet: String = detail.chars().take(200).collect();
-        return Err(format!("HTTP {status}: {snippet}"));
+        return Err(error::status_failed(status));
     }
 
     let parsed: Response = resp
         .json()
         .await
-        .map_err(|e| format!("invalid response body: {e}"))?;
+        .map_err(|_| error::UNEXPECTED_REPLY.to_string())?;
 
     Ok(Completion {
         truncated: parsed.truncated(),

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::completion::Completion;
 use super::config::FormatConfig;
+use super::error;
 
 #[derive(Serialize)]
 pub struct ChatRequest<'a> {
@@ -71,22 +72,17 @@ pub async fn send_chat(
         req = req.bearer_auth(key);
     }
 
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| format!("request failed: {e}"))?;
+    let resp = req.send().await.map_err(|e| error::request_failed(&e))?;
 
     let status = resp.status();
     if !status.is_success() {
-        let detail = resp.text().await.unwrap_or_default();
-        let snippet: String = detail.chars().take(200).collect();
-        return Err(format!("HTTP {status}: {snippet}"));
+        return Err(error::status_failed(status));
     }
 
     let parsed: ChatResponse = resp
         .json()
         .await
-        .map_err(|e| format!("invalid response body: {e}"))?;
+        .map_err(|_| error::UNEXPECTED_REPLY.to_string())?;
 
     parsed
         .choices
@@ -96,7 +92,7 @@ pub async fn send_chat(
             truncated: choice.truncated(),
             text: choice.message.content,
         })
-        .ok_or_else(|| "response contained no choices".to_string())
+        .ok_or_else(|| error::UNEXPECTED_REPLY.to_string())
 }
 
 #[cfg(test)]

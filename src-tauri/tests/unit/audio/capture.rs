@@ -1,4 +1,16 @@
-use super::{collapse_devices, InputDevice};
+use std::sync::{atomic::AtomicBool, Arc, Mutex};
+
+use super::{collapse_devices, grant_arm, InputDevice, MicStream};
+use crate::audio::WaveformMeter;
+
+fn mic() -> MicStream {
+    MicStream::new(
+        Arc::new(Mutex::new(Vec::new())),
+        Arc::new(Mutex::new(44_100)),
+        Arc::new(WaveformMeter::new(44_100)),
+        Arc::new(AtomicBool::new(false)),
+    )
+}
 
 fn names(list: &[InputDevice]) -> Vec<&str> {
     list.iter().map(|d| d.name.as_str()).collect()
@@ -78,4 +90,25 @@ fn every_sample_format_stays_within_range() {
         let v = raw.to_f32();
         assert!((-1.0..=1.0).contains(&v), "u16 {raw} -> {v}");
     }
+}
+
+#[test]
+fn a_new_recording_ignores_the_old_stream_until_its_device_is_open() {
+    let mic = mic();
+    mic.arm();
+    // The supervisor may still be swapping a stale "Default" device.
+    assert!(!mic.shared.captures());
+    assert!(mic.is_armed());
+    grant_arm(&mic.shared);
+    assert!(mic.shared.captures());
+}
+
+#[test]
+fn a_disarm_while_the_device_opens_stays_disarmed() {
+    let mic = mic();
+    mic.arm();
+    mic.disarm();
+    grant_arm(&mic.shared);
+    assert!(!mic.is_armed());
+    assert!(!mic.shared.captures());
 }

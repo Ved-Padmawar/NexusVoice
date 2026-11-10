@@ -1,7 +1,7 @@
 //! The recording lifecycle: arm the microphone, run the live decoders, and on
 //! stop hand the captured audio to finalize.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -29,6 +29,9 @@ const STREAM_DONE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Finalize takes the buffer, leaving it with no capacity. Reserved at start so
 /// the audio callback isn't reallocating under the buffer lock.
 const RESERVE_SECS: usize = 30;
+/// Silence left where a hands-free dictation was paused; long enough for the
+/// model to hear a sentence end.
+const PAUSE_GAP_MS: usize = 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -137,6 +140,8 @@ pub struct Recorder {
     inputs: OnceLock<tokio::sync::mpsc::UnboundedSender<Request>>,
     /// Shared with the capture callback: drops samples while set.
     paused: Arc<AtomicBool>,
+    /// Silence inserted at resumes: in the buffer, but not speaking time.
+    pause_gap_samples: AtomicUsize,
     capture: Capture,
     chime: Chime,
     focus: Mutex<Option<FocusTarget>>,
@@ -162,6 +167,7 @@ impl Recorder {
             revision: AtomicU32::new(0),
             inputs: OnceLock::new(),
             paused,
+            pause_gap_samples: AtomicUsize::new(0),
             capture: Capture {
                 generation: Generation::default(),
                 capturing: Arc::new(AtomicBool::new(false)),
@@ -434,6 +440,7 @@ impl Recorder {
         // First, so leftover workers go stale before their buffers are replaced.
         let ticket = self.capture.generation.begin();
         self.paused.store(false, Ordering::SeqCst);
+        self.pause_gap_samples.store(0, Ordering::SeqCst);
         {
             let rate = *lock_recovering(&self.capture.sample_rate) as usize;
             let mut audio = lock_recovering(&self.capture.audio);
@@ -477,8 +484,29 @@ impl Recorder {
             Phase::Recording(Mode::Dictation),
             RecordError::NotPaused,
         )?;
+        self.mark_pause_in_audio();
         self.paused.store(false, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// Paused audio is dropped, so the speech either side of a pause would run
+    /// together and the model would write them as one sentence. A stretch of
+    /// silence keeps the pause audible to it.
+    fn mark_pause_in_audio(&self) {
+        let rate = *lock_recovering(&self.capture.sample_rate) as usize;
+        let mut audio = lock_recovering(&self.capture.audio);
+        if !audio.is_empty() {
+            let gap = rate * PAUSE_GAP_MS / 1000;
+            let length = audio.len() + gap;
+            audio.resize(length, 0.0);
+            self.pause_gap_samples.fetch_add(gap, Ordering::SeqCst);
+        }
+    }
+
+    fn speaking_seconds(&self, recorded: usize, sample_rate: u32) -> Option<f64> {
+        let spoken = recorded.saturating_sub(self.pause_gap_samples.load(Ordering::SeqCst));
+        #[allow(clippy::cast_precision_loss)]
+        (sample_rate > 0 && spoken > 0).then(|| spoken as f64 / f64::from(sample_rate))
     }
 
     fn transition(
@@ -611,9 +639,7 @@ impl Recorder {
         let samples = std::mem::take(&mut *lock_recovering(&self.capture.audio));
         let sample_rate = *lock_recovering(&self.capture.sample_rate);
 
-        #[allow(clippy::cast_precision_loss)]
-        let duration_seconds = (sample_rate > 0 && !samples.is_empty())
-            .then(|| samples.len() as f64 / f64::from(sample_rate));
+        let duration_seconds = self.speaking_seconds(samples.len(), sample_rate);
 
         // Set when the mic died mid-recording; what it captured first still counts.
         let mic_error = self.capture.mic.take_error();
@@ -647,7 +673,7 @@ impl Recorder {
             Err(e) => {
                 log::error!("engine load failed: {e}");
                 self.reset();
-                let _ = TranscriptionError(format!("model not ready: {e}")).emit(app);
+                let _ = TranscriptionError(e).emit(app);
                 return;
             }
         };
@@ -734,8 +760,18 @@ mod tests {
         assert!(recorder.paused.load(Ordering::SeqCst));
         let paused = recorder.snapshot(&engine());
         assert_eq!(paused.status, RecordingStatus::DictationPaused);
+        lock_recovering(&recorder.capture.audio).push(0.5);
         recorder.resume().unwrap();
         assert!(!recorder.paused.load(Ordering::SeqCst));
+        assert!(
+            lock_recovering(&recorder.capture.audio).len() > 1,
+            "resuming leaves silence where the pause was"
+        );
+        assert_eq!(
+            recorder.speaking_seconds(lock_recovering(&recorder.capture.audio).len(), 1),
+            Some(1.0),
+            "the silence is not speaking time"
+        );
         recorder.pause().unwrap();
         recorder.claim_finish(Mode::Dictation).unwrap();
         assert_eq!(recorder.status(), RecordingStatus::Processing);

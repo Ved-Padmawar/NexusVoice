@@ -15,7 +15,7 @@ use crate::bridge::events::{
 use crate::settings::Settings;
 use crate::sync::lock_recovering;
 
-use super::cache::EngineCache;
+use super::cache::{EngineCache, Unload};
 use super::catalog::{self, ModelEntry};
 use super::downloader::{download_model, CANCELLED};
 use super::provider::{detect_backend, select_model};
@@ -208,11 +208,21 @@ impl ModelLibrary {
     }
 
     /// Delete a downloaded model. Deleting the active one switches to the best
-    /// model left on disk, or to none.
+    /// model left on disk, or to none. Fails with `ResourceBusy` while a
+    /// recording is using the active model.
     pub fn delete(&self, app: &AppHandle, entry: &ModelEntry) -> std::io::Result<()> {
-        std::fs::remove_file(self.path(entry))?;
         let settings = app.state::<Settings>();
-        if Self::active(&settings).id != entry.id {
+        let active = Self::active(&settings).id == entry.id;
+        // A loaded model's file is memory-mapped, and Windows cannot delete a
+        // mapped file: release the engine first.
+        if active && app.state::<EngineCache>().unload() == Unload::Deferred {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::ResourceBusy,
+                "a recording is using the model",
+            ));
+        }
+        std::fs::remove_file(self.path(entry))?;
+        if !active {
             return Ok(());
         }
         if let Some(next) = self.best_on_disk(Some(&entry.id)) {
@@ -220,7 +230,6 @@ impl ModelLibrary {
             let _ = ModelSwitched.emit(app);
         } else {
             settings.set_model(None)?;
-            app.state::<EngineCache>().unload();
             let _ = ModelEvicted.emit(app);
         }
         Ok(())

@@ -1,6 +1,6 @@
 //! Recording commands and microphone selection.
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::models::cache::EngineCache;
 use crate::session::{
@@ -52,9 +52,13 @@ pub struct InputDeviceInfo {
 /// lists "Default" first; these are the named alternatives.
 #[tauri::command]
 #[specta::specta]
-pub fn list_input_devices(settings: State<'_, Settings>) -> Vec<InputDeviceInfo> {
-    let selected = settings.input_device();
-    crate::audio::list_input_devices()
+pub async fn list_input_devices(app: AppHandle) -> Vec<InputDeviceInfo> {
+    let selected = app.state::<Settings>().input_device();
+    // Enumerating audio endpoints blocks on the OS: off the main thread.
+    let devices = tauri::async_runtime::spawn_blocking(crate::audio::list_input_devices)
+        .await
+        .unwrap_or_default();
+    devices
         .into_iter()
         .map(|d| InputDeviceInfo {
             is_selected: selected.as_deref() == Some(d.name.as_str()),

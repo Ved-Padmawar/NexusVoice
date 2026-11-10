@@ -2,7 +2,7 @@
 //! idle unload and the hardware profile.
 
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::models::cache::EngineCache;
 use crate::models::catalog::{self, ModelEntry, Pipeline};
@@ -107,9 +107,18 @@ pub fn delete_model(
 ) -> Result<(), ApiError> {
     let entry = catalog_entry(&variant)?;
     if !library.is_downloaded(entry) {
-        return Err(ApiError::new("not_found", "model file not found"));
+        return Err(ApiError::new("not_found", "That model isn't downloaded."));
     }
-    Ok(library.delete(&app, entry)?)
+    library.delete(&app, entry).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::ResourceBusy {
+            ApiError::new(
+                "io_error",
+                "That model is in use by a recording. Try again when it finishes.",
+            )
+        } else {
+            e.into()
+        }
+    })
 }
 
 /// Make a model on disk the active one.
@@ -251,18 +260,24 @@ pub struct HardwareProfileResponse {
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_hardware_profile(engine: State<'_, EngineCache>) -> HardwareProfileResponse {
+pub async fn get_hardware_profile(app: AppHandle) -> HardwareProfileResponse {
+    let loaded_backend = app.state::<EngineCache>().backend();
+    // The first probe makes blocking syscalls; keep them off the main thread.
+    tauri::async_runtime::spawn_blocking(move || hardware_profile(loaded_backend))
+        .await
+        .expect("hardware probe panicked")
+}
+
+fn hardware_profile(loaded_backend: Option<String>) -> HardwareProfileResponse {
     use crate::models::{cuda, provider::recommend_model};
 
     let hw = crate::platform::hardware::cached_profile();
     // Before a model loads, NVIDIA runs on Vulkan unless a CUDA device registered.
     let execution_provider =
-        engine
-            .backend()
-            .unwrap_or_else(|| match hw.execution_provider.as_str() {
-                "cuda" if !cuda::registered() => "vulkan".to_string(),
-                other => other.to_string(),
-            });
+        loaded_backend.unwrap_or_else(|| match hw.execution_provider.as_str() {
+            "cuda" if !cuda::registered() => "vulkan".to_string(),
+            other => other.to_string(),
+        });
 
     HardwareProfileResponse {
         gpu_name: hw.gpu_type.clone(),

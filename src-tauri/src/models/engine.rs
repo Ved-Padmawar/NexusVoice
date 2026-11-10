@@ -47,6 +47,16 @@ pub struct TranscriptionEngine {
     pub entry: &'static ModelEntry,
 }
 
+/// The user-facing message for a model that would not load; the engine's own
+/// wording stays in the log.
+fn load_failure(entry: &ModelEntry, cause: &dyn std::fmt::Display) -> String {
+    log::error!("failed to load {}: {cause}", entry.display_name);
+    format!(
+        "Couldn't load {}. The file may be damaged - try downloading it again.",
+        entry.display_name
+    )
+}
+
 impl TranscriptionEngine {
     /// Load the model selected by `override_id` (or hardware) from `models_dir`.
     /// `language` is the ISO code every decode is pinned to; `None` auto-detects.
@@ -60,11 +70,12 @@ impl TranscriptionEngine {
 
         let model_path = models_dir.join(&entry.filename);
         if !model_path.exists() {
-            return Err(format!("model not found: {}", model_path.display()));
+            log::error!("model file missing: {}", model_path.display());
+            return Err(format!("{} isn't downloaded.", entry.display_name));
         }
 
         let model = Model::load_with(&model_path, &ModelOptions::default())
-            .map_err(|e| format!("failed to load model {}: {e}", entry.display_name))?;
+            .map_err(|e| load_failure(entry, &e))?;
 
         // The bound backend may differ from the request (e.g. CPU fallback).
         log::info!(
@@ -84,12 +95,10 @@ impl TranscriptionEngine {
                 n_threads,
                 ..Default::default()
             })
-            .map_err(|e| format!("failed to create session: {e}"))?;
+            .map_err(|e| load_failure(entry, &e))?;
 
         // Asking for finer than the model offers is rejected outright.
-        let caps = model
-            .capabilities()
-            .map_err(|e| format!("failed to read capabilities of {}: {e}", entry.display_name))?;
+        let caps = model.capabilities().map_err(|e| load_failure(entry, &e))?;
         let timestamps = match caps.max_timestamp_kind {
             TimestampKind::None => TimestampKind::None,
             TimestampKind::Segment => TimestampKind::Segment,
@@ -244,13 +253,15 @@ impl TranscriptionEngine {
         match self.session.run(samples, &options) {
             Ok(transcript) => Ok(build_segments(&transcript)),
             // Stopped early (repetition loop or length budget): keep the text before it.
-            Err(e) => match e.partial() {
-                Some(partial) => {
+            Err(e) => {
+                if let Some(partial) = e.partial() {
                     log::warn!("decode stopped early, keeping the partial: {e}");
                     Ok(build_segments(partial))
+                } else {
+                    log::error!("transcribe failed: {e}");
+                    Err("Transcription failed. Please try again.".to_string())
                 }
-                None => Err(format!("transcribe failed: {e}")),
-            },
+            }
         }
     }
 }

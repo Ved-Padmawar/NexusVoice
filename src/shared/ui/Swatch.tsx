@@ -29,7 +29,7 @@ export function Swatch({ active, onPick, preview, label, hint, inline = false }:
       <span className={cn('min-w-0 flex-1', inline && 'truncate')}>
         <span className={cn(
           'text-[12px] font-semibold tracking-[-0.01em] transition-colors duration-200',
-          active ? 'text-accent' : 'text-fg',
+          active ? 'text-accent-ink' : 'text-fg',
           !inline && 'block truncate',
         )}>
           {label}

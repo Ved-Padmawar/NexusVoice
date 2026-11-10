@@ -39,18 +39,21 @@ function DictionarySkeleton() {
   )
 }
 
-function Arrow() {
+/** Sits in its own column, so it stays centred between the two entries in every row. */
+function ArrowCell() {
   return (
-    <svg className="pointer-events-none absolute top-1/2 right-2 h-4 w-10 -translate-y-1/2 text-muted" viewBox="0 0 48 16" aria-hidden="true">
-      <path d="M2 8h44M41.5 3.5 46 8l-4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <td className={cn(cell, 'px-0')} aria-hidden="true">
+      <svg className="mx-auto block h-4 w-10 text-muted" viewBox="0 0 48 16">
+        <path d="M2 8h44M41.5 3.5 46 8l-4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </td>
   )
 }
 
 export function Dictionary() {
   const { data: dictionary = [], status, error, refetch } = useDictionary()
   const updateDictionary = useUpdateDictionary()
-  const deleteDictionaryEntry = useDeleteDictionaryEntry()
+  const deleteEntry = useDeleteDictionaryEntry()
 
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<SortKey>('hits')
@@ -95,7 +98,7 @@ export function Dictionary() {
       await updateDictionary.mutateAsync({
         term: t,
         replacement: r,
-        previousTerm: editId === NEW ? undefined : dictionary.find(d => d.id === editId)?.term,
+        id: typeof editId === 'number' ? editId : undefined,
       })
       if (editId === NEW) { toast.success('Entry saved'); setQuery('') }
       cancelEdit()
@@ -112,7 +115,7 @@ export function Dictionary() {
   const editInput = 'h-8 rounded-[7px] bg-panel px-2.5 text-sm ring-line'
   const editing = (id: EditId, hits: string, key: string) => (
     <tr key={key} className="bg-accent-soft transition-opacity duration-150 starting:opacity-0 [&>td]:h-12 [&>td]:bg-accent-soft">
-      <td className={cn(cell, 'relative pr-12')}>
+      <td className={cell}>
         <input
           autoFocus
           aria-label="When it hears"
@@ -124,8 +127,8 @@ export function Dictionary() {
           onKeyDown={onEditKey}
           className={cn('w-full outline-none ring-1 ring-inset focus:ring-[1.5px] focus:ring-accent disabled:opacity-50', editInput)}
         />
-        <Arrow />
       </td>
+      <ArrowCell />
       <td className={cell}>
         <input
           aria-label="Write instead"
@@ -217,10 +220,11 @@ export function Dictionary() {
             </div>
           ) : (
             <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
-              <colgroup><col className="w-[38%]" /><col className="w-[38%]" /><col className="w-20" /><col /></colgroup>
+              <colgroup><col className="w-[36%]" /><col className="w-16" /><col className="w-[36%]" /><col className="w-20" /><col /></colgroup>
               <thead>
                 <tr>
                   <th scope="col" className={headCell}>When it hears</th>
+                  <th aria-hidden="true" className={headCell} />
                   <th scope="col" className={headCell}>Write instead</th>
                   <th scope="col" className={cn(headCell, 'text-right')}>Uses</th>
                   <th scope="col" aria-label="Actions" className={headCell} />
@@ -234,11 +238,11 @@ export function Dictionary() {
                     className="group cursor-pointer [&>td]:transition-colors [&:hover>td]:bg-[color-mix(in_oklab,var(--fg)_4%,var(--bg))]"
                     onClick={() => startEdit(entry.id, entry.term, entry.replacement)}
                   >
-                    <td className={cn(cell, 'relative pr-12')}>
-                      <span className="block truncate text-fg-2">{entry.term}</span>
-                      <Arrow />
+                    <td className={cell}>
+                      <span className="block truncate text-fg-2" title={entry.term}>{entry.term}</span>
                     </td>
-                    <td className={cell}><span className="block truncate font-semibold text-fg">{entry.replacement}</span></td>
+                    <ArrowCell />
+                    <td className={cell}><span className="block truncate font-semibold text-fg" title={entry.replacement}>{entry.replacement}</span></td>
                     <td className={cn(cell, 'text-right text-xs text-muted tabular-nums')}>{entry.hits}</td>
                     <td className={cell}>
                       <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
@@ -254,7 +258,7 @@ export function Dictionary() {
                           type="button"
                           aria-label={`Delete ${entry.term}`}
                           className={cn(iconAction, 'hover:bg-danger-soft hover:text-danger')}
-                          onClick={e => { e.stopPropagation(); deleteDictionaryEntry.mutate(entry.id) }}
+                          onClick={e => { e.stopPropagation(); deleteEntry(entry) }}
                         >
                           <TrashIcon size={15} />
                         </button>
@@ -263,7 +267,7 @@ export function Dictionary() {
                   </tr>
                 ))}
                 {shown.length === 0 && editId !== NEW && (
-                  <tr><td colSpan={4} className="h-30 text-center text-muted">No word matches “{query.trim()}”</td></tr>
+                  <tr><td colSpan={5} className="h-30 text-center text-muted">No word matches “{query.trim()}”</td></tr>
                 )}
               </tbody>
             </table>

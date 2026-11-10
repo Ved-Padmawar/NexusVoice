@@ -37,6 +37,21 @@ fn is_usable_requires_enabled_url_and_model() {
 }
 
 #[test]
+fn a_base_url_must_be_http_or_https_with_a_host() {
+    assert!(check_base_url(" http://localhost:11434 ").is_ok());
+    assert!(check_base_url("https://api.openai.com/v1").is_ok());
+    for bad in [
+        "",
+        "not a url at all",
+        "localhost:11434",
+        "ftp://host",
+        "http://",
+    ] {
+        assert!(check_base_url(bad).is_err(), "{bad:?} should be rejected");
+    }
+}
+
+#[test]
 fn is_usable_anthropic_does_not_require_base_url() {
     assert!(with("anthropic", "", "claude-sonnet-5", true).is_usable());
 }

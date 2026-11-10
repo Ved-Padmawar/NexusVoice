@@ -110,6 +110,16 @@ function CudaCard({ activeBackend }: { activeBackend: string | null }) {
           action={<Button variant="danger" onClick={removeCuda}><TrashIcon size={12} weight="bold" />Remove</Button>}
         />
       )
+    case 'damaged':
+      return (
+        <StatusCard
+          icon={icon}
+          tone="accent"
+          title="CUDA needs repair"
+          {...detail('A CUDA file failed its check, so NexusVoice uses Vulkan. Repairing downloads only what changed.')}
+          action={<Button variant="primary" onClick={downloadCuda}><ArrowsClockwiseIcon size={12} weight="bold" />Repair</Button>}
+        />
+      )
     case 'unverified':
       return (
         <StatusCard

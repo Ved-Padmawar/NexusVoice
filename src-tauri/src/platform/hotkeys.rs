@@ -37,6 +37,15 @@ impl HotkeyKind {
         }
     }
 
+    /// What the role is called in the settings, for messages.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::PushToTalk => "Recording",
+            Self::Dictation => "Dictation",
+            Self::DictationCommit => "Finish dictation",
+        }
+    }
+
     fn slot(self, bindings: &mut HotkeyBindings) -> &mut Option<String> {
         match self {
             Self::PushToTalk => &mut bindings.push_to_talk,
@@ -49,7 +58,10 @@ impl HotkeyKind {
 #[derive(Debug)]
 pub enum HotkeyError {
     /// Another role already uses this combination.
-    Conflict,
+    Conflict {
+        hotkey: String,
+        with: HotkeyKind,
+    },
     /// Another application holds the combination.
     InUse,
     PermissionDenied,
@@ -58,14 +70,19 @@ pub enum HotkeyError {
     Save(String),
 }
 
-/// Whether `hotkey` is already bound to a role other than `kind`. Case is
+/// The role other than `kind` that is already bound to `hotkey`. Case is
 /// ignored: the recorder's casing varies with how the key was pressed.
-pub fn conflicts(bindings: &HotkeyBindings, kind: HotkeyKind, hotkey: &str) -> bool {
-    HotkeyKind::ALL
-        .into_iter()
-        .filter(|&other| other != kind)
-        .filter_map(|other| other.of(bindings))
-        .any(|bound| bound.eq_ignore_ascii_case(hotkey))
+pub fn conflicting_role(
+    bindings: &HotkeyBindings,
+    kind: HotkeyKind,
+    hotkey: &str,
+) -> Option<HotkeyKind> {
+    HotkeyKind::ALL.into_iter().find(|&other| {
+        other != kind
+            && other
+                .of(bindings)
+                .is_some_and(|bound| bound.eq_ignore_ascii_case(hotkey))
+    })
 }
 
 /// The shortcuts bound with the OS right now. A saved shortcut another
@@ -101,11 +118,14 @@ impl Hotkeys {
     ) -> Result<(), HotkeyError> {
         let mut bound = self.bound.lock().await;
         let mut saved = settings.hotkeys();
-        if hotkey
+        if let Some((hotkey, with)) = hotkey
             .as_deref()
-            .is_some_and(|h| conflicts(&saved, kind, h))
+            .and_then(|h| Some((h, conflicting_role(&saved, kind, h)?)))
         {
-            return Err(HotkeyError::Conflict);
+            return Err(HotkeyError::Conflict {
+                hotkey: hotkey.to_owned(),
+                with,
+            });
         }
 
         let mut next = bound.clone();

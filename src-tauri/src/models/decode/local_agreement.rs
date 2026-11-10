@@ -508,6 +508,17 @@ fn final_speech_offset(samples_16k: &[f32]) -> Option<usize> {
     })
 }
 
+/// Whether a recording holds speech at all, by the test finalize applies
+/// before decoding. Tells an empty transcript of silence from one of speech.
+pub fn contains_speech(samples: &[f32], native_rate: u32) -> bool {
+    let at_16k = To16k::new(native_rate).and_then(|mut converter| {
+        let mut converted = converter.push(samples)?;
+        converted.extend(converter.finish()?);
+        Ok(converted)
+    });
+    at_16k.is_ok_and(|samples| final_speech_offset(&samples).is_some())
+}
+
 /// Middle of the last [`PAUSE_FRAMES`]-long run of non-speech frames that sits
 /// within the share of speech `committed` of `total` words covers.
 fn last_covered_pause(samples_16k: &[f32], committed: usize, total: usize) -> Option<usize> {

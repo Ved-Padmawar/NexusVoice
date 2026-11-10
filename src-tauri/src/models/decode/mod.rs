@@ -8,7 +8,7 @@
 pub mod local_agreement;
 pub mod streaming;
 
-pub use local_agreement::{finalize, FinalText, StreamingSession};
+pub use local_agreement::{contains_speech, finalize, FinalText, StreamingSession};
 pub use streaming::{StreamSession, Streamed};
 
 use crate::models::TranscriptionEngine;

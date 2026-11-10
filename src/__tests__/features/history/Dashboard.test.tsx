@@ -8,13 +8,7 @@ import { addTranscript } from '../../../features/history/queries'
 import type { Transcript, UsageStats } from '../../../shared/types'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
-
-// downloadBlob clicks an anchor; jsdom can't navigate and logs about it.
-vi.mock('../../../shared/utils', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../shared/utils')>()),
-  downloadBlob: vi.fn(),
-}))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 
 const mockInvoke = vi.mocked(invoke)
 
@@ -166,16 +160,21 @@ describe('Dashboard — stats', () => {
 })
 
 describe('Dashboard — export', () => {
-  it('pages through get_transcripts on format select', async () => {
+  it('exports only what the current search shows', async () => {
+    mockBackend({ transcripts: sampleTranscripts, search: [sampleTranscripts[1]] })
     renderDashboard()
+    await screen.findByText('Hello world')
+    fireEvent.change(await screen.findByRole('searchbox', { name: /search transcripts/i }), { target: { value: 'search' } })
+    await waitFor(() => expect(screen.queryByText('Hello world')).not.toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Export' }))
     fireEvent.click(screen.getByText(/plain text/i))
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith(
-        'get_transcripts',
-        expect.objectContaining({ page: expect.objectContaining({ limit: 200 }) }),
-      )
+      expect(mockInvoke).toHaveBeenCalledWith('save_export', {
+        fileName: expect.stringMatching(/\.txt$/),
+        content: expect.not.stringContaining('Hello world'),
+      })
     })
+    expect(mockInvoke).toHaveBeenCalledWith('search_transcripts', expect.objectContaining({ query: 'search' }))
   })
 })
 

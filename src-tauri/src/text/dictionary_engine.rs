@@ -67,7 +67,14 @@ impl Keyed {
 }
 
 /// Longest run of words tried as one dictionary term.
-const MAX_SPAN: usize = 3;
+pub const MAX_SPAN: usize = 3;
+
+/// The key a term matches on: lowercased with spaces removed, so a term typed
+/// as "Next JS" matches "next js" as spoken. Two terms with one key are the
+/// same entry.
+pub fn match_key(term: &str) -> String {
+    term.split_whitespace().collect::<String>().to_lowercase()
+}
 
 /// One whitespace-separated token: the whitespace before it, then any
 /// punctuation around its word. `word` is empty for a token without letters,
@@ -128,11 +135,7 @@ impl DictionaryCorrectionEngine {
         let entries = entries
             .into_iter()
             .map(|entry| Keyed {
-                key: entry
-                    .term
-                    .split_whitespace()
-                    .collect::<String>()
-                    .to_lowercase(),
+                key: match_key(&entry.term),
                 entry,
             })
             .collect();

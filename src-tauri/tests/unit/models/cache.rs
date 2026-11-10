@@ -6,13 +6,15 @@ use super::*;
 fn a_recording_holds_the_engine_until_its_lease_drops() {
     let cache = EngineCache::new(std::env::temp_dir());
     assert!(!cache.in_use());
+    // Idle with nothing loaded is not "held by a recording".
+    assert_eq!(cache.unload(), Unload::NothingLoaded);
 
     let first = cache.lease();
     let second = cache.lease();
     assert!(cache.in_use());
 
     // An unload requested now is deferred, not applied.
-    assert!(!cache.unload());
+    assert_eq!(cache.unload(), Unload::Deferred);
     assert!(lock_recovering(&cache.slot).unload_pending);
 
     drop(first);

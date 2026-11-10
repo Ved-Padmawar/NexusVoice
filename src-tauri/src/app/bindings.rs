@@ -22,6 +22,8 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::delete_transcript,
             commands::update_dictionary,
             commands::delete_dictionary_entry,
+            commands::save_export,
+            commands::reveal_in_folder,
             commands::get_injection_status,
             commands::get_hotkeys,
             commands::get_bound_hotkeys,

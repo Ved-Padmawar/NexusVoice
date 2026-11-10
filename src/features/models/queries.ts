@@ -25,6 +25,8 @@ const activeModelOptions = live(queryKeys.activeModel, () => commands.getModelIn
 /** Support is per model, so every model change re-reads it. */
 export const languageOptions = live(queryKeys.languageOptions, () => commands.getLanguageOptions())
 
+export const modelUnloadOptions = live(queryKeys.modelUnload, () => commands.getModelUnload())
+
 const downloadsOptions = live(queryKeys.downloads, async (): Promise<Downloads> => Object.fromEntries(
   (await commands.getActiveDownloads()).map(({ id, status, progress, error }) => [id, { status, progress, error }]),
 ))
@@ -48,6 +50,10 @@ export function useActiveModel() {
 
 export function useLanguageOptions() {
   return useQuery(languageOptions)
+}
+
+export function useModelUnload() {
+  return useQuery(modelUnloadOptions)
 }
 
 export function useDownload(id: ModelId | null) {

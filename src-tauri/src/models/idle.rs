@@ -9,7 +9,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::settings::Settings;
 
-use super::cache::EngineCache;
+use super::cache::{EngineCache, Unload};
 
 /// How often the watcher looks at the engine; an unload lands up to this late.
 const CHECK_EVERY: Duration = Duration::from_secs(30);
@@ -54,7 +54,9 @@ pub fn spawn_watcher(app: AppHandle) {
             ticks.tick().await;
             let engine = app.state::<EngineCache>();
             let policy = app.state::<Settings>().model_unload();
-            if policy.should_unload(engine.idle_for(), engine.in_use()) && engine.unload() {
+            if policy.should_unload(engine.idle_for(), engine.in_use())
+                && engine.unload() == Unload::Released
+            {
                 log::info!("model unloaded after idling ({policy:?})");
             }
         }

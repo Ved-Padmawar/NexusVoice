@@ -9,18 +9,18 @@ use super::CHORD_DELAY;
 /// Some apps read more than once per paste: a probe, then the real read.
 const QUIET_PERIOD: Duration = Duration::from_millis(200);
 
-/// Restore even without a read. Long enough for a busy target to get there;
+/// Settle even without a read. Long enough for a busy target to get there;
 /// a paste into a window with no text field never reads at all.
 const READ_TIMEOUT: Duration = Duration::from_secs(8);
 
-/// The chord never went out, so no read can follow: restore quickly.
+/// The chord never went out, so no read can follow: settle quickly.
 const FAILED_CHORD_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
     Wait,
     SendChord,
-    /// Done: restore the user's clipboard if it is still ours.
+    /// Done: hand the clipboard back if it is still ours and the paste landed.
     Settle,
 }
 
@@ -34,6 +34,8 @@ pub struct Timeline {
     /// reacting to the change itself, not the paste.
     last_read: Option<Instant>,
     ownership_lost: bool,
+    /// The target cannot take a paste: no chord, the transcript just stays.
+    copy_only: bool,
 }
 
 impl Timeline {
@@ -44,7 +46,20 @@ impl Timeline {
             chord_failed: false,
             last_read: None,
             ownership_lost: false,
+            copy_only: false,
         }
+    }
+
+    /// A paste that is never sent: it settles at once, with nothing read.
+    pub const fn copy_only(published_at: Instant) -> Self {
+        let mut timeline = Self::new(published_at);
+        timeline.copy_only = true;
+        timeline
+    }
+
+    /// Whether any app read the transcript after the chord.
+    pub const fn was_read(&self) -> bool {
+        self.last_read.is_some()
     }
 
     pub const fn chord_sent(&mut self, at: Instant, ok: bool) {
@@ -69,7 +84,7 @@ impl Timeline {
     }
 
     pub fn next_step(&self, now: Instant) -> Step {
-        if self.ownership_lost {
+        if self.ownership_lost || self.copy_only {
             return Step::Settle;
         }
         let Some(sent) = self.chord_sent_at else {

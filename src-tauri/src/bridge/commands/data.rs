@@ -1,12 +1,14 @@
-//! Data commands: transcripts, usage stats and the dictionary.
+//! Data commands: transcripts, usage stats, the dictionary and exports.
 
 use chrono::{DateTime, Local, NaiveDate, NaiveTime, TimeDelta, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use std::io::Write;
+use std::path::{Component, Path, PathBuf};
+use tauri::{AppHandle, Manager, State};
 
 use crate::data::repositories::transcript::{Cursor, TranscriptRepository};
 use crate::data::Database;
-use crate::text::dictionary::Dictionary;
+use crate::text::dictionary::{Dictionary, DictionaryError};
 
 use super::dto::{DictionaryResponse, TranscriptResponse};
 use super::error::ApiError;
@@ -250,7 +252,7 @@ pub async fn get_dictionary(
     Ok(entries.into_iter().map(DictionaryResponse::from).collect())
 }
 
-/// `previous_term` names the entry being renamed, if any.
+/// Add an entry, or with `id` edit that one (a rename keeps its use count).
 #[tauri::command]
 #[specta::specta]
 pub async fn update_dictionary(
@@ -258,11 +260,16 @@ pub async fn update_dictionary(
     dictionary: State<'_, Dictionary>,
     term: String,
     replacement: String,
-    previous_term: Option<String>,
+    id: Option<i64>,
 ) -> Result<DictionaryResponse, ApiError> {
     let entry = dictionary
-        .upsert(&db.pool().await?, term, replacement, previous_term)
-        .await?;
+        .save(&db.pool().await?, id, &term, &replacement)
+        .await
+        .map_err(|e| match e {
+            DictionaryError::Invalid(message) => ApiError::new("invalid_input", message),
+            DictionaryError::Duplicate(message) => ApiError::new("dictionary_duplicate", message),
+            DictionaryError::Database(e) => e.into(),
+        })?;
     Ok(entry.into())
 }
 
@@ -274,6 +281,84 @@ pub async fn delete_dictionary_entry(
     id: i64,
 ) -> Result<(), ApiError> {
     Ok(dictionary.delete(&db.pool().await?, id).await?)
+}
+
+/// Write an export into the user's Downloads folder and return where it went.
+/// An existing file is never overwritten: the name gets " (2)", " (3)", ….
+#[tauri::command]
+#[specta::specta]
+pub async fn save_export(
+    app: AppHandle,
+    file_name: String,
+    content: String,
+) -> Result<String, ApiError> {
+    if !is_bare_file_name(&file_name) {
+        return Err(ApiError::new("invalid_input", "invalid file name"));
+    }
+    let downloads = app
+        .path()
+        .download_dir()
+        .map_err(|e| ApiError::new("io_error", e.to_string()))?;
+    // Off the main thread: a large export or a slow folder would freeze every window.
+    let path = tauri::async_runtime::spawn_blocking(move || {
+        write_without_overwriting(&downloads, &file_name, &content)
+    })
+    .await
+    .expect("export write panicked")?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Open the file manager with `path` selected.
+#[tauri::command]
+#[specta::specta]
+pub fn reveal_in_folder(path: String) -> Result<(), ApiError> {
+    opener::reveal(path).map_err(|e| ApiError::new("open_error", e.to_string()))
+}
+
+/// A single file name: no directories, and none of the characters Windows
+/// refuses in one. Backslash is listed because Unix would accept it as a
+/// plain character.
+fn is_bare_file_name(name: &str) -> bool {
+    let mut components = Path::new(name).components();
+    matches!(
+        (components.next(), components.next()),
+        (Some(Component::Normal(_)), None)
+    ) && !name.contains(['\\', '<', '>', ':', '"', '|', '?', '*'])
+}
+
+/// Create `dir/file_name`, or the first free "name (n).ext", and fill it.
+/// Creation is exclusive, so a file that appears meanwhile is not clobbered.
+fn write_without_overwriting(
+    dir: &Path,
+    file_name: &str,
+    content: &str,
+) -> std::io::Result<PathBuf> {
+    let name = Path::new(file_name);
+    let stem = name.file_stem().unwrap_or_default().to_string_lossy();
+    let extension = name
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    for attempt in 1.. {
+        let candidate = if attempt == 1 {
+            dir.join(file_name)
+        } else {
+            dir.join(format!("{stem} ({attempt}){extension}"))
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(mut file) => {
+                file.write_all(content.as_bytes())?;
+                return Ok(candidate);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!("the attempt counter is unbounded")
 }
 
 #[cfg(test)]

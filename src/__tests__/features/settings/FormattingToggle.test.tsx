@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { invoke } from '@tauri-apps/api/core'
 import { toast } from 'sonner'
 import { FormattingToggle } from '../../../features/settings/FormattingToggle'
+
+import { renderWithQuery } from '../../utils'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
@@ -30,7 +32,7 @@ beforeEach(() => {
 })
 
 async function openForm() {
-  render(<FormattingToggle />)
+  renderWithQuery(<FormattingToggle />)
   await waitFor(() => expect(screen.getByText('good')).toBeInTheDocument())
   fireEvent.click(screen.getByRole('button', { name: /configure/i }))
   return await screen.findByRole('textbox', { name: /model/i })
@@ -75,7 +77,7 @@ describe('FormattingToggle save', () => {
       if (cmd === 'set_format_config') return Promise.reject({ code: 'io_error', message: 'settings.json is read-only' })
       return Promise.resolve(null)
     })
-    render(<FormattingToggle />)
+    renderWithQuery(<FormattingToggle />)
     await waitFor(() => expect(screen.getByText('good')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('switch', { name: /smart formatting/i }))
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('settings.json is read-only'))

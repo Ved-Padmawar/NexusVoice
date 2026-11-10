@@ -17,10 +17,12 @@ export const queryKeys = {
   activeModel: ['activeModel'] as const,
   downloads: ['downloads'] as const,
   languageOptions: ['languageOptions'] as const,
+  modelUnload: ['modelUnload'] as const,
   inputDevices: ['inputDevices'] as const,
   recording: ['recording'] as const,
   hotkeys: ['hotkeys'] as const,
   boundHotkeys: ['boundHotkeys'] as const,
   pillSettings: ['pillSettings'] as const,
+  formatConfig: ['formatConfig'] as const,
   cuda: ['cuda'] as const,
 }

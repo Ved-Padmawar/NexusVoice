@@ -41,7 +41,16 @@ impl From<sqlx::Error> for ApiError {
 
 impl From<std::io::Error> for ApiError {
     fn from(value: std::io::Error) -> Self {
-        Self::new("io_error", value.to_string())
+        log::warn!("file operation failed: {value}");
+        let message = match value.kind() {
+            std::io::ErrorKind::StorageFull => "Your disk is full.",
+            std::io::ErrorKind::PermissionDenied => {
+                "NexusVoice doesn't have permission to do that."
+            }
+            std::io::ErrorKind::ResourceBusy => "That file is in use. Try again in a moment.",
+            _ => "Couldn't read or write a file.",
+        };
+        Self::new("io_error", message)
     }
 }
 
@@ -82,18 +91,36 @@ impl From<RecordError> for ApiError {
 impl From<HotkeyError> for ApiError {
     fn from(value: HotkeyError) -> Self {
         match value {
-            HotkeyError::Conflict => Self::new("hotkey_conflict", "hotkeys must be different"),
+            HotkeyError::Conflict { hotkey, with } => Self::new(
+                "hotkey_conflict",
+                format!("{hotkey} is already used for {}.", with.label()),
+            ),
             HotkeyError::InUse => Self::new(
                 "hotkey_already_in_use",
-                "this hotkey is already in use by another application",
+                "Another application is already using that shortcut.",
             ),
             HotkeyError::PermissionDenied => Self::new(
                 "hotkey_permission_denied",
-                "OS denied hotkey registration - try a different combination",
+                "The system blocked that shortcut. Try a different combination.",
             ),
-            HotkeyError::Register(e) => Self::new("hotkey_register_failed", e),
-            HotkeyError::Unregister(e) => Self::new("hotkey_unregister_failed", e),
-            HotkeyError::Save(e) => Self::new("io_error", e),
+            HotkeyError::Register(e) => {
+                log::warn!("hotkey registration failed: {e}");
+                Self::new(
+                    "hotkey_register_failed",
+                    "That key combination isn't supported.",
+                )
+            }
+            HotkeyError::Unregister(e) => {
+                log::warn!("hotkey release failed: {e}");
+                Self::new(
+                    "hotkey_unregister_failed",
+                    "Couldn't release the current shortcuts. Try again.",
+                )
+            }
+            HotkeyError::Save(e) => {
+                log::warn!("saving hotkeys failed: {e}");
+                Self::new("io_error", "Couldn't save the shortcut.")
+            }
         }
     }
 }

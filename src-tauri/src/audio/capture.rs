@@ -4,12 +4,14 @@
 //! far longer — so opening one per recording clipped the first words. The device
 //! is opened once and kept open; a recording only *arms* it, which is a single
 //! atomic store, so capture begins on the very next callback.
+//! The supervisor grants the arm only once the requested device is open, so a
+//! stale "Default" stream can't feed the new recording.
 //!
 //! `cpal::Stream` is `!Send`, so it lives on a dedicated thread driven by a
 //! command channel.
 
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU8, Ordering},
     mpsc, Arc, Condvar, Mutex,
 };
 
@@ -124,6 +126,15 @@ fn collapse_devices(names: Vec<String>, default_name: Option<&str>) -> Vec<Input
     out
 }
 
+/// Name of the OS default input device right now.
+fn default_input_name() -> Option<String> {
+    use cpal::traits::HostTrait;
+    cpal::default_host()
+        .default_input_device()
+        .as_ref()
+        .and_then(device_name)
+}
+
 /// Resolve the device to capture from: the preferred one if still present,
 /// otherwise the OS default so recording never breaks when a mic is unplugged.
 fn resolve_input_device(
@@ -151,10 +162,14 @@ enum Command {
     Shutdown,
 }
 
+const DISARMED: u8 = 0;
+const ARM_REQUESTED: u8 = 1;
+const ARMED: u8 = 2;
+
 /// State the audio callback touches, shared with the supervisor thread.
 struct Shared {
-    /// Samples are appended only while this is set.
-    armed: AtomicBool,
+    /// Samples are appended only while [`ARMED`].
+    armed: AtomicU8,
     /// Set by `pause_dictation` — the callback drops samples but stays armed.
     paused: Arc<AtomicBool>,
     buffer: Arc<Mutex<Vec<f32>>>,
@@ -168,6 +183,12 @@ struct Shared {
     dead: AtomicBool,
     /// Skips the idle release.
     keep_open: AtomicBool,
+}
+
+impl Shared {
+    fn captures(&self) -> bool {
+        self.armed.load(Ordering::SeqCst) == ARMED && !self.paused.load(Ordering::SeqCst)
+    }
 }
 
 /// The persistent capture stream. The recorder holds one for the app's life.
@@ -185,7 +206,7 @@ impl MicStream {
     ) -> Self {
         Self {
             shared: Arc::new(Shared {
-                armed: AtomicBool::new(false),
+                armed: AtomicU8::new(DISARMED),
                 paused,
                 buffer,
                 waveform,
@@ -219,17 +240,18 @@ impl MicStream {
         }
     }
 
-    /// Begin capturing into the shared buffer. Wait on
+    /// Request capture; the next [`MicStream::warm_up`] grants it. Wait on
     /// [`MicStream::ready_signal`] for the first sample.
     pub fn arm(&self) {
         // Drop a stale error so it can't abort this recording.
         *lock_recovering(&self.shared.last_error) = None;
         *lock_recovering(&self.shared.ready.0) = false;
-        self.shared.armed.store(true, Ordering::SeqCst);
+        self.shared.armed.store(ARM_REQUESTED, Ordering::SeqCst);
     }
 
+    /// Counts a pending request: the recording owns the device.
     pub fn is_armed(&self) -> bool {
-        self.shared.armed.load(Ordering::SeqCst)
+        self.shared.armed.load(Ordering::SeqCst) != DISARMED
     }
 
     /// The stream died and is delivering nothing; cleared by the next open.
@@ -239,7 +261,7 @@ impl MicStream {
 
     /// Stop capturing immediately, with no post-roll.
     pub fn disarm(&self) {
-        self.shared.armed.store(false, Ordering::SeqCst);
+        self.shared.armed.store(DISARMED, Ordering::SeqCst);
     }
 
     /// Stop capturing after the post-roll, so trailing speech still lands.
@@ -279,28 +301,36 @@ impl MicStream {
 fn supervise(rx: &mpsc::Receiver<Command>, shared: &Arc<Shared>) {
     let mut stream = None;
     let mut open_device = None;
+    // The device the stream actually captures from, which for "Default" is
+    // whatever the OS default was when it opened.
+    let mut opened_name: Option<String> = None;
     let mut idle_since = std::time::Instant::now();
 
     loop {
         match rx.recv_timeout(TICK) {
             Ok(Command::Open(preferred)) => {
-                // Reopening the same device would throw away a warm stream.
+                // Reopening the same device would throw away a warm stream,
+                // unless "Default" now names a different OS device.
                 if stream.is_some()
                     && open_device == preferred
                     && !shared.dead.load(Ordering::SeqCst)
+                    && (preferred.is_some() || opened_name == default_input_name())
                 {
                     idle_since = std::time::Instant::now();
+                    grant_arm(shared);
                     continue;
                 }
                 // Dropped before the flag clears, so only the new stream can set it.
                 drop(stream.take());
                 shared.dead.store(false, Ordering::SeqCst);
                 match open_stream(shared, preferred.as_deref()) {
-                    Ok(s) => {
+                    Ok((s, name)) => {
                         stream = Some(s);
+                        opened_name = name;
                         open_device = preferred;
                         *lock_recovering(&shared.last_error) = None;
                         idle_since = std::time::Instant::now();
+                        grant_arm(shared);
                     }
                     Err(e) => {
                         log::error!("microphone open failed: {e}");
@@ -320,14 +350,14 @@ fn supervise(rx: &mpsc::Receiver<Command>, shared: &Arc<Shared>) {
                     log::warn!("releasing dead microphone stream");
                     drop(stream.take());
                     open_device = None;
-                } else if shared.armed.load(Ordering::SeqCst)
+                } else if shared.armed.load(Ordering::SeqCst) != DISARMED
                     || shared.keep_open.load(Ordering::SeqCst)
                 {
                     idle_since = std::time::Instant::now();
                 } else if stream.is_some()
                     && idle_since.elapsed() >= IDLE_TIMEOUT
                     // A recording that armed just now must not lose its device.
-                    && !shared.armed.load(Ordering::SeqCst)
+                    && shared.armed.load(Ordering::SeqCst) == DISARMED
                 {
                     log::debug!("releasing idle microphone stream");
                     drop(stream.take());
@@ -338,6 +368,13 @@ fn supervise(rx: &mpsc::Receiver<Command>, shared: &Arc<Shared>) {
     }
 }
 
+/// A disarm since the request wins.
+fn grant_arm(shared: &Shared) {
+    let _ = shared
+        .armed
+        .compare_exchange(ARM_REQUESTED, ARMED, Ordering::SeqCst, Ordering::SeqCst);
+}
+
 /// Unblock a start that is waiting on the first sample which will never come.
 fn release_ready(shared: &Arc<Shared>) {
     let (lock, cvar) = &*shared.ready;
@@ -345,7 +382,11 @@ fn release_ready(shared: &Arc<Shared>) {
     cvar.notify_all();
 }
 
-fn open_stream(shared: &Arc<Shared>, preferred: Option<&str>) -> Result<cpal::Stream, String> {
+/// Open the preferred device, returning the stream and the name of the device it captures from.
+fn open_stream(
+    shared: &Arc<Shared>,
+    preferred: Option<&str>,
+) -> Result<(cpal::Stream, Option<String>), String> {
     let host = cpal::default_host();
     let device = resolve_input_device(&host, preferred)?;
 
@@ -372,7 +413,7 @@ fn open_stream(shared: &Arc<Shared>, preferred: Option<&str>) -> Result<cpal::St
         .play()
         .map_err(|e| format!("failed to start stream: {e}"))?;
 
-    Ok(stream)
+    Ok((stream, device_name(&device)))
 }
 
 fn build_stream<T>(
@@ -393,7 +434,7 @@ where
                 let mut buf = lock_recovering(&cb.buffer);
                 // Checked under the buffer lock: a reader that sees `armed`
                 // off and then takes the lock has every sample this recording got.
-                if !cb.armed.load(Ordering::SeqCst) || cb.paused.load(Ordering::SeqCst) {
+                if !cb.captures() {
                     return;
                 }
                 // Downmix straight into the shared buffer, then hand the newly

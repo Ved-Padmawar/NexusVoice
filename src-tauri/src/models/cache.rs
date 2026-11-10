@@ -49,6 +49,15 @@ impl<E> Default for Slot<E> {
     }
 }
 
+/// What an unload request did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unload {
+    Released,
+    NothingLoaded,
+    /// A recording holds the engine; it is released when the recording ends.
+    Deferred,
+}
+
 /// Changes waiting for the recordings in progress to finish.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Deferred {
@@ -72,7 +81,7 @@ impl<E: Clone> Slot<E> {
     /// and returns the engine to repoint at the waiting language.
     fn release(&mut self) -> Option<E> {
         self.leases -= 1;
-        if self.unload_pending && self.unload() {
+        if self.unload_pending && self.unload() == Unload::Released {
             log::info!("unloaded the engine the finished recording was using");
         }
         if self.leases > 0 || !std::mem::take(&mut self.language_pending) {
@@ -91,7 +100,7 @@ impl<E> Slot<E> {
     }
 
     /// Unload, and void any load in flight: it may be building the old model.
-    fn supersede(&mut self) -> bool {
+    fn supersede(&mut self) -> Unload {
         self.generation += 1;
         self.unload()
     }
@@ -105,15 +114,18 @@ impl<E> Slot<E> {
         true
     }
 
-    fn unload(&mut self) -> bool {
+    fn unload(&mut self) -> Unload {
         if self.leases > 0 {
             self.unload_pending = true;
-            return false;
+            return Unload::Deferred;
         }
         self.unload_pending = false;
         // The next engine is built with the saved language.
         self.language_pending = false;
-        self.engine.take().is_some()
+        match self.engine.take() {
+            Some(_) => Unload::Released,
+            None => Unload::NothingLoaded,
+        }
     }
 }
 
@@ -309,7 +321,10 @@ impl EngineCache {
             TranscriptionEngine::new(&models_dir, model.as_deref(), hint.as_deref())
         })
         .await
-        .map_err(|e| format!("engine load task failed: {e}"))?
+        .map_err(|e| {
+            log::error!("engine load task failed: {e}");
+            "Loading the model failed. Please try again.".to_string()
+        })?
     }
 
     /// Load the selected model in the background. A missing model is not an
@@ -346,7 +361,7 @@ impl EngineCache {
 
     /// Unload now, or once the recordings holding the engine finish. A load in
     /// flight is superseded.
-    pub fn unload(&self) -> bool {
+    pub fn unload(&self) -> Unload {
         self.edit(Slot::supersede)
     }
 

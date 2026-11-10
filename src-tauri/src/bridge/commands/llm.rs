@@ -4,6 +4,7 @@ use tauri::State;
 
 use crate::settings::formatter::{FormatterUpdate, FormatterView};
 use crate::settings::Settings;
+use crate::text::llm::config::check_base_url;
 
 use super::error::ApiError;
 
@@ -19,6 +20,9 @@ pub fn set_format_config(
     settings: State<'_, Settings>,
     config: FormatterUpdate,
 ) -> Result<(), ApiError> {
+    config
+        .validate()
+        .map_err(|message| ApiError::new("invalid_input", message))?;
     settings
         .set_formatter(config)
         .map_err(|e| ApiError::new("settings_error", e))
@@ -34,8 +38,9 @@ pub async fn test_format_connection(
 ) -> Result<(), ApiError> {
     let config = settings.format_config_for(&config);
     let active = config.active();
-    if config.provider != "anthropic" && active.base_url.trim().is_empty() {
-        return Err(ApiError::new("invalid_input", "base URL is required"));
+    if config.provider != "anthropic" {
+        check_base_url(&active.base_url)
+            .map_err(|message| ApiError::new("invalid_input", message))?;
     }
     if active.model.trim().is_empty() {
         return Err(ApiError::new("invalid_input", "model name is required"));

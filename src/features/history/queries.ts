@@ -5,9 +5,12 @@ import {
   useQuery,
   useQueryClient,
   type InfiniteData,
+  type QueryClient,
 } from '@tanstack/react-query'
+import { useCallback } from 'react'
 import { toast } from 'sonner'
 import { commands, type PageQuery } from '../../shared/bindings'
+import { createPendingDeletes, deleteWithUndo } from '../../shared/deleteWithUndo'
 import { extractErrorMessage } from '../../shared/errors'
 import { queryClient } from '../../app/queryClient'
 import { queryKeys, type TranscriptFilters } from '../../shared/queryKeys'
@@ -44,18 +47,6 @@ const pageArg = (filters: TranscriptFilters, cursor: Cursor, limit = PAGE_SIZE):
 
 const EXPORT_PAGE_SIZE = 200
 
-/** Every transcript, newest first, a page at a time so no call holds the whole table. */
-export async function fetchAllTranscripts(): Promise<Transcript[]> {
-  const all: Transcript[] = []
-  let cursor = NO_CURSOR
-  for (;;) {
-    const rows = await commands.getTranscripts(pageArg(NO_FILTERS, cursor, EXPORT_PAGE_SIZE))
-    all.push(...rows)
-    const last = rows.at(-1)
-    if (!last || rows.length < EXPORT_PAGE_SIZE) return all
-    cursor = { cursorCreatedAt: last.createdAt, cursorId: last.id }
-  }
-}
 
 const fetchFeed = (filters: TranscriptFilters, cursor: Cursor) =>
   commands.getTranscripts(pageArg(filters, cursor)).then(toPage)
@@ -84,12 +75,46 @@ const statsOptions = {
 /** Closing the main window only hides it; don't refetch for a page nobody sees. */
 const refetchType = () => (document.hidden ? 'none' : 'active')
 
+const pendingDeletes = createPendingDeletes()
+
+/** Every transcript the feed shows for this search and filters, a page at a
+ *  time so no call holds the whole table. A row hidden for Undo at
+ *  any point stays out, even once its delete commits. */
+export async function fetchAllTranscripts(query: string, filters: TranscriptFilters): Promise<Transcript[]> {
+  const all: Transcript[] = []
+  const hidden = new Set<number>()
+  const noteHidden = () => pendingDeletes.current().forEach(id => hidden.add(id))
+  let cursor = NO_CURSOR
+  for (;;) {
+    noteHidden()
+    const page = pageArg(filters, cursor, EXPORT_PAGE_SIZE)
+    const rows = await (query ? commands.searchTranscripts(query, page) : commands.getTranscripts(page))
+    all.push(...rows)
+    const last = rows.at(-1)
+    if (!last || rows.length < EXPORT_PAGE_SIZE) {
+      noteHidden()
+      return hidden.size ? all.filter(row => !hidden.has(row.id)) : all
+    }
+    cursor = { cursorCreatedAt: last.createdAt, cursorId: last.id }
+  }
+}
+
+const withoutRows = (data: TranscriptPages, ids: ReadonlySet<number>): TranscriptPages =>
+  ({ ...data, pages: data.pages.map(page => ({ ...page, rows: page.rows.filter(row => !ids.has(row.id)) })) })
+
+function useHidePendingDeletes() {
+  const ids = pendingDeletes.useIds()
+  return useCallback((data: TranscriptPages) => (ids.size ? withoutRows(data, ids) : data), [ids])
+}
+
 // A new filter or term keeps the old rows up instead of flashing the skeleton.
 export function useTranscripts(filters: TranscriptFilters, enabled = true) {
-  return useInfiniteQuery({ ...feedOptions(filters), enabled, placeholderData: keepPreviousData })
+  const select = useHidePendingDeletes()
+  return useInfiniteQuery({ ...feedOptions(filters), enabled, placeholderData: keepPreviousData, select })
 }
 
 export function useTranscriptSearch(query: string, filters: TranscriptFilters) {
+  const select = useHidePendingDeletes()
   return useInfiniteQuery({
     queryKey: queryKeys.transcriptSearch(query, filters),
     queryFn: ({ pageParam }) => fetchSearch(query, filters, pageParam),
@@ -97,6 +122,7 @@ export function useTranscriptSearch(query: string, filters: TranscriptFilters) {
     getNextPageParam,
     enabled: query.length > 0,
     placeholderData: keepPreviousData,
+    select,
     // Same contract as the feed: `addTranscript` may skip the refetch while hidden.
     ...EVENT_DRIVEN,
   })
@@ -127,23 +153,33 @@ export function useDailyWords(days: number) {
   })
 }
 
+/** Drops a deleted row from every cached feed and search in place rather than
+ *  refetch every page. A fetch in flight would restore it, so cancel and re-run those. */
+async function dropRow(client: QueryClient, id: number) {
+  const root = { queryKey: queryKeys.transcriptsRoot }
+  const inFlight = client.getQueryCache().findAll({ ...root, fetchStatus: 'fetching' })
+  await client.cancelQueries(root)
+  client.setQueriesData<TranscriptPages>(root, (data) => data && withoutRows(data, new Set([id])))
+  inFlight.forEach(query => void client.invalidateQueries({ queryKey: query.queryKey, exact: true }))
+}
+
+/** Deletes a dictation behind an Undo toast. */
 export function useDeleteTranscript() {
   const client = useQueryClient()
-  return useMutation({
+  const { mutateAsync } = useMutation({
     mutationFn: (id: number) => commands.deleteTranscript(id),
-    // Drop the row in place rather than refetch every page. A fetch in flight
-    // would restore it, so cancel and re-run those.
-    onSuccess: async (_, id) => {
-      const root = { queryKey: queryKeys.transcriptsRoot }
-      const inFlight = client.getQueryCache().findAll({ ...root, fetchStatus: 'fetching' })
-      await client.cancelQueries(root)
-      client.setQueriesData<TranscriptPages>(root, (data) =>
-        data && { ...data, pages: data.pages.map(page => ({ ...page, rows: page.rows.filter(row => row.id !== id) })) })
-      inFlight.forEach(query => void client.invalidateQueries({ queryKey: query.queryKey, exact: true }))
+    onSuccess: (_, id) => {
       void client.invalidateQueries({ queryKey: queryKeys.stats })
+      return dropRow(client, id)
     },
     onError: (e) => toast.error(extractErrorMessage(e, 'Failed to delete transcript')),
   })
+  return useCallback((id: number) => deleteWithUndo({
+    message: 'Dictation deleted',
+    id,
+    pending: pendingDeletes,
+    commit: () => mutateAsync(id),
+  }), [mutateAsync])
 }
 
 export const prefetchTranscripts = () =>

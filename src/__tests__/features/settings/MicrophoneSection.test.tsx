@@ -34,6 +34,7 @@ beforeEach(() => {
     switch (cmd) {
       case 'list_input_devices': return Promise.resolve(devices())
       case 'get_recording_state': return Promise.resolve({ revision: 1, status: 'dictation', deferred })
+      case 'get_keep_mic_open': return Promise.resolve(false)
       case 'set_input_device': {
         const name = (args as { name: string | null }).name
         if (!holdSaves) {

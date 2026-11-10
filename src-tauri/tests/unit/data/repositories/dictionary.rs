@@ -1,4 +1,4 @@
-//! `DictionaryRepository` — the upsert and the hand-built batch hit counter.
+//! `DictionaryRepository` — the in-place update and the hand-built batch hit counter.
 //! `increment_hits_batch` interpolates its own `VALUES` placeholders, so a
 //! regression there is a silent SQL bug, not a type error.
 
@@ -36,35 +36,26 @@ async fn hits(repo: &DictionaryRepository, term: &str) -> i64 {
 }
 
 #[tokio::test]
-async fn upsert_replaces_the_replacement_and_keeps_one_row() {
+async fn update_renames_in_place_keeping_the_id_and_hit_count() {
+    // A rename must not reset how often the entry has fired, or give it a new id.
     let repo = DictionaryRepository::new(pool().await);
-    let first = repo.upsert(new_entry("teh", "the")).await.expect("insert");
-    let second = repo
-        .upsert(new_entry("teh", "THE"))
-        .await
-        .expect("conflict update");
-
-    assert_eq!(first.id, second.id, "upsert must not create a second row");
-    assert_eq!(second.replacement, "THE");
-    assert_eq!(repo.list_all().await.expect("list").len(), 1);
-}
-
-#[tokio::test]
-async fn upsert_preserves_the_existing_hit_count() {
-    // Editing a term's replacement must not reset how often it has fired.
-    let repo = DictionaryRepository::new(pool().await);
-    repo.upsert(new_entry("nexus", "Nexus"))
+    let created = repo
+        .create(new_entry("nexus", "Nexus"))
         .await
         .expect("insert");
     repo.increment_hits_batch(&["nexus".to_string()])
         .await
         .expect("bump");
 
-    repo.upsert(new_entry("nexus", "NexusVoice"))
+    let updated = repo
+        .update(created.id, new_entry("nexus voice", "NexusVoice"))
         .await
         .expect("update");
 
-    assert_eq!(hits(&repo, "nexus").await, 1);
+    assert_eq!(updated.id, created.id);
+    assert_eq!(updated.hits, 1);
+    assert_eq!(updated.term, "nexus voice");
+    assert_eq!(repo.list_all().await.expect("list").len(), 1);
 }
 
 #[tokio::test]
@@ -72,8 +63,8 @@ async fn increment_hits_batch_counts_repeats_within_one_transcript() {
     // One dictation can match the same term several times; each occurrence
     // counts, but the term is updated with a single row.
     let repo = DictionaryRepository::new(pool().await);
-    repo.upsert(new_entry("api", "API")).await.expect("insert");
-    repo.upsert(new_entry("json", "JSON"))
+    repo.create(new_entry("api", "API")).await.expect("insert");
+    repo.create(new_entry("json", "JSON"))
         .await
         .expect("insert");
 
@@ -92,7 +83,7 @@ async fn increment_hits_batch_counts_repeats_within_one_transcript() {
 #[tokio::test]
 async fn increment_hits_batch_accumulates_across_calls() {
     let repo = DictionaryRepository::new(pool().await);
-    repo.upsert(new_entry("api", "API")).await.expect("insert");
+    repo.create(new_entry("api", "API")).await.expect("insert");
 
     repo.increment_hits_batch(&["api".to_string()])
         .await
@@ -107,8 +98,8 @@ async fn increment_hits_batch_accumulates_across_calls() {
 #[tokio::test]
 async fn increment_hits_batch_leaves_unmatched_terms_alone() {
     let repo = DictionaryRepository::new(pool().await);
-    repo.upsert(new_entry("api", "API")).await.expect("insert");
-    repo.upsert(new_entry("untouched", "Untouched"))
+    repo.create(new_entry("api", "API")).await.expect("insert");
+    repo.create(new_entry("untouched", "Untouched"))
         .await
         .expect("insert");
 
@@ -125,7 +116,7 @@ async fn increment_hits_batch_tolerates_a_term_not_in_the_dictionary() {
     // The corrector's matched list and the table can drift if an entry is
     // deleted mid-dictation; an unknown term must not fail the whole batch.
     let repo = DictionaryRepository::new(pool().await);
-    repo.upsert(new_entry("api", "API")).await.expect("insert");
+    repo.create(new_entry("api", "API")).await.expect("insert");
 
     repo.increment_hits_batch(&["api".to_string(), "deleted".to_string()])
         .await
@@ -137,7 +128,7 @@ async fn increment_hits_batch_tolerates_a_term_not_in_the_dictionary() {
 #[tokio::test]
 async fn increment_hits_batch_is_a_noop_for_an_empty_list() {
     let repo = DictionaryRepository::new(pool().await);
-    repo.upsert(new_entry("api", "API")).await.expect("insert");
+    repo.create(new_entry("api", "API")).await.expect("insert");
 
     repo.increment_hits_batch(&[]).await.expect("empty batch");
 
@@ -147,7 +138,7 @@ async fn increment_hits_batch_is_a_noop_for_an_empty_list() {
 #[tokio::test]
 async fn delete_reports_whether_anything_was_removed() {
     let repo = DictionaryRepository::new(pool().await);
-    let entry = repo.upsert(new_entry("teh", "the")).await.expect("insert");
+    let entry = repo.create(new_entry("teh", "the")).await.expect("insert");
 
     assert!(repo.delete_by_id(entry.id).await.expect("delete"));
     assert!(
