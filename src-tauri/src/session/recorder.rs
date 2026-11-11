@@ -397,7 +397,7 @@ impl Recorder {
         .unwrap_or(false);
         if !available {
             return Err(RecordError::Unavailable(
-                "No model installed — download one in Settings".to_string(),
+                "No model installed - download one in Settings".to_string(),
             ));
         }
         self.claim_start(mode)?;

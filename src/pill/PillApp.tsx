@@ -201,7 +201,7 @@ export function PillApp() {
   }), [])
 
   useEventListener('transcriptionComplete', ({ pasteError, saved }) => {
-    if (pasteError) showTooltip(saved ? "Couldn't paste — it's saved in your history" : "Couldn't paste or save this dictation")
+    if (pasteError) showTooltip(saved ? "Couldn't paste - it's saved in your history" : "Couldn't paste or save this dictation")
   })
   useEventListener('transcriptionError', message => showError(captureErrorLabel(message)))
   useEventListener('transcriptionWarning', showTooltip)

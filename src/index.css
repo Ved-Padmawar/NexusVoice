@@ -338,10 +338,6 @@
 @keyframes glass-turn { 0%, 38% { rotate: 0deg; } 50%, 88% { rotate: 180deg; } 100% { rotate: 360deg; } }
 .queue-glass { animation: glass-turn 5s ease-in-out infinite; }
 
-/* Hotkey recorder: the record dot blinks while it listens. */
-@keyframes blink { 50% { opacity: 0.3; } }
-.hk-listen { animation: blink 1s steps(2) infinite; }
-
 /* ===================================================================
    Waveform preview (Settings → Appearance)
    The pill's own stylesheet sizes html/body to 104px, so it can't be

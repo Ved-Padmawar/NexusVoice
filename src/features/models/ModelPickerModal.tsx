@@ -120,7 +120,7 @@ export function ModelPickerModal() {
             </div>
             <div>
               <h2 className="text-[15px] font-bold tracking-tight text-fg">Choose your AI model</h2>
-              <p className="text-[11px] text-muted mt-px">Select once — you can change this later in Settings.</p>
+              <p className="text-[11px] text-muted mt-px">Select once - you can change this later in Settings.</p>
             </div>
           </div>
 
@@ -219,7 +219,7 @@ export function ModelPickerModal() {
             <div className="flex flex-col gap-2 transition-opacity starting:opacity-0">
               <div className="flex items-center justify-between text-[11px] mb-1">
                 <span className="text-fg-2">
-                  {download ? 'Downloading model…' : 'Download complete — loading…'}
+                  {download ? 'Downloading model…' : 'Download complete - loading…'}
                 </span>
                 <span className="text-accent-ink font-semibold tabular-nums">
                   {download?.progress ?? 100}%

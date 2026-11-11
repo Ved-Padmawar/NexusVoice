@@ -202,7 +202,7 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
         {pressedKeys.length > 0 ? (
           <KeyBadges keys={pressedKeys} />
         ) : isListening ? (
-          <span className="hk-listen flex items-center gap-1.5 text-xs font-semibold text-accent-ink">
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-accent-ink">
             <RecordIcon size={14} weight="fill" />Press the keys
           </span>
         ) : currentHotkey ? (

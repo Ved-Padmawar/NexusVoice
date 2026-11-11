@@ -33,14 +33,14 @@ type DeleteWithUndo = {
   commit: () => Promise<unknown>
 }
 
-/** The undo of each delete still inside its window, newest last. */
+/** Deletes still inside their undo window, newest last. */
 const undoable: (() => void)[] = []
 let listening = false
 
 const isTextField = (target: EventTarget | null) =>
   target instanceof HTMLElement && (target.isContentEditable || target.matches('input, textarea, select'))
 
-/** Ctrl+Z undoes the newest delete, unless a text field is focused: its own undo comes first. */
+/** Ctrl+Z undoes the newest delete; a focused text field keeps its own undo. */
 function onUndoKey(e: KeyboardEvent) {
   if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'z') return
   if (isTextField(e.target)) return

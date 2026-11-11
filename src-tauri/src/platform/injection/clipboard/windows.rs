@@ -71,8 +71,8 @@ const PRIVACY_FORMATS: [(PCWSTR, u32); 3] = [
 const OPEN_ATTEMPTS: u32 = 5;
 const OPEN_RETRY: Duration = Duration::from_millis(10);
 
-const ADMIN_WINDOW: &str = "Can't paste into an admin window. Copied — press Ctrl+V.";
-const NOT_PASTED: &str = "Couldn't paste here. Copied — press Ctrl+V.";
+const ADMIN_WINDOW: &str = "Can't paste into an admin window. Copied - press Ctrl+V.";
+const NOT_PASTED: &str = "Couldn't paste here. Copied - press Ctrl+V.";
 
 /// Held for a paste's whole life. A newer paste waits for the previous one to
 /// settle, so it snapshots the user's clipboard rather than a transcript, and

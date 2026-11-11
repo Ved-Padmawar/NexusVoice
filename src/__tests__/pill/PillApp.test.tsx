@@ -186,7 +186,7 @@ it('ignores a delayed snapshot after newer backend events and survives a rendere
 })
 
 it.each([
-  [true, "Couldn't paste — it's saved in your history"],
+  [true, "Couldn't paste - it's saved in your history"],
   [false, "Couldn't paste or save this dictation"],
 ])('points to history after a failed paste only when saved is %s', async (saved, message) => {
   const view = render(<PillApp />)

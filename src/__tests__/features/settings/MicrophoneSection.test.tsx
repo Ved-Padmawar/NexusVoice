@@ -59,7 +59,7 @@ async function pick(name: string) {
 
 async function loaded() {
   renderWithQuery(<MicrophoneSection />)
-  await waitFor(() => expect(trigger()).toHaveTextContent(/Default — Realtek Microphone/))
+  await waitFor(() => expect(trigger()).toHaveTextContent(/Default - Realtek Microphone/))
 }
 
 describe('MicrophoneSection', () => {

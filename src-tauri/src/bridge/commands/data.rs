@@ -154,7 +154,7 @@ struct CreatedAtRange {
     end: Option<String>,
 }
 
-/// The UI picks dates from a calendar, so a bad one is never the user's typing.
+/// Dates come from the calendar, never typed, so this is our fault, not the user's.
 fn bad_date_filter() -> ApiError {
     ApiError::new(
         "invalid_input",

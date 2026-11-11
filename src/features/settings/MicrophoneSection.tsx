@@ -50,7 +50,7 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
   // list only the non-default devices by name (deduped) to avoid a duplicate row.
   const seen = new Set<string>()
   const options = [
-    { value: DEFAULT_VALUE, label: defaultLabel ? `Default — ${defaultLabel}` : 'Default', dividerAfter: true },
+    { value: DEFAULT_VALUE, label: defaultLabel ? `Default - ${defaultLabel}` : 'Default', dividerAfter: true },
     ...devices
       .filter(d => !d.isDefault && !d.name.startsWith('Default') && (seen.has(d.name) ? false : seen.add(d.name)))
       .map(d => ({ value: d.name, label: d.name })),

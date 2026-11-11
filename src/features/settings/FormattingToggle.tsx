@@ -336,7 +336,7 @@ function ProviderForm({
             value={apiKey}
             onChange={(e) => { setApiKey(e.target.value); setTestResult('idle') }}
             placeholder={keySaved && !removeKey
-              ? 'Saved in your system keychain — type to replace'
+              ? 'Saved in your system keychain - type to replace'
               : preset.needsKey ? 'sk-…' : 'Leave blank for local servers'}
             className="font-mono placeholder:font-sans"
           />
