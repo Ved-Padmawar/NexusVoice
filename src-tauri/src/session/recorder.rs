@@ -343,7 +343,7 @@ impl Recorder {
             Action::Resume => self.resume(),
             Action::Commit => self.commit(app).await,
             Action::Cancel => {
-                self.cancel().await;
+                self.cancel(&app.state::<EngineCache>()).await;
                 Ok(())
             }
         }
@@ -561,7 +561,7 @@ impl Recorder {
     }
 
     /// Discard the recording without transcribing it.
-    async fn cancel(&self) {
+    async fn cancel(&self, engine: &EngineCache) {
         {
             let mut phase = lock_recovering(&self.phase);
             if !matches!(*phase, Phase::Recording(_) | Phase::Paused) {
@@ -573,7 +573,7 @@ impl Recorder {
         self.chime.cancel();
         self.capture.mic.disarm();
         // The next recording clears the buffer this worker still reads.
-        self.wait_for_stream_done().await;
+        self.wait_for_stream_done(engine).await;
         lock_recovering(&self.capture.session).take();
         self.reset();
     }
@@ -633,7 +633,7 @@ impl Recorder {
         tauri::async_runtime::spawn_blocking(move || mic.disarm_after_post_roll())
             .await
             .ok();
-        self.wait_for_stream_done().await;
+        self.wait_for_stream_done(&app.state::<EngineCache>()).await;
 
         // Session first, audio buffer second: the lock order the workers use.
         // Taking the session waits out any in-flight stream decode.
@@ -706,8 +706,10 @@ impl Recorder {
     }
 
     /// The streaming-native worker writes its transcript only after capture
-    /// stops, so reading it straight away would lose the tail.
-    async fn wait_for_stream_done(&self) {
+    /// stops, so reading it straight away would lose the tail. A worker that
+    /// never finishes is stuck holding the engine, so it is discarded and
+    /// finalize loads a fresh one.
+    async fn wait_for_stream_done(&self, engine: &EngineCache) {
         let done = Arc::clone(&self.capture.stream_done);
         let timed_out = tauri::async_runtime::spawn_blocking(move || {
             let (lock, cvar) = &*done;
@@ -719,9 +721,10 @@ impl Recorder {
         .await
         .unwrap_or(true);
         if timed_out {
-            log::warn!("stream-done signal missed; finalizing without the streamed tail");
+            log::error!("stream worker stalled; discarding the engine");
             // Before finish takes the buffer, so the worker stops instead of reading it.
             self.capture.generation.retire();
+            engine.discard();
         }
     }
 }
@@ -786,7 +789,7 @@ mod tests {
             recorder.claim_finish(Mode::Dictation),
             Err(RecordError::Finalizing)
         ));
-        tauri::async_runtime::block_on(recorder.cancel());
+        tauri::async_runtime::block_on(recorder.cancel(&engine()));
         assert_eq!(recorder.status(), RecordingStatus::Processing);
         recorder.reset();
         assert_eq!(recorder.status(), RecordingStatus::Idle);
@@ -806,7 +809,7 @@ mod tests {
         assert!(reloaded.revision > before_reload.revision);
         recorder.reset();
         recorder.claim_start(Mode::PushToTalk).unwrap();
-        tauri::async_runtime::block_on(recorder.cancel());
+        tauri::async_runtime::block_on(recorder.cancel(&engine()));
         assert_eq!(recorder.status(), RecordingStatus::Idle);
     }
 
@@ -858,7 +861,7 @@ mod tests {
         let recorder = Recorder::new();
         recorder.claim_start(Mode::PushToTalk).unwrap();
         let started = Instant::now();
-        tauri::async_runtime::block_on(recorder.cancel());
+        tauri::async_runtime::block_on(recorder.cancel(&engine()));
         assert!(started.elapsed() < Duration::from_secs(1));
         assert_eq!(recorder.status(), RecordingStatus::Idle);
     }
@@ -875,7 +878,7 @@ mod tests {
             done.1.notify_all();
         });
         let started = Instant::now();
-        tauri::async_runtime::block_on(recorder.cancel());
+        tauri::async_runtime::block_on(recorder.cancel(&engine()));
         assert!(started.elapsed() >= Duration::from_millis(150));
         assert_eq!(recorder.status(), RecordingStatus::Idle);
         worker.join().unwrap();

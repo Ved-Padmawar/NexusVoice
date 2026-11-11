@@ -86,7 +86,7 @@ struct SettingsFile {
     model_unload: ModelUnload,
     /// ISO code or `auto`; `None` when never chosen.
     language: Option<String>,
-    /// Input device name; `None` follows the OS default.
+    /// Input device id (`host:device`); `None` follows the OS default.
     input_device: Option<String>,
     keep_mic_open: bool,
     formatter: FormatterSettings,
@@ -176,8 +176,19 @@ impl Settings {
         self.read(|f| f.input_device.clone())
     }
 
-    pub fn set_input_device(&self, name: Option<String>) -> std::io::Result<()> {
-        self.update(|f| f.input_device = name).map(drop)
+    pub fn set_input_device(&self, id: Option<String>) -> std::io::Result<()> {
+        self.update(|f| f.input_device = id).map(drop)
+    }
+
+    /// Swap an older version's saved device name for its id, unless the user
+    /// picked another device meanwhile.
+    pub fn replace_input_device(&self, name: &str, id: String) -> std::io::Result<()> {
+        self.update(|f| {
+            if f.input_device.as_deref() == Some(name) {
+                f.input_device = Some(id);
+            }
+        })
+        .map(drop)
     }
 
     pub fn keep_mic_open(&self) -> bool {

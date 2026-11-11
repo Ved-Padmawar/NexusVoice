@@ -16,10 +16,10 @@ async listInputDevices() : Promise<InputDeviceInfo[]> {
     return await TAURI_INVOKE("list_input_devices");
 },
 /**
- * Choose an input device by name; `None` follows the OS default.
+ * Choose an input device by id; `None` follows the OS default.
  */
-async setInputDevice(name: string | null) : Promise<null> {
-    return await TAURI_INVOKE("set_input_device", { name });
+async setInputDevice(id: string | null) : Promise<null> {
+    return await TAURI_INVOKE("set_input_device", { id });
 },
 async getKeepMicOpen() : Promise<boolean> {
     return await TAURI_INVOKE("get_keep_mic_open");
@@ -406,7 +406,11 @@ export type InjectionTool = { name: string; available: boolean; preferred: boole
  * A selectable microphone. `is_default` marks the OS default; `is_selected`
  * marks the saved preference.
  */
-export type InputDeviceInfo = { name: string; isDefault: boolean; isSelected: boolean }
+export type InputDeviceInfo = { 
+/**
+ * What to save: identical mics share a name.
+ */
+id: string; name: string; isDefault: boolean; isSelected: boolean }
 export type LanguageOption = { 
 /**
  * ISO code, or `auto` for the detect-per-decode sentinel.

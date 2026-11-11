@@ -43,6 +43,8 @@ pub async fn commit_dictation(
 #[derive(Debug, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct InputDeviceInfo {
+    /// What to save: identical mics share a name.
+    pub id: String,
     pub name: String,
     pub is_default: bool,
     pub is_selected: bool,
@@ -61,24 +63,25 @@ pub async fn list_input_devices(app: AppHandle) -> Vec<InputDeviceInfo> {
     devices
         .into_iter()
         .map(|d| InputDeviceInfo {
-            is_selected: selected.as_deref() == Some(d.name.as_str()),
+            is_selected: selected.as_deref() == Some(d.id.as_str()),
             is_default: d.is_default,
+            id: d.id,
             name: d.name,
         })
         .collect()
 }
 
-/// Choose an input device by name; `None` follows the OS default.
+/// Choose an input device by id; `None` follows the OS default.
 #[tauri::command]
 #[specta::specta]
 pub fn set_input_device(
     app: AppHandle,
     settings: State<'_, Settings>,
     recorder: State<'_, Recorder>,
-    name: Option<String>,
+    id: Option<String>,
 ) -> Result<(), ApiError> {
-    let name = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
-    settings.set_input_device(name)?;
+    let id = id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    settings.set_input_device(id)?;
     recorder.change_mic(&app);
     Ok(())
 }

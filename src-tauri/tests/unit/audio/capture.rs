@@ -12,38 +12,43 @@ fn mic() -> MicStream {
     )
 }
 
-fn names(list: &[InputDevice]) -> Vec<&str> {
-    list.iter().map(|d| d.name.as_str()).collect()
+fn entry(id: &str, name: &str) -> (String, String) {
+    (id.to_string(), name.to_string())
+}
+
+fn ids(list: &[InputDevice]) -> Vec<&str> {
+    list.iter().map(|d| d.id.as_str()).collect()
 }
 
 #[test]
-fn dedupes_names_and_marks_default() {
-    // ALSA-style duplicate aliases collapse; the OS default is flagged once.
-    let raw = vec![
-        "Microphone (USB Audio Device)".to_string(),
-        "Microphone (USB Audio Device)".to_string(),
-        "Headset Microphone".to_string(),
-    ];
-    let out = collapse_devices(raw, Some("Headset Microphone"));
+fn a_shared_name_merges_only_where_it_means_one_mic() {
+    // Two identical USB mics share a name; only the id tells them apart.
+    let twins = vec![entry("wasapi:a", "USB Mic"), entry("wasapi:b", "USB Mic")];
+    let out = collapse_devices(twins, Some(entry("wasapi:b", "USB Mic")), false);
+    assert_eq!(ids(&out), ["wasapi:a", "wasapi:b"]);
+    assert!(!out[0].is_default && out[1].is_default);
 
-    assert_eq!(
-        names(&out),
-        ["Microphone (USB Audio Device)", "Headset Microphone"]
-    );
-    assert!(!out[0].is_default);
-    assert!(out[1].is_default, "the OS default must be marked");
+    // ALSA lists one mic under several PCM ids; the default may be any alias.
+    let aliases = vec![
+        entry("alsa:hw:1,0", "USB Mic"),
+        entry("alsa:plughw:1,0", "USB Mic"),
+        entry("alsa:hw:0,0", "Built-in"),
+    ];
+    let out = collapse_devices(aliases, Some(entry("alsa:plughw:1,0", "USB Mic")), true);
+    assert_eq!(ids(&out), ["alsa:hw:1,0", "alsa:hw:0,0"]);
+    assert!(out[0].is_default && !out[1].is_default);
 }
 
 #[test]
 fn fails_open_to_default_when_empty() {
     // Enumeration returned nothing, but a default exists — surface it so the
     // picker is never empty and recording still works.
-    let out = collapse_devices(Vec::new(), Some("Default Input"));
-    assert_eq!(names(&out), ["Default Input"]);
+    let out = collapse_devices(Vec::new(), Some(entry("wasapi:d", "Default Input")), false);
+    assert_eq!(ids(&out), ["wasapi:d"]);
     assert!(out[0].is_default);
 
     // No devices and no default: an empty list is correct.
-    assert!(collapse_devices(Vec::new(), None).is_empty());
+    assert!(collapse_devices(Vec::new(), None, false).is_empty());
 }
 
 // ── Sample conversion ──────────────────────────────────────────────────

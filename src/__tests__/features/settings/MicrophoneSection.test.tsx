@@ -17,10 +17,14 @@ let replies: Array<{ resolve: () => void; reject: (e: unknown) => void }>
 let holdSaves: boolean
 let deferred: string[]
 
+const device = (id: string, name: string, isDefault = false) => ({ id, name, isDefault, isSelected: saved === id })
+
 const devices = () => [
-  { name: 'Realtek Microphone', isDefault: true, isSelected: false },
-  { name: 'Blue Yeti', isDefault: false, isSelected: saved === 'Blue Yeti' },
-  { name: 'USB Headset', isDefault: false, isSelected: saved === 'USB Headset' },
+  device('realtek', 'Realtek Microphone', true),
+  device('yeti', 'Blue Yeti'),
+  device('headset', 'USB Headset'),
+  device('usb-a', 'USB Mic'),
+  device('usb-b', 'USB Mic'),
 ]
 
 beforeEach(() => {
@@ -36,13 +40,13 @@ beforeEach(() => {
       case 'get_recording_state': return Promise.resolve({ revision: 1, status: 'dictation', deferred })
       case 'get_keep_mic_open': return Promise.resolve(false)
       case 'set_input_device': {
-        const name = (args as { name: string | null }).name
+        const id = (args as { id: string | null }).id
         if (!holdSaves) {
-          saved = name
+          saved = id
           return Promise.resolve(null)
         }
         return new Promise((resolve, reject) => {
-          replies.push({ resolve: () => { saved = name; resolve(null) }, reject })
+          replies.push({ resolve: () => { saved = id; resolve(null) }, reject })
         })
       }
       default: return Promise.resolve(null)
@@ -64,16 +68,16 @@ async function loaded() {
 
 describe('MicrophoneSection', () => {
   it('preselects a saved non-default device', async () => {
-    saved = 'Blue Yeti'
+    saved = 'yeti'
     renderWithQuery(<MicrophoneSection />)
     await waitFor(() => expect(trigger()).toHaveTextContent('Blue Yeti'))
   })
 
-  it('persists the chosen device via set_input_device', async () => {
+  it('saves the picked one of two identical mics by its id', async () => {
     await loaded()
-    await pick('Blue Yeti')
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_input_device', { name: 'Blue Yeti' }))
-    expect(trigger()).toHaveTextContent('Blue Yeti')
+    await pick('USB Mic (2)')
+    await waitFor(() => expect(saved).toBe('usb-b'))
+    expect(trigger()).toHaveTextContent('USB Mic (2)')
   })
 
   it('a late failure of an older pick never undoes a newer one that saved', async () => {
@@ -89,7 +93,7 @@ describe('MicrophoneSection', () => {
     await act(async () => { replies[0].reject({ code: 'io', message: 'disk full' }) })
 
     await waitFor(() => expect(trigger()).toHaveTextContent('USB Headset'))
-    expect(saved).toBe('USB Headset')
+    expect(saved).toBe('headset')
     expect(toast.error).not.toHaveBeenCalled()
   })
 

@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
-use super::capture::device_name;
+use super::capture::{device_id, device_name};
 use crate::platform::audio_output::playback_is_bluetooth;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, I24, U24};
@@ -137,7 +137,7 @@ impl Output {
             && cpal::default_host()
                 .default_output_device()
                 .as_ref()
-                .and_then(device_name)
+                .and_then(device_id)
                 .as_deref()
                 == Some(self.device.as_str())
     }
@@ -185,19 +185,19 @@ fn supervise(rx: &mpsc::Receiver<Command>, wanted: &AtomicBool, keep_open: &Atom
 fn default_output() -> Result<cpal::Device, String> {
     let host = cpal::default_host();
     let default = host.default_output_device().ok_or("no output device")?;
-    let Some(name) = device_name(&default) else {
+    let Some(id) = device_id(&default) else {
         return Ok(default);
     };
     let listed = host
         .output_devices()
         .ok()
-        .and_then(|mut devices| devices.find(|d| device_name(d).as_deref() == Some(name.as_str())));
+        .and_then(|mut devices| devices.find(|d| device_id(d).as_deref() == Some(id.as_str())));
     Ok(listed.unwrap_or(default))
 }
 
 fn open() -> Result<Output, String> {
     let device = default_output()?;
-    let name = device_name(&device).unwrap_or_default();
+    let id = device_id(&device).unwrap_or_default();
     let config = device
         .default_output_config()
         .map_err(|e| format!("failed to get output config: {e}"))?;
@@ -225,6 +225,7 @@ fn open() -> Result<Output, String> {
         .map_err(|e| format!("failed to start stream: {e}"))?;
     let opened = Instant::now();
     let bluetooth = playback_is_bluetooth();
+    let name = device_name(&device).unwrap_or_default();
     log::info!("start sound output open on {name} (bluetooth: {bluetooth:?})");
     let wake = if bluetooth == Some(false) {
         Duration::ZERO
@@ -233,7 +234,7 @@ fn open() -> Result<Output, String> {
     };
     Ok(Output {
         _stream: stream,
-        device: name,
+        device: id,
         awake_at: opened + wake,
         control,
     })

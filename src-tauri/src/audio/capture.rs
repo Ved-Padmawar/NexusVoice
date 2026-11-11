@@ -56,9 +56,10 @@ impl ToF32 for u16 {
     }
 }
 
-/// A selectable input device: its name and whether it's the OS default.
+/// A selectable input device. Identical mics share a `name`, never an `id`.
 #[derive(Debug, Clone)]
 pub struct InputDevice {
+    pub id: String,
     pub name: String,
     pub is_default: bool,
 }
@@ -78,47 +79,78 @@ pub(super) fn device_name(device: &cpal::Device) -> Option<String> {
     device.description().ok().map(|d| d.name().to_string())
 }
 
+/// Stable endpoint id as `host:device`, e.g. `wasapi:{0.0.1…}`.
+pub(super) fn device_id(device: &cpal::Device) -> Option<String> {
+    device.id().ok().map(|id| id.to_string())
+}
+
+fn describe(device: &cpal::Device) -> Option<(String, String)> {
+    Some((device_id(device)?, device_name(device)?))
+}
+
 /// Enumerate usable input devices, validated by capability rather than name.
-/// The OS default is kept and marked; duplicate names (ALSA aliases) collapse.
+/// The OS default is kept and marked.
 pub fn list_input_devices() -> Vec<InputDevice> {
     use cpal::traits::HostTrait;
 
     let host = cpal::default_host();
-    let default_name = host.default_input_device().as_ref().and_then(device_name);
+    let default = host.default_input_device().as_ref().and_then(describe);
+    let default_id = default.as_ref().map(|(id, _)| id.as_str());
 
-    let mut names = Vec::new();
+    let mut listed = Vec::new();
     if let Ok(devices) = host.input_devices() {
         for device in devices {
-            let Some(name) = device_name(&device) else {
+            let Some(entry) = describe(&device) else {
                 continue;
             };
-            let is_default = default_name.as_deref() == Some(name.as_str());
             // Keep the default unconditionally so the user's mic is never missing.
-            if is_default || is_capture_capable(&device) {
-                names.push(name);
+            if default_id == Some(entry.0.as_str()) || is_capture_capable(&device) {
+                listed.push(entry);
             }
         }
     }
 
-    collapse_devices(names, default_name.as_deref())
+    // ALSA lists one mic under several PCM ids (`hw:`, `plughw:`); elsewhere a
+    // shared name means separate mics.
+    collapse_devices(listed, default, cfg!(target_os = "linux"))
 }
 
-/// Build the deduped device list from raw names: collapse duplicate names (ALSA
-/// `hw:`/`plughw:` aliases), mark the OS default, and fail open to the default
-/// alone when nothing enumerated so the picker is never empty.
-fn collapse_devices(names: Vec<String>, default_name: Option<&str>) -> Vec<InputDevice> {
+/// Build the device list from `(id, name)` pairs: drop repeats (by name when
+/// `merge_same_name`, else by id), mark the OS default, and fail open to the
+/// default alone when nothing enumerated so the picker is never empty.
+fn collapse_devices(
+    listed: Vec<(String, String)>,
+    default: Option<(String, String)>,
+    merge_same_name: bool,
+) -> Vec<InputDevice> {
+    let default_id = default.as_ref().map(|(id, _)| id.clone());
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for name in names {
-        let is_default = default_name == Some(name.as_str());
-        if seen.insert(name.clone()) {
-            out.push(InputDevice { name, is_default });
+    for (id, name) in listed {
+        let is_default = default_id.as_deref() == Some(id.as_str());
+        let key = if merge_same_name {
+            name.clone()
+        } else {
+            id.clone()
+        };
+        if seen.insert(key) {
+            out.push(InputDevice {
+                id,
+                name,
+                is_default,
+            });
+        } else if is_default {
+            // The default may be a merged alias.
+            if let Some(kept) = out.iter_mut().find(|d| d.name == name) {
+                kept.is_default = true;
+            }
         }
     }
     if out.is_empty() {
-        if let Some(name) = default_name {
+        if let Some((id, name)) = default {
             out.push(InputDevice {
-                name: name.to_string(),
+                id,
+                name,
                 is_default: true,
             });
         }
@@ -126,13 +158,13 @@ fn collapse_devices(names: Vec<String>, default_name: Option<&str>) -> Vec<Input
     out
 }
 
-/// Name of the OS default input device right now.
-fn default_input_name() -> Option<String> {
+/// Id of the OS default input device right now.
+fn default_input_id() -> Option<String> {
     use cpal::traits::HostTrait;
     cpal::default_host()
         .default_input_device()
         .as_ref()
-        .and_then(device_name)
+        .and_then(device_id)
 }
 
 /// Resolve the device to capture from: the preferred one if still present,
@@ -143,17 +175,30 @@ fn resolve_input_device(
 ) -> Result<cpal::Device, String> {
     use cpal::traits::HostTrait;
     if let Some(want) = preferred {
-        if let Ok(devices) = host.input_devices() {
-            for device in devices {
-                if device_name(&device).as_deref() == Some(want) {
-                    return Ok(device);
-                }
+        if let Ok(mut devices) = host.input_devices() {
+            if let Some(device) = devices.find(|d| device_id(d).as_deref() == Some(want)) {
+                return Ok(device);
             }
         }
         log::warn!("preferred input device '{want}' unavailable — using default");
     }
     host.default_input_device()
         .ok_or_else(|| "no input device available".to_string())
+}
+
+/// The id of the mic an older version saved by name; `None` when `saved` is
+/// already an id or no connected mic has that name.
+pub fn id_for_saved_name(saved: &str) -> Option<String> {
+    use cpal::traits::HostTrait;
+    if saved.parse::<cpal::DeviceId>().is_ok() {
+        return None;
+    }
+    cpal::default_host()
+        .input_devices()
+        .ok()?
+        .find(|d| device_name(d).as_deref() == Some(saved))
+        .as_ref()
+        .and_then(device_id)
 }
 
 enum Command {
@@ -303,7 +348,7 @@ fn supervise(rx: &mpsc::Receiver<Command>, shared: &Arc<Shared>) {
     let mut open_device = None;
     // The device the stream actually captures from, which for "Default" is
     // whatever the OS default was when it opened.
-    let mut opened_name: Option<String> = None;
+    let mut opened_id: Option<String> = None;
     let mut idle_since = std::time::Instant::now();
 
     loop {
@@ -314,7 +359,7 @@ fn supervise(rx: &mpsc::Receiver<Command>, shared: &Arc<Shared>) {
                 if stream.is_some()
                     && open_device == preferred
                     && !shared.dead.load(Ordering::SeqCst)
-                    && (preferred.is_some() || opened_name == default_input_name())
+                    && (preferred.is_some() || opened_id == default_input_id())
                 {
                     idle_since = std::time::Instant::now();
                     grant_arm(shared);
@@ -324,9 +369,9 @@ fn supervise(rx: &mpsc::Receiver<Command>, shared: &Arc<Shared>) {
                 drop(stream.take());
                 shared.dead.store(false, Ordering::SeqCst);
                 match open_stream(shared, preferred.as_deref()) {
-                    Ok((s, name)) => {
+                    Ok((s, id)) => {
                         stream = Some(s);
-                        opened_name = name;
+                        opened_id = id;
                         open_device = preferred;
                         *lock_recovering(&shared.last_error) = None;
                         idle_since = std::time::Instant::now();
@@ -382,7 +427,7 @@ fn release_ready(shared: &Arc<Shared>) {
     cvar.notify_all();
 }
 
-/// Open the preferred device, returning the stream and the name of the device it captures from.
+/// Open the preferred device, returning the stream and the id of the device it captures from.
 fn open_stream(
     shared: &Arc<Shared>,
     preferred: Option<&str>,
@@ -413,7 +458,7 @@ fn open_stream(
         .play()
         .map_err(|e| format!("failed to start stream: {e}"))?;
 
-    Ok((stream, device_name(&device)))
+    Ok((stream, device_id(&device)))
 }
 
 fn build_stream<T>(
