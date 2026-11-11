@@ -50,7 +50,12 @@ fn a_load_superseded_by_a_model_switch_is_never_installed() {
 #[test]
 fn a_warmup_after_a_mid_recording_switch_waits_for_the_recording_to_let_go() {
     let cache = Arc::new(EngineCache::new(std::env::temp_dir()));
-    let lease = cache.lease(None);
+    let dir = tempfile::tempdir().unwrap();
+    let settings = Settings::load(
+        dir.path(),
+        crate::settings::Secrets::new("nexusvoice-tests"),
+    );
+    let lease = cache.lease(&settings);
     // A switch mid-recording: the unload is deferred, the old engine stays.
     lock_recovering(&cache.slot).unload_pending = true;
 

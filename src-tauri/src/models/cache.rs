@@ -194,9 +194,14 @@ impl EngineCache {
         }
     }
 
-    /// Hold the engine for a recording in the saved `language`.
-    pub fn lease(&self, language: Option<String>) -> EngineLease {
-        self.edit(|slot| slot.lease(language.clone()));
+    /// Hold the engine for a recording in the saved language.
+    pub fn lease(&self, settings: &Settings) -> EngineLease {
+        // Under the slot lock, like `apply_language`, so a save can't land in between.
+        let language = self.edit(|slot| {
+            let language = settings.language();
+            slot.lease(language.clone());
+            language
+        });
         EngineLease {
             slot: Arc::clone(&self.slot),
             released: Arc::clone(&self.released),
