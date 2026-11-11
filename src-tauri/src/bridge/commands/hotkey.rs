@@ -57,7 +57,10 @@ pub async fn resume_hotkeys(
 fn normalize_hotkey(hotkey: String) -> Result<String, ApiError> {
     let hotkey = hotkey.trim().to_string();
     if hotkey.is_empty() {
-        return Err(ApiError::new("hotkey_invalid", "hotkey cannot be empty"));
+        return Err(ApiError::new(
+            "hotkey_invalid",
+            "A shortcut cannot be empty.",
+        ));
     }
 
     let modifiers = ["Ctrl", "Alt", "Shift", "Super", "Win"];
@@ -67,7 +70,7 @@ fn normalize_hotkey(hotkey: String) -> Result<String, ApiError> {
     if !has_modifier || !has_key {
         return Err(ApiError::new(
             "hotkey_invalid",
-            "hotkey must include at least one modifier (Ctrl/Alt/Shift) and one key",
+            "A shortcut needs at least one modifier (Ctrl, Alt or Shift) and one key.",
         ));
     }
     Ok(hotkey)

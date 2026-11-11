@@ -5,7 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { invoke } from '@tauri-apps/api/core'
 import { queryClient } from '../../../app/queryClient'
 import {
-  cancelDownload, refreshActiveModel, startDownload, useActiveModel, useDownload,
+  refreshActiveModel, startDownload, useActiveModel, useDownload,
 } from '../../../features/models/queries'
 import type { CatalogModel } from '../../../features/models/models'
 import { queryKeys } from '../../../shared/queryKeys'
@@ -30,7 +30,14 @@ describe('model downloads', () => {
     mockInvoke.mockResolvedValue(undefined)
     await startDownload('whisper-tiny')
     expect(downloads()?.['whisper-tiny']).toEqual({ status: 'queued', progress: 0 })
-    expect(mockInvoke).toHaveBeenCalledWith('start_model_download', { id: 'whisper-tiny' })
+    expect(mockInvoke).toHaveBeenCalledWith('start_model_download', { id: 'whisper-tiny', activate: false })
+  })
+
+  it('asks Rust to switch to a model only once its download lands', async () => {
+    mockInvoke.mockResolvedValue(undefined)
+    await startDownload('whisper-tiny', { activate: true })
+    expect(mockInvoke).toHaveBeenCalledWith('start_model_download', { id: 'whisper-tiny', activate: true })
+    expect(mockInvoke).not.toHaveBeenCalledWith('set_model_override', expect.anything())
   })
 
   it('drops the entry when the backend refuses the download', async () => {
@@ -57,12 +64,6 @@ describe('model downloads', () => {
     expect(downloads()).toHaveProperty('a')
   })
 
-  it('cancels by id', async () => {
-    mockInvoke.mockResolvedValue(true)
-    await cancelDownload('whisper-tiny')
-    expect(mockInvoke).toHaveBeenCalledWith('cancel_model_download', { id: 'whisper-tiny' })
-  })
-
   it('never switches the active model as a side effect of downloading', async () => {
     // Download and switch are separate actions — a download that fails or is
     // cancelled must not leave the override pointing at a missing file.
@@ -78,11 +79,11 @@ describe('reads racing events', () => {
     let finishFirst!: (info: unknown) => void
     mockInvoke
       .mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve }))
-      .mockResolvedValueOnce({ modelName: 'Parakeet V3', downloaded: true, downloading: false })
+      .mockResolvedValueOnce({ modelName: 'Parakeet V3', downloaded: true })
 
     const first = refreshActiveModel()
     await refreshActiveModel()
-    finishFirst({ modelName: 'Whisper Tiny', downloaded: true, downloading: false })
+    finishFirst({ modelName: 'Whisper Tiny', downloaded: true })
     await first
 
     expect(queryClient.getQueryData<{ modelName: string }>(queryKeys.activeModel)?.modelName).toBe('Parakeet V3')
@@ -157,14 +158,14 @@ describe('active model', () => {
       reads += 1
       return reads === 1
         ? new Promise(resolve => { finishOldRead = resolve })
-        : Promise.resolve({ modelName: 'Parakeet V3', downloaded: true, downloading: false })
+        : Promise.resolve({ modelName: 'Parakeet V3', downloaded: true })
     })
     // The first read is in flight when the switch lands.
     renderHook(() => useActiveModel(), { wrapper })
     await waitFor(() => expect(reads).toBe(1))
 
     const fresh = await refreshActiveModel()
-    finishOldRead({ modelName: 'Whisper Tiny', downloaded: true, downloading: false })
+    finishOldRead({ modelName: 'Whisper Tiny', downloaded: true })
 
     expect(fresh.modelName).toBe('Parakeet V3')
     await waitFor(() =>
@@ -177,7 +178,7 @@ describe('active model', () => {
       { id: 'parakeet-v3', displayName: 'Parakeet V3' },
     ] as CatalogModel[]
     queryClient.setQueryData(queryKeys.catalog, catalog)
-    queryClient.setQueryData(queryKeys.activeModel, { modelName: 'Parakeet V3', downloaded: false, downloading: true })
+    queryClient.setQueryData(queryKeys.activeModel, { modelName: 'Parakeet V3', downloaded: false })
 
     const { result } = renderHook(() => useActiveModel(), { wrapper })
 

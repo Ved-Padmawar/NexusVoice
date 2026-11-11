@@ -1,7 +1,7 @@
 //! Optional CUDA backend: status, download and removal of the CUDA pack.
 
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::models::cuda::{self, CudaPack};
 
@@ -21,19 +21,28 @@ pub struct CudaStatus {
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_cuda_status(pack: State<'_, CudaPack>) -> CudaStatus {
-    CudaStatus {
-        supported: cuda::supported(),
-        pack: pack.state(),
-        download_progress: pack.progress(),
-        verifying: pack.verifying(),
-    }
+pub async fn get_cuda_status(app: AppHandle) -> CudaStatus {
+    // Probes the GPU driver and verifies the manifest: off the main thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        let pack = app.state::<CudaPack>();
+        CudaStatus {
+            supported: cuda::supported(),
+            pack: pack.state(),
+            download_progress: pack.progress(),
+            verifying: pack.verifying(),
+        }
+    })
+    .await
+    .expect("CUDA status probe panicked")
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn start_cuda_download(app: AppHandle) -> Result<(), ApiError> {
-    if !cuda::supported() {
+pub async fn start_cuda_download(app: AppHandle) -> Result<(), ApiError> {
+    let supported = tauri::async_runtime::spawn_blocking(cuda::supported)
+        .await
+        .expect("CUDA support probe panicked");
+    if !supported {
         return Err(ApiError::new("unsupported", "CUDA needs an NVIDIA GPU"));
     }
     CudaPack::start_download(&app);

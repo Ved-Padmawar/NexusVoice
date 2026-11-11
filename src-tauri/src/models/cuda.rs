@@ -17,7 +17,7 @@ use crate::bridge::events::{
     CudaDownloadCancelled, CudaDownloadComplete, CudaDownloadError, CudaDownloadProgress,
     CudaDownloadVerifying,
 };
-use crate::models::downloader::{download_file, CANCELLED};
+use crate::models::downloader::{describe_io, describe_request_error, download_file, CANCELLED};
 use crate::sync::lock_recovering;
 
 const PACK_DIR: &str = "cuda";
@@ -25,6 +25,9 @@ const STAGING_DIR: &str = "cuda.next";
 /// Written last, so its presence marks a complete pack.
 const MANIFEST: &str = "manifest.json";
 const SIGNATURE: &str = "manifest.json.sig";
+/// Size and modified time of each file as of its last full hash check. A start
+/// trusts files that still match it instead of re-hashing ~1 GB.
+const STAMPS: &str = "verified.json";
 const MAX_MANIFEST_BYTES: u64 = 16 * 1024;
 const MAX_LIBRARY_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 /// Asks the next start to delete a pack that is loaded and so locked now.
@@ -190,6 +193,9 @@ pub enum PackState {
     Unverified,
     /// Usable by this build; loaded unless the driver is missing or too old.
     Installed,
+    /// Signed and current, but a library failed its integrity check at start, so
+    /// it was not loaded. Downloading again repairs it.
+    Damaged,
     /// Downloaded; applied at the next start.
     PendingInstall,
     /// Removed while loaded; deleted at the next start.
@@ -212,8 +218,9 @@ pub fn pack_state(app_data_dir: &Path) -> PackState {
 }
 
 /// Apply a staged download or removal, then register CUDA. Must run before the
-/// bundled backends: ggml prefers whichever registers first.
-pub fn activate(app_data_dir: &Path) {
+/// bundled backends: ggml prefers whichever registers first. Returns whether
+/// the installed pack failed its integrity check and was left unloaded.
+pub fn activate(app_data_dir: &Path) -> bool {
     let dir = app_data_dir.join(PACK_DIR);
     let staging = app_data_dir.join(STAGING_DIR);
 
@@ -222,7 +229,7 @@ pub fn activate(app_data_dir: &Path) {
     }
     if safe_directory(&dir).is_ok()
         && read_manifest(&staging)
-            .is_some_and(|m| matches_engine(&m) && files_verified(&staging, &m))
+            .is_some_and(|m| matches_engine(&m) && verify_installed(&staging, &m))
     {
         let _ = std::fs::remove_dir_all(&dir);
         if let Err(e) = std::fs::rename(&staging, &dir) {
@@ -231,19 +238,19 @@ pub fn activate(app_data_dir: &Path) {
     }
 
     let Some(manifest) = read_manifest(&dir) else {
-        return;
+        return false;
     };
-    if !files_verified(&dir, &manifest) {
-        log::warn!("CUDA pack: library integrity verification failed; download it again");
-        return;
-    }
     if !matches_engine(&manifest) {
         log::warn!(
             "CUDA pack built for engine {}, this build runs {}; download it again",
             manifest.engine,
             transcribe_cpp::version()
         );
-        return;
+        return false;
+    }
+    if !verify_installed(&dir, &manifest) {
+        log::warn!("CUDA pack: library integrity verification failed; download it again");
+        return true;
     }
 
     // Preloaded so the module's by-name imports resolve to them.
@@ -251,7 +258,7 @@ pub fn activate(app_data_dir: &Path) {
     for file in runtime {
         if let Err(e) = preload(&dir.join(&file.name)) {
             log::warn!("CUDA pack: could not load {}: {e}", file.name);
-            return;
+            return false;
         }
     }
     match transcribe_cpp::init_backends(&dir) {
@@ -259,6 +266,7 @@ pub fn activate(app_data_dir: &Path) {
         // No driver, or one too old: the module is skipped and Vulkan serves.
         Err(e) => log::info!("CUDA pack: no CUDA device ({e})"),
     }
+    false
 }
 
 /// Delete the pack, or mark it for deletion at the next start when loaded.
@@ -277,15 +285,18 @@ pub fn remove(app_data_dir: &Path) -> std::io::Result<()> {
 /// The pack in the app data dir, and the one download of it allowed at a time.
 pub struct CudaPack {
     app_data_dir: PathBuf,
+    /// The installed pack failed its integrity check at start (see `activate`).
+    damaged: bool,
     cancel: Mutex<Option<CancellationToken>>,
     progress: AtomicU8,
     verifying: AtomicBool,
 }
 
 impl CudaPack {
-    pub fn new(app_data_dir: PathBuf) -> Self {
+    pub fn new(app_data_dir: PathBuf, damaged: bool) -> Self {
         Self {
             app_data_dir,
+            damaged,
             cancel: Mutex::new(None),
             progress: AtomicU8::new(0),
             verifying: AtomicBool::new(false),
@@ -297,7 +308,10 @@ impl CudaPack {
     }
 
     pub fn state(&self) -> PackState {
-        pack_state(&self.app_data_dir)
+        match pack_state(&self.app_data_dir) {
+            PackState::Installed if self.damaged => PackState::Damaged,
+            state => state,
+        }
     }
 
     /// Cancel any download, then delete the pack; one in use goes at the next
@@ -387,9 +401,10 @@ impl CudaPack {
         let staging = app_data_dir.join(STAGING_DIR);
         safe_directory(&dir)?;
         safe_directory(&staging)?;
-        std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&staging).map_err(|e| describe_io(&e))?;
         // Invalidate the completion marker before changing any staged files.
         let _ = std::fs::remove_file(staging.join(MANIFEST));
+        let _ = std::fs::remove_file(staging.join(STAMPS));
         let current = read_manifest(&dir).filter(|_| !dir.join(REMOVE_MARKER).exists());
 
         // Download everything, then unpack and check the pack in one step.
@@ -406,7 +421,7 @@ impl CudaPack {
 
             // Unchanged files (often the large runtime) are copied, not refetched.
             if unchanged && verified(&confined_file(&dir, &file.name)?, &file.sha256) {
-                std::fs::copy(dir.join(&file.name), &dest).map_err(|e| e.to_string())?;
+                std::fs::copy(dir.join(&file.name), &dest).map_err(|e| describe_io(&e))?;
             } else if !verified(&dest, &file.sha256) {
                 let gz = confined_file(&staging, &format!("{}.gz", file.name))?;
                 confined_file(&staging, &format!("{}.part", file.name))?;
@@ -435,11 +450,10 @@ impl CudaPack {
                 }
                 unpack(&gz, &dest, &sha256, size)?;
             }
-            if files_verified(&staged, &expected) {
-                Ok(())
-            } else {
-                Err("CUDA pack integrity check failed".to_string())
+            if !files_verified(&staged, &expected, &[]) {
+                return Err("CUDA pack integrity check failed".to_string());
             }
+            stamp_pack(&staged, &expected).map_err(|e| describe_io(&e))
         })
         .await
         .map_err(|e| e.to_string())??;
@@ -447,8 +461,8 @@ impl CudaPack {
             return Err(CANCELLED.to_string());
         }
         std::fs::write(confined_file(&staging, SIGNATURE)?, signature)
-            .map_err(|e| e.to_string())?;
-        std::fs::write(confined_file(&staging, MANIFEST)?, json).map_err(|e| e.to_string())
+            .map_err(|e| describe_io(&e))?;
+        std::fs::write(confined_file(&staging, MANIFEST)?, json).map_err(|e| describe_io(&e))
     }
 
     fn report(&self, app: &AppHandle, pct: u64) {
@@ -474,17 +488,16 @@ async fn fetch_small(url: &str) -> Result<Vec<u8>, String> {
     let response = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
-        .map_err(|e| e.to_string())?
+        .map_err(|e| describe_request_error(&e))?
         .get(url)
         .send()
         .await
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?;
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| describe_request_error(&e))?;
     let mut bytes = Vec::new();
     let mut chunks = response.bytes_stream();
     while let Some(chunk) = chunks.next().await {
-        let chunk = chunk.map_err(|e| e.to_string())?;
+        let chunk = chunk.map_err(|e| describe_request_error(&e))?;
         if bytes.len() + chunk.len() > usize::try_from(MAX_MANIFEST_BYTES).unwrap_or(16_384) {
             return Err("CUDA manifest/signature exceeds size limit".to_string());
         }
@@ -629,7 +642,80 @@ fn read_manifest(dir: &Path) -> Option<Manifest> {
     authenticated_manifest(&read(MANIFEST)?, &read(SIGNATURE)?).ok()
 }
 
-fn files_verified(dir: &Path, manifest: &Manifest) -> bool {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct FileStamp {
+    name: String,
+    size: u64,
+    modified_nanos: u128,
+}
+
+/// The stamp of every manifest file as it is now; `None` if one is unreadable.
+fn current_stamps(dir: &Path, manifest: &Manifest) -> Option<Vec<FileStamp>> {
+    manifest
+        .files
+        .iter()
+        .map(|file| {
+            let metadata = confined_file(dir, &file.name).ok()?.metadata().ok()?;
+            let modified = metadata
+                .modified()
+                .ok()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?;
+            Some(FileStamp {
+                name: file.name.clone(),
+                size: metadata.len(),
+                modified_nanos: modified.as_nanos(),
+            })
+        })
+        .collect()
+}
+
+fn read_stamps(dir: &Path) -> Vec<FileStamp> {
+    confined_file(dir, STAMPS)
+        .ok()
+        .and_then(|path| std::fs::read(path).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+fn write_stamps(dir: &Path, stamps: &[FileStamp]) -> std::io::Result<()> {
+    let path = confined_file(dir, STAMPS).map_err(std::io::Error::other)?;
+    std::fs::write(path, serde_json::to_vec(stamps)?)
+}
+
+/// Record the current state of a pack that just passed a full check.
+fn stamp_pack(dir: &Path, manifest: &Manifest) -> std::io::Result<()> {
+    let stamps = current_stamps(dir, manifest)
+        .ok_or_else(|| std::io::Error::other("CUDA pack file unreadable"))?;
+    write_stamps(dir, &stamps)
+}
+
+/// Check a pack on disk, hashing only the files that changed since their last
+/// full check, and refresh the stamps when it passes.
+fn verify_installed(dir: &Path, manifest: &Manifest) -> bool {
+    let Some(now) = current_stamps(dir, manifest) else {
+        return false;
+    };
+    let known = read_stamps(dir);
+    let trusted: Vec<FileStamp> = now
+        .iter()
+        .filter(|stamp| known.contains(stamp))
+        .cloned()
+        .collect();
+    if !files_verified(dir, manifest, &trusted) {
+        return false;
+    }
+    if known != now {
+        if let Err(e) = write_stamps(dir, &now) {
+            log::warn!("CUDA pack: could not save its verification stamps: {e}");
+        }
+    }
+    true
+}
+
+/// Whether the pack holds exactly the manifest's files, each the right size and
+/// hash. Files matching a `trusted` stamp skip the hash.
+fn files_verified(dir: &Path, manifest: &Manifest, trusted: &[FileStamp]) -> bool {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return false;
     };
@@ -639,7 +725,7 @@ fn files_verified(dir: &Path, manifest: &Manifest) -> bool {
             let Some(name) = name.to_str() else {
                 return false;
             };
-            matches!(name, MANIFEST | SIGNATURE | REMOVE_MARKER)
+            matches!(name, MANIFEST | SIGNATURE | STAMPS | REMOVE_MARKER)
                 || manifest.files.iter().any(|file| file.name == name)
         })
     }) {
@@ -648,7 +734,8 @@ fn files_verified(dir: &Path, manifest: &Manifest) -> bool {
     manifest.files.iter().all(|file| {
         confined_file(dir, &file.name).is_ok_and(|path| {
             path.metadata().is_ok_and(|m| m.len() == file.unpacked_size)
-                && verified(&path, &file.sha256)
+                && (trusted.iter().any(|stamp| stamp.name == file.name)
+                    || verified(&path, &file.sha256))
         })
     })
 }
@@ -676,14 +763,16 @@ fn unpack(gz: &Path, dest: &Path, sha256: &str, size: u64) -> Result<(), String>
     let _ = std::fs::remove_file(gz);
 
     match result {
-        Ok(hash) if hash == sha256 => std::fs::rename(&tmp, dest).map_err(|e| e.to_string()),
+        Ok(hash) if hash == sha256 => std::fs::rename(&tmp, dest).map_err(|e| describe_io(&e)),
         Ok(_) => {
             let _ = std::fs::remove_file(&tmp);
-            Err(format!("checksum mismatch for {}", dest.display()))
+            log::warn!("checksum mismatch for {}", dest.display());
+            Err("A downloaded CUDA file was damaged. Try again.".to_string())
         }
         Err(e) => {
             let _ = std::fs::remove_file(&tmp);
-            Err(format!("unpack {} failed: {e}", gz.display()))
+            log::warn!("unpacking {} failed: {e}", gz.display());
+            Err(describe_io(&e))
         }
     }
 }

@@ -3,31 +3,46 @@ import { MicrophoneIcon, ArrowsClockwiseIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
+import { readFresh } from '../../app/queryClient'
+import { useLiveChoice } from '../../app/useLiveChoice'
 import { Select } from '../../shared/ui/Select'
 import { KeepMicOpenToggle } from './KeepMicOpenToggle'
+import { InputHint } from './InputHint'
+import { inputDevices, useInputDevices } from './queries'
 import type { InputDevice } from '../../shared/types'
 
 /** Sentinel for the "Default" option — maps to no saved preference. */
 const DEFAULT_VALUE = '__default__'
 
-export const MicrophoneSection = memo(function MicrophoneSection() {
-  const [devices, setDevices] = useState<InputDevice[]>([])
-  const [selected, setSelected] = useState<string>(DEFAULT_VALUE)
-  const [initialLoading, setInitialLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
+const NO_DEVICES: InputDevice[] = []
 
-  const fetchDevices = useCallback(async () => {
-    const devices = await commands.listInputDevices()
-    setDevices(devices)
-    const active = devices.find(d => d.isSelected && !d.isDefault)
-    setSelected(active ? active.name : DEFAULT_VALUE)
-  }, [])
+const listFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Could not list microphones'))
+const saveDevice = (value: string) => commands.setInputDevice(value === DEFAULT_VALUE ? null : value)
+const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Could not set microphone'))
+
+/** Numbers identical mics so each can be told apart. */
+function labelled(devices: InputDevice[]) {
+  const shared = new Set(devices.filter((d, i) => devices.findIndex(o => o.name === d.name) !== i).map(d => d.name))
+  const count = new Map<string, number>()
+  return devices.map(d => {
+    const n = (count.get(d.name) ?? 0) + 1
+    count.set(d.name, n)
+    return { ...d, label: shared.has(d.name) ? `${d.name} (${n})` : d.name }
+  })
+}
+
+export const MicrophoneSection = memo(function MicrophoneSection() {
+  const devicesQuery = useInputDevices()
+  const devices = devicesQuery.data ?? NO_DEVICES
+  const [refreshing, setRefreshing] = useState(false)
+  const { pending, choose } = useLiveChoice(inputDevices, saveDevice, saveFailed)
+
+  const saved = devices.find(d => d.isSelected && !d.isDefault)?.id ?? DEFAULT_VALUE
+  const selected = pending ? pending.value : saved
 
   useEffect(() => {
-    fetchDevices()
-      .catch(e => toast.error(extractErrorMessage(e, 'Could not list microphones')))
-      .finally(() => setInitialLoading(false))
-  }, [fetchDevices])
+    if (devicesQuery.error) listFailed(devicesQuery.error)
+  }, [devicesQuery.error])
 
   // Refresh keeps the controls interactive; only the icon spins. A minimum
   // duration guarantees the spin is visible even when the device list is cached.
@@ -35,33 +50,21 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
     if (refreshing) return
     setRefreshing(true)
     Promise.all([
-      fetchDevices().catch(e => toast.error(extractErrorMessage(e, 'Could not list microphones'))),
+      readFresh(inputDevices).catch(listFailed),
       new Promise(r => setTimeout(r, 500)),
     ]).finally(() => setRefreshing(false))
-  }, [refreshing, fetchDevices])
+  }, [refreshing])
 
-  const choose = useCallback(async (value: string) => {
-    if (value === selected) return
-    const previous = selected
-    setSelected(value)
-    try {
-      await commands.setInputDevice(value === DEFAULT_VALUE ? null : value)
-    } catch (e) {
-      setSelected(previous)
-      toast.error(extractErrorMessage(e, 'Could not set microphone'))
-    }
-  }, [selected])
+  const listed = labelled(devices)
+  const defaultLabel = listed.find(d => d.isDefault)?.label
 
-  const defaultLabel = devices.find(d => d.isDefault)?.name
-
-  // The default device is represented by the "Default — <name>" sentinel, so
-  // list only the non-default devices by name (deduped) to avoid a duplicate row.
-  const seen = new Set<string>()
+  // The default device is represented by the "Default - <name>" sentinel, so
+  // it gets no row of its own.
   const options = [
-    { value: DEFAULT_VALUE, label: defaultLabel ? `Default — ${defaultLabel}` : 'Default', dividerAfter: true },
-    ...devices
-      .filter(d => !d.isDefault && !d.name.startsWith('Default') && (seen.has(d.name) ? false : seen.add(d.name)))
-      .map(d => ({ value: d.name, label: d.name })),
+    { value: DEFAULT_VALUE, label: defaultLabel ? `Default - ${defaultLabel}` : 'Default', dividerAfter: true },
+    ...listed
+      .filter(d => !d.isDefault && !d.name.startsWith('Default'))
+      .map(d => ({ value: d.id, label: d.label })),
   ]
 
   return (
@@ -69,7 +72,7 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-fg">Microphone</p>
-          <p className="text-xs text-muted">The device that records your voice.</p>
+          <InputHint input="microphone">The device that records your voice.</InputHint>
         </div>
         <KeepMicOpenToggle />
       </div>
@@ -79,16 +82,16 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
           <Select
             value={selected}
             options={options}
-            onChange={(v) => void choose(v)}
+            onChange={(v) => { if (v !== selected) void choose(v) }}
             aria-label="Microphone"
             icon={<MicrophoneIcon size={14} weight="bold" />}
-            disabled={initialLoading}
+            disabled={devicesQuery.isPending}
           />
         </div>
         <button
           type="button"
           onClick={refresh}
-          disabled={initialLoading}
+          disabled={devicesQuery.isPending}
           aria-label="Refresh the device list"
           data-tip="Refresh the device list"
           data-tip-pos="bottom"

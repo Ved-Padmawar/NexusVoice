@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { TimerIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
+import { useLiveChoice } from '../../app/useLiveChoice'
 import { Select } from '../../shared/ui/Select'
+import { modelUnloadOptions, useModelUnload } from '../models/queries'
 import type { ModelUnload } from '../../shared/types'
 
 const OPTIONS: { value: ModelUnload; label: string }[] = [
@@ -15,27 +17,20 @@ const OPTIONS: { value: ModelUnload; label: string }[] = [
   { value: 'after1Hour', label: '1 hour' },
 ]
 
+const saveUnload = (policy: ModelUnload) => commands.setModelUnload(policy)
+const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Could not save the unload setting'))
+
 /** When an idle model is unloaded to free memory. */
 export function ModelUnloadSection() {
-  // `null` until the saved value arrives; the select waits for it, so a late
-  // read can never overwrite a click.
-  const [policy, setPolicy] = useState<ModelUnload | null>(null)
+  const { data, error } = useModelUnload()
+  const { pending, choose } = useLiveChoice(modelUnloadOptions, saveUnload, saveFailed)
 
   useEffect(() => {
-    commands.getModelUnload().then(setPolicy).catch(() => setPolicy('never'))
-  }, [])
+    if (error) toast.error(extractErrorMessage(error, 'Could not load the unload setting'))
+  }, [error])
 
-  const choose = async (next: ModelUnload) => {
-    if (policy === null || next === policy) return
-    const previous = policy
-    setPolicy(next)
-    try {
-      await commands.setModelUnload(next)
-    } catch (e) {
-      setPolicy(previous)
-      toast.error(extractErrorMessage(e, 'Could not save the unload setting'))
-    }
-  }
+  // The select waits for the saved value, so a late read can never overwrite a click.
+  const policy = pending ? pending.value : data ?? null
 
   return (
     <div className="inline-flex h-8 items-center gap-2 rounded-lg bg-panel pr-1 pl-3 text-xs ring-1 ring-line-soft ring-inset">
@@ -46,7 +41,7 @@ export function ModelUnloadSection() {
           size="sm"
           value={policy}
           options={OPTIONS}
-          onChange={(v) => void choose(v)}
+          onChange={(v) => { if (v !== policy) void choose(v) }}
           aria-label="Unload when idle"
           disabled={policy === null}
         />

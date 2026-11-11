@@ -135,12 +135,14 @@ impl StreamingSession {
     }
 
     /// One streaming step over `new_audio`, the native-rate buffer from
-    /// [`Self::fed`] on. Decodes synchronously — call from a blocking thread.
+    /// [`Self::fed`] on, in the recording's saved `language`. Decodes
+    /// synchronously — call from a blocking thread.
     pub fn poll(
         &mut self,
         new_audio: &[f32],
         native_rate: u32,
         engine: &Arc<Mutex<TranscriptionEngine>>,
+        language: Option<&str>,
     ) {
         if let Err(e) = self.ingest(new_audio, native_rate) {
             log::warn!("streaming pass skipped: {e}");
@@ -170,7 +172,7 @@ impl StreamingSession {
             let Ok(mut guard) = engine.lock() else {
                 return;
             };
-            match guard.transcribe_segments(&leveled, &prompt, Pass::Streaming) {
+            match guard.transcribe_segments(&leveled, &prompt, Pass::Streaming, language) {
                 Ok(s) => s,
                 Err(e) => {
                     log::warn!("streaming decode failed: {e}");
@@ -359,6 +361,7 @@ impl StreamingSession {
         new_audio: &[f32],
         native_rate: u32,
         engine: &Arc<Mutex<TranscriptionEngine>>,
+        language: Option<&str>,
     ) -> Result<FinalText, String> {
         if native_rate == 0 {
             return Ok(FinalText::complete(self.text()));
@@ -385,7 +388,7 @@ impl StreamingSession {
             log::error!("TranscriptionEngine mutex poisoned during finalize");
             return Ok(FinalText::partial(self.text()));
         };
-        match guard.transcribe_segments(&leveled, &prompt, Pass::Final) {
+        match guard.transcribe_segments(&leveled, &prompt, Pass::Final, language) {
             Ok(segments) => {
                 let truncated = guard.was_truncated();
                 let hyp: Vec<Word> = segments.into_iter().flat_map(|s| s.words).collect();
@@ -405,18 +408,20 @@ impl StreamingSession {
     }
 }
 
-/// Finalize a recording: decode the audio the session hasn't committed yet and
-/// return the transcript. `None` (recording never streamed) decodes the whole
-/// buffer in one pass. `Err` means the audio could not be prepared.
+/// Finalize a recording in the saved `language`: decode the audio the session
+/// hasn't committed yet and return the transcript. `None` (recording never
+/// streamed) decodes the whole buffer in one pass. `Err` means the audio could
+/// not be prepared.
 pub fn finalize(
     session: Option<StreamingSession>,
     buffer: &[f32],
     native_rate: u32,
     engine: &Arc<Mutex<TranscriptionEngine>>,
+    language: Option<&str>,
 ) -> Result<FinalText, String> {
     let session = session.unwrap_or_default();
     let start = session.fed().min(buffer.len());
-    session.finish(&buffer[start..], native_rate, engine)
+    session.finish(&buffer[start..], native_rate, engine, language)
 }
 
 /// How many leading words of `hypothesis` restate the tail of `committed`.
@@ -506,6 +511,17 @@ fn final_speech_offset(samples_16k: &[f32]) -> Option<usize> {
             VAD_LEVELED_SPEECH_ENTER,
         )
     })
+}
+
+/// Whether a recording holds speech at all, by the test finalize applies
+/// before decoding. Tells an empty transcript of silence from one of speech.
+pub fn contains_speech(samples: &[f32], native_rate: u32) -> bool {
+    let at_16k = To16k::new(native_rate).and_then(|mut converter| {
+        let mut converted = converter.push(samples)?;
+        converted.extend(converter.finish()?);
+        Ok(converted)
+    });
+    at_16k.is_ok_and(|samples| final_speech_offset(&samples).is_some())
 }
 
 /// Middle of the last [`PAUSE_FRAMES`]-long run of non-speech frames that sits

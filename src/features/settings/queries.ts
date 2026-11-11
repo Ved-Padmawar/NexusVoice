@@ -1,11 +1,46 @@
 import { useQuery } from '@tanstack/react-query'
-import { commands, type PillSettings, type PillSettingsSnapshot } from '../../shared/bindings'
+import { toast } from 'sonner'
+import {
+  commands, events, type PillSettings, type PillSettingsSnapshot, type RecordingInput, type RecordingSnapshot,
+} from '../../shared/bindings'
+import { extractErrorMessage } from '../../shared/errors'
 import { logger } from '../../shared/logger'
-import { LIVE, live, queryClient, readFresh } from '../../app/queryClient'
+import { LIVE, live, patchLive, queryClient, readFresh } from '../../app/queryClient'
 import { takeLegacyPill } from '../../app/store/legacyPill'
 import { subscribePillSettings } from '../../pill/pillSettings'
 import { queryKeys } from '../../shared/queryKeys'
 import type { HotkeyBindings, HotkeyKind } from '../../shared/types'
+
+/** Not event-driven: devices come and go, so each visit enumerates them again. */
+export const inputDevices = live(queryKeys.inputDevices, () => commands.listInputDevices())
+
+export function useInputDevices() {
+  return useQuery({ ...inputDevices, refetchOnMount: 'always' })
+}
+
+/** The formatter's saved setup. Keys never leave Rust: profiles carry `hasApiKey`. */
+export const formatConfigOptions = live(queryKeys.formatConfig, () => commands.getFormatConfig())
+
+export function useFormatConfig() {
+  return useQuery(formatConfigOptions)
+}
+
+const recordingOptions = live(queryKeys.recording, () => commands.getRecordingState())
+
+/** Keep the recording snapshot current; a revision rejects a late older one. */
+export function listenForRecordingState() {
+  return events.recordingStateChanged.listen(({ payload }) =>
+    patchLive(recordingOptions, (current: RecordingSnapshot) =>
+      payload.revision > current.revision ? payload : current))
+}
+
+/** True while the recording in progress keeps its previous `input`. */
+export function useKeptByRecording(input: RecordingInput) {
+  return useQuery({
+    ...recordingOptions,
+    select: (snapshot: RecordingSnapshot) => snapshot.deferred.includes(input),
+  }).data === true
+}
 
 const hotkeysOptions = {
   queryKey: queryKeys.hotkeys,
@@ -65,20 +100,29 @@ export function usePillSettings() {
 
 // Applied at once so the picker responds; snapshots wait out pending saves.
 export async function updatePill(change: Partial<PillSettings>) {
-  // Merging into the defaults would save them over the user's other choices.
   if (!cachedPill()) await queryClient.query(pillOptions).catch(() => {})
-  const next = { ...(cachedPill() ?? DEFAULT_PILL), ...change }
-  setPill(next)
+  const saved = cachedPill()
+  // Merging into the defaults would save them over the user's other choices.
+  if (!saved) {
+    toast.error('Could not load the pill settings, so nothing was changed')
+    return
+  }
+  setPill({ ...saved, ...change })
   savesPending += 1
   try {
-    isNewest(await commands.setPillSettings(next))
+    isNewest(await commands.setPillSettings({ ...saved, ...change }))
   } catch (e) {
-    logger.error('could not save pill settings', e)
+    toast.error(extractErrorMessage(e, 'Could not save the pill setting'))
   }
   savesPending -= 1
-  if (savesPending === 0) {
+  if (savesPending > 0) return
+  // Show what Rust holds: the failed edit falls back to the saved value.
+  try {
     newest ??= await commands.getPillSettings()
     setPill(newest.settings)
+  } catch (e) {
+    logger.error('could not read pill settings back', e)
+    setPill(saved)
   }
 }
 

@@ -1,11 +1,12 @@
-import { memo, useState, useRef, useEffect, useCallback, useMemo, type CSSProperties } from 'react'
+import { memo, useState, useRef, useEffect, useCallback, useMemo, type CSSProperties, type RefObject } from 'react'
 import { useNavigate } from 'react-router'
 import {
   ArrowCounterClockwiseIcon, BracketsCurlyIcon, CalendarBlankIcon, CaretLeftIcon, CaretRightIcon, CheckIcon,
   CopyIcon, ExportIcon, FileTextIcon, FunnelSimpleIcon, KeyboardIcon, MagnifyingGlassIcon, MicrophoneIcon,
-  TrashIcon, WarningCircleIcon,
+  TrashIcon, WarningCircleIcon, XIcon,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
+import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { useHotkeys } from '../settings/queries'
 import {
@@ -19,7 +20,7 @@ import {
 } from './queries'
 import type { TranscriptFilters } from '../../shared/queryKeys'
 import { ROUTES } from '../../app/routes'
-import { cn, fmtTime, fmtDate, downloadBlob, parseSqliteDate } from '../../shared/utils'
+import { cn, fmtTime, fmtDate, parseSqliteDate } from '../../shared/utils'
 import { Button } from '@/shared/ui/Button'
 import { Kbd } from '@/shared/ui/Kbd'
 import { MenuItem, Popover } from '@/shared/ui/Popover'
@@ -63,26 +64,33 @@ function IconButton({ className, ...props }: React.ComponentProps<'button'>) {
   )
 }
 
-function ExportButton() {
+type ExportFormat = 'txt' | 'json'
+
+const serialize = (items: Transcript[], format: ExportFormat) => format === 'txt'
+  ? items.map(t => `[${fmtDate(t.createdAt)}]\n${t.content}`).join('\n\n---\n\n')
+  : JSON.stringify(items.map(t => ({ id: t.id, content: t.content, createdAt: t.createdAt, wordCount: t.wordCount, durationSeconds: t.durationSeconds })), null, 2)
+
+/** Exports what the search box and filters ask for, without waiting on the debounce. */
+function ExportButton({ typedRef, filters }: { typedRef: RefObject<string>; filters: TranscriptFilters }) {
   const [open, setOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)
 
-  const doExport = async (format: 'txt' | 'json') => {
+  const doExport = async (format: ExportFormat) => {
     setOpen(false)
     setExporting(true)
     try {
-      const items = await fetchAllTranscripts()
-      const date = new Date().toISOString().slice(0, 10)
-      if (format === 'txt') {
-        const content = items.map(t => `[${fmtDate(t.createdAt)}]\n${t.content}`).join('\n\n---\n\n')
-        downloadBlob(content, `nexusvoice-transcripts-${date}.txt`, 'text/plain')
-        toast.success(`Exported ${items.length} transcript${items.length !== 1 ? 's' : ''} as TXT`)
-      } else {
-        const content = JSON.stringify(items.map(t => ({ id: t.id, content: t.content, createdAt: t.createdAt, wordCount: t.wordCount, durationSeconds: t.durationSeconds })), null, 2)
-        downloadBlob(content, `nexusvoice-transcripts-${date}.json`, 'application/json')
-        toast.success(`Exported ${items.length} transcript${items.length !== 1 ? 's' : ''} as JSON`)
+      const items = await fetchAllTranscripts(typedRef.current.trim(), filters)
+      if (items.length === 0) {
+        toast.info('Nothing to export')
+        return
       }
+      const date = new Date().toISOString().slice(0, 10)
+      const path = await commands.saveExport(`nexusvoice-transcripts-${date}.${format}`, serialize(items, format))
+      toast.success(`Exported ${plural(items.length, 'dictation')}`, {
+        description: path,
+        action: { label: 'Show in folder', onClick: () => void commands.revealInFolder(path).catch(e => toast.error(extractErrorMessage(e, 'Could not open the folder'))) },
+      })
     } catch (e) {
       toast.error(extractErrorMessage(e, 'Export failed'))
     } finally {
@@ -182,9 +190,11 @@ function Calendar({ view, onView, picked, band, onPick }: CalendarProps) {
             <button
               key={v}
               type="button"
+              // Nothing can be dictated tomorrow.
+              disabled={v > today}
               onClick={() => onPick(v)}
               className={cn(
-                'grid h-7.5 cursor-pointer place-items-center rounded-[7px] text-xs text-fg transition-colors hover:bg-surface-hover',
+                'grid h-7.5 cursor-pointer place-items-center rounded-[7px] text-xs text-fg transition-colors hover:bg-surface-hover disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent',
                 d.getMonth() !== m && 'text-muted',
                 v === today && 'ring-1 ring-inset ring-line',
                 band && v > band.from && v < band.to && 'rounded-none bg-surface',
@@ -204,15 +214,13 @@ function Calendar({ view, onView, picked, band, onPick }: CalendarProps) {
   )
 }
 
-function DateFieldButton({ value, expanded, onClick, ref }: {
+function DateFieldButton({ value, expanded, onClick }: {
   value: string
   expanded: boolean
   onClick: () => void
-  ref: React.Ref<HTMLButtonElement>
 }) {
   return (
     <button
-      ref={ref}
       type="button"
       aria-expanded={expanded}
       onClick={onClick}
@@ -241,18 +249,18 @@ type FilterDropdownProps = {
 }
 
 function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
-  const { from: filterFrom, to: filterTo, sortAsc: filterSortAsc } = filters
+  const { sortAsc: filterSortAsc } = filters
   const [open, setOpen] = useState(false)
   const [dateMode, setDateMode] = useState(() => datesOf(filters).mode)
   const [dates, setDates] = useState(() => datesOf(filters).dates)
   const [sortAsc, setSortAsc] = useState(filterSortAsc)
   const [calField, setCalField] = useState<DateKey | null>(null)
   const [calView, setCalView] = useState(() => new Date())
-  const hasActive = !!filterFrom || !!filterTo || filterSortAsc
+  const hasActive = isFiltered(filters)
 
   const anchorRef = useRef<HTMLButtonElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
   const calRef = useRef<HTMLDivElement>(null)
-  const fieldRefs = { from: useRef<HTMLButtonElement>(null), to: useRef<HTMLButtonElement>(null), on: useRef<HTMLButtonElement>(null) }
   const calInside = useMemo(() => [calRef], [])
 
   const handleOpenChange = (next: boolean) => {
@@ -277,10 +285,9 @@ function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
   const pickDate = (value: string) => {
     if (!calField) return
     const next = { ...dates, [calField]: value }
-    // Keep the range ordered: moving one end past the other drops the other.
+    // Keep the range ordered: picking one end past the other swaps them, so neither is lost.
     if (calField !== 'on' && next.from && next.to && next.from > next.to) {
-      if (calField === 'from') next.to = ''
-      else next.from = ''
+      [next.from, next.to] = [next.to, next.from]
     }
     setDates(next)
     setCalField(null)
@@ -303,7 +310,7 @@ function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
   }
 
   const field = (key: DateKey) => (
-    <DateFieldButton ref={fieldRefs[key]} value={dates[key]} expanded={calField === key} onClick={() => toggleField(key)} />
+    <DateFieldButton value={dates[key]} expanded={calField === key} onClick={() => toggleField(key)} />
   )
 
   return (
@@ -322,7 +329,7 @@ function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
         <FunnelSimpleIcon size={14} weight="bold" />
       </IconButton>
       <Popover open={open} onOpenChange={handleOpenChange} anchorRef={anchorRef} placement="bottom-end" insideRefs={calInside} className="w-72 rounded-2xl p-4">
-        <div className="flex flex-col gap-3.5">
+        <div ref={bodyRef} className="flex flex-col gap-3.5">
           <div className="flex flex-col gap-1.5">
             <span className={fieldLabel}>Date</span>
             <Segmented
@@ -360,8 +367,10 @@ function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
       <Popover
         open={open && calField !== null}
         onOpenChange={() => setCalField(null)}
-        anchorRef={fieldRefs[calField ?? 'from']}
-        placement={calField === 'to' ? 'bottom-end' : 'bottom-start'}
+        // Beside the filter panel, never on top of the fields it edits.
+        anchorRef={bodyRef}
+        placement="side"
+        offset={22}
         className="w-64"
       >
         <div ref={calRef} className="p-3">
@@ -378,8 +387,9 @@ function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
   )
 }
 
-/** Owns the typed text, so a keystroke re-renders only this box, not the feed. */
-function SearchBox({ onSearch }: { onSearch: (term: string) => void }) {
+/** Owns the typed text, so a keystroke re-renders only this box, not the feed.
+ *  `typedRef` mirrors it, undebounced. */
+function SearchBox({ onSearch, typedRef }: { onSearch: (term: string) => void; typedRef: RefObject<string> }) {
   const [query, setQuery] = useState('')
 
   useEffect(() => {
@@ -391,7 +401,10 @@ function SearchBox({ onSearch }: { onSearch: (term: string) => void }) {
     <TextInput
       type="search"
       value={query}
-      onChange={e => setQuery(e.target.value)}
+      onChange={e => {
+        typedRef.current = e.target.value
+        setQuery(e.target.value)
+      }}
       placeholder="Search transcripts…"
       aria-label="Search transcripts"
       icon={<MagnifyingGlassIcon size={14} />}
@@ -403,12 +416,19 @@ function SearchBox({ onSearch }: { onSearch: (term: string) => void }) {
 
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
 const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
+const dayYearFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })
 
 function dayLabel(date: Date) {
   const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(date).setHours(0, 0, 0, 0)) / 86_400_000)
   if (days === 0) return 'Today'
   if (days === 1) return 'Yesterday'
-  return dayFmt.format(date)
+  return (date.getFullYear() === new Date().getFullYear() ? dayFmt : dayYearFmt).format(date)
+}
+
+/** The local calendar day, e.g. `2026-11-09`: unique across years, unlike a label. */
+function calendarDay(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 function splitClock(date: Date) {
@@ -423,10 +443,12 @@ type DayGroup = { key: string; label: string; items: Transcript[] }
 function groupByDay(items: Transcript[]) {
   const groups: DayGroup[] = []
   for (const item of items) {
-    const label = dayLabel(parseSqliteDate(item.createdAt))
+    const date = parseSqliteDate(item.createdAt)
+    const key = calendarDay(date)
     const last = groups.at(-1)
-    if (last?.label === label) last.items.push(item)
-    else groups.push({ key: `${label}-${item.id}`, label, items: [item] })
+    if (last?.key === key) last.items.push(item)
+    // Keyed by day, not first row, so a new row doesn't remount the day.
+    else groups.push({ key, label: dayLabel(date), items: [item] })
   }
   return groups
 }
@@ -481,7 +503,7 @@ const waveTipFmt = new Intl.DateTimeFormat(undefined, { weekday: 'short', month:
 const waveAxisFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
 
 /** The last 60 days drawn as a voice: one bar per day, scaled to the busiest. */
-function DayWave() {
+const DayWave = memo(function DayWave() {
   const { data } = useDailyWords(WAVE_DAYS)
   if (!data) return <div className="h-33.5" />
   const peak = Math.max(1, ...data.map(d => d.words))
@@ -507,6 +529,59 @@ function DayWave() {
       </div>
     </div>
   )
+})
+
+const hasDates = ({ from, to }: TranscriptFilters) => !!from || !!to
+const isFiltered = (filters: TranscriptFilters) => hasDates(filters) || filters.sortAsc
+
+const chipDateFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' })
+
+/** "3 Nov – 9 Nov · Oldest first": what the feed is narrowed to, in words. */
+function describeFilters({ from, to, sortAsc }: TranscriptFilters) {
+  const day = (iso: string) => chipDateFmt.format(fromIso(iso))
+  const dates = from && to
+    ? from === to ? `On ${day(from)}` : `${day(from)} – ${day(to)}`
+    : from ? `Since ${day(from)}` : to ? `Until ${day(to)}` : null
+  return [dates, sortAsc && 'Oldest first'].filter(Boolean).join(' · ')
+}
+
+/** Shows that the feed is filtered, and clears it in one click. */
+function FilterChip({ filters, onClear }: { filters: TranscriptFilters; onClear: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClear}
+      aria-label={`Clear filters: ${describeFilters(filters)}`}
+      className="flex h-6.5 cursor-pointer items-center gap-1.5 rounded-full bg-accent-soft pr-2 pl-2.5 text-xs font-semibold text-accent-ink ring-1 ring-inset ring-accent-line transition-shadow hover:ring-accent"
+    >
+      {describeFilters(filters)}
+      <XIcon size={11} weight="bold" />
+    </button>
+  )
+}
+
+type EmptyFeedProps = { searching: boolean; dated: boolean; hotkey: string | null; onClearFilters: () => void }
+
+/** The empty feed says why it is empty: a search, a date range, or no dictations yet. */
+function EmptyFeed({ searching, dated, hotkey, onClearFilters }: EmptyFeedProps) {
+  const narrowed = searching || dated
+  const hint = searching
+    ? dated ? 'Try different keywords or a wider date range.' : 'Try different keywords or check your spelling.'
+    : 'Try a wider date range.'
+  return (
+    <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
+      <span className="grid size-14 place-items-center rounded-full bg-accent-soft text-accent-ink">
+        {narrowed ? <MagnifyingGlassIcon size={24} /> : <MicrophoneIcon size={24} weight="duotone" />}
+      </span>
+      <p className="text-md font-semibold text-fg">
+        {searching ? 'No results found' : dated ? 'Nothing in this date range' : 'Your first dictation lands here'}
+      </p>
+      <p className="max-w-64 text-sm text-muted text-balance">
+        {narrowed ? hint : <>Hold {hotkey ? <HotkeyKeys hotkey={hotkey} /> : 'your hotkey'} in any text box, speak, and let go.</>}
+      </p>
+      {dated && <Button size="sm" variant="outline" onClick={onClearFilters}>Clear date filter</Button>}
+    </div>
+  )
 }
 
 export function Dashboard() {
@@ -515,6 +590,7 @@ export function Dashboard() {
   const missingHotkey = pushToTalk.isSuccess && keys === null
   const navigate = useNavigate()
   const [searchTerm, setSearchTerm] = useState('')
+  const typedRef = useRef('')
   const [filters, setFilters] = useState<TranscriptFilters>(NO_FILTERS)
   const observerRef = useRef<IntersectionObserver | null>(null)
 
@@ -633,10 +709,11 @@ export function Dashboard() {
             pins against the padding edge, which would leave rows showing above. */}
         <div className="sticky top-0 z-10 -mx-2 flex items-center gap-2.5 bg-bg px-2 py-2.5">
           <h2 className="text-md font-semibold tracking-tight text-fg">Recent dictations</h2>
+          {isFiltered(filters) && <FilterChip filters={filters} onClear={() => setFilters(NO_FILTERS)} />}
           <div className="ml-auto flex items-center gap-1.5">
-            <SearchBox onSearch={setSearchTerm} />
+            <SearchBox onSearch={setSearchTerm} typedRef={typedRef} />
             <FilterDropdown filters={filters} onChange={setFilters} />
-            <ExportButton />
+            <ExportButton typedRef={typedRef} filters={filters} />
           </div>
         </div>
 
@@ -647,17 +724,7 @@ export function Dashboard() {
           skeleton={<FeedSkeleton />}
         >
           {groups.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
-              <span className="grid size-14 place-items-center rounded-full bg-accent-soft text-accent-ink">
-                {isSearchMode ? <MagnifyingGlassIcon size={24} /> : <MicrophoneIcon size={24} weight="duotone" />}
-              </span>
-              <p className="text-md font-semibold text-fg">{isSearchMode ? 'No results found' : 'Your first dictation lands here'}</p>
-              <p className="max-w-64 text-sm text-muted text-balance">
-                {isSearchMode
-                  ? 'Try different keywords or check your spelling.'
-                  : <>Hold {keys ? <HotkeyKeys hotkey={keys} /> : 'your hotkey'} in any text box, speak, and let go.</>}
-              </p>
-            </div>
+            <EmptyFeed searching={isSearchMode} dated={hasDates(filters)} hotkey={keys} onClearFilters={() => setFilters(NO_FILTERS)} />
           ) : (
             <div className="flex flex-col">
               {groups.map(group => (
@@ -669,7 +736,7 @@ export function Dashboard() {
                   </h3>
                   <ol>
                     {group.items.map(item => (
-                      <TranscriptRow key={item.id} item={item} onDelete={deleteTranscript.mutate} />
+                      <TranscriptRow key={item.id} item={item} onDelete={deleteTranscript} />
                     ))}
                   </ol>
                 </section>

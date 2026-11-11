@@ -4,8 +4,12 @@
 //! Windows also gives the user's clipboard back once the target has read the
 //! transcript (see [`windows`]). macOS leaves the transcript on the clipboard.
 
+#[cfg(target_os = "windows")]
+mod caret;
 #[cfg(any(target_os = "windows", test))]
 mod settle;
+#[cfg(any(target_os = "windows", test))]
+mod spacing;
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -27,8 +31,8 @@ const CHORD_DELAY: Duration = Duration::from_millis(150);
 /// Returns an error when the transcript cannot be published to the clipboard.
 /// The paste itself completes on a worker thread and is not awaited.
 #[cfg(target_os = "windows")]
-pub async fn type_text(_app: &AppHandle, text: &str) -> Result<(), String> {
-    windows::paste(text).await
+pub async fn type_text(app: &AppHandle, text: &str) -> Result<(), String> {
+    windows::paste(app, text).await
 }
 
 /// # Errors
@@ -50,14 +54,16 @@ pub async fn type_text(app: &AppHandle, text: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Press the platform paste chord. Returns whether every key event was sent.
+/// Press the platform paste chord. Returns whether the paste itself went out.
 fn send_paste_chord() -> bool {
     let Ok(mut enigo) = Enigo::new(&Settings::default()) else {
         return false;
     };
     let pressed = enigo.key(PASTE_MODIFIER, Direction::Press).is_ok();
-    let clicked = pressed && enigo.key(Key::Unicode('v'), Direction::Click).is_ok();
+    let sent = pressed && enigo.key(Key::Unicode('v'), Direction::Click).is_ok();
     // Always release, so a failed click never leaves the modifier stuck down.
-    let released = enigo.key(PASTE_MODIFIER, Direction::Release).is_ok();
-    pressed && clicked && released
+    if enigo.key(PASTE_MODIFIER, Direction::Release).is_err() {
+        log::warn!("paste modifier could not be released");
+    }
+    sent
 }

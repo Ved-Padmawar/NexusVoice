@@ -20,11 +20,12 @@ const respond = (hotkeys = { pushToTalk: null as string | null, dictation: null,
     get_hotkeys: hotkeys,
     get_bound_hotkeys: hotkeys,
     get_model_catalog: [],
-    get_model_info: { modelName: 'Whisper Tiny', downloaded: true, downloading: false },
+    get_model_info: { modelName: 'Whisper Tiny', downloaded: true },
     list_input_devices: [],
     get_keep_mic_open: false,
     get_language_options: { supported: false, options: [] },
     get_format_config: { enabled: false, provider: 'ollama', profiles: {} },
+    get_recording_state: { revision: 0, status: 'idle', deferred: [] },
   } as Record<string, unknown>)[cmd]))
 
 // The Recording (push-to-talk) row's recorder — uniquely identified by its aria-label.
@@ -121,15 +122,6 @@ describe('HotkeySection', () => {
     expect(screen.getByText('A')).toBeInTheDocument()
   })
 
-  it('shows Save and Cancel buttons after keys pressed', async () => {
-    await renderSettings()
-    fireEvent.click(recordingRecorder())
-    fireEvent.keyDown(window, { key: 'Control', code: 'ControlLeft' })
-    fireEvent.keyDown(window, { key: 'A', code: 'KeyA' })
-    expect(screen.getByRole('button', { name: /save/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument()
-  })
-
   it('binds the recorded hotkey on save', async () => {
     await renderSettings()
     fireEvent.click(recordingRecorder())
@@ -152,6 +144,26 @@ describe('HotkeySection', () => {
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+Super+K' })
     })
+  })
+
+  it('names keys by position, so Shift+1 is saved as Shift+1 rather than Shift+!', async () => {
+    await renderSettings()
+    fireEvent.click(recordingRecorder())
+    fireEvent.keyDown(window, { key: 'Control', code: 'ControlLeft' })
+    fireEvent.keyDown(window, { key: 'Shift', code: 'ShiftLeft' })
+    fireEvent.keyDown(window, { key: '!', code: 'Digit1' })
+    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+Shift+1' })
+    })
+  })
+
+  it('cancels on Escape instead of recording it', async () => {
+    await renderSettings()
+    fireEvent.click(recordingRecorder())
+    fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' })
+    expect(screen.queryByText('Esc')).not.toBeInTheDocument()
+    expect(mockInvoke).toHaveBeenCalledWith('resume_hotkeys')
   })
 
   it('cancels and clears pressed keys', async () => {

@@ -1,7 +1,7 @@
 //! The recording lifecycle: arm the microphone, run the live decoders, and on
 //! stop hand the captured audio to finalize.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -29,6 +29,9 @@ const STREAM_DONE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Finalize takes the buffer, leaving it with no capacity. Reserved at start so
 /// the audio callback isn't reallocating under the buffer lock.
 const RESERVE_SECS: usize = 30;
+/// Silence left where a hands-free dictation was paused; long enough for the
+/// model to hear a sentence end.
+const PAUSE_GAP_MS: usize = 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -57,10 +60,32 @@ pub enum RecordingStatus {
     Processing,
 }
 
-#[derive(Debug, Clone, Copy, serde::Serialize, specta::Type)]
+fn status_of(phase: Phase) -> RecordingStatus {
+    match phase {
+        Phase::Idle => RecordingStatus::Idle,
+        Phase::Recording(Mode::PushToTalk) => RecordingStatus::Recording,
+        Phase::Recording(Mode::Dictation) => RecordingStatus::Dictation,
+        Phase::Paused => RecordingStatus::DictationPaused,
+        Phase::Finalizing => RecordingStatus::Processing,
+    }
+}
+
+/// What a recording captures and decodes with. Each recording keeps the ones
+/// it started with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "kebab-case")]
+pub enum RecordingInput {
+    Model,
+    Microphone,
+    Language,
+}
+
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
 pub struct RecordingSnapshot {
     pub revision: u32,
     pub status: RecordingStatus,
+    /// Saved changes the recording in progress does not use.
+    pub deferred: Vec<RecordingInput>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -108,10 +133,15 @@ pub struct Recorder {
     phase: Mutex<Phase>,
     /// Set and read under `phase`, so no recording slips in once a restart holds.
     restarting: AtomicBool,
+    /// Set and read under `phase`: a device saved during a recording, which
+    /// keeps its stream.
+    mic_change_pending: AtomicBool,
     revision: AtomicU32,
     inputs: OnceLock<tokio::sync::mpsc::UnboundedSender<Request>>,
     /// Shared with the capture callback: drops samples while set.
     paused: Arc<AtomicBool>,
+    /// Silence inserted at resumes: in the buffer, but not speaking time.
+    pause_gap_samples: AtomicUsize,
     capture: Capture,
     chime: Chime,
     focus: Mutex<Option<FocusTarget>>,
@@ -133,9 +163,11 @@ impl Recorder {
         Self {
             phase: Mutex::new(Phase::Idle),
             restarting: AtomicBool::new(false),
+            mic_change_pending: AtomicBool::new(false),
             revision: AtomicU32::new(0),
             inputs: OnceLock::new(),
             paused,
+            pause_gap_samples: AtomicUsize::new(0),
             capture: Capture {
                 generation: Generation::default(),
                 capturing: Arc::new(AtomicBool::new(false)),
@@ -144,6 +176,7 @@ impl Recorder {
                 waveform,
                 mic,
                 session: Arc::new(Mutex::new(None)),
+                language: Arc::new(Mutex::new(None)),
                 streamed: Arc::new(Mutex::new(None)),
                 stream_done: Arc::new((Mutex::new(true), Condvar::new())),
             },
@@ -153,22 +186,56 @@ impl Recorder {
         }
     }
 
-    pub fn snapshot(&self) -> RecordingSnapshot {
-        let phase = lock_recovering(&self.phase);
+    pub fn status(&self) -> RecordingStatus {
+        status_of(*lock_recovering(&self.phase))
+    }
+
+    /// `engine` owns the model and language a recording keeps.
+    pub fn snapshot(&self, engine: &EngineCache) -> RecordingSnapshot {
+        let (revision, status, mic) = {
+            let phase = lock_recovering(&self.phase);
+            (
+                self.revision.load(Ordering::SeqCst),
+                status_of(*phase),
+                self.mic_change_pending.load(Ordering::SeqCst),
+            )
+        };
+        let kept = engine.deferred();
+        let deferred = [
+            (kept.model, RecordingInput::Model),
+            (mic, RecordingInput::Microphone),
+            (kept.language, RecordingInput::Language),
+        ]
+        .into_iter()
+        .filter_map(|(deferred, input)| deferred.then_some(input))
+        .collect();
         RecordingSnapshot {
-            revision: self.revision.load(Ordering::SeqCst),
-            status: match *phase {
-                Phase::Idle => RecordingStatus::Idle,
-                Phase::Recording(Mode::PushToTalk) => RecordingStatus::Recording,
-                Phase::Recording(Mode::Dictation) => RecordingStatus::Dictation,
-                Phase::Paused => RecordingStatus::DictationPaused,
-                Phase::Finalizing => RecordingStatus::Processing,
-            },
+            revision,
+            status,
+            deferred,
         }
     }
 
     fn publish(&self, app: &AppHandle) {
-        let _ = RecordingStateChanged(self.snapshot()).emit(app);
+        let snapshot = self.snapshot(&app.state::<EngineCache>());
+        let _ = RecordingStateChanged(snapshot).emit(app);
+    }
+
+    /// Announce a change to what the recording in progress keeps.
+    fn publish_change(&self, app: &AppHandle) {
+        self.revision.fetch_add(1, Ordering::SeqCst);
+        self.publish(app);
+    }
+
+    /// Republish whenever the engine's deferred changes do.
+    pub fn follow_engine(app: &AppHandle) {
+        let mut changes = app.state::<EngineCache>().watch_deferred();
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            while changes.changed().await.is_ok() {
+                app.state::<Self>().publish_change(&app);
+            }
+        });
     }
 
     fn change_phase(&self, phase: &mut Phase, next: Phase) {
@@ -186,7 +253,7 @@ impl Recorder {
                 let mut finished_at = None;
                 while let Some(request) = receiver.recv().await {
                     let recorder = app.state::<Self>();
-                    let before = recorder.snapshot().status;
+                    let before = recorder.status();
                     let result = if request.stale(finished_at) {
                         Err(RecordError::Finalizing)
                     } else {
@@ -194,7 +261,7 @@ impl Recorder {
                     };
                     if result.is_ok()
                         && before != RecordingStatus::Idle
-                        && recorder.snapshot().status == RecordingStatus::Idle
+                        && recorder.status() == RecordingStatus::Idle
                     {
                         // Inputs queued behind finalization must not start a
                         // delayed recording after the user already released.
@@ -213,7 +280,7 @@ impl Recorder {
     }
 
     pub fn dispatch(&self, app: &AppHandle, action: Action) {
-        if self.snapshot().status != RecordingStatus::Processing {
+        if self.status() != RecordingStatus::Processing {
             let _ = self.sender(app).send(Request {
                 action,
                 at: Instant::now(),
@@ -223,7 +290,7 @@ impl Recorder {
     }
 
     pub async fn request(&self, app: &AppHandle, action: Action) -> Result<(), RecordError> {
-        if self.snapshot().status == RecordingStatus::Processing {
+        if self.status() == RecordingStatus::Processing {
             return Err(RecordError::Finalizing);
         }
         let (reply, response) = tokio::sync::oneshot::channel();
@@ -276,7 +343,7 @@ impl Recorder {
             Action::Resume => self.resume(),
             Action::Commit => self.commit(app).await,
             Action::Cancel => {
-                self.cancel().await;
+                self.cancel(&app.state::<EngineCache>()).await;
                 Ok(())
             }
         }
@@ -313,7 +380,7 @@ impl Recorder {
     /// Start recording. Reports success only once the mic delivers audio; a
     /// failed open, a dead stream or a silent device aborts the recording.
     async fn start(&self, app: &AppHandle, mode: Mode) -> Result<(), RecordError> {
-        if self.snapshot().status != RecordingStatus::Idle {
+        if self.status() != RecordingStatus::Idle {
             return Err(RecordError::AlreadyRunning);
         }
         let focus = crate::platform::focus::foreground_app();
@@ -331,7 +398,7 @@ impl Recorder {
         .unwrap_or(false);
         if !available {
             return Err(RecordError::Unavailable(
-                "No model installed — download one in Settings".to_string(),
+                "No model installed - download one in Settings".to_string(),
             ));
         }
         self.claim_start(mode)?;
@@ -374,6 +441,7 @@ impl Recorder {
         // First, so leftover workers go stale before their buffers are replaced.
         let ticket = self.capture.generation.begin();
         self.paused.store(false, Ordering::SeqCst);
+        self.pause_gap_samples.store(0, Ordering::SeqCst);
         {
             let rate = *lock_recovering(&self.capture.sample_rate) as usize;
             let mut audio = lock_recovering(&self.capture.audio);
@@ -384,7 +452,9 @@ impl Recorder {
         *lock_recovering(&self.capture.streamed) = None;
         // The hotkey press is the moment the focused app means anything.
         *lock_recovering(&self.focus) = focus;
-        *lock_recovering(&self.lease) = Some(app.state::<EngineCache>().lease());
+        let lease = app.state::<EngineCache>().lease(&app.state::<Settings>());
+        *lock_recovering(&self.capture.language) = lease.language().map(str::to_string);
+        *lock_recovering(&self.lease) = Some(lease);
 
         self.capture.capturing.store(true, Ordering::SeqCst);
         // Arm first: it clears the previous error, which the open below may set.
@@ -417,8 +487,29 @@ impl Recorder {
             Phase::Recording(Mode::Dictation),
             RecordError::NotPaused,
         )?;
+        self.mark_pause_in_audio();
         self.paused.store(false, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// Paused audio is dropped, so the speech either side of a pause would run
+    /// together and the model would write them as one sentence. A stretch of
+    /// silence keeps the pause audible to it.
+    fn mark_pause_in_audio(&self) {
+        let rate = *lock_recovering(&self.capture.sample_rate) as usize;
+        let mut audio = lock_recovering(&self.capture.audio);
+        if !audio.is_empty() {
+            let gap = rate * PAUSE_GAP_MS / 1000;
+            let length = audio.len() + gap;
+            audio.resize(length, 0.0);
+            self.pause_gap_samples.fetch_add(gap, Ordering::SeqCst);
+        }
+    }
+
+    fn speaking_seconds(&self, recorded: usize, sample_rate: u32) -> Option<f64> {
+        let spoken = recorded.saturating_sub(self.pause_gap_samples.load(Ordering::SeqCst));
+        #[allow(clippy::cast_precision_loss)]
+        (sample_rate > 0 && spoken > 0).then(|| spoken as f64 / f64::from(sample_rate))
     }
 
     fn transition(
@@ -470,7 +561,7 @@ impl Recorder {
     }
 
     /// Discard the recording without transcribing it.
-    async fn cancel(&self) {
+    async fn cancel(&self, engine: &EngineCache) {
         {
             let mut phase = lock_recovering(&self.phase);
             if !matches!(*phase, Phase::Recording(_) | Phase::Paused) {
@@ -482,7 +573,7 @@ impl Recorder {
         self.chime.cancel();
         self.capture.mic.disarm();
         // The next recording clears the buffer this worker still reads.
-        self.wait_for_stream_done().await;
+        self.wait_for_stream_done(engine).await;
         lock_recovering(&self.capture.session).take();
         self.reset();
     }
@@ -492,12 +583,23 @@ impl Recorder {
         self.chime.set_keep_open(keep);
     }
 
-    /// Release the device so the next recording opens the newly chosen one.
-    /// A recording in progress keeps its stream.
-    pub fn close_mic_if_idle(&self) {
-        if *lock_recovering(&self.phase) == Phase::Idle {
-            self.capture.mic.close();
+    /// The saved device changed: the next recording opens it.
+    pub fn change_mic(&self, app: &AppHandle) {
+        if self.release_mic_or_defer() {
+            self.publish_change(app);
         }
+    }
+
+    /// Idle, release the device now; otherwise the recording keeps its stream
+    /// and the change waits. True when it newly started waiting. Holds the
+    /// phase across the close, so a start can't slip in and lose its stream.
+    fn release_mic_or_defer(&self) -> bool {
+        let phase = lock_recovering(&self.phase);
+        if *phase == Phase::Idle {
+            self.capture.mic.close();
+            return false;
+        }
+        !self.mic_change_pending.swap(true, Ordering::SeqCst)
     }
 
     /// The app is exiting: stop everything and release the device.
@@ -512,7 +614,10 @@ impl Recorder {
         self.paused.store(false, Ordering::SeqCst);
         lock_recovering(&self.focus).take();
         lock_recovering(&self.lease).take();
-        self.change_phase(&mut lock_recovering(&self.phase), Phase::Idle);
+        let mut phase = lock_recovering(&self.phase);
+        // The next recording opens the saved device anyway.
+        self.mic_change_pending.store(false, Ordering::SeqCst);
+        self.change_phase(&mut phase, Phase::Idle);
     }
 
     /// Stop capturing and hand the audio to finalize. Every outcome reaches
@@ -528,7 +633,7 @@ impl Recorder {
         tauri::async_runtime::spawn_blocking(move || mic.disarm_after_post_roll())
             .await
             .ok();
-        self.wait_for_stream_done().await;
+        self.wait_for_stream_done(&app.state::<EngineCache>()).await;
 
         // Session first, audio buffer second: the lock order the workers use.
         // Taking the session waits out any in-flight stream decode.
@@ -537,9 +642,7 @@ impl Recorder {
         let samples = std::mem::take(&mut *lock_recovering(&self.capture.audio));
         let sample_rate = *lock_recovering(&self.capture.sample_rate);
 
-        #[allow(clippy::cast_precision_loss)]
-        let duration_seconds = (sample_rate > 0 && !samples.is_empty())
-            .then(|| samples.len() as f64 / f64::from(sample_rate));
+        let duration_seconds = self.speaking_seconds(samples.len(), sample_rate);
 
         // Set when the mic died mid-recording; what it captured first still counts.
         let mic_error = self.capture.mic.take_error();
@@ -573,7 +676,7 @@ impl Recorder {
             Err(e) => {
                 log::error!("engine load failed: {e}");
                 self.reset();
-                let _ = TranscriptionError(format!("model not ready: {e}")).emit(app);
+                let _ = TranscriptionError(e).emit(app);
                 return;
             }
         };
@@ -603,8 +706,10 @@ impl Recorder {
     }
 
     /// The streaming-native worker writes its transcript only after capture
-    /// stops, so reading it straight away would lose the tail.
-    async fn wait_for_stream_done(&self) {
+    /// stops, so reading it straight away would lose the tail. A worker that
+    /// never finishes is stuck holding the engine, so it is discarded and
+    /// finalize loads a fresh one.
+    async fn wait_for_stream_done(&self, engine: &EngineCache) {
         let done = Arc::clone(&self.capture.stream_done);
         let timed_out = tauri::async_runtime::spawn_blocking(move || {
             let (lock, cvar) = &*done;
@@ -616,9 +721,10 @@ impl Recorder {
         .await
         .unwrap_or(true);
         if timed_out {
-            log::warn!("stream-done signal missed; finalizing without the streamed tail");
+            log::error!("stream worker stalled; discarding the engine");
             // Before finish takes the buffer, so the worker stops instead of reading it.
             self.capture.generation.retire();
+            engine.discard();
         }
     }
 }
@@ -643,10 +749,14 @@ fn load_engine(app: &AppHandle) {
 mod tests {
     use super::*;
 
+    fn engine() -> EngineCache {
+        EngineCache::new(std::env::temp_dir())
+    }
+
     #[test]
     fn backend_owns_pause_resume_commit_and_finalizing_until_reset() {
         let recorder = Recorder::new();
-        assert_eq!(recorder.snapshot().status, RecordingStatus::Idle);
+        assert_eq!(recorder.status(), RecordingStatus::Idle);
         recorder.claim_start(Mode::Dictation).unwrap();
         assert!(matches!(
             recorder.claim_finish(Mode::PushToTalk),
@@ -654,13 +764,23 @@ mod tests {
         ));
         recorder.pause().unwrap();
         assert!(recorder.paused.load(Ordering::SeqCst));
-        let paused = recorder.snapshot();
+        let paused = recorder.snapshot(&engine());
         assert_eq!(paused.status, RecordingStatus::DictationPaused);
+        lock_recovering(&recorder.capture.audio).push(0.5);
         recorder.resume().unwrap();
         assert!(!recorder.paused.load(Ordering::SeqCst));
+        assert!(
+            lock_recovering(&recorder.capture.audio).len() > 1,
+            "resuming leaves silence where the pause was"
+        );
+        assert_eq!(
+            recorder.speaking_seconds(lock_recovering(&recorder.capture.audio).len(), 1),
+            Some(1.0),
+            "the silence is not speaking time"
+        );
         recorder.pause().unwrap();
         recorder.claim_finish(Mode::Dictation).unwrap();
-        assert_eq!(recorder.snapshot().status, RecordingStatus::Processing);
+        assert_eq!(recorder.status(), RecordingStatus::Processing);
         assert!(matches!(
             recorder.claim_start(Mode::PushToTalk),
             Err(RecordError::AlreadyRunning)
@@ -669,11 +789,11 @@ mod tests {
             recorder.claim_finish(Mode::Dictation),
             Err(RecordError::Finalizing)
         ));
-        tauri::async_runtime::block_on(recorder.cancel());
-        assert_eq!(recorder.snapshot().status, RecordingStatus::Processing);
+        tauri::async_runtime::block_on(recorder.cancel(&engine()));
+        assert_eq!(recorder.status(), RecordingStatus::Processing);
         recorder.reset();
-        assert_eq!(recorder.snapshot().status, RecordingStatus::Idle);
-        assert!(recorder.snapshot().revision > paused.revision);
+        assert_eq!(recorder.status(), RecordingStatus::Idle);
+        assert!(recorder.snapshot(&engine()).revision > paused.revision);
     }
 
     #[test]
@@ -681,16 +801,16 @@ mod tests {
         let recorder = Recorder::new();
         recorder.claim_start(Mode::PushToTalk).unwrap();
         // No renderer reference or subscription participates in this transition.
-        let before_reload = recorder.snapshot();
+        let before_reload = recorder.snapshot(&engine());
         assert!(recorder.pause().is_err());
         recorder.claim_finish(Mode::PushToTalk).unwrap();
-        let reloaded = recorder.snapshot();
+        let reloaded = recorder.snapshot(&engine());
         assert_eq!(reloaded.status, RecordingStatus::Processing);
         assert!(reloaded.revision > before_reload.revision);
         recorder.reset();
         recorder.claim_start(Mode::PushToTalk).unwrap();
-        tauri::async_runtime::block_on(recorder.cancel());
-        assert_eq!(recorder.snapshot().status, RecordingStatus::Idle);
+        tauri::async_runtime::block_on(recorder.cancel(&engine()));
+        assert_eq!(recorder.status(), RecordingStatus::Idle);
     }
 
     #[test]
@@ -715,13 +835,35 @@ mod tests {
     }
 
     #[test]
+    fn a_device_change_releases_the_mic_only_while_idle() {
+        let recorder = Recorder::new();
+        let deferred = || recorder.snapshot(&engine()).deferred;
+        assert!(!recorder.release_mic_or_defer());
+        assert_eq!(deferred(), []);
+
+        recorder.claim_start(Mode::PushToTalk).unwrap();
+        recorder.capture.mic.arm();
+        // The recording keeps its stream, and says so until it finishes.
+        assert!(recorder.release_mic_or_defer());
+        assert!(recorder.capture.mic.is_armed());
+        assert_eq!(deferred(), [RecordingInput::Microphone]);
+        // A second change while waiting is not news.
+        assert!(!recorder.release_mic_or_defer());
+
+        recorder.capture.mic.disarm();
+        recorder.reset();
+        assert_eq!(deferred(), []);
+        assert!(!recorder.release_mic_or_defer());
+    }
+
+    #[test]
     fn a_cancel_with_no_stream_worker_returns_at_once() {
         let recorder = Recorder::new();
         recorder.claim_start(Mode::PushToTalk).unwrap();
         let started = Instant::now();
-        tauri::async_runtime::block_on(recorder.cancel());
+        tauri::async_runtime::block_on(recorder.cancel(&engine()));
         assert!(started.elapsed() < Duration::from_secs(1));
-        assert_eq!(recorder.snapshot().status, RecordingStatus::Idle);
+        assert_eq!(recorder.status(), RecordingStatus::Idle);
     }
 
     #[test]
@@ -736,9 +878,9 @@ mod tests {
             done.1.notify_all();
         });
         let started = Instant::now();
-        tauri::async_runtime::block_on(recorder.cancel());
+        tauri::async_runtime::block_on(recorder.cancel(&engine()));
         assert!(started.elapsed() >= Duration::from_millis(150));
-        assert_eq!(recorder.snapshot().status, RecordingStatus::Idle);
+        assert_eq!(recorder.status(), RecordingStatus::Idle);
         worker.join().unwrap();
     }
 

@@ -32,6 +32,8 @@ function MiniPill({ theme }: { theme: PillThemeDef }) {
   )
 }
 
+const HAIRLINE = 'inset 0 0 0 1px color-mix(in oklab, var(--fg) 25%, transparent)'
+
 /** Same strip as the window swatches. The translucent values sit on the
  *  pill's own ground, which is how they actually appear. */
 function PillStrip({ t }: { t: PillThemeDef }) {
@@ -43,7 +45,11 @@ function PillStrip({ t }: { t: PillThemeDef }) {
           className="size-5 rounded-full"
           style={{
             background: `linear-gradient(${c}, ${c}), ${t.bg}`,
-            boxShadow: i < 2 ? 'inset 0 0 0 1px color-mix(in oklab, var(--fg) 25%, transparent)' : '0 0 0 2px var(--panel)',
+            // Every dot keeps a hairline edge: Glass and Aurora have white dots
+            // that would vanish on a light window theme.
+            boxShadow: i < 2
+              ? HAIRLINE
+              : `${HAIRLINE}, 0 0 0 2px var(--panel)`,
           }}
         />
       ))}

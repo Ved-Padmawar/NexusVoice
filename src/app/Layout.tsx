@@ -107,10 +107,10 @@ export function Layout() {
             <div>
               <div className="flex items-center gap-1.5">
                 <div className="text-[13px] leading-none font-black tracking-[-0.02em]">
-                  <span className="text-fg">Nexus</span><span className="text-accent">Voice</span>
+                  <span className="text-fg">Nexus</span><span className="text-accent-ink">Voice</span>
                 </div>
                 {isDev && (
-                  <span className="rounded-xs bg-accent-soft px-1.25 py-px text-[9px] leading-none font-bold tracking-[0.06em] text-accent uppercase">Dev</span>
+                  <span className="rounded-xs bg-accent-soft px-1.25 py-px text-[9px] leading-none font-bold tracking-[0.06em] text-accent-ink uppercase">Dev</span>
                 )}
               </div>
               <div className="mt-0.5 text-2xs tracking-[0.03em] text-fg-2">v{__APP_VERSION__}</div>
@@ -137,7 +137,7 @@ export function Layout() {
                     : 'font-medium text-muted before:scale-y-0 hover:bg-surface hover:text-fg',
                 )}
               >
-                <Icon size={15} className={cn('shrink-0', active ? 'opacity-100' : 'opacity-65 group-hover:opacity-100')} />
+                <Icon size={15} className="shrink-0" />
                 {label}
                 {path === ROUTES.SETTINGS && !hasHotkey && (
                   <span className="ml-auto size-1.5 rounded-full bg-warning" aria-label="No hotkey set" />

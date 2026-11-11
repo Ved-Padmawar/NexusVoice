@@ -9,11 +9,48 @@ use tokio::sync::RwLock;
 use crate::data::dto::dictionary::CreateDictionaryEntry;
 use crate::data::repositories::dictionary::DictionaryRepository;
 use crate::data::rows::dictionary::DictionaryEntry;
+use crate::text::dictionary_engine::{match_key, MAX_SPAN};
 use crate::text::DictionaryCorrectionEngine;
+
+/// Why an entry was not saved. The messages are for the user.
+#[derive(Debug)]
+pub enum DictionaryError {
+    Invalid(String),
+    /// Another entry already matches the same spoken words.
+    Duplicate(String),
+    Database(sqlx::Error),
+}
+
+impl From<sqlx::Error> for DictionaryError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Database(error)
+    }
+}
+
+/// The trimmed term and replacement, or what is wrong with them.
+fn validate(term: &str, replacement: &str) -> Result<(String, String), DictionaryError> {
+    let (term, replacement) = (term.trim(), replacement.trim());
+    if term.is_empty() {
+        return Err(DictionaryError::Invalid(
+            "Enter the word or phrase to correct.".to_string(),
+        ));
+    }
+    if replacement.is_empty() {
+        return Err(DictionaryError::Invalid(
+            "Enter what it should be replaced with.".to_string(),
+        ));
+    }
+    if term.split_whitespace().count() > MAX_SPAN {
+        return Err(DictionaryError::Invalid(format!(
+            "A term can be at most {MAX_SPAN} words long."
+        )));
+    }
+    Ok((term.to_string(), replacement.to_string()))
+}
 
 #[derive(Default)]
 pub struct Dictionary {
-    /// Keyed by term, the column the upsert dedupes on.
+    /// Keyed by term, which the matcher reports its hits by.
     entries: RwLock<HashMap<String, DictionaryEntry>>,
 }
 
@@ -31,30 +68,35 @@ impl Dictionary {
         entries
     }
 
-    /// The upsert keys on `term`, so a rename inserts a new row;
-    /// `previous_term` names the old one to drop, or it lingers and keeps
-    /// rewriting dictation.
-    pub async fn upsert(
+    /// Add an entry, or with `id` edit that one in place: a rename keeps its
+    /// id and use count. The dictionary stays exactly as it was on any error.
+    pub async fn save(
         &self,
         pool: &SqlitePool,
-        term: String,
-        replacement: String,
-        previous_term: Option<String>,
-    ) -> Result<DictionaryEntry, sqlx::Error> {
-        let repo = DictionaryRepository::new(pool.clone());
-        let entry = repo
-            .upsert(CreateDictionaryEntry { term, replacement })
-            .await?;
-
-        let renamed_from = previous_term.filter(|previous| previous != &entry.term);
-        if let Some(previous) = &renamed_from {
-            repo.delete_by_term(previous).await?;
-        }
-
+        id: Option<i64>,
+        term: &str,
+        replacement: &str,
+    ) -> Result<DictionaryEntry, DictionaryError> {
+        let (term, replacement) = validate(term, replacement)?;
+        // Held across the write, so two saves cannot both pass the duplicate check.
         let mut entries = self.entries.write().await;
-        if let Some(previous) = &renamed_from {
-            entries.remove(previous);
+        let key = match_key(&term);
+        if entries
+            .values()
+            .any(|e| Some(e.id) != id && match_key(&e.term) == key)
+        {
+            return Err(DictionaryError::Duplicate(format!(
+                "“{term}” is already in your dictionary."
+            )));
         }
+
+        let repo = DictionaryRepository::new(pool.clone());
+        let input = CreateDictionaryEntry { term, replacement };
+        let entry = match id {
+            Some(id) => repo.update(id, input).await?,
+            None => repo.create(input).await?,
+        };
+        entries.retain(|_, e| e.id != entry.id);
         entries.insert(entry.term.clone(), entry.clone());
         Ok(entry)
     }
@@ -92,3 +134,7 @@ impl Dictionary {
         corrected
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/text/dictionary.rs"]
+mod tests;

@@ -1,6 +1,8 @@
 import { Profiler, StrictMode } from 'react'
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, render as rtlRender, waitFor } from '@testing-library/react'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { queryClient } from '../../app/queryClient'
 import { listen, type EventCallback } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { PillApp } from '../../pill/PillApp'
@@ -12,6 +14,11 @@ vi.mock('../../shared/ui/WaveformCanvas', () => ({ WaveformCanvas: () => <canvas
 // jsdom has no CSS transition engine. Model the browser's completion promise;
 // the real-WebView suite checks the interpolated dimensions and fade timing.
 Element.prototype.getAnimations ??= () => []
+
+/** The pill window mounts under the app's query client, as pill-main does. */
+const render = (ui: React.ReactElement) => rtlRender(ui, {
+  wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
+})
 
 const listeners = new Map<string, Set<EventCallback<unknown>>>()
 const emit = async (event: string, payload: unknown = null) => {
@@ -30,10 +37,11 @@ const DELIVERED = { pasteError: null, saved: true }
 
 const RESPONSES: Record<string, unknown> = {
   get_recording_state: { revision: 0, status: 'idle' },
-  get_model_info: { downloaded: true, downloading: false },
   get_pill_settings: { revision: 0, settings: DEFAULT_PILL },
+  get_active_downloads: [],
 }
 beforeEach(() => {
+  queryClient.clear()
   listeners.clear()
   localStorage.clear()
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }))
@@ -178,7 +186,7 @@ it('ignores a delayed snapshot after newer backend events and survives a rendere
 })
 
 it.each([
-  [true, "Couldn't paste — it's saved in your history"],
+  [true, "Couldn't paste - it's saved in your history"],
   [false, "Couldn't paste or save this dictation"],
 ])('points to history after a failed paste only when saved is %s', async (saved, message) => {
   const view = render(<PillApp />)
@@ -200,7 +208,6 @@ it('ignores a preferences update older than the one it shows', async () => {
 it('shrinks the window even when recording ends before expansion IPC resolves', async () => {
   let finishExpansion: (() => void) | undefined
   vi.mocked(invoke).mockImplementation((cmd, args) => {
-    if (cmd === 'get_model_info') return Promise.resolve({ downloaded: true, downloading: false })
     if (cmd === 'resize_pill' && (args as { expanded: boolean }).expanded) {
       return new Promise<void>(resolve => { finishExpansion = resolve })
     }
@@ -344,7 +351,7 @@ it('keeps a newer recording visible when late delivery or model events arrive', 
   await record('idle')
   await record('recording')
   await emit('transcription-complete', DELIVERED)
-  await emit('model-download-complete')
+  await emit('model-download-complete', { id: 'other' })
   expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: recording')
 })
 
@@ -356,4 +363,52 @@ it('clears a capture error after the backend returns to idle', async () => {
   await record('idle')
   expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: error')
   await waitFor(() => expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: idle'), { timeout: 4000 })
+})
+
+it('shows concurrent downloads as one figure that a finishing download never lowers', async () => {
+  const view = render(<PillApp />)
+  await waitFor(() => expect(listeners.get('model-download-progress')?.size).toBe(1))
+  const pct = () => view.container.querySelector('.pill__pct')?.textContent
+  await emit('model-download-start', { id: 'a' })
+  await emit('model-download-start', { id: 'b' })
+  await emit('model-download-progress', { id: 'a', pct: 40 })
+  await emit('model-download-progress', { id: 'b', pct: 10 })
+  await waitFor(() => expect(pct()).toBe('10%'))
+  // A tick from one download never replaces the other's share.
+  await emit('model-download-progress', { id: 'b', pct: 20 })
+  await waitFor(() => expect(pct()).toBe('20%'))
+  // The first to finish leaves the other showing, without lowering the figure.
+  await emit('model-download-complete', { id: 'b' })
+  await waitFor(() => expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: downloading'))
+  await waitFor(() => expect(pct()).toBe('40%'))
+  await emit('model-download-error', { id: 'a', error: 'offline' })
+  await waitFor(() => expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: idle'))
+})
+
+it('picks up a download already running when the pill window opens', async () => {
+  vi.mocked(invoke).mockImplementation(cmd => Promise.resolve(cmd === 'get_active_downloads'
+    ? [{ id: 'a', status: 'running', progress: 62, error: null }]
+    : RESPONSES[cmd]))
+  const view = render(<PillApp />)
+  await waitFor(() => expect(view.container.querySelector('.pill__pct')?.textContent).toBe('62%'))
+  // A recording takes the pill; the download returns once it is idle again.
+  await record('recording')
+  expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: recording')
+  await record('idle')
+  expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: downloading')
+})
+
+it('lowers the figure when a download starts mid-way, since there is more left to do', async () => {
+  const view = render(<PillApp />)
+  await waitFor(() => expect(listeners.get('model-download-progress')?.size).toBe(1))
+  const pct = () => view.container.querySelector('.pill__pct')?.textContent
+  await emit('model-download-start', { id: 'a' })
+  await emit('model-download-progress', { id: 'a', pct: 80 })
+  await waitFor(() => expect(pct()).toBe('80%'))
+  await emit('model-download-start', { id: 'b' })
+  await waitFor(() => expect(pct()).toBe('0%'))
+  // Once the newcomer finishes, the figure is the remaining download's again.
+  await emit('model-download-progress', { id: 'a', pct: 90 })
+  await emit('model-download-complete', { id: 'b' })
+  await waitFor(() => expect(pct()).toBe('90%'))
 })

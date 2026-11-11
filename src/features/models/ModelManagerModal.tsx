@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { TrashIcon, XIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
+import { extractErrorMessage } from '../../shared/errors'
 import { formatModelSize } from './models'
 import { VENDORS, vendorForFamily, isRaster } from '../../shared/vendors'
 import { NO_MODELS, useCatalog } from './queries'
@@ -17,7 +18,9 @@ type Props = {
 /** Models on this PC: where deleting lives. The total leads; the list, largest first, is the breakdown. */
 export function ModelManagerModal({ open, onClose }: Props) {
   const [models, setModels] = useState<DownloadedModel[]>([])
-  const [deleting, setDeleting] = useState<string | null>(null)
+  // A Set: deleting A then B must not re-enable A while it is still going.
+  const [deleting, setDeleting] = useState<ReadonlySet<string>>(new Set())
+  const [confirming, setConfirming] = useState<string | null>(null)
   const catalog = useCatalog().data ?? NO_MODELS
 
   const load = useCallback(() => {
@@ -29,15 +32,16 @@ export function ModelManagerModal({ open, onClose }: Props) {
   useEffect(() => { if (open) load() }, [open, load])
 
   const handleDelete = async (variant: string, displayName: string) => {
-    setDeleting(variant)
+    setConfirming(null)
+    setDeleting(s => new Set(s).add(variant))
     try {
       await commands.deleteModel(variant)
       toast.success(`${displayName} deleted`)
       load()
-    } catch {
-      toast.error('Failed to delete model')
+    } catch (e) {
+      toast.error(extractErrorMessage(e, 'Failed to delete model'))
     } finally {
-      setDeleting(null)
+      setDeleting(s => { const next = new Set(s); next.delete(variant); return next })
     }
   }
 
@@ -89,16 +93,34 @@ export function ModelManagerModal({ open, onClose }: Props) {
                   )}
                 </span>
                 <span className="text-sm font-medium text-fg-2 tabular-nums">{formatModelSize(model.sizeBytes)}</span>
-                <button
-                  type="button"
-                  data-del
-                  aria-label={`Delete ${model.displayName}`}
-                  disabled={deleting === model.variant}
-                  onClick={() => void handleDelete(model.variant, model.displayName)}
-                  className="grid size-8 cursor-pointer place-items-center rounded-lg text-muted transition-[color,background-color] hover:bg-danger-soft hover:text-danger disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  <TrashIcon size={14} />
-                </button>
+                {/* Fixed width: asking to confirm doesn't move the size beside it. */}
+                <span className="flex w-17 shrink-0 justify-end">
+                  {confirming === model.variant ? (
+                    <button
+                      type="button"
+                      data-del
+                      autoFocus
+                      aria-label={`Confirm deleting ${model.displayName}`}
+                      onClick={() => void handleDelete(model.variant, model.displayName)}
+                      onBlur={() => setConfirming(null)}
+                      onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setConfirming(null) } }}
+                      className="h-8 w-full cursor-pointer rounded-lg bg-danger-soft text-xs font-semibold text-danger ring-1 ring-inset ring-danger/40 transition-shadow hover:ring-danger"
+                    >
+                      Delete
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      data-del
+                      aria-label={`Delete ${model.displayName}`}
+                      disabled={deleting.has(model.variant)}
+                      onClick={() => setConfirming(model.variant)}
+                      className="grid size-8 cursor-pointer place-items-center rounded-lg text-muted transition-[color,background-color] hover:bg-danger-soft hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <TrashIcon size={14} />
+                    </button>
+                  )}
+                </span>
               </div>
             </li>
           )

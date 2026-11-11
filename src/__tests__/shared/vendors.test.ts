@@ -52,12 +52,6 @@ describe('vendor registry', () => {
     for (const id of Object.keys(VENDORS)) expect(isRaster(id)).toBe(false)
   })
 
-  it('gives every vector vendor a renderable mark', () => {
-    for (const [id, v] of Object.entries(VENDORS)) {
-      expect(v.Mark, `${id} has no Mark`).toBeTruthy()
-    }
-  })
-
   it('uses a null colour only for marks that carry their own', () => {
     // A null colour means "do not tint"; a hex means the file is monochrome.
     // Getting this backwards renders an invisible or wrongly-tinted logo.

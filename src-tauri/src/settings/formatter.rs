@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::text::llm::config::{FormatConfig, Profile};
+use crate::text::llm::config::{check_base_url, FormatConfig, Profile};
 
 use super::Secrets;
 
@@ -106,6 +106,22 @@ pub struct ProfileUpdate {
 }
 
 impl FormatterUpdate {
+    /// Reject a draft whose active provider has an address no request could
+    /// reach. An empty address is a draft in progress, not an error, and
+    /// turning formatting off never needs a reachable address.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if !self.enabled {
+            return Ok(());
+        }
+        let Some(profile) = self.profiles.get(&self.provider) else {
+            return Ok(());
+        };
+        if self.provider == "anthropic" || profile.base_url.trim().is_empty() {
+            return Ok(());
+        }
+        check_base_url(&profile.base_url)
+    }
+
     pub fn store_keys(&self, secrets: &Secrets) -> Result<(), String> {
         for (provider, profile) in &self.profiles {
             match profile.api_key.as_deref().map(str::trim) {

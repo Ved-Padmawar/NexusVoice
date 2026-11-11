@@ -5,7 +5,8 @@ import {
 import { createPortal } from 'react-dom'
 import { cn } from '@/shared/utils'
 
-type Placement = 'bottom-start' | 'bottom-end' | 'bottom'
+/** `side` opens beside the anchor (left, or right without room), top-aligned. */
+type Placement = 'bottom-start' | 'bottom-end' | 'bottom' | 'side'
 
 type Props = {
   open: boolean
@@ -48,6 +49,12 @@ export function Popover({
     const a = anchor.getBoundingClientRect()
     const w = matchWidth ? a.width : panel.offsetWidth
     const h = panel.offsetHeight
+    if (placement === 'side') {
+      const left = a.left - offset - w >= MARGIN ? a.left - offset - w : a.right + offset
+      const top = Math.min(Math.max(MARGIN, a.top), window.innerHeight - h - MARGIN)
+      setPos({ top, left, above: false })
+      return
+    }
     const room = window.innerHeight - a.bottom - offset - MARGIN
     const above = h > room && a.top - offset - MARGIN > room
     const top = above ? a.top - offset - h : a.bottom + offset

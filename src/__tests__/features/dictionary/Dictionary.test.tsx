@@ -7,7 +7,10 @@ import type { DictionaryEntry } from '../../../shared/types'
 import { toast } from 'sonner'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+const undoToasts = vi.hoisted(() => [] as { onAutoClose?: () => void }[])
+vi.mock('sonner', () => ({
+  toast: Object.assign((_: string, options: { onAutoClose?: () => void }) => { undoToasts.push(options) }, { success: vi.fn(), error: vi.fn() }),
+}))
 
 const mockInvoke = vi.mocked(invoke)
 
@@ -69,7 +72,7 @@ describe('Dictionary — add entry', () => {
     fireEvent.change(replacementField(), { target: { value: 'the' } })
     fireEvent.click(saveButton())
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'teh', replacement: 'the', previousTerm: null })
+      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'teh', replacement: 'the', id: null })
     })
   })
 
@@ -91,7 +94,7 @@ describe('Dictionary — add entry', () => {
     fireEvent.change(replacementInput, { target: { value: 'going to' } })
     fireEvent.keyDown(replacementInput, { key: 'Enter' })
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'gonna', replacement: 'going to', previousTerm: null })
+      expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', { term: 'gonna', replacement: 'going to', id: null })
     })
   })
 })
@@ -113,23 +116,19 @@ describe('Dictionary — existing entries', () => {
     expect(screen.getByDisplayValue('the')).toBeEnabled()
   })
 
-  it('renders entry term and replacement', async () => {
-    render()
-    expect(await screen.findByText('teh')).toBeInTheDocument()
-    expect(screen.getByText('the')).toBeInTheDocument()
-  })
-
-  it('deletes the entry by id when delete is clicked', async () => {
+  it('hides a deleted entry at once and deletes it by id when the undo window closes', async () => {
     render()
     await screen.findByText('teh')
-    const deleteBtn = screen.getByRole('button', { name: /delete teh/i })
-    fireEvent.click(deleteBtn)
+    fireEvent.click(screen.getByRole('button', { name: /delete teh/i }))
+    await waitFor(() => expect(screen.queryByText('teh')).not.toBeInTheDocument())
+    expect(mockInvoke).not.toHaveBeenCalledWith('delete_dictionary_entry', expect.anything())
+    undoToasts.at(-1)?.onAutoClose?.()
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('delete_dictionary_entry', { id: 1 })
     })
   })
 
-  it('sends the previous term when an entry is renamed', async () => {
+  it('renames an entry in place by its id', async () => {
     render()
     await screen.findByText('teh')
     const editBtn = screen.getByRole('button', { name: /edit teh/i })
@@ -143,17 +142,9 @@ describe('Dictionary — existing entries', () => {
       expect(mockInvoke).toHaveBeenCalledWith('update_dictionary', {
         term: 'hte',
         replacement: 'the',
-        previousTerm: 'teh',
+        id: 1,
       })
     })
-  })
-
-  it('enters edit mode on pencil click', async () => {
-    render()
-    await screen.findByText('teh')
-    const editBtn = screen.getByRole('button', { name: /edit teh/i })
-    if (editBtn) fireEvent.click(editBtn)
-    expect(screen.getAllByRole('textbox').length).toBeGreaterThan(0)
   })
 
   it('cancels edit mode on X click', async () => {

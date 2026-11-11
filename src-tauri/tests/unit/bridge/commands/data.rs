@@ -3,6 +3,29 @@
 
 use super::*;
 
+#[test]
+fn an_existing_export_is_never_overwritten() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let first = write_without_overwriting(dir.path(), "words.csv", "a").expect("first");
+    let second = write_without_overwriting(dir.path(), "words.csv", "b").expect("second");
+    let third = write_without_overwriting(dir.path(), "words.csv", "c").expect("third");
+
+    assert_eq!(first.file_name().unwrap(), "words.csv");
+    assert_eq!(second.file_name().unwrap(), "words (2).csv");
+    assert_eq!(third.file_name().unwrap(), "words (3).csv");
+    assert_eq!(std::fs::read_to_string(first).unwrap(), "a");
+}
+
+#[test]
+fn an_export_name_must_be_a_bare_file_name() {
+    assert!(is_bare_file_name("nexusvoice-history.csv"));
+    for bad in [
+        "", "..", "../x.csv", "a/b.csv", r"a\b.csv", "C:x.csv", "x?.csv",
+    ] {
+        assert!(!is_bare_file_name(bad), "{bad:?} should be rejected");
+    }
+}
+
 fn query(limit: Option<i64>) -> PageQuery {
     PageQuery {
         limit,

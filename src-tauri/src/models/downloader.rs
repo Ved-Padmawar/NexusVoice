@@ -15,7 +15,7 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
 use crate::bridge::events::ModelDownloadProgress;
-use crate::models::catalog::ModelEntry;
+use crate::models::catalog::{self, ModelEntry};
 use crate::models::library::Downloads;
 
 /// Error string the caller matches on to detect a user-initiated cancel.
@@ -77,14 +77,16 @@ pub async fn download_file(
     if cancel.is_cancelled() {
         return Err(CANCELLED.to_string());
     }
-    let have = tokio::fs::metadata(&part).await.map_or(0, |m| m.len());
+    let mut have = tokio::fs::metadata(&part).await.map_or(0, |m| m.len());
     if have > size {
         tokio::fs::remove_file(&part)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| describe_io(&e))?;
+        have = 0;
     }
     // A complete partial needs no HTTP range request at EOF.
     if have != size {
+        ensure_free_space(dest, size - have)?;
         for attempt in 1..=MAX_ATTEMPTS {
             if cancel.is_cancelled() {
                 return Err(CANCELLED.to_string());
@@ -92,12 +94,10 @@ pub async fn download_file(
 
             match transfer(url, &part, cancel, size, &mut on_progress).await {
                 Ok(()) => break,
-                // Keep the .part file: the bytes let a later attempt resume, and
-                // startup sweeps whatever is left behind.
+                // Keep the .part file: the bytes let a later attempt, or the next
+                // launch, resume.
                 Err(e) if e == CANCELLED => return Err(CANCELLED.to_string()),
-                Err(e) if attempt == MAX_ATTEMPTS => {
-                    return Err(format!("download failed after {attempt} attempts: {e}"));
-                }
+                Err(e) if attempt == MAX_ATTEMPTS => return Err(e),
                 Err(_) => {
                     let backoff = RETRY_BASE_DELAY * 2u32.pow(attempt - 1);
                     // Cancelling must not sit out the whole backoff.
@@ -112,12 +112,12 @@ pub async fn download_file(
 
     if tokio::fs::metadata(&part)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| describe_io(&e))?
         .len()
         != size
     {
         let _ = tokio::fs::remove_file(&part).await;
-        return Err("download size mismatch".to_string());
+        return Err("The download was incomplete. Try again.".to_string());
     }
 
     // A cancel landing during the last chunks must not publish the file.
@@ -127,8 +127,11 @@ pub async fn download_file(
 
     tokio::fs::rename(&part, dest)
         .await
-        .map_err(|e| format!("rename file failed: {e}"))
+        .map_err(|e| describe_io(&e))
 }
+
+/// Shown when a response carries more bytes than the catalog says.
+const TOO_LARGE: &str = "The download is larger than expected. Try again later.";
 
 /// Stream `url` into `part`, resuming from whatever is already there.
 async fn transfer(
@@ -142,7 +145,7 @@ async fn transfer(
         .connect_timeout(CONNECT_TIMEOUT)
         .read_timeout(READ_TIMEOUT)
         .build()
-        .map_err(|e| format!("http client failed: {e}"))?;
+        .map_err(|e| describe_request_error(&e))?;
 
     let mut have = tokio::fs::metadata(part).await.map_or(0, |m| m.len());
 
@@ -155,7 +158,7 @@ async fn transfer(
     let response = tokio::select! {
         () = cancel.cancelled() => return Err(CANCELLED.to_string()),
         response = request.send() => {
-            response.map_err(|e| format!("download request failed: {e}"))?
+            response.map_err(|e| describe_request_error(&e))?
         }
     };
     let status = response.status();
@@ -166,20 +169,20 @@ async fn transfer(
     if resuming && range_start(&response) != Some(have) {
         // Appending bytes from another offset would corrupt the file.
         let _ = tokio::fs::remove_file(part).await;
-        return Err("server resumed from the wrong offset".to_string());
+        return Err("The download server resumed from the wrong place. Try again.".to_string());
     }
     if have > 0 && !resuming {
         have = 0;
     }
     if !status.is_success() {
-        return Err(format!("download HTTP {status} for {url}"));
+        return Err(describe_status(status));
     }
 
     let total = response
         .content_length()
         .map_or(0, |len| len.saturating_add(have));
     if total > size {
-        return Err("download exceeds expected size".to_string());
+        return Err(TOO_LARGE.to_string());
     }
 
     let mut file = tokio::fs::OpenOptions::new()
@@ -189,7 +192,7 @@ async fn transfer(
         .truncate(!resuming)
         .open(part)
         .await
-        .map_err(|e| format!("create file failed: {e}"))?;
+        .map_err(|e| describe_io(&e))?;
 
     let mut written = have;
     let mut last_pct = pct_of(written, total);
@@ -203,17 +206,15 @@ async fn transfer(
                 return Err(CANCELLED.to_string());
             }
             next = stream.next() => match next {
-                Some(chunk) => chunk.map_err(|e| format!("read body failed: {e}"))?,
+                Some(chunk) => chunk.map_err(|e| describe_request_error(&e))?,
                 None => break,
             },
         };
 
         if written.saturating_add(chunk.len() as u64) > size {
-            return Err("download exceeds expected size".to_string());
+            return Err(TOO_LARGE.to_string());
         }
-        file.write_all(&chunk)
-            .await
-            .map_err(|e| format!("write file failed: {e}"))?;
+        file.write_all(&chunk).await.map_err(|e| describe_io(&e))?;
         written += chunk.len() as u64;
 
         let pct = pct_of(written, total);
@@ -223,10 +224,89 @@ async fn transfer(
         }
     }
 
-    file.flush()
-        .await
-        .map_err(|e| format!("flush file failed: {e}"))?;
+    file.flush().await.map_err(|e| describe_io(&e))?;
     Ok(())
+}
+
+/// A plain sentence for a failed request, with the technical cause (which
+/// carries the full URL) kept in the log.
+pub fn describe_request_error(error: &reqwest::Error) -> String {
+    log::warn!("download request failed: {error}");
+    match error.status() {
+        Some(status) => describe_status(status),
+        None => "Couldn't reach the download server. Check your connection.".to_string(),
+    }
+}
+
+fn describe_status(status: reqwest::StatusCode) -> String {
+    format!(
+        "The download server answered with an error ({}).",
+        status.as_u16()
+    )
+}
+
+/// A plain sentence for a failed file operation; a full disk is the one the
+/// user can act on.
+pub fn describe_io(error: &std::io::Error) -> String {
+    log::warn!("download file operation failed: {error}");
+    // std maps ERROR_DISK_FULL (112) and ENOSPC to `StorageFull`.
+    if error.kind() == std::io::ErrorKind::StorageFull {
+        "Your disk is full.".to_string()
+    } else {
+        "Couldn't save the download to disk.".to_string()
+    }
+}
+
+/// Fail before transferring when the destination volume cannot hold `needed` more bytes.
+fn ensure_free_space(dest: &Path, needed: u64) -> Result<(), String> {
+    let Some(free) = free_space(dest) else {
+        return Ok(());
+    };
+    if free < needed {
+        return Err(format!(
+            "Not enough disk space: needs {}, {} free.",
+            format_size(needed),
+            format_size(free)
+        ));
+    }
+    Ok(())
+}
+
+/// Free bytes on the volume holding `path`, or `None` when it cannot be told.
+fn free_space(path: &Path) -> Option<u64> {
+    sysinfo::Disks::new_with_refreshed_list()
+        .list()
+        .iter()
+        .filter(|disk| is_on_mount(path, disk.mount_point()))
+        .max_by_key(|disk| disk.mount_point().components().count())
+        .map(sysinfo::Disk::available_space)
+}
+
+/// Whole components, so `/home-backup` is not on `/home`.
+fn is_on_mount(path: &Path, mount: &Path) -> bool {
+    let mut parts = path.components();
+    mount.components().all(|m| {
+        parts.next().is_some_and(|p| {
+            // Windows drive and folder names ignore case; Unix ones do not.
+            if cfg!(windows) {
+                p.as_os_str().eq_ignore_ascii_case(m.as_os_str())
+            } else {
+                p == m
+            }
+        })
+    })
+}
+
+#[allow(clippy::cast_precision_loss)] // sizes are shown to one decimal
+fn format_size(bytes: u64) -> String {
+    const GB: f64 = 1_073_741_824.0;
+    const MB: f64 = 1_048_576.0;
+    let bytes = bytes as f64;
+    if bytes >= GB {
+        format!("{:.1} GB", bytes / GB)
+    } else {
+        format!("{:.0} MB", bytes / MB)
+    }
 }
 
 /// First byte of the range a 206 response carries.
@@ -264,18 +344,15 @@ pub struct DownloadLock {
 
 impl DownloadLock {
     pub fn acquire(models_dir: &Path, filename: &str) -> Result<Self, String> {
-        let open = |name: &str| {
-            open_lock_file(&models_dir.join(name))
-                .map_err(|e| format!("model folder unavailable: {e}"))
-        };
+        let open = |name: &str| open_lock_file(&models_dir.join(name)).map_err(|e| describe_io(&e));
         let folder = open(LOCK_FILE)?;
         folder
             .try_lock_shared()
-            .map_err(|e| format!("model folder is busy: {e}"))?;
+            .map_err(|_| "The models folder is busy. Try again in a moment.".to_string())?;
         let model = open(&format!("{filename}.lock"))?;
         model
             .try_lock()
-            .map_err(|_| "another NexusVoice is already downloading this model".to_string())?;
+            .map_err(|_| "Another NexusVoice is already downloading this model.".to_string())?;
         Ok(Self {
             _folder: folder,
             _model: model,
@@ -291,8 +368,8 @@ fn open_lock_file(path: &Path) -> std::io::Result<std::fs::File> {
         .open(path)
 }
 
-/// Delete the `.part` and model lock files left by a crash or quit. Skipped
-/// while any process is mid-download.
+/// Delete model lock files left by a crash or quit, and `.part` files that no
+/// catalog model would resume. Skipped while any process is mid-download.
 pub fn clean_stale_parts(models_dir: &Path) {
     let Ok(lock) = open_lock_file(&models_dir.join(LOCK_FILE)) else {
         return;
@@ -303,12 +380,23 @@ pub fn clean_stale_parts(models_dir: &Path) {
     let Ok(entries) = std::fs::read_dir(models_dir) else {
         return;
     };
+    let resumable: Vec<std::ffi::OsString> = catalog::all()
+        .iter()
+        .map(|model| {
+            Path::new(&model.filename)
+                .with_extension("part")
+                .into_os_string()
+        })
+        .collect();
     for entry in entries.flatten() {
         let path = entry.path();
-        let stale = path
-            .extension()
-            .is_some_and(|ext| ext == "part" || ext == "lock");
-        if stale && entry.file_name() != LOCK_FILE {
+        let name = entry.file_name();
+        let stale = match path.extension().and_then(|ext| ext.to_str()) {
+            Some("lock") => name != LOCK_FILE,
+            Some("part") => !resumable.contains(&name),
+            _ => false,
+        };
+        if stale {
             let _ = std::fs::remove_file(&path);
         }
     }

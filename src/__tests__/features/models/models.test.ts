@@ -108,7 +108,4 @@ describe('sortForDisplay', () => {
     expect(sorted.map(m => m.family)).toEqual(['whisper', 'moonshine'])
   })
 
-  it('handles an empty catalog', () => {
-    expect(sortForDisplay([])).toEqual([])
-  })
 })

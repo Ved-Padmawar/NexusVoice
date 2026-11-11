@@ -1,37 +1,54 @@
-use super::{collapse_devices, InputDevice};
+use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
-fn names(list: &[InputDevice]) -> Vec<&str> {
-    list.iter().map(|d| d.name.as_str()).collect()
+use super::{collapse_devices, grant_arm, InputDevice, MicStream};
+use crate::audio::WaveformMeter;
+
+fn mic() -> MicStream {
+    MicStream::new(
+        Arc::new(Mutex::new(Vec::new())),
+        Arc::new(Mutex::new(44_100)),
+        Arc::new(WaveformMeter::new(44_100)),
+        Arc::new(AtomicBool::new(false)),
+    )
+}
+
+fn entry(id: &str, name: &str) -> (String, String) {
+    (id.to_string(), name.to_string())
+}
+
+fn ids(list: &[InputDevice]) -> Vec<&str> {
+    list.iter().map(|d| d.id.as_str()).collect()
 }
 
 #[test]
-fn dedupes_names_and_marks_default() {
-    // ALSA-style duplicate aliases collapse; the OS default is flagged once.
-    let raw = vec![
-        "Microphone (USB Audio Device)".to_string(),
-        "Microphone (USB Audio Device)".to_string(),
-        "Headset Microphone".to_string(),
-    ];
-    let out = collapse_devices(raw, Some("Headset Microphone"));
+fn a_shared_name_merges_only_where_it_means_one_mic() {
+    // Two identical USB mics share a name; only the id tells them apart.
+    let twins = vec![entry("wasapi:a", "USB Mic"), entry("wasapi:b", "USB Mic")];
+    let out = collapse_devices(twins, Some(entry("wasapi:b", "USB Mic")), false);
+    assert_eq!(ids(&out), ["wasapi:a", "wasapi:b"]);
+    assert!(!out[0].is_default && out[1].is_default);
 
-    assert_eq!(
-        names(&out),
-        ["Microphone (USB Audio Device)", "Headset Microphone"]
-    );
-    assert!(!out[0].is_default);
-    assert!(out[1].is_default, "the OS default must be marked");
+    // ALSA lists one mic under several PCM ids; the default may be any alias.
+    let aliases = vec![
+        entry("alsa:hw:1,0", "USB Mic"),
+        entry("alsa:plughw:1,0", "USB Mic"),
+        entry("alsa:hw:0,0", "Built-in"),
+    ];
+    let out = collapse_devices(aliases, Some(entry("alsa:plughw:1,0", "USB Mic")), true);
+    assert_eq!(ids(&out), ["alsa:hw:1,0", "alsa:hw:0,0"]);
+    assert!(out[0].is_default && !out[1].is_default);
 }
 
 #[test]
 fn fails_open_to_default_when_empty() {
     // Enumeration returned nothing, but a default exists — surface it so the
     // picker is never empty and recording still works.
-    let out = collapse_devices(Vec::new(), Some("Default Input"));
-    assert_eq!(names(&out), ["Default Input"]);
+    let out = collapse_devices(Vec::new(), Some(entry("wasapi:d", "Default Input")), false);
+    assert_eq!(ids(&out), ["wasapi:d"]);
     assert!(out[0].is_default);
 
     // No devices and no default: an empty list is correct.
-    assert!(collapse_devices(Vec::new(), None).is_empty());
+    assert!(collapse_devices(Vec::new(), None, false).is_empty());
 }
 
 // ── Sample conversion ──────────────────────────────────────────────────
@@ -39,13 +56,6 @@ fn fails_open_to_default_when_empty() {
 // fail — it quietly distorts the audio and degrades every transcription.
 
 use super::ToF32;
-
-#[test]
-fn f32_samples_pass_through_unchanged() {
-    assert_eq!(0.5f32.to_f32(), 0.5);
-    assert_eq!((-0.25f32).to_f32(), -0.25);
-    assert_eq!(0.0f32.to_f32(), 0.0);
-}
 
 #[test]
 fn i16_samples_scale_to_plus_minus_one() {
@@ -85,4 +95,25 @@ fn every_sample_format_stays_within_range() {
         let v = raw.to_f32();
         assert!((-1.0..=1.0).contains(&v), "u16 {raw} -> {v}");
     }
+}
+
+#[test]
+fn a_new_recording_ignores_the_old_stream_until_its_device_is_open() {
+    let mic = mic();
+    mic.arm();
+    // The supervisor may still be swapping a stale "Default" device.
+    assert!(!mic.shared.captures());
+    assert!(mic.is_armed());
+    grant_arm(&mic.shared);
+    assert!(mic.shared.captures());
+}
+
+#[test]
+fn a_disarm_while_the_device_opens_stays_disarmed() {
+    let mic = mic();
+    mic.arm();
+    mic.disarm();
+    grant_arm(&mic.shared);
+    assert!(!mic.is_armed());
+    assert!(!mic.shared.captures());
 }

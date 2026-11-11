@@ -42,9 +42,10 @@ fn session_id() -> &'static str {
     })
 }
 
-/// Register compute backends before any model loads, the CUDA pack first so ggml prefers it.
-fn init_compute_backends(app_data_dir: &std::path::Path) {
-    crate::models::cuda::activate(app_data_dir);
+/// Register compute backends before any model loads, the CUDA pack first so ggml
+/// prefers it. Returns whether the installed CUDA pack failed verification.
+fn init_compute_backends(app_data_dir: &std::path::Path) -> bool {
+    let cuda_damaged = crate::models::cuda::activate(app_data_dir);
     match transcribe_cpp::init_backends_default() {
         Ok(()) => {
             let devices = transcribe_cpp::devices();
@@ -60,6 +61,7 @@ fn init_compute_backends(app_data_dir: &std::path::Path) {
         }
         Err(e) => log::warn!("transcribe.cpp backend init failed: {e}"),
     }
+    cuda_damaged
 }
 
 fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
@@ -154,7 +156,7 @@ pub fn run() {
 fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
     std::fs::create_dir_all(&app_data_dir)?;
-    init_compute_backends(&app_data_dir);
+    let cuda_damaged = init_compute_backends(&app_data_dir);
 
     let models_dir = shared_models_dir(&app_data_dir);
     std::fs::create_dir_all(&models_dir)?;
@@ -164,15 +166,17 @@ fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // The database opens in the background; only the settings file is read here.
     let secrets = Secrets::new(app.config().identifier.clone());
     app.manage(Settings::load(&app_data_dir, secrets));
+    reset_input_device_saved_by_name(&app.state::<Settings>());
     app.manage(Database::default());
     app.manage(Dictionary::default());
     app.manage(EngineCache::new(models_dir.clone()));
     app.manage(ModelLibrary::new(models_dir));
-    app.manage(CudaPack::new(app_data_dir.clone()));
+    app.manage(CudaPack::new(app_data_dir.clone(), cuda_damaged));
     CudaPack::replace_unverified(app.handle());
     app.manage(Recorder::new());
     app.state::<Recorder>()
         .set_keep_mic_open(app.state::<Settings>().keep_mic_open());
+    Recorder::follow_engine(app.handle());
     app.manage(Hotkeys::default());
 
     spawn_open_database(app.handle().clone(), app_data_dir.join("nexusvoice.db"));
@@ -194,6 +198,18 @@ fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     EngineCache::warm(app.handle());
     crate::models::idle::spawn_watcher(app.handle().clone());
     Ok(())
+}
+
+/// A microphone saved by name in an older version falls back to the default.
+fn reset_input_device_saved_by_name(settings: &Settings) {
+    if settings
+        .input_device()
+        .is_some_and(|saved| !crate::audio::is_device_id(&saved))
+    {
+        if let Err(e) = settings.set_input_device(None) {
+            log::error!("could not reset the saved microphone: {e}");
+        }
+    }
 }
 
 fn spawn_open_database(app: tauri::AppHandle, db_path: std::path::PathBuf) {

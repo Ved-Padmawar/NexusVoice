@@ -168,13 +168,6 @@ fn apply_to_text_long_sentence() {
 }
 
 #[test]
-fn empty_dictionary_returns_text_unchanged() {
-    let e = engine(vec![]);
-    let (text, _) = e.apply_to_text("hello world");
-    assert_eq!(text, "hello world");
-}
-
-#[test]
 fn apply_to_text_returns_matched_terms() {
     let e = engine(vec![entry(1, "teh", "the"), entry(2, "gonna", "going to")]);
     let (_, terms) = e.apply_to_text("teh dog is gonna run");

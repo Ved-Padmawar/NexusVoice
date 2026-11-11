@@ -28,19 +28,19 @@
 
 .live-transcript-preview[data-pill-theme="canvas"] {
   --preview-border: #93a5e9;
-  --preview-dim: rgb(52 86 214 / 0.62);
+  --preview-dim: #4a64c9;
   --preview-shadow: 0 4px 12px -6px rgb(30 50 140 / 0.28);
 }
 
 .live-transcript-preview[data-pill-theme="dawn"] {
   --preview-border: #e0936c;
-  --preview-dim: rgb(194 65 12 / 0.65);
+  --preview-dim: #9a3a0c;
   --preview-shadow: 0 4px 12px -6px rgb(160 60 10 / 0.3);
 }
 
 .live-transcript-preview[data-pill-theme="aurora"] {
   --preview-border: rgb(255 255 255 / 0.3);
-  --preview-dim: rgb(255 255 255 / 0.72);
+  --preview-dim: rgb(255 255 255 / 0.85);
   --preview-shadow: inset 0 1px 0 rgb(255 255 255 / 0.14), 0 8px 22px -10px rgb(110 80 220 / 0.6);
   text-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
 }

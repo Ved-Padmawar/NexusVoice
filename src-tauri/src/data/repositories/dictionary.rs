@@ -13,7 +13,6 @@ impl DictionaryRepository {
         Self { pool }
     }
 
-    #[cfg(test)]
     pub async fn create(
         &self,
         input: CreateDictionaryEntry,
@@ -54,26 +53,20 @@ impl DictionaryRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn delete_by_term(&self, term: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM dictionary WHERE term = ?")
-            .bind(term)
-            .execute(&self.pool)
-            .await?;
-        Ok(result.rows_affected() > 0)
-    }
-
-    pub async fn upsert(
+    /// Edit a row in place, so a rename keeps its id and hit count.
+    /// `RowNotFound` when no row has `id`.
+    pub async fn update(
         &self,
+        id: i64,
         input: CreateDictionaryEntry,
     ) -> Result<DictionaryEntry, sqlx::Error> {
         sqlx::query_as::<_, DictionaryEntry>(
-            "INSERT INTO dictionary (term, replacement)
-             VALUES (?, ?)
-             ON CONFLICT(term) DO UPDATE SET replacement = excluded.replacement
+            "UPDATE dictionary SET term = ?, replacement = ? WHERE id = ?
              RETURNING id, term, replacement, hits, created_at",
         )
         .bind(input.term)
         .bind(input.replacement)
+        .bind(id)
         .fetch_one(&self.pool)
         .await
     }

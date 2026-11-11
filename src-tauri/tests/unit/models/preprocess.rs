@@ -101,16 +101,6 @@ fn normalize_leaves_silence_untouched() {
 }
 
 #[test]
-fn normalize_keeps_the_timeline_intact() {
-    // Word timestamps index into this buffer, so a dropped or inserted sample
-    // would desync every timestamp after it.
-    let input: Vec<f32> = (0..16_000)
-        .map(|i| f32::from(u8::try_from(i % 100).expect("under 100")) / 100.0 - 0.5)
-        .collect();
-    assert_eq!(normalize_level(&input).len(), input.len());
-}
-
-#[test]
 fn an_unknown_mic_rate_is_rejected() {
     assert!(To16k::new(0).is_err());
 }

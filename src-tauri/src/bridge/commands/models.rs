@@ -2,7 +2,7 @@
 //! idle unload and the hardware profile.
 
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::models::cache::EngineCache;
 use crate::models::catalog::{self, ModelEntry, Pipeline};
@@ -15,7 +15,7 @@ use crate::settings::Settings;
 use super::error::ApiError;
 
 fn unknown_model() -> ApiError {
-    ApiError::new("invalid_variant", "unknown model id")
+    ApiError::new("invalid_variant", "That model isn't available.")
 }
 
 fn catalog_entry(id: &str) -> Result<&'static ModelEntry, ApiError> {
@@ -107,16 +107,33 @@ pub fn delete_model(
 ) -> Result<(), ApiError> {
     let entry = catalog_entry(&variant)?;
     if !library.is_downloaded(entry) {
-        return Err(ApiError::new("not_found", "model file not found"));
+        return Err(ApiError::new("not_found", "That model isn't downloaded."));
     }
-    Ok(library.delete(&app, entry)?)
+    library.delete(&app, entry).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::ResourceBusy {
+            ApiError::new(
+                "io_error",
+                "That model is in use by a recording. Try again when it finishes.",
+            )
+        } else {
+            e.into()
+        }
+    })
 }
 
-/// Make a model the active one.
+/// Make a model on disk the active one.
 #[tauri::command]
 #[specta::specta]
-pub fn set_model_override(app: AppHandle, variant: String) -> Result<(), ApiError> {
-    Ok(ModelLibrary::select(&app, catalog_entry(&variant)?)?)
+pub fn set_model_override(
+    app: AppHandle,
+    library: State<'_, ModelLibrary>,
+    variant: String,
+) -> Result<(), ApiError> {
+    let entry = catalog_entry(&variant)?;
+    if !library.is_downloaded(entry) {
+        return Err(ApiError::new("not_found", "Download this model first."));
+    }
+    Ok(ModelLibrary::select(&app, entry)?)
 }
 
 #[derive(Debug, Serialize, specta::Type)]
@@ -199,18 +216,21 @@ pub fn get_language_options(settings: State<'_, Settings>) -> LanguageSettings {
 #[tauri::command]
 #[specta::specta]
 pub fn set_language(
-    app: AppHandle,
     settings: State<'_, Settings>,
+    engine: State<'_, EngineCache>,
     code: Option<String>,
 ) -> Result<(), ApiError> {
     let model = ModelLibrary::active(&settings);
     if let Some(c) = code.as_deref() {
         if c != AUTO && !model.languages.iter().any(|l| l == c) {
-            return Err(ApiError::new("invalid_language", "unsupported language"));
+            return Err(ApiError::new(
+                "invalid_language",
+                "This model doesn't support that language.",
+            ));
         }
     }
     settings.set_language(code)?;
-    EngineCache::apply_language(&app);
+    engine.apply_language(&settings);
     Ok(())
 }
 
@@ -243,18 +263,24 @@ pub struct HardwareProfileResponse {
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_hardware_profile(engine: State<'_, EngineCache>) -> HardwareProfileResponse {
+pub async fn get_hardware_profile(app: AppHandle) -> HardwareProfileResponse {
+    let loaded_backend = app.state::<EngineCache>().backend();
+    // The first probe makes blocking syscalls; keep them off the main thread.
+    tauri::async_runtime::spawn_blocking(move || hardware_profile(loaded_backend))
+        .await
+        .expect("hardware probe panicked")
+}
+
+fn hardware_profile(loaded_backend: Option<String>) -> HardwareProfileResponse {
     use crate::models::{cuda, provider::recommend_model};
 
     let hw = crate::platform::hardware::cached_profile();
     // Before a model loads, NVIDIA runs on Vulkan unless a CUDA device registered.
     let execution_provider =
-        engine
-            .backend()
-            .unwrap_or_else(|| match hw.execution_provider.as_str() {
-                "cuda" if !cuda::registered() => "vulkan".to_string(),
-                other => other.to_string(),
-            });
+        loaded_backend.unwrap_or_else(|| match hw.execution_provider.as_str() {
+            "cuda" if !cuda::registered() => "vulkan".to_string(),
+            other => other.to_string(),
+        });
 
     HardwareProfileResponse {
         gpu_name: hw.gpu_type.clone(),
@@ -269,7 +295,6 @@ pub fn get_hardware_profile(engine: State<'_, EngineCache>) -> HardwareProfileRe
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfoResponse {
     pub downloaded: bool,
-    pub downloading: bool,
     pub model_name: String,
 }
 
@@ -282,21 +307,22 @@ pub fn get_model_info(
     let entry = ModelLibrary::active(&settings);
     ModelInfoResponse {
         downloaded: library.is_downloaded(entry),
-        downloading: library.is_downloading(&entry.id),
         model_name: entry.display_name.clone(),
     }
 }
 
+/// With `activate`, the model becomes the active one once it is on disk.
 #[tauri::command]
 #[specta::specta]
 pub fn start_model_download(
     app: AppHandle,
     library: State<'_, ModelLibrary>,
     id: String,
+    activate: bool,
 ) -> Result<(), ApiError> {
     let entry = catalog::find(&id)
-        .ok_or_else(|| ApiError::new("unknown_model", "no such model in the catalog"))?;
-    library.start_download(&app, entry);
+        .ok_or_else(|| ApiError::new("unknown_model", "That model isn't available."))?;
+    library.start_download(&app, entry, activate);
     Ok(())
 }
 

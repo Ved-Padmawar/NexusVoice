@@ -3,8 +3,7 @@ use super::*;
 #[test]
 fn enqueue_registers_a_queued_entry() {
     let d = Downloads::new();
-    assert!(d.enqueue("whisper-tiny").is_some());
-    assert!(d.is_pending("whisper-tiny"));
+    assert!(d.enqueue("whisper-tiny", false).is_some());
 
     let snap = d.snapshot();
     assert_eq!(snap.len(), 1);
@@ -17,29 +16,48 @@ fn enqueue_registers_a_queued_entry() {
 fn enqueue_is_idempotent_while_pending() {
     // A second press on the same card must not start a second transfer.
     let d = Downloads::new();
-    assert!(d.enqueue("whisper-tiny").is_some());
-    assert!(d.enqueue("whisper-tiny").is_none());
+    assert!(d.enqueue("whisper-tiny", false).is_some());
+    assert!(d.enqueue("whisper-tiny", false).is_none());
 
     d.set_running("whisper-tiny");
-    assert!(d.enqueue("whisper-tiny").is_none());
+    assert!(d.enqueue("whisper-tiny", false).is_none());
+}
+
+#[test]
+fn a_download_activates_its_model_when_any_request_for_it_asked_to() {
+    let d = Downloads::new();
+    d.enqueue("whisper-tiny", false);
+    assert!(!d.activates("whisper-tiny"));
+
+    // Onboarding picks the model the Voice tab is already fetching.
+    d.set_running("whisper-tiny");
+    assert!(d.enqueue("whisper-tiny", true).is_none());
+    assert!(d.activates("whisper-tiny"));
+
+    // A later plain request does not take the activation back.
+    d.enqueue("whisper-tiny", false);
+    assert!(d.activates("whisper-tiny"));
+    assert!(!d.activates("never-queued"));
 }
 
 #[test]
 fn a_failed_download_can_be_retried() {
     let d = Downloads::new();
-    d.enqueue("whisper-tiny");
+    d.enqueue("whisper-tiny", true);
     d.set_error("whisper-tiny", "network unreachable".into());
 
     // An error is terminal for the run but not for the model.
-    assert!(!d.is_pending("whisper-tiny"));
-    assert!(d.enqueue("whisper-tiny").is_some());
+    assert_eq!(d.snapshot()[0].1, DownloadStatus::Error);
+    assert!(d.enqueue("whisper-tiny", false).is_some());
     assert_eq!(d.snapshot()[0].1, DownloadStatus::Queued);
+    // The retry is a new request: it activates only if it asks to.
+    assert!(!d.activates("whisper-tiny"));
 }
 
 #[test]
 fn progress_and_error_surface_in_the_snapshot() {
     let d = Downloads::new();
-    d.enqueue("parakeet");
+    d.enqueue("parakeet", false);
     d.set_running("parakeet");
     d.set_progress("parakeet", 42);
 
@@ -57,7 +75,7 @@ fn progress_and_error_surface_in_the_snapshot() {
 #[test]
 fn cancel_trips_the_token_for_a_pending_download() {
     let d = Downloads::new();
-    let token = d.enqueue("canary").expect("first enqueue registers");
+    let token = d.enqueue("canary", false).expect("first enqueue registers");
     assert!(!token.is_cancelled());
 
     assert!(d.cancel("canary"));
@@ -70,26 +88,16 @@ fn cancel_reports_false_when_there_is_nothing_to_stop() {
     assert!(!d.cancel("never-queued"));
 
     // An entry left holding an error is not cancellable either.
-    d.enqueue("moonshine");
+    d.enqueue("moonshine", false);
     d.set_error("moonshine", "failed".into());
     assert!(!d.cancel("moonshine"));
 }
 
 #[test]
-fn remove_clears_the_entry() {
-    let d = Downloads::new();
-    d.enqueue("nemotron");
-    d.remove("nemotron");
-
-    assert!(!d.is_pending("nemotron"));
-    assert_eq!(d.snapshot(), Vec::new());
-}
-
-#[test]
 fn downloads_are_tracked_independently() {
     let d = Downloads::new();
-    d.enqueue("a");
-    d.enqueue("b");
+    d.enqueue("a", false);
+    d.enqueue("b", false);
     d.set_running("a");
     d.set_progress("a", 70);
 

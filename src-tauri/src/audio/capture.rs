@@ -4,12 +4,14 @@
 //! far longer — so opening one per recording clipped the first words. The device
 //! is opened once and kept open; a recording only *arms* it, which is a single
 //! atomic store, so capture begins on the very next callback.
+//! The supervisor grants the arm only once the requested device is open, so a
+//! stale "Default" stream can't feed the new recording.
 //!
 //! `cpal::Stream` is `!Send`, so it lives on a dedicated thread driven by a
 //! command channel.
 
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU8, Ordering},
     mpsc, Arc, Condvar, Mutex,
 };
 
@@ -54,9 +56,10 @@ impl ToF32 for u16 {
     }
 }
 
-/// A selectable input device: its name and whether it's the OS default.
+/// A selectable input device. Identical mics share a `name`, never an `id`.
 #[derive(Debug, Clone)]
 pub struct InputDevice {
+    pub id: String,
     pub name: String,
     pub is_default: bool,
 }
@@ -76,52 +79,92 @@ pub(super) fn device_name(device: &cpal::Device) -> Option<String> {
     device.description().ok().map(|d| d.name().to_string())
 }
 
+/// Stable endpoint id as `host:device`, e.g. `wasapi:{0.0.1…}`.
+pub(super) fn device_id(device: &cpal::Device) -> Option<String> {
+    device.id().ok().map(|id| id.to_string())
+}
+
+fn describe(device: &cpal::Device) -> Option<(String, String)> {
+    Some((device_id(device)?, device_name(device)?))
+}
+
 /// Enumerate usable input devices, validated by capability rather than name.
-/// The OS default is kept and marked; duplicate names (ALSA aliases) collapse.
+/// The OS default is kept and marked.
 pub fn list_input_devices() -> Vec<InputDevice> {
     use cpal::traits::HostTrait;
 
     let host = cpal::default_host();
-    let default_name = host.default_input_device().as_ref().and_then(device_name);
+    let default = host.default_input_device().as_ref().and_then(describe);
+    let default_id = default.as_ref().map(|(id, _)| id.as_str());
 
-    let mut names = Vec::new();
+    let mut listed = Vec::new();
     if let Ok(devices) = host.input_devices() {
         for device in devices {
-            let Some(name) = device_name(&device) else {
+            let Some(entry) = describe(&device) else {
                 continue;
             };
-            let is_default = default_name.as_deref() == Some(name.as_str());
             // Keep the default unconditionally so the user's mic is never missing.
-            if is_default || is_capture_capable(&device) {
-                names.push(name);
+            if default_id == Some(entry.0.as_str()) || is_capture_capable(&device) {
+                listed.push(entry);
             }
         }
     }
 
-    collapse_devices(names, default_name.as_deref())
+    // ALSA lists one mic under several PCM ids (`hw:`, `plughw:`); elsewhere a
+    // shared name means separate mics.
+    collapse_devices(listed, default, cfg!(target_os = "linux"))
 }
 
-/// Build the deduped device list from raw names: collapse duplicate names (ALSA
-/// `hw:`/`plughw:` aliases), mark the OS default, and fail open to the default
-/// alone when nothing enumerated so the picker is never empty.
-fn collapse_devices(names: Vec<String>, default_name: Option<&str>) -> Vec<InputDevice> {
+/// Build the device list from `(id, name)` pairs: drop repeats (by name when
+/// `merge_same_name`, else by id), mark the OS default, and fail open to the
+/// default alone when nothing enumerated so the picker is never empty.
+fn collapse_devices(
+    listed: Vec<(String, String)>,
+    default: Option<(String, String)>,
+    merge_same_name: bool,
+) -> Vec<InputDevice> {
+    let default_id = default.as_ref().map(|(id, _)| id.clone());
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for name in names {
-        let is_default = default_name == Some(name.as_str());
-        if seen.insert(name.clone()) {
-            out.push(InputDevice { name, is_default });
+    for (id, name) in listed {
+        let is_default = default_id.as_deref() == Some(id.as_str());
+        let key = if merge_same_name {
+            name.clone()
+        } else {
+            id.clone()
+        };
+        if seen.insert(key) {
+            out.push(InputDevice {
+                id,
+                name,
+                is_default,
+            });
+        } else if is_default {
+            // The default may be a merged alias.
+            if let Some(kept) = out.iter_mut().find(|d| d.name == name) {
+                kept.is_default = true;
+            }
         }
     }
     if out.is_empty() {
-        if let Some(name) = default_name {
+        if let Some((id, name)) = default {
             out.push(InputDevice {
-                name: name.to_string(),
+                id,
+                name,
                 is_default: true,
             });
         }
     }
     out
+}
+
+/// Id of the OS default input device right now.
+fn default_input_id() -> Option<String> {
+    use cpal::traits::HostTrait;
+    cpal::default_host()
+        .default_input_device()
+        .as_ref()
+        .and_then(device_id)
 }
 
 /// Resolve the device to capture from: the preferred one if still present,
@@ -132,11 +175,9 @@ fn resolve_input_device(
 ) -> Result<cpal::Device, String> {
     use cpal::traits::HostTrait;
     if let Some(want) = preferred {
-        if let Ok(devices) = host.input_devices() {
-            for device in devices {
-                if device_name(&device).as_deref() == Some(want) {
-                    return Ok(device);
-                }
+        if let Ok(mut devices) = host.input_devices() {
+            if let Some(device) = devices.find(|d| device_id(d).as_deref() == Some(want)) {
+                return Ok(device);
             }
         }
         log::warn!("preferred input device '{want}' unavailable — using default");
@@ -145,16 +186,25 @@ fn resolve_input_device(
         .ok_or_else(|| "no input device available".to_string())
 }
 
+/// True for a `host:device` id; older versions saved the name instead.
+pub fn is_device_id(saved: &str) -> bool {
+    saved.parse::<cpal::DeviceId>().is_ok()
+}
+
 enum Command {
     Open(Option<String>),
     Close,
     Shutdown,
 }
 
+const DISARMED: u8 = 0;
+const ARM_REQUESTED: u8 = 1;
+const ARMED: u8 = 2;
+
 /// State the audio callback touches, shared with the supervisor thread.
 struct Shared {
-    /// Samples are appended only while this is set.
-    armed: AtomicBool,
+    /// Samples are appended only while [`ARMED`].
+    armed: AtomicU8,
     /// Set by `pause_dictation` — the callback drops samples but stays armed.
     paused: Arc<AtomicBool>,
     buffer: Arc<Mutex<Vec<f32>>>,
@@ -168,6 +218,12 @@ struct Shared {
     dead: AtomicBool,
     /// Skips the idle release.
     keep_open: AtomicBool,
+}
+
+impl Shared {
+    fn captures(&self) -> bool {
+        self.armed.load(Ordering::SeqCst) == ARMED && !self.paused.load(Ordering::SeqCst)
+    }
 }
 
 /// The persistent capture stream. The recorder holds one for the app's life.
@@ -185,7 +241,7 @@ impl MicStream {
     ) -> Self {
         Self {
             shared: Arc::new(Shared {
-                armed: AtomicBool::new(false),
+                armed: AtomicU8::new(DISARMED),
                 paused,
                 buffer,
                 waveform,
@@ -219,17 +275,18 @@ impl MicStream {
         }
     }
 
-    /// Begin capturing into the shared buffer. Wait on
+    /// Request capture; the next [`MicStream::warm_up`] grants it. Wait on
     /// [`MicStream::ready_signal`] for the first sample.
     pub fn arm(&self) {
         // Drop a stale error so it can't abort this recording.
         *lock_recovering(&self.shared.last_error) = None;
         *lock_recovering(&self.shared.ready.0) = false;
-        self.shared.armed.store(true, Ordering::SeqCst);
+        self.shared.armed.store(ARM_REQUESTED, Ordering::SeqCst);
     }
 
+    /// Counts a pending request: the recording owns the device.
     pub fn is_armed(&self) -> bool {
-        self.shared.armed.load(Ordering::SeqCst)
+        self.shared.armed.load(Ordering::SeqCst) != DISARMED
     }
 
     /// The stream died and is delivering nothing; cleared by the next open.
@@ -239,7 +296,7 @@ impl MicStream {
 
     /// Stop capturing immediately, with no post-roll.
     pub fn disarm(&self) {
-        self.shared.armed.store(false, Ordering::SeqCst);
+        self.shared.armed.store(DISARMED, Ordering::SeqCst);
     }
 
     /// Stop capturing after the post-roll, so trailing speech still lands.
@@ -279,28 +336,36 @@ impl MicStream {
 fn supervise(rx: &mpsc::Receiver<Command>, shared: &Arc<Shared>) {
     let mut stream = None;
     let mut open_device = None;
+    // The device the stream actually captures from, which for "Default" is
+    // whatever the OS default was when it opened.
+    let mut opened_id: Option<String> = None;
     let mut idle_since = std::time::Instant::now();
 
     loop {
         match rx.recv_timeout(TICK) {
             Ok(Command::Open(preferred)) => {
-                // Reopening the same device would throw away a warm stream.
+                // Reopening the same device would throw away a warm stream,
+                // unless "Default" now names a different OS device.
                 if stream.is_some()
                     && open_device == preferred
                     && !shared.dead.load(Ordering::SeqCst)
+                    && (preferred.is_some() || opened_id == default_input_id())
                 {
                     idle_since = std::time::Instant::now();
+                    grant_arm(shared);
                     continue;
                 }
                 // Dropped before the flag clears, so only the new stream can set it.
                 drop(stream.take());
                 shared.dead.store(false, Ordering::SeqCst);
                 match open_stream(shared, preferred.as_deref()) {
-                    Ok(s) => {
+                    Ok((s, id)) => {
                         stream = Some(s);
+                        opened_id = id;
                         open_device = preferred;
                         *lock_recovering(&shared.last_error) = None;
                         idle_since = std::time::Instant::now();
+                        grant_arm(shared);
                     }
                     Err(e) => {
                         log::error!("microphone open failed: {e}");
@@ -320,14 +385,14 @@ fn supervise(rx: &mpsc::Receiver<Command>, shared: &Arc<Shared>) {
                     log::warn!("releasing dead microphone stream");
                     drop(stream.take());
                     open_device = None;
-                } else if shared.armed.load(Ordering::SeqCst)
+                } else if shared.armed.load(Ordering::SeqCst) != DISARMED
                     || shared.keep_open.load(Ordering::SeqCst)
                 {
                     idle_since = std::time::Instant::now();
                 } else if stream.is_some()
                     && idle_since.elapsed() >= IDLE_TIMEOUT
                     // A recording that armed just now must not lose its device.
-                    && !shared.armed.load(Ordering::SeqCst)
+                    && shared.armed.load(Ordering::SeqCst) == DISARMED
                 {
                     log::debug!("releasing idle microphone stream");
                     drop(stream.take());
@@ -338,6 +403,13 @@ fn supervise(rx: &mpsc::Receiver<Command>, shared: &Arc<Shared>) {
     }
 }
 
+/// A disarm since the request wins.
+fn grant_arm(shared: &Shared) {
+    let _ = shared
+        .armed
+        .compare_exchange(ARM_REQUESTED, ARMED, Ordering::SeqCst, Ordering::SeqCst);
+}
+
 /// Unblock a start that is waiting on the first sample which will never come.
 fn release_ready(shared: &Arc<Shared>) {
     let (lock, cvar) = &*shared.ready;
@@ -345,7 +417,11 @@ fn release_ready(shared: &Arc<Shared>) {
     cvar.notify_all();
 }
 
-fn open_stream(shared: &Arc<Shared>, preferred: Option<&str>) -> Result<cpal::Stream, String> {
+/// Open the preferred device, returning the stream and the id of the device it captures from.
+fn open_stream(
+    shared: &Arc<Shared>,
+    preferred: Option<&str>,
+) -> Result<(cpal::Stream, Option<String>), String> {
     let host = cpal::default_host();
     let device = resolve_input_device(&host, preferred)?;
 
@@ -372,7 +448,7 @@ fn open_stream(shared: &Arc<Shared>, preferred: Option<&str>) -> Result<cpal::St
         .play()
         .map_err(|e| format!("failed to start stream: {e}"))?;
 
-    Ok(stream)
+    Ok((stream, device_id(&device)))
 }
 
 fn build_stream<T>(
@@ -393,7 +469,7 @@ where
                 let mut buf = lock_recovering(&cb.buffer);
                 // Checked under the buffer lock: a reader that sees `armed`
                 // off and then takes the lock has every sample this recording got.
-                if !cb.armed.load(Ordering::SeqCst) || cb.paused.load(Ordering::SeqCst) {
+                if !cb.captures() {
                     return;
                 }
                 // Downmix straight into the shared buffer, then hand the newly

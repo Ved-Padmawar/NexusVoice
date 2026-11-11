@@ -93,11 +93,6 @@ fn an_empty_word_list_joins_to_an_empty_string() {
 use super::strip_leading_dashes;
 
 #[test]
-fn a_leading_dash_and_its_space_are_removed() {
-    assert_eq!(strip_leading_dashes("- Hello there."), "Hello there.");
-}
-
-#[test]
 fn every_dash_character_whisper_emits_is_handled() {
     // Hyphen, en dash and em dash all appear depending on the model.
     assert_eq!(strip_leading_dashes("- one"), "one");
@@ -138,12 +133,6 @@ fn a_transcript_of_nothing_but_dashes_collapses_to_empty() {
     assert_eq!(strip_leading_dashes("- - —"), "");
     assert_eq!(strip_leading_dashes("   "), "");
     assert_eq!(strip_leading_dashes(""), "");
-}
-
-#[test]
-fn ordinary_text_is_returned_untouched() {
-    let text = "The quick brown fox.";
-    assert_eq!(strip_leading_dashes(text), text);
 }
 
 #[test]

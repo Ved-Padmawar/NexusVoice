@@ -32,10 +32,10 @@ function accentChannels(hex: string): string {
 export const PILL_THEMES: PillThemeDef[] = ([
   { id: 'steel',    label: 'Steel',    blurb: 'Graphite, quiet',    bg: '#141820', border: 'rgba(148,168,200,0.15)', accent: '#b8cce0', brand: 'rgba(222,230,240,0.88)', stage: 'color-mix(in srgb, #141820 60%, #111)' },
   { id: 'midnight', label: 'Midnight', blurb: 'Ink and cyan', bg: '#0a0d14', border: 'rgba(26,209,209,0.16)',  accent: '#22d3d3', brand: 'rgba(236,238,244,0.90)', stage: 'color-mix(in srgb, #0a0d14 60%, #111)' },
-  { id: 'aurora',   label: 'Aurora',   blurb: 'Sky into ember',   bg: 'linear-gradient(105deg in oklch, #4fa8dc 0%, #6a50d6 42%, #e2553b 100%)', border: 'rgba(255,255,255,0.30)', accent: '#ffffff', brand: 'rgba(255,255,255,0.98)', stage: 'color-mix(in srgb, #3a2f7a 60%, #111)' },
+  { id: 'aurora',   label: 'Aurora',   blurb: 'Sky into ember',   bg: 'linear-gradient(105deg in oklch, #2f7fb8 0%, #6a50d6 42%, #c2412a 100%)', border: 'rgba(255,255,255,0.30)', accent: '#ffffff', brand: 'rgba(255,255,255,0.98)', stage: 'color-mix(in srgb, #3a2f7a 60%, #111)' },
   { id: 'canvas',   label: 'Canvas',   blurb: 'Porcelain blue',   bg: 'linear-gradient(180deg, #f6f8ff 0%, #e3e9fb 100%)', border: '#93a5e9', accent: '#3456d6', brand: '#18204a', stage: '#e8eaf0' },
   { id: 'dawn',     label: 'Dawn',     blurb: 'Apricot and terracotta',     bg: 'linear-gradient(180deg, #ffeedf 0%, #ffd3bb 100%)', border: '#e0936c', accent: '#c2410c', brand: '#3b1a0a', stage: '#efe4da' },
-  { id: 'glass',    label: 'Glass',    blurb: 'Smoked frost',    bg: 'linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.06)), rgba(24,28,38,0.32)', border: 'rgba(255,255,255,0.32)', accent: '#ffffff', brand: 'rgba(255,255,255,0.96)', stage: '#3a4150' },
+  { id: 'glass',    label: 'Glass',    blurb: 'Smoked frost',    bg: 'linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.06)), rgba(24,28,38,0.5)', border: 'rgba(255,255,255,0.32)', accent: '#ffffff', brand: 'rgba(255,255,255,0.96)', stage: '#3a4150' },
 ] satisfies Omit<PillThemeDef, 'accentRgb'>[]).map((t) => ({ ...t, accentRgb: accentChannels(t.accent) }))
 
 export function pillThemeDef(id: PillTheme): PillThemeDef {

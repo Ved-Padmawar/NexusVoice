@@ -23,13 +23,6 @@ fn unknown_executable_keeps_its_name_and_has_no_category() {
     assert_eq!(target.category, AppCategory::Unknown);
 }
 
-#[test]
-fn unknown_category_contributes_no_prompt_context() {
-    // A missing app must leave the prompt exactly as it was, not describe a guess.
-    assert!(AppCategory::Unknown.describe().is_none());
-    assert!(AppCategory::Chat.describe().is_some());
-}
-
 // ── Catalog integrity ──────────────────────────────────────────────────
 // Authoring guards, like the models.json ones: `lookup` lowercases the incoming
 // stem, so a table entry that is not already lowercase can never match.

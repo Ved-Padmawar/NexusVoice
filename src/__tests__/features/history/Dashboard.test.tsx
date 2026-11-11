@@ -4,16 +4,11 @@ import { MemoryRouter } from 'react-router'
 import { Dashboard } from '../../../features/history/Dashboard'
 import { invoke } from '@tauri-apps/api/core'
 import { renderWithQuery } from '../../utils'
+import { addTranscript } from '../../../features/history/queries'
 import type { Transcript, UsageStats } from '../../../shared/types'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
-
-// downloadBlob clicks an anchor; jsdom can't navigate and logs about it.
-vi.mock('../../../shared/utils', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../shared/utils')>()),
-  downloadBlob: vi.fn(),
-}))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 
 const mockInvoke = vi.mocked(invoke)
 
@@ -105,11 +100,6 @@ describe('Dashboard — transcripts', () => {
     expect(await screen.findByText('2 dictations')).toBeInTheDocument()
   })
 
-  it('labels a transcript with the app it was dictated into', async () => {
-    renderDashboard()
-    expect(await screen.findByText('VS Code')).toBeInTheDocument()
-  })
-
   it('omits the app label when the target app is unknown', async () => {
     renderDashboard()
     await screen.findByText('Hello world')
@@ -170,40 +160,24 @@ describe('Dashboard — stats', () => {
 })
 
 describe('Dashboard — export', () => {
-  it('shows export dropdown on button click', () => {
+  it('exports what the search box says, even before the list catches up', async () => {
+    mockBackend({ transcripts: sampleTranscripts, search: [sampleTranscripts[1]] })
     renderDashboard()
-    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
-    expect(screen.getByText(/plain text/i)).toBeInTheDocument()
-    expect(screen.getByText('JSON')).toBeInTheDocument()
-  })
-
-  it('pages through get_transcripts on format select', async () => {
-    renderDashboard()
+    await screen.findByText('Hello world')
+    fireEvent.change(await screen.findByRole('searchbox', { name: /search transcripts/i }), { target: { value: 'search' } })
     fireEvent.click(screen.getByRole('button', { name: 'Export' }))
     fireEvent.click(screen.getByText(/plain text/i))
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith(
-        'get_transcripts',
-        expect.objectContaining({ page: expect.objectContaining({ limit: 200 }) }),
-      )
+      expect(mockInvoke).toHaveBeenCalledWith('save_export', {
+        fileName: expect.stringMatching(/\.txt$/),
+        content: expect.not.stringContaining('Hello world'),
+      })
     })
+    expect(mockInvoke).toHaveBeenCalledWith('search_transcripts', expect.objectContaining({ query: 'search' }))
   })
 })
 
 describe('Dashboard — filter', () => {
-  it('opens filter dropdown on button click', () => {
-    renderDashboard()
-    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
-    expect(screen.getByText(/newest first/i)).toBeInTheDocument()
-  })
-
-  it('shows range and one day toggle', () => {
-    renderDashboard()
-    fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
-    expect(screen.getByText('Range')).toBeInTheDocument()
-    expect(screen.getByText('One day')).toBeInTheDocument()
-  })
-
   it('switches to one day mode', () => {
     renderDashboard()
     fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
@@ -318,5 +292,34 @@ describe('Dashboard — database failure', () => {
     expect(await screen.findByText('Hello world')).toBeInTheDocument()
     expect(statsCalls()).toBeGreaterThan(before)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
+describe('Dashboard day groups', () => {
+  it('keeps the day mounted when a new dictation joins it', async () => {
+    mockBackend({ transcripts: sampleTranscripts })
+    renderDashboard()
+    const day = (await screen.findByText('Hello world')).closest('section')!
+    await act(async () => {
+      await addTranscript({ id: 3, content: 'Fresh dictation', wordCount: 2, durationSeconds: 1, targetApp: null, createdAt: new Date().toISOString() })
+    })
+    expect(await screen.findByText('Fresh dictation')).toBeInTheDocument()
+    // Same node: the group was updated in place, not torn down and rebuilt.
+    expect(screen.getByText('Hello world').closest('section')).toBe(day)
+    expect(day.isConnected).toBe(true)
+  })
+})
+
+describe('Dashboard day groups across years', () => {
+  it('keeps the same weekday and date from different years apart', async () => {
+    // Monday 8 Nov in both years: identical labels without the year.
+    const at = (id: number, createdAt: string): Transcript => ({ id, content: `Entry ${id}`, wordCount: 2, durationSeconds: 1, targetApp: null, createdAt })
+    mockBackend({ transcripts: [at(1, '2021-11-08T12:00:00'), at(2, '2010-11-08T12:00:00')] })
+    renderDashboard()
+    const newer = (await screen.findByText('Entry 1')).closest('section')!
+    const older = screen.getByText('Entry 2').closest('section')!
+    expect(older).not.toBe(newer)
+    expect(newer).toHaveTextContent('2021')
+    expect(older).toHaveTextContent('2010')
   })
 })

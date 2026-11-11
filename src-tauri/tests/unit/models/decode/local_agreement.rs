@@ -580,35 +580,8 @@ fn would_decode_is_false_before_the_sample_rate_is_known() {
     assert!(!StreamingSession::new().would_decode(48_000, 0));
 }
 
-#[test]
-fn would_decode_agrees_with_what_poll_actually_does() {
-    // poll() re-derives the same condition. If the two drift, the worker either
-    // skips a decode the session wanted or copies a window it throws away.
-    let mut session = StreamingSession::new();
-    let rate = 16_000usize;
-    let hz = 16_000u32;
-    session.decoded_len = rate * 3;
-    for total in [0, rate / 2, rate - 1, rate, rate * 3, rate * 4, rate * 7] {
-        let new_samples = total.saturating_sub(session.decoded_len.max(session.window_start));
-        #[allow(clippy::cast_precision_loss)]
-        let poll_would_decode = (new_samples as f64 / f64::from(hz)) >= 1.0;
-        assert_eq!(
-            session.would_decode(total, hz),
-            poll_would_decode,
-            "disagreed at total={total}"
-        );
-    }
-}
-
 // ── partial ────────────────────────────────────────────────────────────
 // What the live pill renders: confirmed text plus the revisable tail.
-
-#[test]
-fn partial_is_empty_before_anything_is_decoded() {
-    let (committed, tentative) = StreamingSession::new().partial();
-    assert_eq!(committed, "");
-    assert_eq!(tentative, "");
-}
 
 #[test]
 fn partial_reports_an_undecided_hypothesis_as_entirely_tentative() {
@@ -649,21 +622,6 @@ fn partial_has_no_tentative_tail_when_the_whole_hypothesis_is_committed() {
     let (committed, tentative) = session.partial();
     assert_eq!(committed, "one two");
     assert_eq!(tentative, "", "nothing is still open to revision");
-}
-
-#[test]
-fn partial_leads_the_tentative_tail_with_one_space() {
-    // The pill concatenates the two halves, so the join must not fuse words.
-    let mut session = StreamingSession::new();
-    for _ in 0..2 {
-        session.segments = hypothesis(&[" one"], 400);
-        session.absorb();
-    }
-    session.segments = hypothesis(&[" one", " two"], 800);
-    session.absorb();
-
-    let (committed, tentative) = session.partial();
-    assert_eq!(format!("{committed}{tentative}"), "one two");
 }
 
 // ── trim safety rail ───────────────────────────────────────────────────

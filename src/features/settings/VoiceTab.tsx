@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { memo, useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import {
   ArrowClockwiseIcon, CaretRightIcon, CheckIcon, CpuIcon, DownloadSimpleIcon, HardDrivesIcon,
   HourglassMediumIcon, PlayIcon, WarningCircleIcon, XIcon,
@@ -19,6 +19,7 @@ import {
   NO_MODELS, cancelDownload, startDownload, switchModel, useActiveModel, useCatalog, useDownload, usePendingDownloads,
 } from '../models/queries'
 import { ModelUnloadSection } from './ModelUnloadSection'
+import { useKeptByRecording } from './queries'
 
 const VENDOR_NAME: Record<string, string> = {
   openai: 'OpenAI', nvidia: 'NVIDIA', ibm: 'IBM', qwen: 'Qwen', moonshine: 'Moonshine',
@@ -98,24 +99,23 @@ function Description({ model }: { model: CatalogModel }) {
   )
 }
 
-function ModelCard({
+const ModelCard = memo(function ModelCard({
   model,
   loaded,
+  waiting,
   installed,
   recommended,
   disabled,
-  onDownload,
   onUse,
-  onCancel,
 }: {
   model: CatalogModel
   loaded: boolean
+  /** Chosen, but the recording in progress finishes on the previous model. */
+  waiting: boolean
   installed: boolean
   recommended: boolean
   disabled: boolean
-  onDownload: () => void
-  onUse: () => void
-  onCancel: () => void
+  onUse: (id: ModelId) => void
 }) {
   // Per-card subscription: a progress tick re-renders only this card.
   const download = useDownload(model.id).data
@@ -149,7 +149,7 @@ function ModelCard({
       <dl className="grid grid-cols-2 gap-2 rounded-xl bg-field px-3 py-2">
         <div>
           <dt className="text-2xs text-muted">Size</dt>
-          <dd className="mt-0.5 flex items-baseline gap-1.5 text-xs font-semibold text-fg tabular-nums">
+          <dd className="mt-0.5 flex items-baseline gap-1.5 text-xs font-semibold whitespace-nowrap text-fg tabular-nums">
             {formatModelSize(model.sizeBytes)}
             <WeightMeter bytes={model.sizeBytes} />
           </dd>
@@ -170,10 +170,12 @@ function ModelCard({
         {installed ? (
           loaded ? (
             <span className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent text-xs font-semibold text-accent-fg">
-              <CheckIcon size={12} weight="bold" />In use
+              {waiting
+                ? <><HourglassMediumIcon size={12} weight="bold" />From your next recording</>
+                : <><CheckIcon size={12} weight="bold" />In use</>}
             </span>
           ) : (
-            <Button variant="chip" onClick={onUse} disabled={disabled} className={ACTION}>
+            <Button variant="chip" onClick={() => onUse(model.id)} disabled={disabled} className={ACTION}>
               <PlayIcon size={12} weight="bold" />Use
             </Button>
           )
@@ -195,7 +197,7 @@ function ModelCard({
             <button
               type="button"
               aria-label="Cancel download"
-              onClick={onCancel}
+              onClick={() => void cancelDownload(model.id)}
               className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-muted hover:bg-danger-soft hover:text-danger"
             >
               <XIcon size={12} weight="bold" />
@@ -204,7 +206,7 @@ function ModelCard({
         ) : (
           <Button
             variant="chip"
-            onClick={onDownload}
+            onClick={() => void startDownload(model.id)}
             disabled={disabled}
             className={cn(ACTION, failed && 'text-danger ring-danger/40 hover:bg-danger-soft hover:text-danger hover:ring-danger/60 [&_svg]:text-danger')}
           >
@@ -216,7 +218,7 @@ function ModelCard({
       </footer>
     </article>
   )
-}
+})
 
 type Filter = 'all' | 'installed' | 'streaming' | 'multilingual'
 
@@ -251,6 +253,7 @@ export function VoiceTab() {
   const recommendedVariant = profile ? modelNameToId(profile.recommendedModel, catalog) : null
   // `selected` is set even with nothing downloaded, so require the file too.
   const loadedVariant = selected && onDiskVariants.has(selected) ? selected : null
+  const modelKept = useKeptByRecording('model')
 
   // On disk first, then the rest; smallest first. Choosing a model never reorders.
   const ordered = useMemo(() => {
@@ -271,7 +274,7 @@ export function VoiceTab() {
   }))
 
   // Only offered for a model on disk, so the override can't point at nothing.
-  const handleUseModel = async (v: ModelId) => {
+  const handleUseModel = useCallback(async (v: ModelId) => {
     setModelSaving(true)
     try {
       await switchModel(v)
@@ -280,39 +283,41 @@ export function VoiceTab() {
       toast.error(extractErrorMessage(e, 'Could not switch model'))
     }
     finally { setModelSaving(false) }
-  }
+  }, [])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-3">
+      {/* Wraps as a whole group on a narrow window rather than pushing a control off the edge. */}
+      <div className="flex flex-wrap items-center gap-3">
         <Segmented value={filter} options={filterOptions} onChange={setFilter} aria-label="Filter models" />
-        <Button variant="chip" onClick={() => setManagerOpen(true)} className="group ml-auto">
-          <HardDrivesIcon size={14} weight="bold" className="text-accent-ink" />
-          Manage downloads
-          <span className="font-normal text-muted tabular-nums">{formatModelSize(diskBytes)}</span>
-          <CaretRightIcon size={10} weight="bold" className="text-muted transition-transform group-hover:translate-x-0.5" />
-        </Button>
-        <ModelUnloadSection />
+        <div className="ml-auto flex items-center gap-3">
+          <Button variant="chip" onClick={() => setManagerOpen(true)} className="group">
+            <HardDrivesIcon size={14} weight="bold" className="text-accent-ink" />
+            Manage downloads
+            <span className="font-normal text-muted tabular-nums">{formatModelSize(diskBytes)}</span>
+            <CaretRightIcon size={10} weight="bold" className="text-muted transition-transform group-hover:translate-x-0.5" />
+          </Button>
+          <ModelUnloadSection />
+        </div>
       </div>
 
       {/* Room for the in-use card's outline and the last row; the scrollbar sits
           in the page's right gutter instead of over the cards. */}
-      <div className="voice-scroll mt-4 -mr-3.5 min-h-0 flex-1 overflow-y-auto overscroll-none pt-0.5 pr-1 pb-8 [scrollbar-gutter:stable]">
+      <div className="voice-scroll @container mt-4 -mr-3.5 min-h-0 flex-1 overflow-y-auto overscroll-none pt-0.5 pr-1 pb-8 scrollbar-gutter-stable">
         {shown.length === 0 && (
           <p className="py-16 text-center text-sm text-muted">No models here yet.</p>
         )}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3 @3xl:grid-cols-3">
           {shown.map((model) => (
             <ModelCard
               key={model.id}
               model={model}
               loaded={loadedVariant === model.id}
+              waiting={loadedVariant === model.id && modelKept}
               installed={onDiskVariants.has(model.id)}
               recommended={recommendedVariant === model.id}
               disabled={modelSaving}
-              onDownload={() => void startDownload(model.id)}
-              onUse={() => void handleUseModel(model.id)}
-              onCancel={() => void cancelDownload(model.id)}
+              onUse={handleUseModel}
             />
           ))}
         </div>

@@ -1,12 +1,12 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { LightningIcon, CheckIcon, HardDrivesIcon, GraphicsCardIcon, GlobeIcon, BroadcastIcon, DownloadSimpleIcon, CircleNotchIcon, ArrowsClockwiseIcon } from '@phosphor-icons/react'
-import { commands } from '../../shared/bindings'
+import { commands, events } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { cn } from '../../shared/utils'
 import { formatModelSize, isStreaming, modelNameToId, sortForDisplay, type ModelId } from './models'
 import {
-  NO_MODELS, refreshActiveModel, startDownload, switchModel, useActiveModel, useCatalog, useDownload,
+  NO_MODELS, refreshActiveModel, startDownload, useActiveModel, useCatalog, useDownload,
 } from './queries'
 import { useAppStore } from '../../app/store/useAppStore'
 import { Button } from '../../shared/ui/Button'
@@ -38,7 +38,8 @@ export function ModelPickerModal() {
     commands.getHardwareProfile()
       .then(p => {
         setProfile(p)
-        setSelected(modelNameToId(p.recommendedModel, catalog))
+        // Only a default: the probe can finish after the user has picked.
+        setSelected(current => current ?? modelNameToId(p.recommendedModel, catalog))
       })
       .catch((e: unknown) => {
         // A model can still be picked by hand; only the recommendation is lost.
@@ -46,39 +47,41 @@ export function ModelPickerModal() {
       })
   }, [catalog])
 
+  // Rust switches to the pick once it is on disk; never before.
   const handleConfirm = async () => {
     if (!selected) return
     setConfirming(true)
-    try {
-      // Already on disk (picked a previously-downloaded model): skip the download step.
-      if ((await switchModel(selected)).downloaded) {
-        setModelChosen(true)
-        return
-      }
-      if (!(await startDownload(selected))) {
-        setStartError('Could not start the download.')
-        setConfirming(false)
-        return
-      }
-      setStartError(null)
-      setConfirmed(true)
-    } catch {
+    if (!(await startDownload(selected, { activate: true }))) {
+      setStartError('Could not start the download.')
       setConfirming(false)
+      return
     }
+    setStartError(null)
+    setConfirmed(true)
   }
 
-  // After a failed download: back to the list to retry or pick another.
-  const backToChoice = () => {
+  // After a failed or cancelled download: back to the list.
+  const backToChoice = useCallback(() => {
     setConfirmed(false)
     setConfirming(false)
-  }
+  }, [])
+
+  // A cancel from elsewhere leaves nothing to wait for.
+  useEffect(() => {
+    if (!confirmed) return
+    const unlisten = events.modelDownloadCancelled.listen(e => {
+      if (e.payload.id === selected) backToChoice()
+    })
+    return () => { void unlisten.then(fn => fn()) }
+  }, [confirmed, selected, backToChoice])
 
   const download = useDownload(selected).data
-  // Close once Rust reports the model on disk; a missing entry may just be unread.
-  const onDisk = useActiveModel().data?.downloaded === true
+  // Close once Rust reports the pick active and on disk.
+  const active = useActiveModel().data
+  const switched = active?.id === selected && active.downloaded
   useEffect(() => {
-    if (confirmed && onDisk) setModelChosen(true)
-  }, [confirmed, onDisk, setModelChosen])
+    if (confirmed && switched) setModelChosen(true)
+  }, [confirmed, switched, setModelChosen])
 
   const recommended = profile ? modelNameToId(profile.recommendedModel, catalog) : null
   const selectedModel = catalog.find(m => m.id === selected) ?? null
@@ -118,7 +121,7 @@ export function ModelPickerModal() {
             </div>
             <div>
               <h2 className="text-[15px] font-bold tracking-tight text-fg">Choose your AI model</h2>
-              <p className="text-[11px] text-muted mt-px">Select once — you can change this later in Settings.</p>
+              <p className="text-[11px] text-muted mt-px">Select once - you can change this later in Settings.</p>
             </div>
           </div>
 
@@ -167,11 +170,11 @@ export function ModelPickerModal() {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <span className={cn('text-[12.5px] font-semibold leading-tight truncate transition-colors duration-200', active ? 'text-accent' : 'text-fg')}>
+                      <span className={cn('text-[12.5px] font-semibold leading-tight truncate transition-colors duration-200', active ? 'text-accent-ink' : 'text-fg')}>
                         {displayName}
                       </span>
                       {isRecommended && (
-                        <span className="shrink-0 text-[8.5px] font-bold text-accent bg-accent-soft border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] rounded-xs px-1 py-px uppercase tracking-wider">
+                        <span className="shrink-0 text-[8.5px] font-bold text-accent-ink bg-accent-soft border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] rounded-xs px-1 py-px uppercase tracking-wider">
                           Best
                         </span>
                       )}
@@ -189,7 +192,7 @@ export function ModelPickerModal() {
                         {multilingual ? 'Multilingual' : 'English'}
                       </span>
                       {streaming && (
-                        <span className="flex items-center gap-1 text-accent font-semibold">
+                        <span className="flex items-center gap-1 text-accent-ink font-semibold">
                           <BroadcastIcon size={10} weight="bold" />
                           Live
                         </span>
@@ -217,9 +220,9 @@ export function ModelPickerModal() {
             <div className="flex flex-col gap-2 transition-opacity starting:opacity-0">
               <div className="flex items-center justify-between text-[11px] mb-1">
                 <span className="text-fg-2">
-                  {download ? 'Downloading model…' : 'Download complete — loading…'}
+                  {download ? 'Downloading model…' : 'Download complete - loading…'}
                 </span>
-                <span className="text-accent font-semibold tabular-nums">
+                <span className="text-accent-ink font-semibold tabular-nums">
                   {download?.progress ?? 100}%
                 </span>
               </div>

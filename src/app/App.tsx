@@ -6,9 +6,10 @@ import { Toaster } from 'sonner'
 
 import { useAppStore } from './store/useAppStore'
 import { addTranscript } from '../features/history/queries'
+import { refreshDictionaryUses } from '../features/dictionary/queries'
 import { listenForModelEvents } from '../features/models/queries'
 import { listenForCudaEvents, useCuda } from '../features/models/cuda'
-import { followPillSettings } from '../features/settings/queries'
+import { followPillSettings, listenForRecordingState } from '../features/settings/queries'
 import { ROUTES } from './routes'
 import { useEventListener, useDelayedFlag } from '../shared/hooks'
 import { Layout } from './Layout'
@@ -86,7 +87,7 @@ function App() {
   }, [startup])
 
   useEffect(() => {
-    const cleanups = [listenForModelEvents(), listenForCudaEvents()]
+    const cleanups = [listenForModelEvents(), listenForCudaEvents(), listenForRecordingState()]
     return () => { cleanups.forEach(cleanup => cleanup.then(fn => fn()).catch(() => {})) }
   }, [])
 
@@ -103,7 +104,10 @@ function App() {
     return () => clearTimeout(t)
   }, [])
 
-  useEventListener('transcriptSaved', addTranscript)
+  useEventListener('transcriptSaved', (transcript) => {
+    void addTranscript(transcript)
+    void refreshDictionaryUses()
+  })
 
   useEffect(followPillSettings, [])
 

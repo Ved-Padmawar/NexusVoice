@@ -102,7 +102,7 @@ impl InjectionStatus {
                 name: "desktop portal".to_string(),
                 available: portal,
                 preferred: portal,
-                install_hint: "built into your desktop — approve the permission prompt".to_string(),
+                install_hint: "built into your desktop - approve the permission prompt".to_string(),
             });
         }
         tools.extend(linux::candidates(session).iter().map(|tool| InjectionTool {

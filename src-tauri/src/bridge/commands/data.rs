@@ -1,12 +1,14 @@
-//! Data commands: transcripts, usage stats and the dictionary.
+//! Data commands: transcripts, usage stats, the dictionary and exports.
 
 use chrono::{DateTime, Local, NaiveDate, NaiveTime, TimeDelta, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use std::io::Write;
+use std::path::{Component, Path, PathBuf};
+use tauri::{AppHandle, Manager, State};
 
 use crate::data::repositories::transcript::{Cursor, TranscriptRepository};
 use crate::data::Database;
-use crate::text::dictionary::Dictionary;
+use crate::text::dictionary::{Dictionary, DictionaryError};
 
 use super::dto::{DictionaryResponse, TranscriptResponse};
 use super::error::ApiError;
@@ -66,7 +68,10 @@ pub async fn get_daily_words(
     utc_offset_minutes: i32,
 ) -> Result<Vec<DailyWordsResponse>, ApiError> {
     if !UTC_OFFSET_RANGE.contains(&utc_offset_minutes) {
-        return Err(ApiError::new("invalid_input", "UTC offset is out of range"));
+        return Err(ApiError::new(
+            "invalid_input",
+            "Couldn't work out your time zone.",
+        ));
     }
     let rows = TranscriptRepository::new(db.pool().await?)
         .daily_words(
@@ -131,7 +136,7 @@ impl PageQuery {
             .to
             .as_deref()
             .map(|day| {
-                let next = parse_day(day)?.succ_opt().ok_or_else(date_out_of_range)?;
+                let next = parse_day(day)?.succ_opt().ok_or_else(bad_date_filter)?;
                 Ok::<_, ApiError>(day_start_utc(next, tz)? - TimeDelta::seconds(1))
             })
             .transpose()?;
@@ -149,13 +154,16 @@ struct CreatedAtRange {
     end: Option<String>,
 }
 
-fn parse_day(day: &str) -> Result<NaiveDate, ApiError> {
-    NaiveDate::parse_from_str(day, "%Y-%m-%d")
-        .map_err(|_| ApiError::new("invalid_input", "date filter must be YYYY-MM-DD"))
+/// Dates come from the calendar, never typed, so this is our fault, not the user's.
+fn bad_date_filter() -> ApiError {
+    ApiError::new(
+        "invalid_input",
+        "Couldn't apply that date filter. Try picking the dates again.",
+    )
 }
 
-fn date_out_of_range() -> ApiError {
-    ApiError::new("invalid_input", "date filter is out of range")
+fn parse_day(day: &str) -> Result<NaiveDate, ApiError> {
+    NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|_| bad_date_filter())
 }
 
 /// First instant of `day` in `tz`. Where a DST change skips midnight, the day
@@ -169,7 +177,7 @@ fn day_start_utc<Tz: TimeZone>(day: NaiveDate, tz: &Tz) -> Result<DateTime<Utc>,
                 .earliest()
         })
         .map(|start| start.with_timezone(&Utc))
-        .ok_or_else(date_out_of_range)
+        .ok_or_else(bad_date_filter)
 }
 
 /// `SQLite`'s `CURRENT_TIMESTAMP` form, which `created_at` holds.
@@ -250,7 +258,7 @@ pub async fn get_dictionary(
     Ok(entries.into_iter().map(DictionaryResponse::from).collect())
 }
 
-/// `previous_term` names the entry being renamed, if any.
+/// Add an entry, or with `id` edit that one (a rename keeps its use count).
 #[tauri::command]
 #[specta::specta]
 pub async fn update_dictionary(
@@ -258,11 +266,16 @@ pub async fn update_dictionary(
     dictionary: State<'_, Dictionary>,
     term: String,
     replacement: String,
-    previous_term: Option<String>,
+    id: Option<i64>,
 ) -> Result<DictionaryResponse, ApiError> {
     let entry = dictionary
-        .upsert(&db.pool().await?, term, replacement, previous_term)
-        .await?;
+        .save(&db.pool().await?, id, &term, &replacement)
+        .await
+        .map_err(|e| match e {
+            DictionaryError::Invalid(message) => ApiError::new("invalid_input", message),
+            DictionaryError::Duplicate(message) => ApiError::new("dictionary_duplicate", message),
+            DictionaryError::Database(e) => e.into(),
+        })?;
     Ok(entry.into())
 }
 
@@ -274,6 +287,97 @@ pub async fn delete_dictionary_entry(
     id: i64,
 ) -> Result<(), ApiError> {
     Ok(dictionary.delete(&db.pool().await?, id).await?)
+}
+
+/// Write an export into the user's Downloads folder and return where it went.
+/// An existing file is never overwritten: the name gets " (2)", " (3)", ….
+#[tauri::command]
+#[specta::specta]
+pub async fn save_export(
+    app: AppHandle,
+    file_name: String,
+    content: String,
+) -> Result<String, ApiError> {
+    if !is_bare_file_name(&file_name) {
+        return Err(ApiError::new(
+            "invalid_input",
+            "Couldn't save the export to Downloads.",
+        ));
+    }
+    let downloads = app.path().download_dir().map_err(|e| {
+        log::warn!("downloads folder not found: {e}");
+        ApiError::new("io_error", "Couldn't find your Downloads folder.")
+    })?;
+    // Off the main thread: a large export or a slow folder would freeze every window.
+    let path = tauri::async_runtime::spawn_blocking(move || {
+        write_without_overwriting(&downloads, &file_name, &content)
+    })
+    .await
+    .expect("export write panicked")?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Open the file manager with `path` selected.
+#[tauri::command]
+#[specta::specta]
+pub fn reveal_in_folder(path: String) -> Result<(), ApiError> {
+    opener::reveal(path).map_err(|e| {
+        log::warn!("reveal in folder failed: {e}");
+        ApiError::new("open_error", "Couldn't open the folder.")
+    })
+}
+
+/// A single file name: no directories, and none of the characters Windows
+/// refuses in one. Backslash is listed because Unix would accept it as a
+/// plain character.
+fn is_bare_file_name(name: &str) -> bool {
+    let mut components = Path::new(name).components();
+    matches!(
+        (components.next(), components.next()),
+        (Some(Component::Normal(_)), None)
+    ) && !name.contains(['\\', '<', '>', ':', '"', '|', '?', '*'])
+}
+
+/// Create `dir/file_name`, or the first free "name (n).ext", and fill it.
+/// Creation is exclusive, so a file that appears meanwhile is not clobbered.
+fn write_without_overwriting(
+    dir: &Path,
+    file_name: &str,
+    content: &str,
+) -> std::io::Result<PathBuf> {
+    let name = Path::new(file_name);
+    let stem = name.file_stem().unwrap_or_default().to_string_lossy();
+    let extension = name
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    for attempt in 1.. {
+        let candidate = if attempt == 1 {
+            dir.join(file_name)
+        } else {
+            dir.join(format!("{stem} ({attempt}){extension}"))
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(mut file) => {
+                return match file.write_all(content.as_bytes()) {
+                    Ok(()) => Ok(candidate),
+                    // A partial export would look complete and take the name.
+                    Err(e) => {
+                        drop(file);
+                        let _ = std::fs::remove_file(&candidate);
+                        Err(e)
+                    }
+                };
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!("the attempt counter is unbounded")
 }
 
 #[cfg(test)]

@@ -93,7 +93,7 @@ export function Select<T extends string>({
         onClick={() => (open ? setOpen(false) : openList())}
         onKeyDown={(e) => { if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); openList() } }}
         className={cn(
-          'relative flex w-full min-w-0 cursor-pointer items-center gap-2 text-left text-fg ring-1 ring-line-soft ring-inset transition-shadow hover:ring-line disabled:cursor-not-allowed disabled:opacity-50',
+          'relative flex w-full min-w-0 cursor-pointer items-center gap-2 text-left text-fg ring-1 ring-line ring-inset transition-shadow hover:ring-muted disabled:cursor-not-allowed disabled:opacity-50',
           size === 'md' ? 'h-9 rounded-lg bg-field pr-3 pl-3 text-sm' : 'h-6 rounded-md bg-field pr-2 pl-2.5 text-xs font-medium',
           icon && size === 'md' && 'pl-9',
           open && 'ring-accent hover:ring-accent',
@@ -122,7 +122,7 @@ export function Select<T extends string>({
               placeholder={searchPlaceholder}
               aria-label={searchPlaceholder}
               aria-controls={listId}
-              className="h-8 w-full rounded-lg bg-field pr-2.5 pl-8 text-sm text-fg ring-1 ring-line-soft ring-inset outline-none placeholder:text-muted focus:ring-accent"
+              className="h-8 w-full rounded-lg bg-field pr-2.5 pl-8 text-sm text-fg ring-1 ring-line ring-inset outline-none placeholder:text-muted focus:ring-accent"
             />
           </div>
         )}

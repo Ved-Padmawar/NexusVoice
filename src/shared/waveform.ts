@@ -70,14 +70,15 @@ type SpectrumState = {
   t: number
 }
 
-/** Symmetric bars scrolling right to left — the voice-message look. */
+/** Symmetric bars scrolling left to right — the voice-message look. */
 function memo({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idleMotion = false }: RenderArgs) {
   ctx.clearRect(0, 0, width, height)
 
   let s = state.memo as MemoState | undefined
   if (!s) {
     const n = 28
-    s = { hist: new Array(n).fill(0), scroll: 0, phase: 0, peakSince: 0, n, slot: width / n, barW: 1.8 }
+    // One spare bar, so both ends slide rather than pop.
+    s = { hist: new Array(n + 1).fill(0), scroll: 0, phase: 0, peakSince: 0, n, slot: width / n, barW: 1.8 }
     state.memo = s
   }
   if (s.slot !== width / s.n) {
@@ -103,13 +104,14 @@ function memo({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idle
   ctx.lineCap = 'round'
   ctx.lineWidth = s.barW
 
-  for (let i = 0; i < s.n; i++) {
+  const xAt = (i: number) => width - (i * s.slot + s.slot / 2 - s.scroll)
+  for (let i = 0; i <= s.n; i++) {
     const v = s.hist[i]
     const half = Math.max(REST_H / 2, (v * PEAK_SCALE * (height - 2)) / 2)
-    const x = i * s.slot + s.slot / 2 - s.scroll
+    const x = xAt(i)
     if (x < -s.barW || x > width + s.barW) continue
 
-    const recency = i / (s.n - 1)
+    const recency = i / s.n
     const alpha = Math.min(1, 0.32 + recency * 0.55 + v * 0.18)
     ctx.strokeStyle = `rgba(${accent},${alpha.toFixed(3)})`
     ctx.beginPath()
@@ -118,8 +120,8 @@ function memo({ ctx, width, height, levels, dt, state, accent = ACCENT_RGB, idle
     ctx.stroke()
   }
 
-  const leadX = (s.n - 1) * s.slot + s.slot / 2 - s.scroll
-  const leadHalf = Math.max(REST_H / 2, (s.hist[s.n - 1] * PEAK_SCALE * (height - 2)) / 2)
+  const leadX = xAt(s.n)
+  const leadHalf = Math.max(REST_H / 2, (s.hist[s.n] * PEAK_SCALE * (height - 2)) / 2)
   ctx.beginPath()
   ctx.arc(leadX, midY - leadHalf, 1.3, 0, Math.PI * 2)
   ctx.fillStyle = `rgba(${accent},1)`

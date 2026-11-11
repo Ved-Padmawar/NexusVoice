@@ -66,7 +66,7 @@ fn a_missing_or_partial_archive_is_fetched() {
 #[test]
 fn only_one_download_can_claim_the_pack() {
     let data = tempfile::tempdir().unwrap();
-    let pack = CudaPack::new(data.path().to_path_buf());
+    let pack = CudaPack::new(data.path().to_path_buf(), false);
 
     assert!(pack.claim().is_some());
     assert!(pack.claim().is_none());
@@ -159,7 +159,7 @@ fn a_driver_older_than_cuda_13_never_qualifies() {
 #[test]
 fn an_idle_download_reports_no_progress_and_ignores_cancel() {
     // The UI reads `None` as "no download running".
-    let download = CudaPack::new(std::env::temp_dir());
+    let download = CudaPack::new(std::env::temp_dir(), false);
     download.cancel();
     assert_eq!(download.progress(), None);
 }
@@ -275,9 +275,9 @@ fn unsigned_extra_modules_are_rejected_even_beside_valid_libraries() {
         file.unpacked_size = 4;
         file.sha256 = copy_hashed(&b"cuda"[..], std::io::sink()).unwrap();
     }
-    assert!(files_verified(dir.path(), &manifest));
+    assert!(files_verified(dir.path(), &manifest, &[]));
     std::fs::write(dir.path().join("ggml-unsigned.dll"), b"evil").unwrap();
-    assert!(!files_verified(dir.path(), &manifest));
+    assert!(!files_verified(dir.path(), &manifest, &[]));
 }
 
 #[test]
@@ -308,4 +308,33 @@ fn linked_pack_directories_cannot_escape_the_staging_root() {
     std::fs::remove_file(&link).unwrap();
     assert!(rejected);
     assert!(target.is_dir());
+}
+
+#[test]
+fn a_start_rehashes_only_files_that_changed_since_their_stamp() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut manifest = valid_manifest(PLATFORM.unwrap());
+    manifest.files = vec![PackFile {
+        sha256: copy_hashed(&b"cuda"[..], std::io::sink()).unwrap(),
+        unpacked_size: 4,
+        ..manifest.files.remove(manifest.files.len() - 1)
+    }];
+    let library = dir.path().join(&manifest.files[0].name);
+    std::fs::write(&library, b"cuda").unwrap();
+
+    assert!(
+        verify_installed(dir.path(), &manifest),
+        "first start hashes"
+    );
+    assert!(dir.path().join(STAMPS).exists());
+
+    // Same size, different bytes, and an older mtime: only the stamp can tell.
+    std::fs::write(&library, b"evil").unwrap();
+    File::options()
+        .write(true)
+        .open(&library)
+        .unwrap()
+        .set_modified(std::time::UNIX_EPOCH)
+        .unwrap();
+    assert!(!verify_installed(dir.path(), &manifest));
 }

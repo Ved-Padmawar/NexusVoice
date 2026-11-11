@@ -9,6 +9,7 @@ pub mod anthropic;
 pub mod client;
 pub mod completion;
 pub mod config;
+pub mod error;
 pub mod openai;
 pub mod prompt;
 

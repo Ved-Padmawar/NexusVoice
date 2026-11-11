@@ -114,7 +114,7 @@ export function CudaOfferModal() {
 function Badge({ tone, inline, children }: { tone?: 'success' | 'danger'; inline?: boolean; children: React.ReactNode }) {
   const colors = tone === 'success' ? 'bg-success-soft text-success'
     : tone === 'danger' ? 'bg-danger-soft text-danger'
-      : 'bg-accent-soft text-accent'
+      : 'bg-accent-soft text-accent-ink'
   const placement = inline ? 'shrink-0' : 'mb-3.5'
   return <div className={`grid place-items-center w-9 h-9 rounded-lg ${placement} ${colors}`}>{children}</div>
 }
@@ -133,7 +133,7 @@ function Transfer({ progress, verifying, onCancel }: { progress: number; verifyi
     <div className="flex flex-col justify-between h-8 mt-4.5">
       <div className="flex items-center gap-2 h-5 text-[11px] leading-none">
         <span className="flex-1 font-medium text-fg-2">{verifying ? 'Verifying…' : 'Downloading'}</span>
-        <span className="font-semibold text-accent tabular-nums">{progress}%</span>
+        <span className="font-semibold text-accent-ink tabular-nums">{progress}%</span>
         <button type="button" title="Cancel" onClick={onCancel} className={`${ICON_BUTTON} w-5 h-5 -mr-1`}>
           <XIcon size={12} weight="bold" />
         </button>

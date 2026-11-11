@@ -12,6 +12,9 @@ import { Switch } from '../../shared/ui/Switch'
 import { TextInput } from '../../shared/ui/TextInput'
 import type { VendorId } from '../../shared/vendors'
 import { toast } from 'sonner'
+import { readFresh } from '../../app/queryClient'
+import { useLiveChoice } from '../../app/useLiveChoice'
+import { formatConfigOptions, useFormatConfig } from './queries'
 import { isConfigured, keepingKeys } from './formatConfig'
 import type { FormatterUpdate, FormatterView, ProfileView } from '../../shared/types'
 
@@ -45,10 +48,16 @@ const DEFAULT_CONFIG: FormatterView = { enabled: false, provider: 'ollama', prof
 /** Host and path of a base URL, without the scheme. */
 const hostOf = (url: string) => url.replace(/^https?:\/\//, '').replace(/\/+$/, '')
 
+const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Failed to save formatting settings'))
+
 /** Smart-formatting toggle + provider config. The formatter is an HTTP call,
  *  off by default; enabling without an endpoint opens the modal. */
 export function FormattingToggle() {
-  const [config, setConfig] = useState<FormatterView>(DEFAULT_CONFIG)
+  const { data, error } = useFormatConfig()
+  // Nothing is editable until the saved setup is here: a save built on a
+  // placeholder would erase every other provider's profile.
+  const loaded = data !== undefined
+  const config = data ?? DEFAULT_CONFIG
   const [modalOpen, setModalOpen] = useState(false)
   // Bumped per opening, so the form starts from the saved config each time.
   const [formKey, setFormKey] = useState(0)
@@ -57,46 +66,30 @@ export function FormattingToggle() {
     setModalOpen(true)
   }
 
-  const refresh = useCallback(() => {
-    commands.getFormatConfig().then(setConfig).catch(() => {})
-  }, [])
+  useEffect(() => {
+    if (error) toast.error(extractErrorMessage(error, 'Could not load formatting settings'))
+  }, [error])
 
-  useEffect(() => { refresh() }, [refresh])
+  const saveEnabled = useCallback(
+    (enabled: boolean) => commands.setFormatConfig(keepingKeys({ ...config, enabled })),
+    [config],
+  )
+  const { pending, choose } = useLiveChoice(formatConfigOptions, saveEnabled, saveFailed)
 
   const active = activeProfile(config)
   const configured = isConfigured(config.provider, active)
-  const dim = config.enabled ? '' : 'opacity-50'
+  // On while a first endpoint is being set up; closing unsaved puts it back.
+  const enabled = pending ? pending.value : config.enabled || (modalOpen && !configured)
+  const dim = enabled ? '' : 'opacity-50'
 
-  const [saving, setSaving] = useState(false)
-
-  const persist = async (next: FormatterView) => {
-    const previous = config
-    setConfig(next)
-    setSaving(true)
-    try {
-      await commands.setFormatConfig(keepingKeys(next))
-    } catch {
-      toast.error('Failed to save formatting settings')
-      // Rust kept the old setting; show that, not the one we hoped to save.
-      setConfig(await commands.getFormatConfig().catch(() => previous))
-    } finally {
-      setSaving(false)
-    }
+  const toggle = (next: boolean) => {
+    if (next && !configured) openModal()
+    else void choose(next)
   }
 
-  const toggle = async (next: boolean) => {
-    if (next && !configured) {
-      // On while the endpoint is set up; closing unsaved puts it back.
-      setConfig({ ...config, enabled: true })
-      openModal()
-      return
-    }
-    await persist({ ...config, enabled: next })
-  }
-
-  const close = () => {
+  const saved = () => {
     setModalOpen(false)
-    if (!configured) setConfig((c) => ({ ...c, enabled: false }))
+    void readFresh(formatConfigOptions).catch(() => {})
   }
 
   const preset = PRESETS.find((p) => p.id === config.provider)
@@ -108,7 +101,7 @@ export function FormattingToggle() {
           <SparkleIcon size={16} weight="duotone" />
         </span>
         <p className="flex-1 text-sm font-semibold text-fg">Smart formatting</p>
-        <Switch checked={config.enabled} disabled={saving} onChange={(on) => void toggle(on)} aria-label="Smart formatting" />
+        <Switch checked={enabled} disabled={!loaded} onChange={toggle} aria-label="Smart formatting" />
       </div>
       <p className="text-xs text-pretty text-muted">
         Sends each transcript to your LLM to fix punctuation and turn spoken lists into real ones. If it fails, you get the raw transcript.
@@ -122,7 +115,7 @@ export function FormattingToggle() {
             ? <VendorMark vendor={config.provider as VendorId} className="size-5.5" />
             : <PlugIcon size={20} className="text-muted" />}
         </span>
-        <span className={`min-w-0 flex-1 transition-opacity ${dim}`}>
+        <span className="min-w-0 flex-1">
           {configured ? (
             <>
               <span className="block text-sm font-semibold text-fg">{preset?.label ?? config.provider}</span>
@@ -135,14 +128,14 @@ export function FormattingToggle() {
             <span className="block text-sm font-semibold text-fg">No endpoint configured</span>
           )}
         </span>
-        <Button variant="chip" onClick={openModal} className="hover:text-accent-ink hover:ring-accent-line">
+        <Button variant="chip" disabled={!loaded} onClick={openModal} className="hover:text-accent-ink hover:ring-accent-line">
           <SlidersHorizontalIcon size={12} weight="bold" />
           Configure
         </Button>
       </div>
 
-      <Modal open={modalOpen} aria-labelledby="format-title" className="w-135" onClose={close}>
-        <ProviderForm key={formKey} initial={config} onClose={close} onSaved={() => { refresh(); setModalOpen(false) }} />
+      <Modal open={modalOpen} aria-labelledby="format-title" className="w-135" onClose={() => setModalOpen(false)}>
+        <ProviderForm key={formKey} initial={config} onClose={() => setModalOpen(false)} onSaved={saved} />
       </Modal>
     </div>
   )
@@ -204,6 +197,11 @@ function ProviderForm({
 
   const canSubmit = isConfigured(providerId, { baseUrl, model })
 
+  // A test's answer only describes the draft it sent.
+  const draftKey = JSON.stringify([providerId, baseUrl.trim(), model.trim(), apiKey.trim(), removeKey])
+  const currentDraft = useRef(draftKey)
+  useEffect(() => { currentDraft.current = draftKey }, [draftKey])
+
   // The test result shows briefly; a stale one would mislead.
   const flashResult = (result: 'ok' | 'fail') => {
     setTestResult(result)
@@ -215,11 +213,19 @@ function ProviderForm({
     if (!canSubmit) return
     setTesting(true)
     setTestResult('idle')
+    const tested = draftKey
+    const changed = () => {
+      if (currentDraft.current === tested) return false
+      toast.info('Settings changed during the test. Test again to check them.')
+      return true
+    }
     try {
       await commands.testFormatConnection(draft())
+      if (changed()) return
       flashResult('ok')
       toast.success('Connection successful')
     } catch (e) {
+      if (changed()) return
       flashResult('fail')
       const msg = extractErrorMessage(e, 'could not reach endpoint')
       toast.error(`Connection failed: ${msg}`)
@@ -330,7 +336,7 @@ function ProviderForm({
             value={apiKey}
             onChange={(e) => { setApiKey(e.target.value); setTestResult('idle') }}
             placeholder={keySaved && !removeKey
-              ? 'Saved in your system keychain — type to replace'
+              ? 'Saved in your system keychain - type to replace'
               : preset.needsKey ? 'sk-…' : 'Leave blank for local servers'}
             className="font-mono placeholder:font-sans"
           />

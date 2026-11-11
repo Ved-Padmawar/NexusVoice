@@ -29,11 +29,11 @@ impl From<DbUnavailable> for ApiError {
 
 impl From<sqlx::Error> for ApiError {
     fn from(value: sqlx::Error) -> Self {
+        log::warn!("database operation failed: {value}");
         let message = match value {
-            sqlx::Error::RowNotFound => "record not found",
-            sqlx::Error::PoolClosed => "database unavailable",
-            sqlx::Error::Io(_) => "database io error",
-            _ => "database error",
+            sqlx::Error::RowNotFound => "That item no longer exists.",
+            sqlx::Error::Io(_) => "Couldn't read your history from disk.",
+            _ => "Couldn't reach your history. Try again in a moment.",
         };
         Self::new("database_error", message)
     }
@@ -41,7 +41,16 @@ impl From<sqlx::Error> for ApiError {
 
 impl From<std::io::Error> for ApiError {
     fn from(value: std::io::Error) -> Self {
-        Self::new("io_error", value.to_string())
+        log::warn!("file operation failed: {value}");
+        let message = match value.kind() {
+            std::io::ErrorKind::StorageFull => "Your disk is full.",
+            std::io::ErrorKind::PermissionDenied => {
+                "NexusVoice doesn't have permission to do that."
+            }
+            std::io::ErrorKind::ResourceBusy => "That file is in use. Try again in a moment.",
+            _ => "Couldn't read or write a file.",
+        };
+        Self::new("io_error", message)
     }
 }
 
@@ -50,31 +59,36 @@ impl From<RecordError> for ApiError {
         match value {
             RecordError::AlreadyRunning => Self::new(
                 "transcription_already_running",
-                "transcription already running",
+                "A recording is already running.",
             ),
             RecordError::NotRunning => {
-                Self::new("transcription_not_running", "transcription not running")
+                Self::new("transcription_not_running", "No recording is running.")
             }
             RecordError::DictationRunning => Self::new(
                 "dictation_running",
-                "dictation is running; use commit_dictation",
+                "A dictation is already running. Finish it first.",
             ),
             RecordError::NotDictating => {
-                Self::new("dictation_not_running", "dictation is not running")
+                Self::new("dictation_not_running", "No dictation is running.")
             }
             RecordError::NotRecording => {
-                Self::new("dictation_not_recording", "dictation is not recording")
+                Self::new("dictation_not_recording", "There's no dictation to pause.")
             }
-            RecordError::NotPaused => Self::new("dictation_not_paused", "dictation is not paused"),
-            RecordError::Finalizing => {
-                Self::new("dictation_finalizing", "dictation is already finalizing")
-            }
+            RecordError::NotPaused => Self::new(
+                "dictation_not_paused",
+                "There's no paused dictation to resume.",
+            ),
+            RecordError::Finalizing => Self::new(
+                "dictation_finalizing",
+                "The dictation is already finishing.",
+            ),
             RecordError::Unavailable(e) => Self::new("model_unavailable", e),
             RecordError::Capture(e) => Self::new("capture_failed", e),
-            RecordError::Failed => {
-                Self::new("recorder_failed", "the recorder hit an internal error")
-            }
-            RecordError::Restarting => Self::new("restarting", "NexusVoice is restarting"),
+            RecordError::Failed => Self::new(
+                "recorder_failed",
+                "Recording stopped unexpectedly. Try again.",
+            ),
+            RecordError::Restarting => Self::new("restarting", "NexusVoice is restarting."),
         }
     }
 }
@@ -82,18 +96,36 @@ impl From<RecordError> for ApiError {
 impl From<HotkeyError> for ApiError {
     fn from(value: HotkeyError) -> Self {
         match value {
-            HotkeyError::Conflict => Self::new("hotkey_conflict", "hotkeys must be different"),
+            HotkeyError::Conflict { hotkey, with } => Self::new(
+                "hotkey_conflict",
+                format!("{hotkey} is already used for {}.", with.label()),
+            ),
             HotkeyError::InUse => Self::new(
                 "hotkey_already_in_use",
-                "this hotkey is already in use by another application",
+                "Another application is already using that shortcut.",
             ),
             HotkeyError::PermissionDenied => Self::new(
                 "hotkey_permission_denied",
-                "OS denied hotkey registration - try a different combination",
+                "The system blocked that shortcut. Try a different combination.",
             ),
-            HotkeyError::Register(e) => Self::new("hotkey_register_failed", e),
-            HotkeyError::Unregister(e) => Self::new("hotkey_unregister_failed", e),
-            HotkeyError::Save(e) => Self::new("io_error", e),
+            HotkeyError::Register(e) => {
+                log::warn!("hotkey registration failed: {e}");
+                Self::new(
+                    "hotkey_register_failed",
+                    "That key combination isn't supported.",
+                )
+            }
+            HotkeyError::Unregister(e) => {
+                log::warn!("hotkey release failed: {e}");
+                Self::new(
+                    "hotkey_unregister_failed",
+                    "Couldn't release the current shortcuts. Try again.",
+                )
+            }
+            HotkeyError::Save(e) => {
+                log::warn!("saving hotkeys failed: {e}");
+                Self::new("io_error", "Couldn't save the shortcut.")
+            }
         }
     }
 }

@@ -16,11 +16,10 @@ async listInputDevices() : Promise<InputDeviceInfo[]> {
     return await TAURI_INVOKE("list_input_devices");
 },
 /**
- * Choose an input device by name; `None` follows the OS default. Takes
- * effect on the next recording.
+ * Choose an input device by id; `None` follows the OS default.
  */
-async setInputDevice(name: string | null) : Promise<null> {
-    return await TAURI_INVOKE("set_input_device", { name });
+async setInputDevice(id: string | null) : Promise<null> {
+    return await TAURI_INVOKE("set_input_device", { id });
 },
 async getKeepMicOpen() : Promise<boolean> {
     return await TAURI_INVOKE("get_keep_mic_open");
@@ -59,13 +58,26 @@ async deleteTranscript(id: number) : Promise<null> {
     return await TAURI_INVOKE("delete_transcript", { id });
 },
 /**
- * `previous_term` names the entry being renamed, if any.
+ * Add an entry, or with `id` edit that one (a rename keeps its use count).
  */
-async updateDictionary(term: string, replacement: string, previousTerm: string | null) : Promise<DictionaryResponse> {
-    return await TAURI_INVOKE("update_dictionary", { term, replacement, previousTerm });
+async updateDictionary(term: string, replacement: string, id: number | null) : Promise<DictionaryResponse> {
+    return await TAURI_INVOKE("update_dictionary", { term, replacement, id });
 },
 async deleteDictionaryEntry(id: number) : Promise<null> {
     return await TAURI_INVOKE("delete_dictionary_entry", { id });
+},
+/**
+ * Write an export into the user's Downloads folder and return where it went.
+ * An existing file is never overwritten: the name gets " (2)", " (3)", ….
+ */
+async saveExport(fileName: string, content: string) : Promise<string> {
+    return await TAURI_INVOKE("save_export", { fileName, content });
+},
+/**
+ * Open the file manager with `path` selected.
+ */
+async revealInFolder(path: string) : Promise<null> {
+    return await TAURI_INVOKE("reveal_in_folder", { path });
 },
 /**
  * Linux-only; the clipboard platforms have nothing to configure.
@@ -111,8 +123,11 @@ async setPillSettings(pill: PillSettings) : Promise<PillSettingsSnapshot> {
 async getModelInfo() : Promise<ModelInfoResponse> {
     return await TAURI_INVOKE("get_model_info");
 },
-async startModelDownload(id: string) : Promise<null> {
-    return await TAURI_INVOKE("start_model_download", { id });
+/**
+ * With `activate`, the model becomes the active one once it is on disk.
+ */
+async startModelDownload(id: string, activate: boolean) : Promise<null> {
+    return await TAURI_INVOKE("start_model_download", { id, activate });
 },
 /**
  * Every download queued, running or holding an error, so the UI can
@@ -129,7 +144,7 @@ async cancelModelDownload(id: string) : Promise<void> {
     await TAURI_INVOKE("cancel_model_download", { id });
 },
 /**
- * Make a model the active one.
+ * Make a model on disk the active one.
  */
 async setModelOverride(variant: string) : Promise<null> {
     return await TAURI_INVOKE("set_model_override", { variant });
@@ -391,7 +406,11 @@ export type InjectionTool = { name: string; available: boolean; preferred: boole
  * A selectable microphone. `is_default` marks the OS default; `is_selected`
  * marks the saved preference.
  */
-export type InputDeviceInfo = { name: string; isDefault: boolean; isSelected: boolean }
+export type InputDeviceInfo = { 
+/**
+ * What to save: identical mics share a name.
+ */
+id: string; name: string; isDefault: boolean; isSelected: boolean }
 export type LanguageOption = { 
 /**
  * ISO code, or `auto` for the detect-per-decode sentinel.
@@ -423,7 +442,7 @@ export type ModelDownloadStart = { id: string }
  * The active model was deleted and no other is on disk.
  */
 export type ModelEvicted = null
-export type ModelInfoResponse = { downloaded: boolean; downloading: boolean; modelName: string }
+export type ModelInfoResponse = { downloaded: boolean; modelName: string }
 /**
  * The active model was deleted and another on disk took its place.
  */
@@ -441,6 +460,11 @@ export type PackState = "absent" |
  * Usable by this build; loaded unless the driver is missing or too old.
  */
 "installed" | 
+/**
+ * Signed and current, but a library failed its integrity check at start, so
+ * it was not loaded. Downloading again repairs it.
+ */
+"damaged" | 
 /**
  * Downloaded; applied at the next start.
  */
@@ -496,7 +520,16 @@ export type ProfileUpdate = { baseUrl: string; model: string;
  */
 apiKey: string | null }
 export type ProfileView = { baseUrl: string; model: string; hasApiKey: boolean }
-export type RecordingSnapshot = { revision: number; status: RecordingStatus }
+/**
+ * What a recording captures and decodes with. Each recording keeps the ones
+ * it started with.
+ */
+export type RecordingInput = "model" | "microphone" | "language"
+export type RecordingSnapshot = { revision: number; status: RecordingStatus; 
+/**
+ * Saved changes the recording in progress does not use.
+ */
+deferred: RecordingInput[] }
 export type RecordingStateChanged = RecordingSnapshot
 export type RecordingStatus = "idle" | "recording" | "dictation" | "dictation-paused" | "processing"
 export type TranscriptResponse = { id: number; content: string; wordCount: number; durationSeconds: number | null; 

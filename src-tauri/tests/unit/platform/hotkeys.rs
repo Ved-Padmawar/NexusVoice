@@ -1,6 +1,6 @@
 //! A hotkey that shadows another registers twice and one of them never fires.
 
-use super::{bind_available, conflicts, HotkeyError, HotkeyKind};
+use super::{bind_available, conflicting_role, HotkeyError, HotkeyKind};
 use crate::settings::HotkeyBindings;
 
 fn bindings(
@@ -18,25 +18,28 @@ fn bindings(
 #[test]
 fn a_hotkey_bound_to_another_role_conflicts() {
     let bound = bindings(Some("Ctrl+Shift+D"), None, None);
-    assert!(conflicts(&bound, HotkeyKind::Dictation, "Ctrl+Shift+D"));
+    assert_eq!(
+        conflicting_role(&bound, HotkeyKind::Dictation, "Ctrl+Shift+D"),
+        Some(HotkeyKind::PushToTalk)
+    );
 }
 
 #[test]
 fn conflict_detection_ignores_case() {
     let bound = bindings(Some("Ctrl+Shift+D"), None, None);
-    assert!(conflicts(&bound, HotkeyKind::Dictation, "ctrl+shift+d"));
+    assert!(conflicting_role(&bound, HotkeyKind::Dictation, "ctrl+shift+d").is_some());
 }
 
 #[test]
 fn rebinding_a_role_to_its_own_hotkey_is_no_conflict() {
     let bound = bindings(Some("Ctrl+Shift+D"), None, None);
-    assert!(!conflicts(&bound, HotkeyKind::PushToTalk, "Ctrl+Shift+D"));
+    assert!(conflicting_role(&bound, HotkeyKind::PushToTalk, "Ctrl+Shift+D").is_none());
 }
 
 #[test]
 fn unbound_roles_never_conflict() {
     let bound = HotkeyBindings::default();
-    assert!(!conflicts(&bound, HotkeyKind::PushToTalk, "Ctrl+Shift+D"));
+    assert!(conflicting_role(&bound, HotkeyKind::PushToTalk, "Ctrl+Shift+D").is_none());
 }
 
 #[test]
@@ -64,6 +67,6 @@ fn unset_roles_are_never_bound() {
 #[test]
 fn every_other_role_is_checked() {
     let bound = bindings(Some("Ctrl+Shift+D"), None, Some("Alt+Space"));
-    assert!(!conflicts(&bound, HotkeyKind::Dictation, "Ctrl+Shift+X"));
-    assert!(conflicts(&bound, HotkeyKind::Dictation, "Alt+Space"));
+    assert!(conflicting_role(&bound, HotkeyKind::Dictation, "Ctrl+Shift+X").is_none());
+    assert!(conflicting_role(&bound, HotkeyKind::Dictation, "Alt+Space").is_some());
 }

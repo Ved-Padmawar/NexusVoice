@@ -16,27 +16,22 @@ type HotkeyConfig = {
   icon: Icon
 }
 
-function getKeyName(key: string, code: string): string {
-  const map: Record<string, string> = {
-    Control: 'Ctrl', Meta: 'Super', ' ': 'Space',
-    ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown',
-    ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight',
-    Escape: 'Escape', Delete: 'Delete',
-    Backspace: 'Backspace', Enter: 'Return', Tab: 'Tab',
-  }
-  if (map[key]) return map[key]
-  if (key.length === 1) return key.toUpperCase()
-  if (/^F\d+$/.test(key)) return key
+const MODIFIERS: Record<string, string> = { Control: 'Ctrl', Alt: 'Alt', Shift: 'Shift', Meta: 'Super' }
+
+/** Names the physical key (`code`), not the character it types, so Shift+1 is
+ *  "Shift+1" rather than "Shift+!" and the same key works on any layout. */
+function getKeyName({ key, code }: KeyboardEvent): string {
+  if (MODIFIERS[key]) return MODIFIERS[key]
   if (code.startsWith('Key')) return code.slice(3)
   if (code.startsWith('Digit')) return code.slice(5)
-  return key
+  if (code === 'Enter') return 'Return'
+  return code
 }
 
 const KEY_DISPLAY: Record<string, string> = {
   // Super is the Windows logo key on Win/Linux and Command on macOS — the
   // internal accelerator token stays "Super" everywhere; only the label differs.
-  Ctrl: 'Ctrl', Super: SUPER_KEY_LABEL, Return: 'Enter',
-  Backspace: 'Backspace', Delete: 'Del', Escape: 'Esc',
+  Ctrl: 'Ctrl', Super: SUPER_KEY_LABEL, Return: 'Enter', Delete: 'Del',
   ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
 }
 const displayKey = (k: string) => KEY_DISPLAY[k] ?? k
@@ -100,12 +95,21 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
     keysRef.current.clear()
   }, [saving])
 
+  const cancelListening = useCallback(() => {
+    setIsListening(false)
+    setPressedKeys([])
+    keysRef.current.clear()
+    resumeHotkeys()
+  }, [resumeHotkeys])
+
   useEffect(() => {
     if (!isListening) return
     const onDown = (e: KeyboardEvent) => {
       e.preventDefault()
       e.stopPropagation()
-      const n = getKeyName(e.key, e.code)
+      // Escape backs out of the edit; it is never part of a shortcut.
+      if (e.key === 'Escape') { cancelListening(); return }
+      const n = getKeyName(e)
       if (!keysRef.current.has(n)) {
         keysRef.current.add(n)
         setPressedKeys(Array.from(keysRef.current))
@@ -117,12 +121,7 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
       setTimeout(() => setIsListening(false), 200)
     }
     const onOutside = (e: MouseEvent) => {
-      if (hotkeyRef.current && !hotkeyRef.current.contains(e.target as Node)) {
-        setIsListening(false)
-        setPressedKeys([])
-        keysRef.current.clear()
-        resumeHotkeys()
-      }
+      if (hotkeyRef.current && !hotkeyRef.current.contains(e.target as Node)) cancelListening()
     }
     window.addEventListener('keydown', onDown, true)
     window.addEventListener('keyup', onUp, true)
@@ -132,14 +131,7 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
       window.removeEventListener('keyup', onUp, true)
       document.removeEventListener('mousedown', onOutside)
     }
-  }, [isListening, resumeHotkeys])
-
-  const cancelListening = () => {
-    setIsListening(false)
-    setPressedKeys([])
-    keysRef.current.clear()
-    resumeHotkeys()
-  }
+  }, [isListening, cancelListening])
 
   const handleSaveHotkey = async () => {
     if (!pressedKeys.length) {
@@ -210,7 +202,7 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
         {pressedKeys.length > 0 ? (
           <KeyBadges keys={pressedKeys} />
         ) : isListening ? (
-          <span className="hk-listen flex items-center gap-1.5 text-xs font-semibold text-accent-ink">
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-accent-ink">
             <RecordIcon size={14} weight="fill" />Press the keys
           </span>
         ) : currentHotkey ? (
@@ -235,7 +227,7 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
               aria-label={`Change ${hotkeyName}`}
               disabled={!currentHotkey}
               onClick={startListening}
-              className="grid size-8 cursor-pointer place-items-center rounded-lg text-fg-2 hover:bg-accent-soft hover:text-accent-ink disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-2"
+              className="grid size-8 cursor-pointer place-items-center rounded-lg text-fg-2 hover:bg-accent-soft hover:text-accent-ink disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-fg-2"
             >
               <PencilSimpleIcon size={14} />
             </button>
@@ -244,7 +236,7 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
               aria-label={`Remove ${hotkeyName}`}
               disabled={!currentHotkey}
               onClick={handleRemoveHotkey}
-              className="grid size-8 cursor-pointer place-items-center rounded-lg text-fg-2 hover:bg-danger-soft hover:text-danger disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-fg-2"
+              className="grid size-8 cursor-pointer place-items-center rounded-lg text-fg-2 hover:bg-danger-soft hover:text-danger disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-fg-2"
             >
               <XIcon size={14} />
             </button>

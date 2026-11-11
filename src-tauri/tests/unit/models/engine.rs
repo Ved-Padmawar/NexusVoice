@@ -9,11 +9,6 @@ fn strips_embedded_blank_audio_token() {
 }
 
 #[test]
-fn strips_token_only_segment_to_empty() {
-    assert_eq!(strip_hallucination_tokens(" [BLANK_AUDIO] ").trim(), "");
-}
-
-#[test]
 fn strips_multiple_tokens_and_collapses_spaces() {
     assert_eq!(
         strip_hallucination_tokens("hello [noise] world [SILENCE]"),

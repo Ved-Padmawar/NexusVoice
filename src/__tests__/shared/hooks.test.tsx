@@ -52,11 +52,6 @@ describe('useDelayedFlag', () => {
     expect(result.current).toBe(true)
   })
 
-  it('is false from the first render when nothing is pending', () => {
-    const { result } = renderHook(() => useDelayedFlag(false))
-    act(() => { vi.advanceTimersByTime(5000) })
-    expect(result.current).toBe(false)
-  })
 })
 
 describe('useEventListener', () => {

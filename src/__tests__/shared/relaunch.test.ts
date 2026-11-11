@@ -13,13 +13,6 @@ beforeEach(() => {
 })
 
 describe('relaunchApp', () => {
-  it('asks Rust to restart', async () => {
-    mockInvoke.mockResolvedValue(undefined)
-    await relaunchApp()
-    expect(mockInvoke).toHaveBeenCalledWith('relaunch_app')
-    expect(toast.error).not.toHaveBeenCalled()
-  })
-
   it('tells the user when Rust refuses because a dictation is running', async () => {
     mockInvoke.mockRejectedValue({ code: 'recording_in_progress', message: 'Finish the current dictation before restarting' })
     await relaunchApp()

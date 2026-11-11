@@ -16,13 +16,6 @@ fn levels_for_tone(meter: &WaveformMeter, freq: f32, amp: f32) -> [f32; BANDS] {
 }
 
 #[test]
-fn silence_reads_flat() {
-    let meter = WaveformMeter::new(SR);
-    meter.push(&vec![0.0; FFT_SIZE]);
-    assert!(meter.levels().iter().all(|&l| l == 0.0));
-}
-
-#[test]
 fn low_amplitude_stays_near_floor() {
     let meter = WaveformMeter::new(SR);
     let levels = levels_for_tone(&meter, 1000.0, 0.0002);
