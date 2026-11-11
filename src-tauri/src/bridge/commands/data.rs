@@ -363,8 +363,15 @@ fn write_without_overwriting(
             .open(&candidate)
         {
             Ok(mut file) => {
-                file.write_all(content.as_bytes())?;
-                return Ok(candidate);
+                return match file.write_all(content.as_bytes()) {
+                    Ok(()) => Ok(candidate),
+                    // A partial export would look complete and take the name.
+                    Err(e) => {
+                        drop(file);
+                        let _ = std::fs::remove_file(&candidate);
+                        Err(e)
+                    }
+                };
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(e) => return Err(e),

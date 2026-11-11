@@ -15,7 +15,7 @@ use crate::bridge::events::{
 use crate::settings::Settings;
 use crate::sync::lock_recovering;
 
-use super::cache::{EngineCache, Unload};
+use super::cache::EngineCache;
 use super::catalog::{self, ModelEntry};
 use super::downloader::{download_model, CANCELLED};
 use super::provider::{detect_backend, select_model};
@@ -215,7 +215,7 @@ impl ModelLibrary {
         let active = Self::active(&settings).id == entry.id;
         // A loaded model's file is memory-mapped, and Windows cannot delete a
         // mapped file: release the engine first.
-        if active && app.state::<EngineCache>().unload() == Unload::Deferred {
+        if active && !app.state::<EngineCache>().unload_unless_recording() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::ResourceBusy,
                 "a recording is using the model",

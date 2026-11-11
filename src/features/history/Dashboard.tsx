@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useEffect, useCallback, useMemo, type CSSProperties } from 'react'
+import { memo, useState, useRef, useEffect, useCallback, useMemo, type CSSProperties, type RefObject } from 'react'
 import { useNavigate } from 'react-router'
 import {
   ArrowCounterClockwiseIcon, BracketsCurlyIcon, CalendarBlankIcon, CaretLeftIcon, CaretRightIcon, CheckIcon,
@@ -70,8 +70,8 @@ const serialize = (items: Transcript[], format: ExportFormat) => format === 'txt
   ? items.map(t => `[${fmtDate(t.createdAt)}]\n${t.content}`).join('\n\n---\n\n')
   : JSON.stringify(items.map(t => ({ id: t.id, content: t.content, createdAt: t.createdAt, wordCount: t.wordCount, durationSeconds: t.durationSeconds })), null, 2)
 
-/** Exports what the feed shows: the current search and filters apply. */
-function ExportButton({ query, filters }: { query: string; filters: TranscriptFilters }) {
+/** Exports what the search box and filters ask for, without waiting on the debounce. */
+function ExportButton({ typedRef, filters }: { typedRef: RefObject<string>; filters: TranscriptFilters }) {
   const [open, setOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)
@@ -80,7 +80,7 @@ function ExportButton({ query, filters }: { query: string; filters: TranscriptFi
     setOpen(false)
     setExporting(true)
     try {
-      const items = await fetchAllTranscripts(query, filters)
+      const items = await fetchAllTranscripts(typedRef.current.trim(), filters)
       if (items.length === 0) {
         toast.info('Nothing to export')
         return
@@ -387,8 +387,9 @@ function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
   )
 }
 
-/** Owns the typed text, so a keystroke re-renders only this box, not the feed. */
-function SearchBox({ onSearch }: { onSearch: (term: string) => void }) {
+/** Owns the typed text, so a keystroke re-renders only this box, not the feed.
+ *  `typedRef` mirrors it, undebounced. */
+function SearchBox({ onSearch, typedRef }: { onSearch: (term: string) => void; typedRef: RefObject<string> }) {
   const [query, setQuery] = useState('')
 
   useEffect(() => {
@@ -400,7 +401,10 @@ function SearchBox({ onSearch }: { onSearch: (term: string) => void }) {
     <TextInput
       type="search"
       value={query}
-      onChange={e => setQuery(e.target.value)}
+      onChange={e => {
+        typedRef.current = e.target.value
+        setQuery(e.target.value)
+      }}
       placeholder="Search transcripts…"
       aria-label="Search transcripts"
       icon={<MagnifyingGlassIcon size={14} />}
@@ -586,6 +590,7 @@ export function Dashboard() {
   const missingHotkey = pushToTalk.isSuccess && keys === null
   const navigate = useNavigate()
   const [searchTerm, setSearchTerm] = useState('')
+  const typedRef = useRef('')
   const [filters, setFilters] = useState<TranscriptFilters>(NO_FILTERS)
   const observerRef = useRef<IntersectionObserver | null>(null)
 
@@ -706,9 +711,9 @@ export function Dashboard() {
           <h2 className="text-md font-semibold tracking-tight text-fg">Recent dictations</h2>
           {isFiltered(filters) && <FilterChip filters={filters} onClear={() => setFilters(NO_FILTERS)} />}
           <div className="ml-auto flex items-center gap-1.5">
-            <SearchBox onSearch={setSearchTerm} />
+            <SearchBox onSearch={setSearchTerm} typedRef={typedRef} />
             <FilterDropdown filters={filters} onChange={setFilters} />
-            <ExportButton query={searchTerm} filters={filters} />
+            <ExportButton typedRef={typedRef} filters={filters} />
           </div>
         </div>
 

@@ -38,7 +38,8 @@ export function ModelPickerModal() {
     commands.getHardwareProfile()
       .then(p => {
         setProfile(p)
-        setSelected(modelNameToId(p.recommendedModel, catalog))
+        // Only a default: the probe can finish after the user has picked.
+        setSelected(current => current ?? modelNameToId(p.recommendedModel, catalog))
       })
       .catch((e: unknown) => {
         // A model can still be picked by hand; only the recommendation is lost.

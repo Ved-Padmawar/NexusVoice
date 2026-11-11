@@ -671,14 +671,16 @@ fn current_stamps(dir: &Path, manifest: &Manifest) -> Option<Vec<FileStamp>> {
 }
 
 fn read_stamps(dir: &Path) -> Vec<FileStamp> {
-    std::fs::read(dir.join(STAMPS))
+    confined_file(dir, STAMPS)
         .ok()
+        .and_then(|path| std::fs::read(path).ok())
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default()
 }
 
 fn write_stamps(dir: &Path, stamps: &[FileStamp]) -> std::io::Result<()> {
-    std::fs::write(dir.join(STAMPS), serde_json::to_vec(stamps)?)
+    let path = confined_file(dir, STAMPS).map_err(std::io::Error::other)?;
+    std::fs::write(path, serde_json::to_vec(stamps)?)
 }
 
 /// Record the current state of a pack that just passed a full check.

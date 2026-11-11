@@ -160,12 +160,11 @@ describe('Dashboard — stats', () => {
 })
 
 describe('Dashboard — export', () => {
-  it('exports only what the current search shows', async () => {
+  it('exports what the search box says, even before the list catches up', async () => {
     mockBackend({ transcripts: sampleTranscripts, search: [sampleTranscripts[1]] })
     renderDashboard()
     await screen.findByText('Hello world')
     fireEvent.change(await screen.findByRole('searchbox', { name: /search transcripts/i }), { target: { value: 'search' } })
-    await waitFor(() => expect(screen.queryByText('Hello world')).not.toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Export' }))
     fireEvent.click(screen.getByText(/plain text/i))
     await waitFor(() => {

@@ -274,13 +274,22 @@ fn ensure_free_space(dest: &Path, needed: u64) -> Result<(), String> {
 
 /// Free bytes on the volume holding `path`, or `None` when it cannot be told.
 fn free_space(path: &Path) -> Option<u64> {
-    let target = path.to_string_lossy().to_lowercase();
     sysinfo::Disks::new_with_refreshed_list()
         .list()
         .iter()
-        .filter(|disk| target.starts_with(&disk.mount_point().to_string_lossy().to_lowercase()))
-        .max_by_key(|disk| disk.mount_point().as_os_str().len())
+        .filter(|disk| is_on_mount(path, disk.mount_point()))
+        .max_by_key(|disk| disk.mount_point().components().count())
         .map(sysinfo::Disk::available_space)
+}
+
+/// Whole components (`/home-backup` is not on `/home`), case-insensitive for Windows.
+fn is_on_mount(path: &Path, mount: &Path) -> bool {
+    let mut parts = path.components();
+    mount.components().all(|m| {
+        parts
+            .next()
+            .is_some_and(|p| p.as_os_str().eq_ignore_ascii_case(m.as_os_str()))
+    })
 }
 
 #[allow(clippy::cast_precision_loss)] // sizes are shown to one decimal

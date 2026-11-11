@@ -92,6 +92,22 @@ describe('ModelPickerModal', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /download & continue/i })).toBeEnabled())
   })
 
+  it('keeps a hand pick when the hardware recommendation arrives later', async () => {
+    let recommend!: (profile: unknown) => void
+    const base = mockInvoke.getMockImplementation()!
+    mockInvoke.mockImplementation((cmd, args) =>
+      cmd === 'get_hardware_profile' ? new Promise(resolve => { recommend = resolve }) : base(cmd, args))
+    renderWithQuery(<ModelPickerModal />)
+    fireEvent.click(await screen.findByRole('button', { name: /parakeet/i }))
+    await act(async () => {
+      recommend({ gpuName: 'GPU', executionProvider: 'cpu', vramGb: 0, recommendedModel: 'Whisper Tiny' })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /download & continue/i }))
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith('start_model_download', { id: 'parakeet', activate: true }))
+  })
+
   it('returns to the list when the download is cancelled', async () => {
     await confirmDownload()
     await waitFor(() => expect(handlers.has('model-download-cancelled')).toBe(true))

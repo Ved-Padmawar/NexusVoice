@@ -116,12 +116,6 @@ describe('Dictionary — existing entries', () => {
     expect(screen.getByDisplayValue('the')).toBeEnabled()
   })
 
-  it('renders entry term and replacement', async () => {
-    render()
-    expect(await screen.findByText('teh')).toBeInTheDocument()
-    expect(screen.getByText('the')).toBeInTheDocument()
-  })
-
   it('hides a deleted entry at once and deletes it by id when the undo window closes', async () => {
     render()
     await screen.findByText('teh')

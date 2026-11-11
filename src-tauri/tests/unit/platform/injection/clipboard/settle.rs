@@ -1,6 +1,8 @@
 use std::time::{Duration, Instant};
 
-use super::{Step, Timeline, CHORD_DELAY, FAILED_CHORD_TIMEOUT, QUIET_PERIOD, READ_TIMEOUT};
+use super::{
+    Landing, Step, Timeline, CHORD_DELAY, FAILED_CHORD_TIMEOUT, QUIET_PERIOD, READ_TIMEOUT,
+};
 
 const MS: Duration = Duration::from_millis(1);
 
@@ -47,15 +49,15 @@ fn a_second_read_restarts_the_quiet_period() {
 }
 
 #[test]
-fn a_read_before_the_chord_is_not_the_paste() {
+fn a_watcher_reading_before_the_chord_leaves_the_paste_unknown_not_failed() {
     let t0 = Instant::now();
     let mut timeline = Timeline::new(t0);
     timeline.record_read(t0 + MS);
-    timeline.chord_sent(t0 + CHORD_DELAY, true);
-    assert_eq!(
-        timeline.next_step(t0 + CHORD_DELAY + QUIET_PERIOD),
-        Step::Wait
-    );
+    let sent_at = t0 + CHORD_DELAY;
+    timeline.chord_sent(sent_at, true);
+    assert_eq!(timeline.landing(), Landing::Unknown);
+    // No later read will be reported, so it settles without the full timeout.
+    assert_eq!(timeline.next_step(sent_at + QUIET_PERIOD), Step::Settle);
 }
 
 #[test]

@@ -10,7 +10,8 @@
 //! When the paste cannot land, the transcript is kept on the clipboard instead
 //! and the user is told to paste it themselves: the target is an elevated
 //! window (Windows drops our keystrokes into it), or nothing read the
-//! clipboard before the timeout.
+//! clipboard before the timeout. A watcher reading it before the chord leaves
+//! the paste unconfirmed: the transcript is kept, without a warning.
 //!
 //! The promise carries opt-out markers that keep the transcript out of Win+V
 //! history and the cloud clipboard, so history never reads it ahead of the
@@ -51,7 +52,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::caret;
-use super::settle::{Step, Timeline};
+use super::settle::{Landing, Step, Timeline};
 use super::spacing::needs_space;
 use crate::bridge::events::TranscriptionWarning;
 use crate::platform::focus;
@@ -339,7 +340,7 @@ fn settle(hwnd: HWND) {
             std::mem::take(&mut paste.snapshot),
             paste.sequence,
             paste.timeline.ownership_lost(),
-            not_pasted_message(paste),
+            keep_reason(paste),
         ))
     })
     .flatten() else {
@@ -347,9 +348,16 @@ fn settle(hwnd: HWND) {
     };
     let outcome = if ownership_lost {
         Restore::UserCopied
-    } else if let Some((app, message)) = kept {
-        log::warn!("paste did not land; keeping the transcript on the clipboard");
-        let _ = TranscriptionWarning(message.to_string()).emit(&app);
+    } else if let Some(keep) = kept {
+        match keep {
+            Keep::Warn(app, message) => {
+                log::warn!("paste did not land; keeping the transcript on the clipboard");
+                let _ = TranscriptionWarning(message.to_string()).emit(&app);
+            }
+            Keep::Unconfirmed => {
+                log::info!("a clipboard watcher read the transcript first; keeping it");
+            }
+        }
         Restore::Kept
     } else {
         restore_if_unchanged(hwnd, &snapshot, sequence)
@@ -367,24 +375,31 @@ fn settle(hwnd: HWND) {
     unsafe { PostQuitMessage(0) };
 }
 
-/// What to tell the user when the transcript could not be pasted, `None` when
-/// the target read it.
-fn not_pasted_message(paste: &Paste) -> Option<(AppHandle, &'static str)> {
-    let message = if paste.admin_window {
-        ADMIN_WINDOW
-    } else if !paste.timeline.was_read() {
-        NOT_PASTED
-    } else {
-        return None;
-    };
-    Some((paste.app.clone(), message))
+/// Why the transcript stays on the clipboard instead of the snapshot.
+enum Keep {
+    /// Not pasted; the user is told to paste it.
+    Warn(AppHandle, &'static str),
+    /// May have landed unseen; restoring could hand the target the old clipboard.
+    Unconfirmed,
+}
+
+/// `None` when the target read the transcript, so the snapshot can return.
+fn keep_reason(paste: &Paste) -> Option<Keep> {
+    if paste.admin_window {
+        return Some(Keep::Warn(paste.app.clone(), ADMIN_WINDOW));
+    }
+    match paste.timeline.landing() {
+        Landing::Landed => None,
+        Landing::NotRead => Some(Keep::Warn(paste.app.clone(), NOT_PASTED)),
+        Landing::Unknown => Some(Keep::Unconfirmed),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Restore {
     Restored,
     UserCopied,
-    /// The paste did not land; the transcript stays for the user to paste.
+    /// The transcript stays on the clipboard; see [`Keep`].
     Kept,
     /// Another app held the clipboard; the promise is still on it.
     Busy,

@@ -114,7 +114,12 @@ impl<E> Slot<E> {
         true
     }
 
+    /// With no engine loaded there is nothing to keep, so nothing waits.
     fn unload(&mut self) -> Unload {
+        if self.engine.is_none() {
+            self.unload_pending = false;
+            return Unload::NothingLoaded;
+        }
         if self.leases > 0 {
             self.unload_pending = true;
             return Unload::Deferred;
@@ -122,10 +127,17 @@ impl<E> Slot<E> {
         self.unload_pending = false;
         // The next engine is built with the saved language.
         self.language_pending = false;
-        match self.engine.take() {
-            Some(_) => Unload::Released,
-            None => Unload::NothingLoaded,
+        self.engine = None;
+        Unload::Released
+    }
+
+    /// `supersede`, but refused, with nothing queued, while a recording holds the engine.
+    fn supersede_unless_leased(&mut self) -> bool {
+        if self.leases > 0 {
+            return false;
         }
+        self.supersede();
+        true
     }
 }
 
@@ -363,6 +375,11 @@ impl EngineCache {
     /// flight is superseded.
     pub fn unload(&self) -> Unload {
         self.edit(Slot::supersede)
+    }
+
+    /// Unload now, or refuse while a recording holds the engine; never queues.
+    pub fn unload_unless_recording(&self) -> bool {
+        self.edit(Slot::supersede_unless_leased)
     }
 
     /// Drop an engine that panicked, even mid-recording: it cannot be trusted.

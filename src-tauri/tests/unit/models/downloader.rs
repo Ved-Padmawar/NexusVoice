@@ -170,3 +170,11 @@ fn a_download_that_cannot_fit_fails_before_transferring() {
         "{error}"
     );
 }
+
+#[test]
+fn a_sibling_folder_sharing_a_mount_prefix_is_not_on_that_mount() {
+    let models = Path::new("/home-backup/models");
+    assert!(!is_on_mount(models, Path::new("/home")));
+    assert!(is_on_mount(models, Path::new("/home-backup")));
+    assert!(is_on_mount(models, Path::new("/")));
+}

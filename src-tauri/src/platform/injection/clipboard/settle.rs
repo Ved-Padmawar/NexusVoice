@@ -24,15 +24,32 @@ pub enum Step {
     Settle,
 }
 
+/// Whether the target took the paste, as far as reads can tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Landing {
+    Landed,
+    NotRead,
+    /// Another app read the text first; Windows reports only that read.
+    Unknown,
+}
+
+/// The reads Windows reported for the transcript.
+#[derive(Debug, Clone, Copy)]
+enum Reads {
+    None,
+    /// A clipboard watcher reacting to the change, not the paste.
+    BeforeChord,
+    /// The latest read after the chord.
+    After(Instant),
+}
+
 /// One paste, from publishing the transcript to restoring the clipboard.
 #[derive(Debug)]
 pub struct Timeline {
     published_at: Instant,
     chord_sent_at: Option<Instant>,
     chord_failed: bool,
-    /// Latest read after the chord. Earlier reads are clipboard watchers
-    /// reacting to the change itself, not the paste.
-    last_read: Option<Instant>,
+    reads: Reads,
     ownership_lost: bool,
     /// The target cannot take a paste: no chord, the transcript just stays.
     copy_only: bool,
@@ -44,7 +61,7 @@ impl Timeline {
             published_at,
             chord_sent_at: None,
             chord_failed: false,
-            last_read: None,
+            reads: Reads::None,
             ownership_lost: false,
             copy_only: false,
         }
@@ -57,9 +74,12 @@ impl Timeline {
         timeline
     }
 
-    /// Whether any app read the transcript after the chord.
-    pub const fn was_read(&self) -> bool {
-        self.last_read.is_some()
+    pub const fn landing(&self) -> Landing {
+        match self.reads {
+            Reads::After(_) => Landing::Landed,
+            Reads::BeforeChord => Landing::Unknown,
+            Reads::None => Landing::NotRead,
+        }
     }
 
     pub const fn chord_sent(&mut self, at: Instant, ok: bool) {
@@ -68,9 +88,11 @@ impl Timeline {
     }
 
     pub fn record_read(&mut self, at: Instant) {
-        if self.chord_sent_at.is_some_and(|sent| at >= sent) {
-            self.last_read = Some(at);
-        }
+        self.reads = if self.chord_sent_at.is_some_and(|sent| at >= sent) {
+            Reads::After(at)
+        } else {
+            Reads::BeforeChord
+        };
     }
 
     /// Someone else emptied the clipboard: the user copied something, and
@@ -94,10 +116,13 @@ impl Timeline {
                 Step::Wait
             };
         };
-        if self
-            .last_read
-            .is_some_and(|read| now.duration_since(read) >= QUIET_PERIOD)
-        {
+        let last = match self.reads {
+            Reads::After(read) => Some(read),
+            // No later read is reported, so the chord stands in for it.
+            Reads::BeforeChord => Some(sent),
+            Reads::None => None,
+        };
+        if last.is_some_and(|read| now.duration_since(read) >= QUIET_PERIOD) {
             return Step::Settle;
         }
         let timeout = if self.chord_failed {
