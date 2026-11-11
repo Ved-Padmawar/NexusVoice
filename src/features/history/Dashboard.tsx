@@ -499,7 +499,7 @@ const waveTipFmt = new Intl.DateTimeFormat(undefined, { weekday: 'short', month:
 const waveAxisFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
 
 /** The last 60 days drawn as a voice: one bar per day, scaled to the busiest. */
-function DayWave() {
+const DayWave = memo(function DayWave() {
   const { data } = useDailyWords(WAVE_DAYS)
   if (!data) return <div className="h-33.5" />
   const peak = Math.max(1, ...data.map(d => d.words))
@@ -525,7 +525,7 @@ function DayWave() {
       </div>
     </div>
   )
-}
+})
 
 const hasDates = ({ from, to }: TranscriptFilters) => !!from || !!to
 const isFiltered = (filters: TranscriptFilters) => hasDates(filters) || filters.sortAsc

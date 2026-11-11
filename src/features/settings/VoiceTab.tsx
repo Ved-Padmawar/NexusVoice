@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { memo, useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import {
   ArrowClockwiseIcon, CaretRightIcon, CheckIcon, CpuIcon, DownloadSimpleIcon, HardDrivesIcon,
   HourglassMediumIcon, PlayIcon, WarningCircleIcon, XIcon,
@@ -99,16 +99,14 @@ function Description({ model }: { model: CatalogModel }) {
   )
 }
 
-function ModelCard({
+const ModelCard = memo(function ModelCard({
   model,
   loaded,
   waiting,
   installed,
   recommended,
   disabled,
-  onDownload,
   onUse,
-  onCancel,
 }: {
   model: CatalogModel
   loaded: boolean
@@ -117,9 +115,7 @@ function ModelCard({
   installed: boolean
   recommended: boolean
   disabled: boolean
-  onDownload: () => void
-  onUse: () => void
-  onCancel: () => void
+  onUse: (id: ModelId) => void
 }) {
   // Per-card subscription: a progress tick re-renders only this card.
   const download = useDownload(model.id).data
@@ -179,7 +175,7 @@ function ModelCard({
                 : <><CheckIcon size={12} weight="bold" />In use</>}
             </span>
           ) : (
-            <Button variant="chip" onClick={onUse} disabled={disabled} className={ACTION}>
+            <Button variant="chip" onClick={() => onUse(model.id)} disabled={disabled} className={ACTION}>
               <PlayIcon size={12} weight="bold" />Use
             </Button>
           )
@@ -201,7 +197,7 @@ function ModelCard({
             <button
               type="button"
               aria-label="Cancel download"
-              onClick={onCancel}
+              onClick={() => void cancelDownload(model.id)}
               className="grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-muted hover:bg-danger-soft hover:text-danger"
             >
               <XIcon size={12} weight="bold" />
@@ -210,7 +206,7 @@ function ModelCard({
         ) : (
           <Button
             variant="chip"
-            onClick={onDownload}
+            onClick={() => void startDownload(model.id)}
             disabled={disabled}
             className={cn(ACTION, failed && 'text-danger ring-danger/40 hover:bg-danger-soft hover:text-danger hover:ring-danger/60 [&_svg]:text-danger')}
           >
@@ -222,7 +218,7 @@ function ModelCard({
       </footer>
     </article>
   )
-}
+})
 
 type Filter = 'all' | 'installed' | 'streaming' | 'multilingual'
 
@@ -278,7 +274,7 @@ export function VoiceTab() {
   }))
 
   // Only offered for a model on disk, so the override can't point at nothing.
-  const handleUseModel = async (v: ModelId) => {
+  const handleUseModel = useCallback(async (v: ModelId) => {
     setModelSaving(true)
     try {
       await switchModel(v)
@@ -287,7 +283,7 @@ export function VoiceTab() {
       toast.error(extractErrorMessage(e, 'Could not switch model'))
     }
     finally { setModelSaving(false) }
-  }
+  }, [])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -321,9 +317,7 @@ export function VoiceTab() {
               installed={onDiskVariants.has(model.id)}
               recommended={recommendedVariant === model.id}
               disabled={modelSaving}
-              onDownload={() => void startDownload(model.id)}
-              onUse={() => void handleUseModel(model.id)}
-              onCancel={() => void cancelDownload(model.id)}
+              onUse={handleUseModel}
             />
           ))}
         </div>
