@@ -166,6 +166,7 @@ fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // The database opens in the background; only the settings file is read here.
     let secrets = Secrets::new(app.config().identifier.clone());
     app.manage(Settings::load(&app_data_dir, secrets));
+    reset_input_device_saved_by_name(&app.state::<Settings>());
     app.manage(Database::default());
     app.manage(Dictionary::default());
     app.manage(EngineCache::new(models_dir.clone()));
@@ -180,7 +181,6 @@ fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     spawn_open_database(app.handle().clone(), app_data_dir.join("nexusvoice.db"));
     spawn_log_hardware();
-    spawn_migrate_input_device(app.handle().clone());
 
     let app_handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
@@ -200,21 +200,16 @@ fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Older versions saved the microphone by name. A name with no connected match
-/// is kept and retried next launch.
-fn spawn_migrate_input_device(app: tauri::AppHandle) {
-    let Some(name) = app.state::<Settings>().input_device() else {
-        return;
-    };
-    // Enumerating audio endpoints blocks on the OS.
-    tauri::async_runtime::spawn_blocking(move || {
-        let Some(id) = crate::audio::id_for_saved_name(&name) else {
-            return;
-        };
-        if let Err(e) = app.state::<Settings>().replace_input_device(&name, id) {
-            log::error!("could not save the microphone id: {e}");
+/// A microphone saved by name in an older version falls back to the default.
+fn reset_input_device_saved_by_name(settings: &Settings) {
+    if settings
+        .input_device()
+        .is_some_and(|saved| !crate::audio::is_device_id(&saved))
+    {
+        if let Err(e) = settings.set_input_device(None) {
+            log::error!("could not reset the saved microphone: {e}");
         }
-    });
+    }
 }
 
 fn spawn_open_database(app: tauri::AppHandle, db_path: std::path::PathBuf) {

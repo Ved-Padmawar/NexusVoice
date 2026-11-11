@@ -186,19 +186,9 @@ fn resolve_input_device(
         .ok_or_else(|| "no input device available".to_string())
 }
 
-/// The id of the mic an older version saved by name; `None` when `saved` is
-/// already an id or no connected mic has that name.
-pub fn id_for_saved_name(saved: &str) -> Option<String> {
-    use cpal::traits::HostTrait;
-    if saved.parse::<cpal::DeviceId>().is_ok() {
-        return None;
-    }
-    cpal::default_host()
-        .input_devices()
-        .ok()?
-        .find(|d| device_name(d).as_deref() == Some(saved))
-        .as_ref()
-        .and_then(device_id)
+/// True for a `host:device` id; older versions saved the name instead.
+pub fn is_device_id(saved: &str) -> bool {
+    saved.parse::<cpal::DeviceId>().is_ok()
 }
 
 enum Command {

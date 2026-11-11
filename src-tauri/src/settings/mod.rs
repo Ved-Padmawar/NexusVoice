@@ -180,17 +180,6 @@ impl Settings {
         self.update(|f| f.input_device = id).map(drop)
     }
 
-    /// Swap an older version's saved device name for its id, unless the user
-    /// picked another device meanwhile.
-    pub fn replace_input_device(&self, name: &str, id: String) -> std::io::Result<()> {
-        self.update(|f| {
-            if f.input_device.as_deref() == Some(name) {
-                f.input_device = Some(id);
-            }
-        })
-        .map(drop)
-    }
-
     pub fn keep_mic_open(&self) -> bool {
         self.read(|f| f.keep_mic_open)
     }
