@@ -69,10 +69,10 @@ describe('LanguageSection', () => {
 
     await pick('German')
     expect(trigger()).toHaveTextContent('German')
-    await act(async () => { replies[0].reject({ code: 'invalid_language', message: 'unsupported language' }) })
+    await act(async () => { replies[0].reject({ code: 'invalid_language', message: "This model doesn't support that language." }) })
 
     await waitFor(() => expect(trigger()).toHaveTextContent('English (US)'))
-    expect(toast.error).toHaveBeenCalledWith('unsupported language')
+    expect(toast.error).toHaveBeenCalledWith("This model doesn't support that language.")
   })
 
   it('says a saved language waits while the recording in progress keeps the previous one', async () => {

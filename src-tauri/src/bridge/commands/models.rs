@@ -15,7 +15,7 @@ use crate::settings::Settings;
 use super::error::ApiError;
 
 fn unknown_model() -> ApiError {
-    ApiError::new("invalid_variant", "unknown model id")
+    ApiError::new("invalid_variant", "That model isn't available.")
 }
 
 fn catalog_entry(id: &str) -> Result<&'static ModelEntry, ApiError> {
@@ -131,7 +131,7 @@ pub fn set_model_override(
 ) -> Result<(), ApiError> {
     let entry = catalog_entry(&variant)?;
     if !library.is_downloaded(entry) {
-        return Err(ApiError::new("not_found", "model is not downloaded"));
+        return Err(ApiError::new("not_found", "Download this model first."));
     }
     Ok(ModelLibrary::select(&app, entry)?)
 }
@@ -223,7 +223,10 @@ pub fn set_language(
     let model = ModelLibrary::active(&settings);
     if let Some(c) = code.as_deref() {
         if c != AUTO && !model.languages.iter().any(|l| l == c) {
-            return Err(ApiError::new("invalid_language", "unsupported language"));
+            return Err(ApiError::new(
+                "invalid_language",
+                "This model doesn't support that language.",
+            ));
         }
     }
     settings.set_language(code)?;
@@ -318,7 +321,7 @@ pub fn start_model_download(
     activate: bool,
 ) -> Result<(), ApiError> {
     let entry = catalog::find(&id)
-        .ok_or_else(|| ApiError::new("unknown_model", "no such model in the catalog"))?;
+        .ok_or_else(|| ApiError::new("unknown_model", "That model isn't available."))?;
     library.start_download(&app, entry, activate);
     Ok(())
 }

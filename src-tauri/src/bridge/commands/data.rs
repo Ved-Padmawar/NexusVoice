@@ -68,7 +68,10 @@ pub async fn get_daily_words(
     utc_offset_minutes: i32,
 ) -> Result<Vec<DailyWordsResponse>, ApiError> {
     if !UTC_OFFSET_RANGE.contains(&utc_offset_minutes) {
-        return Err(ApiError::new("invalid_input", "UTC offset is out of range"));
+        return Err(ApiError::new(
+            "invalid_input",
+            "Couldn't work out your time zone.",
+        ));
     }
     let rows = TranscriptRepository::new(db.pool().await?)
         .daily_words(
@@ -133,7 +136,7 @@ impl PageQuery {
             .to
             .as_deref()
             .map(|day| {
-                let next = parse_day(day)?.succ_opt().ok_or_else(date_out_of_range)?;
+                let next = parse_day(day)?.succ_opt().ok_or_else(bad_date_filter)?;
                 Ok::<_, ApiError>(day_start_utc(next, tz)? - TimeDelta::seconds(1))
             })
             .transpose()?;
@@ -151,13 +154,16 @@ struct CreatedAtRange {
     end: Option<String>,
 }
 
-fn parse_day(day: &str) -> Result<NaiveDate, ApiError> {
-    NaiveDate::parse_from_str(day, "%Y-%m-%d")
-        .map_err(|_| ApiError::new("invalid_input", "date filter must be YYYY-MM-DD"))
+/// The UI picks dates from a calendar, so a bad one is never the user's typing.
+fn bad_date_filter() -> ApiError {
+    ApiError::new(
+        "invalid_input",
+        "Couldn't apply that date filter. Try picking the dates again.",
+    )
 }
 
-fn date_out_of_range() -> ApiError {
-    ApiError::new("invalid_input", "date filter is out of range")
+fn parse_day(day: &str) -> Result<NaiveDate, ApiError> {
+    NaiveDate::parse_from_str(day, "%Y-%m-%d").map_err(|_| bad_date_filter())
 }
 
 /// First instant of `day` in `tz`. Where a DST change skips midnight, the day
@@ -171,7 +177,7 @@ fn day_start_utc<Tz: TimeZone>(day: NaiveDate, tz: &Tz) -> Result<DateTime<Utc>,
                 .earliest()
         })
         .map(|start| start.with_timezone(&Utc))
-        .ok_or_else(date_out_of_range)
+        .ok_or_else(bad_date_filter)
 }
 
 /// `SQLite`'s `CURRENT_TIMESTAMP` form, which `created_at` holds.
@@ -293,12 +299,15 @@ pub async fn save_export(
     content: String,
 ) -> Result<String, ApiError> {
     if !is_bare_file_name(&file_name) {
-        return Err(ApiError::new("invalid_input", "invalid file name"));
+        return Err(ApiError::new(
+            "invalid_input",
+            "Couldn't save the export to Downloads.",
+        ));
     }
-    let downloads = app
-        .path()
-        .download_dir()
-        .map_err(|e| ApiError::new("io_error", e.to_string()))?;
+    let downloads = app.path().download_dir().map_err(|e| {
+        log::warn!("downloads folder not found: {e}");
+        ApiError::new("io_error", "Couldn't find your Downloads folder.")
+    })?;
     // Off the main thread: a large export or a slow folder would freeze every window.
     let path = tauri::async_runtime::spawn_blocking(move || {
         write_without_overwriting(&downloads, &file_name, &content)
@@ -312,7 +321,10 @@ pub async fn save_export(
 #[tauri::command]
 #[specta::specta]
 pub fn reveal_in_folder(path: String) -> Result<(), ApiError> {
-    opener::reveal(path).map_err(|e| ApiError::new("open_error", e.to_string()))
+    opener::reveal(path).map_err(|e| {
+        log::warn!("reveal in folder failed: {e}");
+        ApiError::new("open_error", "Couldn't open the folder.")
+    })
 }
 
 /// A single file name: no directories, and none of the characters Windows

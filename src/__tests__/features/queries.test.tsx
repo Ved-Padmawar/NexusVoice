@@ -12,7 +12,7 @@ import type { Transcript } from '../../shared/types'
 
 type ToastOptions = { onAutoClose?: () => void; onDismiss?: () => void; action?: { onClick: () => void } }
 const toasts = vi.hoisted(() => [] as ToastOptions[])
-vi.mock('sonner', () => ({ toast: Object.assign((_: string, options: ToastOptions) => { toasts.push(options) }, { error: vi.fn() }) }))
+vi.mock('sonner', () => ({ toast: Object.assign((_: string, options: ToastOptions) => { toasts.push(options) }, { error: vi.fn(), dismiss: vi.fn() }) }))
 /** The undo window ran out: the real delete goes ahead. */
 const closeUndoToast = () => act(async () => { toasts.at(-1)?.onAutoClose?.() })
 const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -132,6 +132,28 @@ describe('local Query cache', () => {
     act(() => { toasts.at(-1)?.action?.onClick(); toasts.at(-1)?.onDismiss?.() })
     expect(vi.mocked(invoke).mock.calls.some(([cmd]) => cmd === 'delete_transcript')).toBe(false)
     expect(ids(result.current.feed.data)).toEqual([2, 1])
+  })
+
+  it('puts the newest deleted transcript back on Ctrl+Z and never deletes it', async () => {
+    queryClient.setQueryData(feedKey, pages([row(2), row(1)]))
+    const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
+    act(() => result.current.del(2))
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true })) })
+    act(() => toasts.at(-1)?.onDismiss?.())
+    expect(vi.mocked(invoke).mock.calls.some(([cmd]) => cmd === 'delete_transcript')).toBe(false)
+    expect(ids(result.current.feed.data)).toEqual([2, 1])
+  })
+
+  it('leaves Ctrl+Z to a focused text field and keeps the delete pending', async () => {
+    queryClient.setQueryData(feedKey, pages([row(2), row(1)]))
+    const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
+    act(() => result.current.del(2))
+    const input = document.body.appendChild(document.createElement('input'))
+    act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true })) })
+    input.remove()
+    expect(ids(result.current.feed.data)).toEqual([1])
+    await closeUndoToast()
+    expect(vi.mocked(invoke).mock.calls.some(([cmd]) => cmd === 'delete_transcript')).toBe(true)
   })
 
   it('keeps a pending delete hidden when a refetch or export returns it, and gone once it commits', async () => {

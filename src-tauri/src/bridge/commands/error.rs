@@ -29,11 +29,11 @@ impl From<DbUnavailable> for ApiError {
 
 impl From<sqlx::Error> for ApiError {
     fn from(value: sqlx::Error) -> Self {
+        log::warn!("database operation failed: {value}");
         let message = match value {
-            sqlx::Error::RowNotFound => "record not found",
-            sqlx::Error::PoolClosed => "database unavailable",
-            sqlx::Error::Io(_) => "database io error",
-            _ => "database error",
+            sqlx::Error::RowNotFound => "That item no longer exists.",
+            sqlx::Error::Io(_) => "Couldn't read your history from disk.",
+            _ => "Couldn't reach your history. Try again in a moment.",
         };
         Self::new("database_error", message)
     }
@@ -59,31 +59,36 @@ impl From<RecordError> for ApiError {
         match value {
             RecordError::AlreadyRunning => Self::new(
                 "transcription_already_running",
-                "transcription already running",
+                "A recording is already running.",
             ),
             RecordError::NotRunning => {
-                Self::new("transcription_not_running", "transcription not running")
+                Self::new("transcription_not_running", "No recording is running.")
             }
             RecordError::DictationRunning => Self::new(
                 "dictation_running",
-                "dictation is running; use commit_dictation",
+                "A dictation is already running. Finish it first.",
             ),
             RecordError::NotDictating => {
-                Self::new("dictation_not_running", "dictation is not running")
+                Self::new("dictation_not_running", "No dictation is running.")
             }
             RecordError::NotRecording => {
-                Self::new("dictation_not_recording", "dictation is not recording")
+                Self::new("dictation_not_recording", "There's no dictation to pause.")
             }
-            RecordError::NotPaused => Self::new("dictation_not_paused", "dictation is not paused"),
-            RecordError::Finalizing => {
-                Self::new("dictation_finalizing", "dictation is already finalizing")
-            }
+            RecordError::NotPaused => Self::new(
+                "dictation_not_paused",
+                "There's no paused dictation to resume.",
+            ),
+            RecordError::Finalizing => Self::new(
+                "dictation_finalizing",
+                "The dictation is already finishing.",
+            ),
             RecordError::Unavailable(e) => Self::new("model_unavailable", e),
             RecordError::Capture(e) => Self::new("capture_failed", e),
-            RecordError::Failed => {
-                Self::new("recorder_failed", "the recorder hit an internal error")
-            }
-            RecordError::Restarting => Self::new("restarting", "NexusVoice is restarting"),
+            RecordError::Failed => Self::new(
+                "recorder_failed",
+                "Recording stopped unexpectedly. Try again.",
+            ),
+            RecordError::Restarting => Self::new("restarting", "NexusVoice is restarting."),
         }
     }
 }
