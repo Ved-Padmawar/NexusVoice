@@ -13,7 +13,7 @@ use crate::bridge::events::LanguageReset;
 use crate::settings::Settings;
 use crate::sync::lock_recovering;
 
-use super::language::{self, primary_of, AUTO, DEFAULT};
+use super::language::{primary_of, AUTO, DEFAULT};
 use super::library::best_on_disk;
 use super::provider::{detect_backend, select_model};
 use super::TranscriptionEngine;
@@ -25,14 +25,13 @@ struct Slot<E = SharedEngine> {
     engine: Option<E>,
     /// Bumped by every unload; a load begun under an older value is stale.
     generation: u64,
-    /// Recordings still using the engine. Unloading under one would hand its
-    /// finalize a different model than the one that decoded its partials.
-    leases: usize,
+    /// Each recording using the engine, by the language it started in. Unloading
+    /// under one would hand its finalize a different model.
+    leases: Vec<Option<String>>,
+    /// Only ever set while an engine is loaded.
     unload_pending: bool,
-    /// The saved language, as last handed to the engine or waiting for it.
+    /// The saved language.
     language: Option<String>,
-    /// `language` waits for the recordings holding the engine to finish.
-    language_pending: bool,
 }
 
 // Derived, it would require `E: Default`, which an engine is not.
@@ -41,10 +40,9 @@ impl<E> Default for Slot<E> {
         Self {
             engine: None,
             generation: 0,
-            leases: 0,
+            leases: Vec::new(),
             unload_pending: false,
             language: None,
-            language_pending: false,
         }
     }
 }
@@ -65,37 +63,27 @@ pub struct Deferred {
     pub language: bool,
 }
 
-impl<E: Clone> Slot<E> {
-    /// Record the saved language. Returns the engine to repoint before the slot
-    /// unlocks, or `None` while a recording holds it.
-    fn want_language(&mut self, saved: Option<String>) -> Option<E> {
-        self.language = saved;
-        if self.leases > 0 && self.engine.is_some() {
-            self.language_pending = true;
-            return None;
-        }
-        self.engine.clone()
+impl<E> Slot<E> {
+    /// A recording in `language` starts using the engine.
+    fn lease(&mut self, language: Option<String>) {
+        self.language.clone_from(&language);
+        self.leases.push(language);
     }
 
-    /// A lease ended. Once none is left, applies what waited on the recordings
-    /// and returns the engine to repoint at the waiting language.
-    fn release(&mut self) -> Option<E> {
-        self.leases -= 1;
+    /// A recording in `language` ended; applies an unload that waited on it.
+    fn release(&mut self, language: Option<&str>) {
+        if let Some(i) = self.leases.iter().position(|l| l.as_deref() == language) {
+            self.leases.swap_remove(i);
+        }
         if self.unload_pending && self.unload() == Unload::Released {
             log::info!("unloaded the engine the finished recording was using");
         }
-        if self.leases > 0 || !std::mem::take(&mut self.language_pending) {
-            return None;
-        }
-        self.engine.clone()
     }
-}
 
-impl<E> Slot<E> {
     fn deferred(&self) -> Deferred {
         Deferred {
-            model: self.unload_pending && self.engine.is_some(),
-            language: self.language_pending,
+            model: self.unload_pending,
+            language: self.leases.iter().any(|l| *l != self.language),
         }
     }
 
@@ -114,26 +102,27 @@ impl<E> Slot<E> {
         true
     }
 
-    /// With no engine loaded there is nothing to keep, so nothing waits.
+    /// Deferred only while a recording holds a loaded engine.
     fn unload(&mut self) -> Unload {
-        if self.engine.is_none() {
-            self.unload_pending = false;
-            return Unload::NothingLoaded;
-        }
-        if self.leases > 0 {
+        if self.engine.is_some() && !self.leases.is_empty() {
             self.unload_pending = true;
             return Unload::Deferred;
         }
+        match self.clear() {
+            Some(_) => Unload::Released,
+            None => Unload::NothingLoaded,
+        }
+    }
+
+    /// Drop the engine, and the unload that waited on it.
+    fn clear(&mut self) -> Option<E> {
         self.unload_pending = false;
-        // The next engine is built with the saved language.
-        self.language_pending = false;
-        self.engine = None;
-        Unload::Released
+        self.engine.take()
     }
 
     /// `supersede`, but refused, with nothing queued, while a recording holds the engine.
     fn supersede_unless_leased(&mut self) -> bool {
-        if self.leases > 0 {
+        if !self.leases.is_empty() {
             return false;
         }
         self.supersede();
@@ -155,21 +144,26 @@ pub struct EngineCache {
     deferred: Arc<watch::Sender<Deferred>>,
 }
 
-/// Holds the engine for one recording. Dropping it applies the unload or
-/// language change that was requested meanwhile.
+/// Holds the engine for one recording, which keeps the language it started
+/// with. Dropping it applies an unload requested meanwhile.
 pub struct EngineLease {
     slot: Arc<Mutex<Slot>>,
     released: Arc<tokio::sync::Notify>,
     deferred: Arc<watch::Sender<Deferred>>,
+    language: Option<String>,
+}
+
+impl EngineLease {
+    /// The saved language when the recording started.
+    pub fn language(&self) -> Option<&str> {
+        self.language.as_deref()
+    }
 }
 
 impl Drop for EngineLease {
     fn drop(&mut self) {
-        edit(&self.slot, &self.deferred, |slot| {
-            if let Some(engine) = slot.release() {
-                repoint_language(&engine, slot.language.as_deref());
-            }
-        });
+        let language = self.language.as_deref();
+        edit(&self.slot, &self.deferred, |slot| slot.release(language));
         self.released.notify_waiters();
     }
 }
@@ -187,14 +181,6 @@ fn edit<R>(
     result
 }
 
-/// Called under the slot lock with no lease held, so no recording can start
-/// until the language is in place.
-fn repoint_language(engine: &SharedEngine, saved: Option<&str>) {
-    if let Ok(mut engine) = engine.lock() {
-        engine.set_language(language::resolve(saved));
-    }
-}
-
 impl EngineCache {
     pub fn new(models_dir: PathBuf) -> Self {
         Self {
@@ -208,12 +194,14 @@ impl EngineCache {
         }
     }
 
-    pub fn lease(&self) -> EngineLease {
-        lock_recovering(&self.slot).leases += 1;
+    /// Hold the engine for a recording in the saved `language`.
+    pub fn lease(&self, language: Option<String>) -> EngineLease {
+        self.edit(|slot| slot.lease(language.clone()));
         EngineLease {
             slot: Arc::clone(&self.slot),
             released: Arc::clone(&self.released),
             deferred: Arc::clone(&self.deferred),
+            language,
         }
     }
 
@@ -269,29 +257,15 @@ impl EngineCache {
                 Ok(engine) => return Ok(engine),
                 Err(generation) => generation,
             };
-            let saved = settings.language();
-            let engine = self.build(settings, saved.as_deref()).await?;
+            let engine = self.build(settings).await?;
             let backend = engine.backend();
             let languages = engine.languages().to_vec();
             let engine = Arc::new(Mutex::new(engine));
-            let installed = self.edit(|slot| {
-                if !slot.install(Arc::clone(&engine), generation) {
-                    return false;
-                }
-                // A language saved while this model loaded missed the build.
-                let current = settings.language();
-                if current == saved {
-                    slot.language = current;
-                } else if let Some(engine) = slot.want_language(current) {
-                    repoint_language(&engine, slot.language.as_deref());
-                }
-                true
-            });
-            if !installed {
+            if !self.edit(|slot| slot.install(Arc::clone(&engine), generation)) {
                 log::info!("model changed while loading; loading the new selection");
                 continue;
             }
-            reset_unsupported_language(settings, &languages, saved.as_deref());
+            reset_unsupported_language(settings, &languages, settings.language().as_deref());
             *self
                 .backend
                 .write()
@@ -307,11 +281,7 @@ impl EngineCache {
     }
 
     /// Build the selected model's engine off the runtime.
-    async fn build(
-        &self,
-        settings: &Settings,
-        saved_language: Option<&str>,
-    ) -> Result<TranscriptionEngine, String> {
+    async fn build(&self, settings: &Settings) -> Result<TranscriptionEngine, String> {
         let mut model = settings.model();
         let entry = select_model(detect_backend(), model.as_deref());
         // The selected model may still be downloading. Load whatever is present
@@ -327,10 +297,9 @@ impl EngineCache {
             model = Some(fallback.id.clone());
         }
 
-        let hint = language::resolve(saved_language).map(str::to_string);
         let models_dir = self.models_dir.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            TranscriptionEngine::new(&models_dir, model.as_deref(), hint.as_deref())
+            TranscriptionEngine::new(&models_dir, model.as_deref())
         })
         .await
         .map_err(|e| {
@@ -360,15 +329,10 @@ impl EngineCache {
         });
     }
 
-    /// Repoint the engine at the saved language (a per-run option, so no
-    /// reload). Done before returning; a recording in progress waits instead.
+    /// Note a newly saved language; recordings in progress keep theirs.
     pub fn apply_language(&self, settings: &Settings) {
         // Read under the slot lock, so concurrent saves apply in order.
-        self.edit(|slot| {
-            if let Some(engine) = slot.want_language(settings.language()) {
-                repoint_language(&engine, slot.language.as_deref());
-            }
-        });
+        self.edit(|slot| slot.language = settings.language());
     }
 
     /// Unload now, or once the recordings holding the engine finish. A load in
@@ -384,11 +348,13 @@ impl EngineCache {
 
     /// Drop an engine that panicked, even mid-recording: it cannot be trusted.
     pub fn discard(&self) {
-        self.edit(|slot| slot.engine = None);
+        self.edit(|slot| {
+            slot.clear();
+        });
     }
 
     pub fn in_use(&self) -> bool {
-        lock_recovering(&self.slot).leases > 0
+        !lock_recovering(&self.slot).leases.is_empty()
     }
 
     /// Defer an idle unload: the engine is in use now.

@@ -69,6 +69,8 @@ pub struct Capture {
     pub mic: Arc<MicStream>,
     /// Growing-window decode state; created at start, taken by finalize.
     pub session: Arc<Mutex<Option<StreamingSession>>>,
+    /// The saved language when the recording started.
+    pub language: Arc<Mutex<Option<String>>>,
     /// Transcript a streaming-native model produced. `None` means finalize
     /// decodes the buffer itself.
     pub streamed: Arc<Mutex<Option<Streamed>>>,
@@ -144,7 +146,7 @@ fn spawn_native_stream(app: &AppHandle, capture: Capture, ticket: Ticket) {
         if Route::for_engine(&guard) != Route::Streaming {
             return;
         }
-        let options = guard.stream_run_options();
+        let options = guard.stream_run_options(lock_recovering(&capture.language).as_deref());
         let Ok(mut stream) = StreamSession::begin(guard.session_mut(), &options) else {
             return;
         };
@@ -217,6 +219,7 @@ fn spawn_local_agreement(app: &AppHandle, capture: Capture, ticket: Ticket) {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let cache = app.state::<EngineCache>();
+        let language = lock_recovering(&capture.language).clone();
         let mut route_logged = false;
         while capture.capturing.load(Ordering::SeqCst) && ticket.is_current() {
             std::thread::sleep(STREAM_POLL);
@@ -257,7 +260,7 @@ fn spawn_local_agreement(app: &AppHandle, capture: Capture, ticket: Ticket) {
             }
 
             let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                session.poll(&new_audio, rate, &engine);
+                session.poll(&new_audio, rate, &engine, language.as_deref());
             }));
             if polled.is_err() {
                 // Drop the session too, so finalize falls back to a clean

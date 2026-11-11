@@ -75,6 +75,9 @@ impl Timeline {
     }
 
     pub const fn landing(&self) -> Landing {
+        if self.chord_failed {
+            return Landing::NotRead;
+        }
         match self.reads {
             Reads::After(_) => Landing::Landed,
             Reads::BeforeChord => Landing::Unknown,

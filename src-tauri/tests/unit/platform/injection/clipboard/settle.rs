@@ -71,12 +71,20 @@ fn without_a_read_it_settles_at_the_timeout() {
 }
 
 #[test]
-fn a_failed_chord_settles_quickly() {
+fn a_failed_chord_settles_quickly_as_not_pasted() {
     let (timeline, sent_at) = sent(Instant::now(), false);
     assert_eq!(
         timeline.next_step(sent_at + FAILED_CHORD_TIMEOUT),
         Step::Settle
     );
+    assert_eq!(timeline.landing(), Landing::NotRead);
+
+    // Even after a watcher's early read: the paste never went out.
+    let t0 = Instant::now();
+    let mut timeline = Timeline::new(t0);
+    timeline.record_read(t0 + MS);
+    timeline.chord_sent(t0 + CHORD_DELAY, false);
+    assert_eq!(timeline.landing(), Landing::NotRead);
 }
 
 #[test]

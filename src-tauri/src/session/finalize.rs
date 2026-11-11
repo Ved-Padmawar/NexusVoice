@@ -50,7 +50,17 @@ pub async fn run(app: &AppHandle, recording: Recording) {
         focus,
     } = recording;
 
-    let decoded = decode(app, engine, session, streamed, samples, sample_rate).await;
+    let language = lease.language().map(str::to_string);
+    let decoded = decode(
+        app,
+        engine,
+        session,
+        streamed,
+        samples,
+        sample_rate,
+        language,
+    )
+    .await;
     // A long dictation is use too: the idle clock starts when it ends.
     app.state::<EngineCache>().touch();
     drop(lease);
@@ -130,10 +140,13 @@ async fn decode(
     streamed: Option<Streamed>,
     samples: Vec<f32>,
     sample_rate: u32,
+    language: Option<String>,
 ) -> Result<Decoded, &'static str> {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let run_buffer = |session| decode_buffer(&app, &engine, session, &samples, sample_rate);
+        let language = language.as_deref();
+        let run_buffer =
+            |session| decode_buffer(&app, &engine, session, &samples, sample_rate, language);
         let FinalText { text, complete } = match streamed {
             Some(Streamed {
                 text,
@@ -152,12 +165,12 @@ async fn decode(
             },
             None => run_buffer(session)?,
         };
-        let language = engine
+        let output = engine
             .lock()
             .ok()
-            .and_then(|guard| guard.output_language().map(str::to_string));
+            .and_then(|guard| guard.output_language(language));
         // Whisper emits "- " at the start of short utterances.
-        let text = remove_fillers(strip_leading_dashes(&text), language.as_deref());
+        let text = remove_fillers(strip_leading_dashes(&text), output.as_deref());
         let heard_speech = text.is_empty() && contains_speech(&samples, sample_rate);
         Ok(Decoded {
             text,
@@ -178,9 +191,10 @@ fn decode_buffer(
     session: Option<StreamingSession>,
     samples: &[f32],
     sample_rate: u32,
+    language: Option<&str>,
 ) -> Result<FinalText, &'static str> {
     let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::models::decode::finalize(session, samples, sample_rate, engine)
+        crate::models::decode::finalize(session, samples, sample_rate, engine, language)
     }));
     if decoded.is_err() || engine.is_poisoned() {
         log::error!("engine failed during finalize; discarding it");

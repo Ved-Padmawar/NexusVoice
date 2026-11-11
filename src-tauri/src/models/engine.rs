@@ -39,9 +39,6 @@ pub struct TranscriptionEngine {
     timestamps: TimestampKind,
     /// Whether the model drives its own streaming session, read once at load.
     supports_streaming: bool,
-    /// Hint passed to every decode; `None` detects per decode. Always a code
-    /// this model advertises.
-    language: Option<String>,
     /// Codes the model accepts; empty means it advertises none.
     languages: Vec<String>,
     pub entry: &'static ModelEntry,
@@ -59,12 +56,7 @@ fn load_failure(entry: &ModelEntry, cause: &dyn std::fmt::Display) -> String {
 
 impl TranscriptionEngine {
     /// Load the model selected by `override_id` (or hardware) from `models_dir`.
-    /// `language` is the ISO code every decode is pinned to; `None` auto-detects.
-    pub fn new(
-        models_dir: &Path,
-        override_id: Option<&str>,
-        language: Option<&str>,
-    ) -> Result<Self, String> {
+    pub fn new(models_dir: &Path, override_id: Option<&str>) -> Result<Self, String> {
         let backend = detect_backend();
         let entry = select_model(backend, override_id);
 
@@ -111,24 +103,16 @@ impl TranscriptionEngine {
             model,
             timestamps,
             supports_streaming: caps.supports_streaming,
-            language: None,
             languages: caps.languages,
             entry,
         };
-        engine.set_language(language);
 
         // Warmup pass so the first real transcription isn't stalled by load.
         let silence = vec![0.0f32; 16_000];
-        let _ = engine.transcribe_segments(&silence, "", Pass::Final);
+        let _ = engine.transcribe_segments(&silence, "", Pass::Final, None);
         log::info!("engine warmed up");
 
         Ok(engine)
-    }
-
-    /// Repoint the language without rebuilding — a model load costs seconds and
-    /// nothing about it depends on the language.
-    pub fn set_language(&mut self, language: Option<&str>) {
-        self.language = self.accepted_language(language);
     }
 
     /// Codes this model advertises. Empty means it accepts any hint.
@@ -136,36 +120,25 @@ impl TranscriptionEngine {
         &self.languages
     }
 
-    /// The language the transcript is known to be in: the pinned hint, else the
-    /// model's only language. `None` when the model auto-detects among several.
-    pub fn output_language(&self) -> Option<&str> {
-        self.language
-            .as_deref()
-            .or(match self.languages.as_slice() {
-                [only] => Some(only.as_str()),
+    /// The transcript's known language: the decode hint, else the model's only
+    /// one. `None` when it auto-detects among several.
+    pub fn output_language(&self, language: Option<&str>) -> Option<String> {
+        self.hint(language)
+            .or_else(|| match self.languages.as_slice() {
+                [only] => Some(only.clone()),
                 _ => None,
             })
     }
 
-    /// [`resolve_language`] over this model's codes, logged when not honoured.
-    fn accepted_language(&self, language: Option<&str>) -> Option<String> {
-        use crate::models::language::primary_of;
-
-        let resolved = resolve_language(&self.languages, language);
-        // A locale match still honours the request; a fallback does not.
-        if let Some(code) = language {
-            let honoured = resolved
-                .as_deref()
-                .is_some_and(|picked| primary_of(picked) == primary_of(code));
-            if !honoured {
-                log::warn!(
-                    "{} does not support language {code}; using {}",
-                    self.entry.display_name,
-                    resolved.as_deref().unwrap_or("auto-detect")
-                );
-            }
-        }
-        resolved
+    /// What a decode in the saved `language` is pinned to; `None` auto-detects.
+    /// English-only models know nothing else, whatever the setting says.
+    fn hint(&self, language: Option<&str>) -> Option<String> {
+        let wanted = if self.entry.multilingual {
+            crate::models::language::resolve(language)
+        } else {
+            Some("en")
+        };
+        resolve_language(&self.languages, wanted)
     }
 
     /// Backend the model bound to: "cuda", "vulkan" or "cpu".
@@ -193,11 +166,11 @@ impl TranscriptionEngine {
 
     /// Run options for a streaming session — no prompt, since streaming models
     /// carry their own context across feeds.
-    pub fn stream_run_options(&self) -> RunOptions {
-        self.run_options("", Pass::Final)
+    pub fn stream_run_options(&self, language: Option<&str>) -> RunOptions {
+        self.run_options("", Pass::Final, language)
     }
 
-    fn run_options(&self, prompt: &str, pass: Pass) -> RunOptions {
+    fn run_options(&self, prompt: &str, pass: Pass, language: Option<&str>) -> RunOptions {
         // A non-whisper arch rejects this extension with INVALID_ARG.
         let family = self.entry.is_whisper().then(|| {
             RunExtension::Whisper(WhisperRunOptions {
@@ -217,23 +190,19 @@ impl TranscriptionEngine {
         RunOptions {
             // Decides how finely the pipeline can trim.
             timestamps: self.timestamps,
-            // English-only models know nothing else, whatever the setting says.
-            language: if self.entry.multilingual {
-                self.language.clone()
-            } else {
-                self.accepted_language(Some("en"))
-            },
+            language: self.hint(language),
             family,
             ..Default::default()
         }
     }
 
-    /// Transcribe 16 kHz mono f32 samples into timed segments.
+    /// Transcribe 16 kHz mono f32 samples in the saved `language`.
     pub fn transcribe_segments(
         &mut self,
         samples_16k: &[f32],
         prompt: &str,
         pass: Pass,
+        language: Option<&str>,
     ) -> Result<Vec<TimedSegment>, String> {
         // Decoders require at least a second of audio at 16 kHz.
         const MIN_SAMPLES: usize = 16_000;
@@ -249,7 +218,7 @@ impl TranscriptionEngine {
             samples_16k
         };
 
-        let options = self.run_options(prompt, pass);
+        let options = self.run_options(prompt, pass, language);
         match self.session.run(samples, &options) {
             Ok(transcript) => Ok(build_segments(&transcript)),
             // Stopped early (repetition loop or length budget): keep the text before it.

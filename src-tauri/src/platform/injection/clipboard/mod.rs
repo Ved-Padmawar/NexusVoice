@@ -54,14 +54,16 @@ pub async fn type_text(app: &AppHandle, text: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Press the platform paste chord. Returns whether every key event was sent.
+/// Press the platform paste chord. Returns whether the paste itself went out.
 fn send_paste_chord() -> bool {
     let Ok(mut enigo) = Enigo::new(&Settings::default()) else {
         return false;
     };
     let pressed = enigo.key(PASTE_MODIFIER, Direction::Press).is_ok();
-    let clicked = pressed && enigo.key(Key::Unicode('v'), Direction::Click).is_ok();
+    let sent = pressed && enigo.key(Key::Unicode('v'), Direction::Click).is_ok();
     // Always release, so a failed click never leaves the modifier stuck down.
-    let released = enigo.key(PASTE_MODIFIER, Direction::Release).is_ok();
-    pressed && clicked && released
+    if enigo.key(PASTE_MODIFIER, Direction::Release).is_err() {
+        log::warn!("paste modifier could not be released");
+    }
+    sent
 }

@@ -282,13 +282,18 @@ fn free_space(path: &Path) -> Option<u64> {
         .map(sysinfo::Disk::available_space)
 }
 
-/// Whole components (`/home-backup` is not on `/home`), case-insensitive for Windows.
+/// Whole components, so `/home-backup` is not on `/home`.
 fn is_on_mount(path: &Path, mount: &Path) -> bool {
     let mut parts = path.components();
     mount.components().all(|m| {
-        parts
-            .next()
-            .is_some_and(|p| p.as_os_str().eq_ignore_ascii_case(m.as_os_str()))
+        parts.next().is_some_and(|p| {
+            // Windows drive and folder names ignore case; Unix ones do not.
+            if cfg!(windows) {
+                p.as_os_str().eq_ignore_ascii_case(m.as_os_str())
+            } else {
+                p == m
+            }
+        })
     })
 }
 

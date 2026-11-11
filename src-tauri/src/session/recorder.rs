@@ -176,6 +176,7 @@ impl Recorder {
                 waveform,
                 mic,
                 session: Arc::new(Mutex::new(None)),
+                language: Arc::new(Mutex::new(None)),
                 streamed: Arc::new(Mutex::new(None)),
                 stream_done: Arc::new((Mutex::new(true), Condvar::new())),
             },
@@ -451,7 +452,9 @@ impl Recorder {
         *lock_recovering(&self.capture.streamed) = None;
         // The hotkey press is the moment the focused app means anything.
         *lock_recovering(&self.focus) = focus;
-        *lock_recovering(&self.lease) = Some(app.state::<EngineCache>().lease());
+        let language = app.state::<Settings>().language();
+        lock_recovering(&self.capture.language).clone_from(&language);
+        *lock_recovering(&self.lease) = Some(app.state::<EngineCache>().lease(language));
 
         self.capture.capturing.store(true, Ordering::SeqCst);
         // Arm first: it clears the previous error, which the open below may set.
