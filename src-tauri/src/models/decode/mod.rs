@@ -4,6 +4,9 @@
 //!   confirms text with LocalAgreement-2, trimming at segment boundaries.
 //! - [`streaming`] — models that own their session state. Audio is fed in as it
 //!   arrives and the model reports what it has committed.
+//!
+//! Both decode in the engine's worker process, so a hung decode ends at its
+//! deadline instead of holding up the recording.
 
 pub mod local_agreement;
 pub mod streaming;

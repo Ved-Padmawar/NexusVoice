@@ -1,13 +1,12 @@
-//! Transcription engine: a loaded model plus its decode session.
+//! Transcription engine: a loaded model, running in its own worker process.
 
 use std::path::Path;
 
-use transcribe_cpp::{
-    Model, ModelOptions, RunExtension, RunOptions, Session, SessionOptions, TimestampKind,
-    WhisperRunOptions,
-};
+use transcribe_cpp::{RunExtension, RunOptions, StreamOptions, TimestampKind, WhisperRunOptions};
 
+use crate::engine::{CancelMark, EngineError, Ran, Supervisor, WorkerSpec};
 use crate::models::catalog::ModelEntry;
+use crate::models::decode::StreamSession;
 use crate::models::provider::{detect_backend, select_model};
 use crate::models::transcript::{TimedSegment, Word};
 
@@ -31,10 +30,17 @@ pub enum Pass {
     Final,
 }
 
+/// One decode's result.
+pub struct Decoded {
+    pub segments: Vec<TimedSegment>,
+    /// The decode stopped early, so the end may be missing.
+    pub truncated: bool,
+}
+
+/// Calls from several threads take turns on the worker; only
+/// [`Self::cancel`] cuts in.
 pub struct TranscriptionEngine {
-    session: Session,
-    /// Kept for device queries after load.
-    model: Model,
+    supervisor: Supervisor,
     /// Finest granularity this model accepts, resolved once at load.
     timestamps: TimestampKind,
     /// Whether the model drives its own streaming session, read once at load.
@@ -55,10 +61,14 @@ fn load_failure(entry: &ModelEntry, cause: &dyn std::fmt::Display) -> String {
 }
 
 impl TranscriptionEngine {
-    /// Load the model selected by `override_id` (or hardware) from `models_dir`.
-    pub fn new(models_dir: &Path, override_id: Option<&str>) -> Result<Self, String> {
-        let backend = detect_backend();
-        let entry = select_model(backend, override_id);
+    /// Load the model selected by `override_id` (or hardware) from
+    /// `models_dir`, in a worker that finds the CUDA pack in `app_data_dir`.
+    pub fn new(
+        models_dir: &Path,
+        app_data_dir: &Path,
+        override_id: Option<&str>,
+    ) -> Result<Self, String> {
+        let entry = select_model(detect_backend(), override_id);
 
         let model_path = models_dir.join(&entry.filename);
         if !model_path.exists() {
@@ -66,31 +76,24 @@ impl TranscriptionEngine {
             return Err(format!("{} isn't downloaded.", entry.display_name));
         }
 
-        let model = Model::load_with(&model_path, &ModelOptions::default())
-            .map_err(|e| load_failure(entry, &e))?;
+        let exe = crate::engine::worker_exe().map_err(|e| e.to_string())?;
+        let (supervisor, info) = Supervisor::start(WorkerSpec {
+            exe,
+            model: model_path,
+            app_data_dir: app_data_dir.to_path_buf(),
+        })
+        .map_err(|e| load_failure(entry, &e))?;
 
-        // The bound backend may differ from the request (e.g. CPU fallback).
+        // The bound device may differ from the request (e.g. CPU fallback).
         log::info!(
-            "loaded {} (arch {}, backend {})",
+            "loaded {} (arch {}, device {})",
             entry.display_name,
-            model.arch(),
-            model.backend()
+            info.arch,
+            info.device
         );
 
-        // Half the cores, leaving headroom for capture and the UI thread.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-        let n_threads = (std::thread::available_parallelism().map_or(4, std::num::NonZero::get) / 2)
-            .clamp(1, 4) as i32;
-
-        let session = model
-            .session_with(&SessionOptions {
-                n_threads,
-                ..Default::default()
-            })
-            .map_err(|e| load_failure(entry, &e))?;
-
         // Asking for finer than the model offers is rejected outright.
-        let caps = model.capabilities().map_err(|e| load_failure(entry, &e))?;
+        let caps = info.capabilities;
         let timestamps = match caps.max_timestamp_kind {
             TimestampKind::None => TimestampKind::None,
             TimestampKind::Segment => TimestampKind::Segment,
@@ -98,9 +101,8 @@ impl TranscriptionEngine {
         };
         log::info!("timestamp granularity: {timestamps:?}");
 
-        let mut engine = Self {
-            session,
-            model,
+        let engine = Self {
+            supervisor,
             timestamps,
             supports_streaming: caps.supports_streaming,
             languages: caps.languages,
@@ -109,7 +111,7 @@ impl TranscriptionEngine {
 
         // Warmup pass so the first real transcription isn't stalled by load.
         let silence = vec![0.0f32; 16_000];
-        let _ = engine.transcribe_segments(&silence, "", Pass::Final, None);
+        let _ = engine.transcribe_segments(engine.cancel_mark(), &silence, "", Pass::Final, None);
         log::info!("engine warmed up");
 
         Ok(engine)
@@ -141,12 +143,9 @@ impl TranscriptionEngine {
         resolve_language(&self.languages, wanted)
     }
 
-    /// Backend the model bound to: "cuda", "vulkan" or "cpu".
+    /// Backend the model runs on now: "cuda", "vulkan" or "cpu".
     pub fn backend(&self) -> String {
-        // `Model::backend` names the device ("CUDA0"); the kind is what we show.
-        self.model
-            .device()
-            .map_or_else(|_| "cpu".to_string(), |device| device.kind)
+        self.supervisor.backend()
     }
 
     /// Whether the loaded model can drive its own streaming session.
@@ -154,20 +153,31 @@ impl TranscriptionEngine {
         self.supports_streaming
     }
 
-    /// Borrow the session mutably, for the streaming path.
-    pub fn session_mut(&mut self) -> &mut Session {
-        &mut self.session
+    /// Begin the model's own streaming session in the saved `language`. Other
+    /// decodes wait until it ends.
+    pub fn stream(
+        &self,
+        mark: CancelMark,
+        language: Option<&str>,
+    ) -> Result<StreamSession<'_>, String> {
+        // No prompt: streaming models carry their own context across feeds.
+        let options = self.run_options("", Pass::Final, language);
+        // Default options keep each family's tuned commit strategy.
+        self.supervisor
+            .stream(mark, &options, &StreamOptions::default())
+            .map(StreamSession::new)
+            .map_err(|e| format!("failed to begin stream: {e}"))
     }
 
-    /// A finished stream reports truncation only here, not through its status.
-    pub fn was_truncated(&self) -> bool {
-        self.session.was_truncated()
+    /// Work given this mark is stopped by any later [`Self::cancel`].
+    pub fn cancel_mark(&self) -> CancelMark {
+        self.supervisor.cancel_mark()
     }
 
-    /// Run options for a streaming session — no prompt, since streaming models
-    /// carry their own context across feeds.
-    pub fn stream_run_options(&self, language: Option<&str>) -> RunOptions {
-        self.run_options("", Pass::Final, language)
+    /// Stop the decode in progress and any marked before now. The next
+    /// decode reloads the model in a fresh worker.
+    pub fn cancel(&self) {
+        self.supervisor.cancel();
     }
 
     fn run_options(&self, prompt: &str, pass: Pass, language: Option<&str>) -> RunOptions {
@@ -198,12 +208,13 @@ impl TranscriptionEngine {
 
     /// Transcribe 16 kHz mono f32 samples in the saved `language`.
     pub fn transcribe_segments(
-        &mut self,
+        &self,
+        mark: CancelMark,
         samples_16k: &[f32],
         prompt: &str,
         pass: Pass,
         language: Option<&str>,
-    ) -> Result<Vec<TimedSegment>, String> {
+    ) -> Result<Decoded, String> {
         // Decoders require at least a second of audio at 16 kHz.
         const MIN_SAMPLES: usize = 16_000;
         let padded;
@@ -219,17 +230,18 @@ impl TranscriptionEngine {
         };
 
         let options = self.run_options(prompt, pass, language);
-        match self.session.run(samples, &options) {
-            Ok(transcript) => Ok(build_segments(&transcript)),
-            // Stopped early (repetition loop or length budget): keep the text before it.
+        match self.supervisor.transcribe(mark, samples, &options) {
+            Ok(Ran {
+                transcript,
+                truncated,
+            }) => Ok(Decoded {
+                segments: build_segments(&transcript),
+                truncated,
+            }),
+            Err(EngineError::Cancelled) => Err("Transcription was cancelled.".to_string()),
             Err(e) => {
-                if let Some(partial) = e.partial() {
-                    log::warn!("decode stopped early, keeping the partial: {e}");
-                    Ok(build_segments(partial))
-                } else {
-                    log::error!("transcribe failed: {e}");
-                    Err("Transcription failed. Please try again.".to_string())
-                }
+                log::error!("transcribe failed: {e}");
+                Err("Transcription failed. Please try again.".to_string())
             }
         }
     }

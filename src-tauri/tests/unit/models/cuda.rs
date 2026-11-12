@@ -97,7 +97,7 @@ fn an_unsigned_staged_pack_cannot_replace_an_existing_pack() {
     install(&data.path().join(STAGING_DIR), &transcribe_cpp::version());
     assert_eq!(pack_state(data.path()), PackState::Unverified);
 
-    activate(data.path());
+    install_staged(data.path());
 
     assert!(data.path().join(STAGING_DIR).exists());
     let retained: Manifest =
@@ -107,14 +107,14 @@ fn an_unsigned_staged_pack_cannot_replace_an_existing_pack() {
 }
 
 #[test]
-fn a_pack_marked_for_removal_is_deleted_at_activation() {
+fn a_pack_marked_for_removal_is_deleted_at_start() {
     let data = tempfile::tempdir().unwrap();
     let dir = data.path().join(PACK_DIR);
     install(&dir, &transcribe_cpp::version());
     std::fs::write(dir.join(REMOVE_MARKER), b"").unwrap();
     assert_eq!(pack_state(data.path()), PackState::PendingRemoval);
 
-    activate(data.path());
+    install_staged(data.path());
 
     assert!(!dir.exists());
     assert_eq!(pack_state(data.path()), PackState::Absent);

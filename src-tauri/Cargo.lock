@@ -3105,6 +3105,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "keyring-core",
+ "libc",
  "libloading 0.9.0",
  "log",
  "metal",
@@ -6166,6 +6167,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8bab65d30f5a4c3ea0ab6f38236823389f3914b0605bbc0073a4ec88018c0714"
 dependencies = [
  "log",
+ "serde",
  "thiserror 2.0.21",
  "transcribe-cpp-sys",
 ]

@@ -13,7 +13,7 @@ use crate::bridge::events::{
     PillWaveform, TranscriptionPartial, TranscriptionPartialEnd, TranscriptionWarning,
 };
 use crate::models::cache::EngineCache;
-use crate::models::decode::{Route, StreamSession, Streamed, StreamingSession};
+use crate::models::decode::{Route, Streamed, StreamingSession};
 use crate::models::preprocess::To16k;
 use crate::sync::lock_recovering;
 
@@ -37,11 +37,6 @@ impl Generation {
             id,
             latest: Arc::clone(&self.0),
         }
-    }
-
-    /// Make every ticket stale, for a worker the recording stopped waiting on.
-    pub fn retire(&self) {
-        self.0.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -140,15 +135,22 @@ fn spawn_native_stream(app: &AppHandle, capture: Capture, ticket: Ticket) {
             std::thread::sleep(STREAM_POLL);
         };
 
-        let Ok(mut guard) = engine.lock() else {
-            return;
-        };
-        if Route::for_engine(&guard) != Route::Streaming {
+        if Route::for_engine(&engine) != Route::Streaming {
             return;
         }
-        let options = guard.stream_run_options(lock_recovering(&capture.language).as_deref());
-        let Ok(mut stream) = StreamSession::begin(guard.session_mut(), &options) else {
+        // Marked before re-checking capture, which Cancel stops before the
+        // engine: a cancel after the check still stops this stream.
+        let mark = engine.cancel_mark();
+        if !capture.capturing.load(Ordering::SeqCst) {
             return;
+        }
+        let language = lock_recovering(&capture.language).clone();
+        let mut stream = match engine.stream(mark, language.as_deref()) {
+            Ok(stream) => stream,
+            Err(e) => {
+                log::warn!("{e}");
+                return;
+            }
         };
         log::info!("decoding via {}", Route::Streaming.as_str());
 
@@ -203,11 +205,10 @@ fn spawn_native_stream(app: &AppHandle, capture: Capture, ticket: Ticket) {
         if ticket.is_current() {
             let _ = TranscriptionPartialEnd.emit(&app);
         }
-        let text = stream.finalize();
-        let truncated = guard.was_truncated();
+        let finished = stream.finalize();
         let mut streamed = lock_recovering(&capture.streamed);
         if ticket.is_current() {
-            *streamed = text.map(|text| Streamed { text, truncated });
+            *streamed = finished;
         }
     });
 }
@@ -226,19 +227,18 @@ fn spawn_local_agreement(app: &AppHandle, capture: Capture, ticket: Ticket) {
             let Some(engine) = cache.loaded() else {
                 continue;
             };
-            if engine
-                .lock()
-                .is_ok_and(|e| Route::for_engine(&e) == Route::Streaming)
-            {
+            if Route::for_engine(&engine) == Route::Streaming {
                 break;
             }
+            // As in the native stream: marked before capture is re-checked.
+            let mark = engine.cancel_mark();
 
             // Lock order everywhere is session, then audio buffer. Finalize
             // takes the session first too, so it waits out an in-flight decode
             // and this worker exits on the emptied slot.
             let mut slot = lock_recovering(&capture.session);
             // Checked under the lock `prepare` takes to replace the session.
-            if !ticket.is_current() {
+            if !ticket.is_current() || !capture.capturing.load(Ordering::SeqCst) {
                 break;
             }
             let Some(session) = slot.as_mut() else {
@@ -259,17 +259,7 @@ fn spawn_local_agreement(app: &AppHandle, capture: Capture, ticket: Ticket) {
                 route_logged = true;
             }
 
-            let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                session.poll(&new_audio, rate, &engine, language.as_deref());
-            }));
-            if polled.is_err() {
-                // Drop the session too, so finalize falls back to a clean
-                // single-pass decode on a fresh engine.
-                log::error!("engine panicked during streaming; discarding it");
-                *slot = None;
-                cache.discard();
-                break;
-            }
+            session.poll(&new_audio, rate, &engine, mark, language.as_deref());
             emit_partial(&app, &ticket, session.partial());
         }
         if ticket.is_current() {

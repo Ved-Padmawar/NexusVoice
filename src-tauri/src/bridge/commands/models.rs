@@ -6,6 +6,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::models::cache::EngineCache;
 use crate::models::catalog::{self, ModelEntry, Pipeline};
+use crate::models::cuda::{CudaPack, PackState};
 use crate::models::idle::ModelUnload;
 use crate::models::language::{self, AUTO};
 use crate::models::library::{DownloadStatus, ModelLibrary};
@@ -265,22 +266,31 @@ pub struct HardwareProfileResponse {
 #[specta::specta]
 pub async fn get_hardware_profile(app: AppHandle) -> HardwareProfileResponse {
     let loaded_backend = app.state::<EngineCache>().backend();
+    let cuda_installed = app.state::<CudaPack>().state() == PackState::Installed;
     // The first probe makes blocking syscalls; keep them off the main thread.
-    tauri::async_runtime::spawn_blocking(move || hardware_profile(loaded_backend))
+    tauri::async_runtime::spawn_blocking(move || hardware_profile(loaded_backend, cuda_installed))
         .await
         .expect("hardware probe panicked")
 }
 
-fn hardware_profile(loaded_backend: Option<String>) -> HardwareProfileResponse {
+fn hardware_profile(
+    loaded_backend: Option<String>,
+    cuda_installed: bool,
+) -> HardwareProfileResponse {
     use crate::models::{cuda, provider::recommend_model};
 
     let hw = crate::platform::hardware::cached_profile();
-    // Before a model loads, NVIDIA runs on Vulkan unless a CUDA device registered.
-    let execution_provider =
-        loaded_backend.unwrap_or_else(|| match hw.execution_provider.as_str() {
-            "cuda" if !cuda::registered() => "vulkan".to_string(),
+    // With no model loaded: what the next load will get. After a GPU failure
+    // that is the CPU; NVIDIA runs on Vulkan unless the CUDA pack can serve it.
+    let execution_provider = loaded_backend.unwrap_or_else(|| {
+        if crate::engine::gpu_unavailable() {
+            return "cpu".to_string();
+        }
+        match hw.execution_provider.as_str() {
+            "cuda" if !(cuda_installed && cuda::supported()) => "vulkan".to_string(),
             other => other.to_string(),
-        });
+        }
+    });
 
     HardwareProfileResponse {
         gpu_name: hw.gpu_type.clone(),

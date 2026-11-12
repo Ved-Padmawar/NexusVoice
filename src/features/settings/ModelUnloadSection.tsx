@@ -35,14 +35,14 @@ export function ModelUnloadSection() {
   return (
     <div className="inline-flex h-8 items-center gap-2 rounded-lg bg-panel pr-1 pl-3 text-xs ring-1 ring-line-soft ring-inset">
       <TimerIcon size={14} weight="bold" className="text-accent-ink" />
-      <span className="font-semibold text-fg">Unload when idle</span>
+      <span className="font-semibold text-fg">Unload idle model</span>
       <div className="w-22">
         <Select
           size="sm"
           value={policy}
           options={OPTIONS}
           onChange={(v) => { if (v !== policy) void choose(v) }}
-          aria-label="Unload when idle"
+          aria-label="Unload idle model"
           disabled={policy === null}
         />
       </div>

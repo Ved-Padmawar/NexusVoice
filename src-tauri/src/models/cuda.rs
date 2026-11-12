@@ -1,6 +1,6 @@
 //! Optional CUDA pack (ggml-cuda module + CUDA runtime), downloaded on demand
-//! for NVIDIA GPUs. Downloads are staged and swapped in at the next start,
-//! since loaded libraries cannot be replaced.
+//! for NVIDIA GPUs, loaded by the engine workers. Downloads are staged and
+//! swapped in at the next start, since loaded libraries cannot be replaced.
 
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
@@ -178,13 +178,6 @@ fn load_nvml() -> Result<libloading::Library, String> {
     Err(format!("no NVIDIA driver: {last_error}"))
 }
 
-/// A CUDA device registered at startup, so models will run on CUDA.
-pub fn registered() -> bool {
-    transcribe_cpp::devices()
-        .iter()
-        .any(|device| device.kind == "cuda")
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum PackState {
@@ -217,10 +210,9 @@ pub fn pack_state(app_data_dir: &Path) -> PackState {
     }
 }
 
-/// Apply a staged download or removal, then register CUDA. Must run before the
-/// bundled backends: ggml prefers whichever registers first. Returns whether
-/// the installed pack failed its integrity check and was left unloaded.
-pub fn activate(app_data_dir: &Path) -> bool {
+/// Apply a staged download or removal, at app start. Returns whether the
+/// installed pack failed its integrity check, so workers leave it unloaded.
+pub fn install_staged(app_data_dir: &Path) -> bool {
     let dir = app_data_dir.join(PACK_DIR);
     let staging = app_data_dir.join(STAGING_DIR);
 
@@ -236,29 +228,46 @@ pub fn activate(app_data_dir: &Path) -> bool {
             log::warn!("CUDA pack: could not install the staged download: {e}");
         }
     }
+    matches!(usable_pack(&dir), Err(Unusable::Damaged))
+}
 
-    let Some(manifest) = read_manifest(&dir) else {
-        return false;
-    };
+enum Unusable {
+    Absent,
+    Damaged,
+}
+
+/// The installed pack's manifest, if it is built for this engine and intact.
+fn usable_pack(dir: &Path) -> Result<Manifest, Unusable> {
+    let manifest = read_manifest(dir).ok_or(Unusable::Absent)?;
     if !matches_engine(&manifest) {
         log::warn!(
             "CUDA pack built for engine {}, this build runs {}; download it again",
             manifest.engine,
             transcribe_cpp::version()
         );
-        return false;
+        return Err(Unusable::Absent);
     }
-    if !verify_installed(&dir, &manifest) {
+    if !verify_installed(dir, &manifest) {
         log::warn!("CUDA pack: library integrity verification failed; download it again");
-        return true;
+        return Err(Unusable::Damaged);
     }
+    Ok(manifest)
+}
+
+/// Register the installed pack's CUDA backend, in an engine worker. Must run
+/// before the bundled backends: ggml prefers whichever registers first.
+pub fn register(app_data_dir: &Path) {
+    let dir = app_data_dir.join(PACK_DIR);
+    let Ok(manifest) = usable_pack(&dir) else {
+        return;
+    };
 
     // Preloaded so the module's by-name imports resolve to them.
     let (module, runtime) = manifest.files.split_last().expect("manifest is non-empty");
     for file in runtime {
         if let Err(e) = preload(&dir.join(&file.name)) {
             log::warn!("CUDA pack: could not load {}: {e}", file.name);
-            return false;
+            return;
         }
     }
     match transcribe_cpp::init_backends(&dir) {
@@ -266,10 +275,10 @@ pub fn activate(app_data_dir: &Path) -> bool {
         // No driver, or one too old: the module is skipped and Vulkan serves.
         Err(e) => log::info!("CUDA pack: no CUDA device ({e})"),
     }
-    false
 }
 
-/// Delete the pack, or mark it for deletion at the next start when loaded.
+/// Delete the pack, or mark it for deletion at the next start when an engine
+/// worker has it loaded.
 pub fn remove(app_data_dir: &Path) -> std::io::Result<()> {
     for name in [PACK_DIR, STAGING_DIR] {
         safe_directory(&app_data_dir.join(name)).map_err(std::io::Error::other)?;

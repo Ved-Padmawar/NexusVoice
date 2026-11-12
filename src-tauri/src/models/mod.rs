@@ -14,5 +14,5 @@ pub mod preprocess;
 pub mod provider;
 pub mod transcript;
 
-pub use engine::{Pass, TranscriptionEngine};
+pub use engine::{Decoded, Pass, TranscriptionEngine};
 pub use transcript::TimedSegment;

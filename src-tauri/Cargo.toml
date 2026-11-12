@@ -46,7 +46,10 @@ libloading = "0.9"
 # both single-shot (`Session::run`) and native streaming (`Session::stream`).
 # `dynamic-backends` loads the backend modules at runtime instead of link time,
 # so one binary covers every backend it was built with. Only Vulkan is, today.
-transcribe-cpp = { version = "0.4", default-features = false }
+# `serde` carries its options and results to and from the worker process.
+transcribe-cpp = { version = "0.4", default-features = false, features = ["serde"] }
+# The worker process claims its stdout and exits without C++ teardown.
+libc = "0.2"
 rubato = "5"
 rphonetic = "4"
 rustfft = "6.4.1"
@@ -82,7 +85,7 @@ tempfile = "3"
 serial_test = "4"
 
 [profile.release]
-# Must stay "unwind" — the recording path's catch_unwind guards are no-ops under "abort".
+# Must stay "unwind": the recorder recovers from a panicked task, which "abort" would crash.
 panic = "unwind"
 codegen-units = 1
 lto = true

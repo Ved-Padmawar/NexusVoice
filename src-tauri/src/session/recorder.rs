@@ -25,7 +25,6 @@ use super::workers::{self, Capture, Generation};
 const MIN_DURATION_SECS: f64 = 0.3;
 /// A warm stream delivers on the next callback; a cold open takes longer.
 const READY_TIMEOUT: Duration = Duration::from_secs(3);
-const STREAM_DONE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Finalize takes the buffer, leaving it with no capacity. Reserved at start so
 /// the audio callback isn't reallocating under the buffer lock.
 const RESERVE_SECS: usize = 30;
@@ -572,8 +571,12 @@ impl Recorder {
         self.capture.capturing.store(false, Ordering::SeqCst);
         self.chime.cancel();
         self.capture.mic.disarm();
+        // Stops the decode in flight, so the workers below finish at once.
+        if let Some(engine) = engine.loaded() {
+            engine.cancel();
+        }
         // The next recording clears the buffer this worker still reads.
-        self.wait_for_stream_done(engine).await;
+        self.wait_for_stream_done().await;
         lock_recovering(&self.capture.session).take();
         self.reset();
     }
@@ -633,7 +636,7 @@ impl Recorder {
         tauri::async_runtime::spawn_blocking(move || mic.disarm_after_post_roll())
             .await
             .ok();
-        self.wait_for_stream_done(&app.state::<EngineCache>()).await;
+        self.wait_for_stream_done().await;
 
         // Session first, audio buffer second: the lock order the workers use.
         // Taking the session waits out any in-flight stream decode.
@@ -706,26 +709,18 @@ impl Recorder {
     }
 
     /// The streaming-native worker writes its transcript only after capture
-    /// stops, so reading it straight away would lose the tail. A worker that
-    /// never finishes is stuck holding the engine, so it is discarded and
-    /// finalize loads a fresh one.
-    async fn wait_for_stream_done(&self, engine: &EngineCache) {
+    /// stops, so reading it straight away would lose the tail. The engine's
+    /// deadlines bound how long it can take.
+    async fn wait_for_stream_done(&self) {
         let done = Arc::clone(&self.capture.stream_done);
-        let timed_out = tauri::async_runtime::spawn_blocking(move || {
+        tauri::async_runtime::spawn_blocking(move || {
             let (lock, cvar) = &*done;
-            let (_guard, wait) = cvar
-                .wait_timeout_while(lock_recovering(lock), STREAM_DONE_TIMEOUT, |done| !*done)
+            let _done = cvar
+                .wait_while(lock_recovering(lock), |done| !*done)
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            wait.timed_out()
         })
         .await
-        .unwrap_or(true);
-        if timed_out {
-            log::error!("stream worker stalled; discarding the engine");
-            // Before finish takes the buffer, so the worker stops instead of reading it.
-            self.capture.generation.retire();
-            engine.discard();
-        }
+        .ok();
     }
 }
 
@@ -750,7 +745,7 @@ mod tests {
     use super::*;
 
     fn engine() -> EngineCache {
-        EngineCache::new(std::env::temp_dir())
+        EngineCache::new(std::env::temp_dir(), std::env::temp_dir())
     }
 
     #[test]

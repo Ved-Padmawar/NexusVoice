@@ -12,11 +12,10 @@
 //! Based on ÚFAL's `whisper_streaming` (<https://github.com/ufal/whisper_streaming>;
 //! Macháček et al., 2023).
 
-use std::sync::{Arc, Mutex};
-
+use crate::engine::CancelMark;
 use crate::models::preprocess::To16k;
 use crate::models::transcript::{join_words, Word};
-use crate::models::{Pass, TimedSegment, TranscriptionEngine};
+use crate::models::{Decoded, Pass, TimedSegment, TranscriptionEngine};
 
 const MIN_NEW_AUDIO_SECS: f64 = 1.0;
 const MAX_NEW_AUDIO_SECS: f64 = 5.0;
@@ -141,7 +140,8 @@ impl StreamingSession {
         &mut self,
         new_audio: &[f32],
         native_rate: u32,
-        engine: &Arc<Mutex<TranscriptionEngine>>,
+        engine: &TranscriptionEngine,
+        mark: CancelMark,
         language: Option<&str>,
     ) {
         if let Err(e) = self.ingest(new_audio, native_rate) {
@@ -168,18 +168,14 @@ impl StreamingSession {
 
         let prompt = self.prompt();
         let started = std::time::Instant::now();
-        let segments = {
-            let Ok(mut guard) = engine.lock() else {
-                return;
-            };
-            match guard.transcribe_segments(&leveled, &prompt, Pass::Streaming, language) {
-                Ok(s) => s,
+        let segments =
+            match engine.transcribe_segments(mark, &leveled, &prompt, Pass::Streaming, language) {
+                Ok(decoded) => decoded.segments,
                 Err(e) => {
                     log::warn!("streaming decode failed: {e}");
                     return;
                 }
-            }
-        };
+            };
         self.last_decode_secs = started.elapsed().as_secs_f64();
         log::debug!(
             "streaming decode: {:.1}s window in {}ms, {} segments",
@@ -360,7 +356,7 @@ impl StreamingSession {
         mut self,
         new_audio: &[f32],
         native_rate: u32,
-        engine: &Arc<Mutex<TranscriptionEngine>>,
+        engine: &TranscriptionEngine,
         language: Option<&str>,
     ) -> Result<FinalText, String> {
         if native_rate == 0 {
@@ -384,13 +380,17 @@ impl StreamingSession {
         }
 
         let prompt = self.prompt();
-        let Ok(mut guard) = engine.lock() else {
-            log::error!("TranscriptionEngine mutex poisoned during finalize");
-            return Ok(FinalText::partial(self.text()));
-        };
-        match guard.transcribe_segments(&leveled, &prompt, Pass::Final, language) {
-            Ok(segments) => {
-                let truncated = guard.was_truncated();
+        match engine.transcribe_segments(
+            engine.cancel_mark(),
+            &leveled,
+            &prompt,
+            Pass::Final,
+            language,
+        ) {
+            Ok(Decoded {
+                segments,
+                truncated,
+            }) => {
                 let hyp: Vec<Word> = segments.into_iter().flat_map(|s| s.words).collect();
                 let norm: Vec<String> = hyp.iter().map(|w| normalize_word(&w.text)).collect();
                 let overlap = trailing_overlap(&self.committed_norm, &norm);
@@ -416,7 +416,7 @@ pub fn finalize(
     session: Option<StreamingSession>,
     buffer: &[f32],
     native_rate: u32,
-    engine: &Arc<Mutex<TranscriptionEngine>>,
+    engine: &TranscriptionEngine,
     language: Option<&str>,
 ) -> Result<FinalText, String> {
     let session = session.unwrap_or_default();
