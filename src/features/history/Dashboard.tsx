@@ -469,7 +469,7 @@ const TranscriptRow = memo(function TranscriptRow({ item, onDelete }: { item: Tr
         <p className="mt-1 text-xs text-muted tabular-nums">
           <span className="font-semibold text-fg-2">{item.targetApp ?? 'Clipboard'}</span>
           {' · '}{plural(item.wordCount, 'word')}
-          {item.durationSeconds != null && ` · ${item.durationSeconds}s`}
+          {item.durationSeconds != null && ` · ${fmtTime(Math.round(item.durationSeconds))}`}
         </p>
       </div>
       <div className="-mt-1.5 -mr-2 flex justify-self-end gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">

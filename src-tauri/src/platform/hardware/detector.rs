@@ -28,7 +28,10 @@ pub fn detect_profile<P: HardwareInfoProvider>(provider: &P) -> HardwareProfile 
         };
     }
 
-    let best_gpu = gpus.into_iter().max_by_key(|gpu| gpu.vram_bytes).unwrap();
+    let best_gpu = gpus
+        .into_iter()
+        .max_by_key(|gpu| (gpu.discrete, gpu.vram_bytes))
+        .unwrap();
     let vram_gb = bytes_to_gb(best_gpu.vram_bytes);
     let execution_provider = map_execution_provider(&best_gpu);
 

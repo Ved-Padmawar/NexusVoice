@@ -349,8 +349,7 @@ fn write_without_overwriting(
     let stem = name.file_stem().unwrap_or_default().to_string_lossy();
     let extension = name
         .extension()
-        .map(|e| format!(".{}", e.to_string_lossy()))
-        .unwrap_or_default();
+        .map_or_default(|e| format!(".{}", e.to_string_lossy()));
     for attempt in 1.. {
         let candidate = if attempt == 1 {
             dir.join(file_name)

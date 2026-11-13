@@ -60,14 +60,13 @@ Output: Okay, three things:
 pub fn build_system_prompt(destination: Option<AppCategory>) -> String {
     let context = destination
         .and_then(AppCategory::describe)
-        .map(|what| {
+        .map_or_default(|what| {
             format!(
                 "\n\n## Destination\nThis will be pasted into {what}. Match that medium's \
                  conventions for punctuation and structure — but never at the cost of the \
                  speaker's words."
             )
-        })
-        .unwrap_or_default();
+        });
     format!("{BASE_PROMPT}{context}\n\n{EXAMPLES}\n\n/no_think")
 }
 

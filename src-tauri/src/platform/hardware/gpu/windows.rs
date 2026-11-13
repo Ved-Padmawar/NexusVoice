@@ -61,6 +61,7 @@ pub fn query_gpus() -> Result<Vec<GpuDescriptor>, String> {
                     name,
                     vendor_id: Some(desc.VendorId),
                     vram_bytes,
+                    discrete: dedicated >= MIN_DEDICATED,
                 });
             }
         }

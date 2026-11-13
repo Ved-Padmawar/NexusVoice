@@ -9,7 +9,7 @@
 //! Where nothing can send the chord, the transcript is typed out instead.
 
 use std::io::Write;
-use std::process::{Command, Stdio};
+use std::process::{Command, Output, Stdio};
 use std::sync::OnceLock;
 
 use super::portal;
@@ -51,7 +51,7 @@ impl Tool {
             Self::Kwtype => "available for KDE Plasma via your distribution",
             Self::Dotool => "https://sr.ht/~geb/dotool/ (needs access to /dev/uinput)",
             Self::Ydotool => {
-                "apt install ydotool | pacman -S ydotool, then enable the ydotoold service"
+                "apt install ydotool | pacman -S ydotool (1.x also needs ydotoold running)"
             }
             Self::Xdotool => "apt install xdotool | pacman -S xdotool | dnf install xdotool",
         }
@@ -80,7 +80,7 @@ impl Tool {
             Self::Wtype | Self::Kwtype => self.run(&["--", text]),
             Self::Ydotool => self.run(&["type", "--", text]),
             Self::Xdotool => self.type_via_xdotool(text),
-            Self::Dotool => Self::type_via_dotool(text),
+            Self::Dotool => run_dotool(&super::dotool::encode(text)?),
         }
     }
 
@@ -88,90 +88,32 @@ impl Tool {
     fn send_paste_chord(self) -> Result<(), String> {
         match self {
             Self::Wtype => self.run(&["-M", "ctrl", "-k", "v", "-m", "ctrl"]),
-            // 29 = KEY_LEFTCTRL, 47 = KEY_V.
-            Self::Ydotool => self.run(&["key", "29:1", "47:1", "47:0", "29:0"]),
+            Self::Ydotool => self.run(ydotool_syntax().paste_chord()),
             Self::Xdotool => {
                 let result = self.run(&["key", "--clearmodifiers", "ctrl+v"]);
                 release_xdotool_modifiers();
                 result
             }
-            Self::Dotool => Self::chord_via_dotool(),
+            Self::Dotool => run_dotool("key ctrl+v\n"),
             Self::Kwtype => Err("kwtype cannot send key combinations".to_string()),
         }
     }
 
-    fn chord_via_dotool() -> Result<(), String> {
-        let mut child = Command::new(Self::Dotool.binary())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("failed to run dotool: {e}"))?;
-
-        let stdin = child
-            .stdin
-            .as_mut()
-            .ok_or_else(|| "dotool stdin unavailable".to_string())?;
-        writeln!(stdin, "key ctrl+v").map_err(|e| format!("failed to write to dotool: {e}"))?;
-
-        let output = child
-            .wait_with_output()
-            .map_err(|e| format!("failed to wait for dotool: {e}"))?;
-
-        if output.status.success() {
-            return Ok(());
+    fn command(self) -> Command {
+        match self {
+            Self::Ydotool => ydotool_command(),
+            _ => Command::new(self.binary()),
         }
-        Err(format!(
-            "dotool failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
     }
 
     fn run(self, args: &[&str]) -> Result<(), String> {
-        let output = Command::new(self.binary())
+        let output = self
+            .command()
             .args(args)
             .output()
             .map_err(|e| format!("failed to run {}: {e}", self.binary()))?;
 
-        if output.status.success() {
-            return Ok(());
-        }
-        Err(format!(
-            "{} failed: {}",
-            self.binary(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    }
-
-    /// `dotool` reads commands from stdin rather than argv.
-    fn type_via_dotool(text: &str) -> Result<(), String> {
-        let protocol = super::dotool::encode(text)?;
-        let mut child = Command::new(Self::Dotool.binary())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("failed to run dotool: {e}"))?;
-
-        let stdin = child
-            .stdin
-            .as_mut()
-            .ok_or_else(|| "dotool stdin unavailable".to_string())?;
-        stdin
-            .write_all(protocol.as_bytes())
-            .map_err(|e| format!("failed to write to dotool: {e}"))?;
-
-        let output = child
-            .wait_with_output()
-            .map_err(|e| format!("failed to wait for dotool: {e}"))?;
-
-        if output.status.success() {
-            return Ok(());
-        }
-        Err(format!(
-            "dotool failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
+        check(self.binary(), &output)
     }
 
     fn type_via_xdotool(self, text: &str) -> Result<(), String> {
@@ -179,6 +121,127 @@ impl Tool {
         release_xdotool_modifiers();
         result
     }
+}
+
+/// `dotool` reads its commands from stdin rather than argv.
+fn run_dotool(script: &str) -> Result<(), String> {
+    let binary = Tool::Dotool.binary();
+    let mut child = Command::new(binary)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("failed to run {binary}: {e}"))?;
+
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| format!("{binary} stdin unavailable"))?
+        .write_all(script.as_bytes())
+        .map_err(|e| format!("failed to write to {binary}: {e}"))?;
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("failed to wait for {binary}: {e}"))?;
+    check(binary, &output)
+}
+
+/// Some tools — ydotool among them — report failures on stdout, so both
+/// streams go into the error.
+fn check(binary: &str, output: &Output) -> Result<(), String> {
+    if output.status.success() {
+        return Ok(());
+    }
+    let message = [&output.stderr, &output.stdout]
+        .iter()
+        .map(|stream| String::from_utf8_lossy(stream).trim().to_string())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    Err(format!("{binary} failed: {message}"))
+}
+
+/// How the installed `ydotool` spells a key press.
+///
+/// 1.x takes evdev codes (`29:1 47:1 47:0 29:0`). 0.1.x, which Debian and
+/// Ubuntu still ship, takes names (`ctrl+v`) and types codes out as digits
+/// while exiting successfully, so a wrong guess pastes "2442" with no error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum YdotoolSyntax {
+    Keycodes,
+    KeyNames,
+}
+
+impl YdotoolSyntax {
+    /// Neither release has `--version`; only 0.1.x's help describes a
+    /// "key sequence". Anything else is taken to be the current release.
+    fn from_key_help(help: &str) -> Self {
+        if help.contains("key sequence") {
+            Self::KeyNames
+        } else {
+            Self::Keycodes
+        }
+    }
+
+    fn paste_chord(self) -> &'static [&'static str] {
+        match self {
+            // 29 = KEY_LEFTCTRL, 47 = KEY_V.
+            Self::Keycodes => &["key", "29:1", "47:1", "47:0", "29:0"],
+            Self::KeyNames => &["key", "ctrl+v"],
+        }
+    }
+}
+
+/// Cached once the probe runs; a probe that cannot start is retried next paste.
+fn ydotool_syntax() -> YdotoolSyntax {
+    static SYNTAX: OnceLock<YdotoolSyntax> = OnceLock::new();
+    if let Some(syntax) = SYNTAX.get() {
+        return *syntax;
+    }
+    match ydotool_command().args(["key", "--help"]).output() {
+        Ok(output) => {
+            // 0.1.x prints help on stdout or stderr depending on the build.
+            let mut help = String::from_utf8_lossy(&output.stdout).into_owned();
+            help.push('\n');
+            help.push_str(&String::from_utf8_lossy(&output.stderr));
+            *SYNTAX.get_or_init(|| {
+                let syntax = YdotoolSyntax::from_key_help(&help);
+                log::info!("ydotool key syntax: {syntax:?}");
+                syntax
+            })
+        }
+        Err(error) => {
+            log::warn!("could not probe ydotool's key syntax: {error}");
+            YdotoolSyntax::Keycodes
+        }
+    }
+}
+
+/// Points `ydotool` at the daemon's socket when `YDOTOOL_SOCKET` is unset.
+/// 1.x looks only under `$XDG_RUNTIME_DIR`, but distribution services put the
+/// socket in `/tmp` (Fedora) or `/run/ydotoold` (NixOS).
+fn ydotool_command() -> Command {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+    let mut command = Command::new(Tool::Ydotool.binary());
+    if std::env::var_os("YDOTOOL_SOCKET").is_some_and(|value| !value.is_empty()) {
+        return command;
+    }
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
+    let candidates = [
+        format!("{runtime_dir}/.ydotool_socket"),
+        "/tmp/.ydotool_socket".to_string(),
+        "/run/ydotoold/socket".to_string(),
+    ];
+    // /tmp is world-writable: trust only a socket owned by root or this user.
+    let uid = std::fs::metadata("/proc/self").map(|m| m.uid()).ok();
+    if let Some(socket) = candidates.iter().find(|path| {
+        std::fs::symlink_metadata(path)
+            .is_ok_and(|m| m.file_type().is_socket() && (m.uid() == 0 || Some(m.uid()) == uid))
+    }) {
+        command.env("YDOTOOL_SOCKET", socket);
+    }
+    command
 }
 
 /// `xdotool --clearmodifiers` restores whatever modifiers were held when it
@@ -202,13 +265,11 @@ fn release_xdotool_modifiers() {
         ])
         .output();
 
-    match result {
-        Ok(output) if !output.status.success() => log::warn!(
-            "xdotool modifier cleanup failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ),
-        Err(error) => log::warn!("xdotool modifier cleanup could not run: {error}"),
-        Ok(_) => {}
+    let checked = result
+        .map_err(|e| format!("failed to run xdotool: {e}"))
+        .and_then(|output| check(Tool::Xdotool.binary(), &output));
+    if let Err(error) = checked {
+        log::warn!("modifier cleanup: {error}");
     }
 }
 
@@ -358,3 +419,7 @@ pub async fn type_text(app: &tauri::AppHandle, text: &str) -> Result<(), String>
         )
     })
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/platform/injection/linux.rs"]
+mod tests;

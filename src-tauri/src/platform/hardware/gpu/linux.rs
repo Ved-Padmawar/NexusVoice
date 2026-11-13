@@ -3,8 +3,8 @@
 //! Vulkan is the common denominator across NVIDIA/AMD/Intel on Linux and is
 //! already part of the app's graphics stack. For each physical device we read
 //! its name, PCI vendor id, and the largest `DEVICE_LOCAL` memory heap as VRAM.
-//! CPU/software devices (no device-local heap) are skipped so they never win
-//! model-size selection.
+//! Software rasterizers such as llvmpipe are skipped: they report system RAM
+//! as a device-local heap and would otherwise win model-size selection.
 
 use crate::platform::hardware::profile::GpuDescriptor;
 
@@ -39,6 +39,9 @@ unsafe fn query_gpus_inner() -> Result<Vec<GpuDescriptor>, String> {
 
         for device in devices {
             let props = instance.get_physical_device_properties(device);
+            if props.device_type == vk::PhysicalDeviceType::CPU {
+                continue;
+            }
             let mem = instance.get_physical_device_memory_properties(device);
 
             // Largest DEVICE_LOCAL heap = dedicated VRAM (unified on integrated).
@@ -59,6 +62,7 @@ unsafe fn query_gpus_inner() -> Result<Vec<GpuDescriptor>, String> {
                 name,
                 vendor_id: Some(props.vendor_id),
                 vram_bytes,
+                discrete: props.device_type == vk::PhysicalDeviceType::DISCRETE_GPU,
             });
         }
 

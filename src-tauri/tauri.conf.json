@@ -68,7 +68,8 @@
           "libblas3",
           "liblapack3",
           "libgomp1"
-        ]
+        ],
+        "recommends": ["xdotool"]
       },
       "rpm": {
         "depends": [
@@ -77,7 +78,8 @@
           "blas",
           "lapack",
           "libgomp"
-        ]
+        ],
+        "recommends": ["xdotool"]
       }
     },
     "windows": {

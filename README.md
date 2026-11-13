@@ -161,7 +161,7 @@ Download the latest build for your platform from [Releases](../../releases/lates
 | `NexusVoice_x.x.x_amd64.deb` | Debian, Ubuntu, Zorin — update via `apt` |
 | `NexusVoice_x.x.x.x86_64.rpm` | Fedora, RHEL — update via `dnf` |
 
-Only the AppImage can update itself: Tauri'''s updater has no `.deb`/`.rpm`
+Only the AppImage can update itself: Tauri's updater has no `.deb`/`.rpm`
 installer, so package installs are updated through the package manager.
 
 One build covers every machine: GPU backends are loaded at runtime and the CPU
@@ -171,7 +171,7 @@ Settings → About.
 
 **Requirements:**
 - **Windows:** Windows 10 1803+ or Windows 11 (WebView2 is pre-installed).
-- **Linux:** WebKitGTK 4.1 (`libwebkit2gtk-4.1`) and `libxdo3`, both pulled in automatically by the `.deb`/`.rpm`. For GPU acceleration, install your distro's Vulkan driver (Mesa for AMD/Intel, the NVIDIA driver for NVIDIA).
+- **Linux:** WebKitGTK 4.1 (`libwebkit2gtk-4.1`) and `libxdo3`, both pulled in automatically by the `.deb`/`.rpm`, which also recommend `xdotool`. For GPU acceleration, install your distro's Vulkan driver (Mesa for AMD/Intel, the NVIDIA driver for NVIDIA).
 
 No Rust, Node, CMake, or any dev tools needed on the target machine.
 
@@ -191,14 +191,18 @@ shows what was found and what will be used.
 |---------|---------|
 | X11 (any) | `sudo apt install xdotool` |
 | GNOME / KDE Wayland | usually nothing — approve the portal prompt on first use |
-| GNOME (portal unavailable) | `sudo apt install ydotool`, then `sudo systemctl enable --now ydotool` |
+| GNOME (portal unavailable) | `sudo apt install ydotool` (see below) |
 | sway / wlroots | `sudo apt install wtype` |
 
 `ydotool` works on every compositor because it writes through `/dev/uinput`,
-below the display server — it just needs its daemon running.
+below the display server. The 1.x release needs its daemon running
+(`sudo systemctl enable --now ydotool`). Debian and Ubuntu ship the older 0.1.x,
+which has no service file and works without the daemon as long as your user can
+write `/dev/uinput` (for example through the `input` group). NexusVoice
+handles either release.
 
 **2. Bind the dictation shortcut yourself.** On Wayland the compositor owns key
-grabs, so add a custom shortcut in your desktop'''s keyboard settings pointing at:
+grabs, so add a custom shortcut in your desktop's keyboard settings pointing at:
 
 ```
 nexusvoice --toggle-dictation
