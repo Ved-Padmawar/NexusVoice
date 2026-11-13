@@ -19,6 +19,22 @@ fn a_fresh_install_starts_from_defaults_and_writes_the_file() {
 }
 
 #[test]
+fn a_file_from_before_saved_audio_and_paste_modes_keeps_its_choices() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join(FILE_NAME),
+        r#"{ "version": 1, "model": "whisper-small", "keepMicOpen": true }"#,
+    )
+    .unwrap();
+    let settings = load(dir.path());
+
+    assert_eq!(settings.model().as_deref(), Some("whisper-small"));
+    assert!(settings.keep_mic_open());
+    assert_eq!(settings.saved_audio(), SavedAudio::default());
+    assert_eq!(settings.paste_mode(), PasteMode::Auto);
+}
+
+#[test]
 fn changes_survive_a_restart() {
     let dir = tempfile::tempdir().unwrap();
     {

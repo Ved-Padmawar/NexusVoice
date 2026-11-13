@@ -46,6 +46,41 @@ pub enum WaveformStyle {
     Spectrum,
 }
 
+/// How a finished transcript is pasted where the clipboard route applies.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PasteMode {
+    /// Ctrl+Shift+V in a terminal, Ctrl+V anywhere else.
+    #[default]
+    Auto,
+    CtrlV,
+    CtrlShiftV,
+    ShiftInsert,
+    /// Leave the transcript on the clipboard and send no keys.
+    CopyOnly,
+}
+
+/// Whether dictations keep their audio, and for how many of the newest ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SavedAudio {
+    pub enabled: bool,
+    pub keep: u32,
+}
+
+impl SavedAudio {
+    pub const KEEP_RANGE: std::ops::RangeInclusive<u32> = 1..=100;
+}
+
+impl Default for SavedAudio {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            keep: 10,
+        }
+    }
+}
+
 /// Preferences both windows read: the settings screen edits them, the pill
 /// draws with them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -89,6 +124,8 @@ struct SettingsFile {
     /// Input device id (`host:device`); `None` follows the OS default.
     input_device: Option<String>,
     keep_mic_open: bool,
+    saved_audio: SavedAudio,
+    paste_mode: PasteMode,
     formatter: FormatterSettings,
     pill: PillSettings,
 }
@@ -186,6 +223,22 @@ impl Settings {
 
     pub fn set_keep_mic_open(&self, keep: bool) -> std::io::Result<()> {
         self.update(|f| f.keep_mic_open = keep).map(drop)
+    }
+
+    pub fn saved_audio(&self) -> SavedAudio {
+        self.read(|f| f.saved_audio)
+    }
+
+    pub fn set_saved_audio(&self, saved_audio: SavedAudio) -> std::io::Result<()> {
+        self.update(|f| f.saved_audio = saved_audio).map(drop)
+    }
+
+    pub fn paste_mode(&self) -> PasteMode {
+        self.read(|f| f.paste_mode)
+    }
+
+    pub fn set_paste_mode(&self, mode: PasteMode) -> std::io::Result<()> {
+        self.update(|f| f.paste_mode = mode).map(drop)
     }
 
     pub fn pill(&self) -> PillSettingsSnapshot {

@@ -35,14 +35,24 @@ pub async fn init_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::migrate!("src/data/migrations")
         .run(pool)
         .await
-        .map_err(|err| sqlx::Error::Migrate(Box::new(err)))
+        .map_err(|err| sqlx::Error::Migrate(Box::new(err)))?;
+    // A fresh database was just created without the late columns.
+    add_missing_columns(pool).await
 }
 
-/// Columns an older database may predate, with their original definitions.
+/// Columns a database may lack, with their definitions: ones that predate the
+/// squashed schema, and ones added since without editing a checksummed migration.
 const LATE_COLUMNS: &[(&str, &str, &str)] = &[
     ("transcripts", "duration_seconds", "REAL"),
     ("transcripts", "word_count", "INTEGER NOT NULL DEFAULT 0"),
     ("transcripts", "target_app", "TEXT"),
+    ("transcripts", "pinned", "INTEGER NOT NULL DEFAULT 0"),
+    ("transcripts", "has_audio", "INTEGER NOT NULL DEFAULT 0"),
+    ("transcripts", "source_name", "TEXT"),
+    ("transcripts", "model", "TEXT"),
+    ("transcripts", "pending", "INTEGER NOT NULL DEFAULT 0"),
+    ("transcripts", "language", "TEXT"),
+    ("transcripts", "revision", "INTEGER NOT NULL DEFAULT 0"),
     ("dictionary", "hits", "INTEGER NOT NULL DEFAULT 0"),
 ];
 
@@ -384,7 +394,8 @@ mod tests {
 
         // The query that was failing in the UI.
         sqlx::query(
-            "SELECT id, content, word_count, duration_seconds, target_app, created_at
+            "SELECT id, content, word_count, duration_seconds, target_app, pinned, has_audio,
+                    source_name, model, created_at
              FROM transcripts",
         )
         .fetch_all(&pool)

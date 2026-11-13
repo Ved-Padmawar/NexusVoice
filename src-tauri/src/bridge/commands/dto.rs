@@ -4,6 +4,7 @@
 use serde::Serialize;
 
 use crate::data::rows::{dictionary::DictionaryEntry, transcript::Transcript};
+use crate::recordings::Recordings;
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -15,10 +16,22 @@ pub struct TranscriptResponse {
     /// App the transcript was dictated into; `None` when it wasn't determined.
     pub target_app: Option<String>,
     pub created_at: String,
+    /// Kept past the saved-audio limit.
+    pub pinned: bool,
+    /// Where the saved audio is, when the entry has some.
+    pub audio_path: Option<String>,
+    /// File name of the imported audio, for entries that were not dictated.
+    pub source_name: Option<String>,
+    /// Catalog id of the model that produced the text.
+    pub model: Option<String>,
+    /// An import whose text is still being transcribed.
+    pub pending: bool,
+    /// Changes with every rewrite of the text; Undo names the one it undoes.
+    pub revision: i64,
 }
 
-impl From<Transcript> for TranscriptResponse {
-    fn from(value: Transcript) -> Self {
+impl TranscriptResponse {
+    pub fn new(value: Transcript, recordings: &Recordings) -> Self {
         Self {
             id: value.id,
             content: value.content,
@@ -26,6 +39,14 @@ impl From<Transcript> for TranscriptResponse {
             duration_seconds: value.duration_seconds,
             target_app: value.target_app,
             created_at: value.created_at.to_string(),
+            pinned: value.pinned,
+            audio_path: value
+                .has_audio
+                .then(|| recordings.path(value.id).to_string_lossy().into_owned()),
+            source_name: value.source_name,
+            model: value.model,
+            pending: value.pending,
+            revision: value.revision,
         }
     }
 }

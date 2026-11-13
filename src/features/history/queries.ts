@@ -5,7 +5,6 @@ import {
   useQuery,
   useQueryClient,
   type InfiniteData,
-  type QueryClient,
 } from '@tanstack/react-query'
 import { useCallback } from 'react'
 import { toast } from 'sonner'
@@ -78,8 +77,9 @@ const refetchType = () => (document.hidden ? 'none' : 'active')
 const pendingDeletes = createPendingDeletes()
 
 /** Every transcript the feed shows for this search and filters, a page at a
- *  time so no call holds the whole table. A row hidden for Undo at
- *  any point stays out, even once its delete commits. */
+ *  time so no call holds the whole table. A row hidden for Undo at any point
+ *  stays out, even once its delete commits, and so does an import with no
+ *  text yet. */
 export async function fetchAllTranscripts(query: string, filters: TranscriptFilters): Promise<Transcript[]> {
   const all: Transcript[] = []
   const hidden = new Set<number>()
@@ -93,7 +93,7 @@ export async function fetchAllTranscripts(query: string, filters: TranscriptFilt
     const last = rows.at(-1)
     if (!last || rows.length < EXPORT_PAGE_SIZE) {
       noteHidden()
-      return hidden.size ? all.filter(row => !hidden.has(row.id)) : all
+      return all.filter(row => !row.pending && !hidden.has(row.id))
     }
     cursor = { cursorCreatedAt: last.createdAt, cursorId: last.id }
   }
@@ -153,15 +153,28 @@ export function useDailyWords(days: number) {
   })
 }
 
-/** Drops a deleted row from every cached feed and search in place rather than
- *  refetch every page. A fetch in flight would restore it, so cancel and re-run those. */
-async function dropRow(client: QueryClient, id: number) {
-  const root = { queryKey: queryKeys.transcriptsRoot }
-  const inFlight = client.getQueryCache().findAll({ ...root, fetchStatus: 'fetching' })
-  await client.cancelQueries(root)
-  client.setQueriesData<TranscriptPages>(root, (data) => data && withoutRows(data, new Set([id])))
-  inFlight.forEach(query => void client.invalidateQueries({ queryKey: query.queryKey, exact: true }))
+let feedWrites: Promise<unknown> = Promise.resolve()
+
+/** Run a feed write after every earlier one, so the writes for one entry
+ *  apply in the order its events came, whatever each awaits first. */
+function inOrder(write: () => Promise<void>) {
+  const run = feedWrites.then(write)
+  feedWrites = run.catch(() => {})
+  return run
 }
+
+/** Change every cached feed and search in place rather than refetch every
+ *  page. A fetch in flight would land older rows over the change, so those are
+ *  cancelled first and run again after. */
+const writeRows = (update: (data: TranscriptPages) => TranscriptPages) => inOrder(async () => {
+  const root = { queryKey: queryKeys.transcriptsRoot }
+  const inFlight = queryClient.getQueryCache().findAll({ ...root, fetchStatus: 'fetching' })
+  await queryClient.cancelQueries(root)
+  queryClient.setQueriesData<TranscriptPages>(root, (data) => data && update(data))
+  inFlight.forEach(query => void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true }))
+})
+
+export const dropRow = (id: number) => writeRows(data => withoutRows(data, new Set([id])))
 
 /** Deletes a dictation behind an Undo toast. */
 export function useDeleteTranscript() {
@@ -170,7 +183,7 @@ export function useDeleteTranscript() {
     mutationFn: (id: number) => commands.deleteTranscript(id),
     onSuccess: (_, id) => {
       void client.invalidateQueries({ queryKey: queryKeys.stats })
-      return dropRow(client, id)
+      return dropRow(id)
     },
     onError: (e) => toast.error(extractErrorMessage(e, 'Failed to delete transcript')),
   })
@@ -182,12 +195,38 @@ export function useDeleteTranscript() {
   }), [mutateAsync])
 }
 
+/** Change the entries in `changes` in every cached feed and search, in one
+ *  write. Only their rows get new objects, so the other rows' memos hold,
+ *  unlike a refetch. */
+export const patchRows = (changes: ReadonlyMap<number, (row: Transcript) => Transcript>) => writeRows(data => ({
+  ...data,
+  pages: data.pages.map(page => page.rows.some(row => changes.has(row.id))
+    ? { ...page, rows: page.rows.map(row => changes.get(row.id)?.(row) ?? row) }
+    : page),
+}))
+
+export const patchRow = (id: number, change: (row: Transcript) => Transcript) => patchRows(new Map([[id, change]]))
+
+/** Show an entry whose text changed. Feeds take it in place; searches run
+ *  again, since the new text may match differently. Its word count moves the stats. */
+export async function showRewritten(entry: Transcript) {
+  await patchRow(entry.id, () => entry)
+  void queryClient.invalidateQueries({ queryKey: queryKeys.transcriptSearchRoot, refetchType: refetchType() })
+  void queryClient.invalidateQueries({ queryKey: queryKeys.stats, refetchType: refetchType() })
+}
+
+/** Pin or unpin an entry, and show it on every cached feed and search at once. */
+export async function setPinned(id: number, pinned: boolean) {
+  await commands.setTranscriptPinned(id, pinned)
+  await patchRow(id, row => ({ ...row, pinned }))
+}
+
 export const prefetchTranscripts = () =>
   queryClient.prefetchInfiniteQuery(feedOptions(NO_FILTERS))
 
 export const prefetchStats = () => queryClient.prefetchQuery(statsOptions)
 
-export async function addTranscript(transcript: Transcript) {
+export const addTranscript = (transcript: Transcript) => inOrder(async () => {
   const queryKey = queryKeys.transcripts(NO_FILTERS)
   // An older response must not overwrite the event's newer database state.
   await queryClient.cancelQueries({ queryKey, exact: true })
@@ -207,4 +246,4 @@ export async function addTranscript(transcript: Transcript) {
     refetchType: refetchType(),
   })
   void queryClient.invalidateQueries({ queryKey: queryKeys.stats, refetchType: refetchType() })
-}
+})

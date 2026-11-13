@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
+import { LightningIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { Switch } from '../../shared/ui/Switch'
+import { SettingRow } from './SettingRow'
 
 export function KeepMicOpenToggle() {
   const [keepOpen, setKeepOpen] = useState(false)
@@ -29,13 +31,13 @@ export function KeepMicOpenToggle() {
   }
 
   return (
-    <label
-      data-tip="Turn this on to keep the microphone open between recordings. Your system's microphone indicator stays on while it is. Off, the microphone closes after 60 seconds of no recording."
-      data-tip-align="end"
-      className="flex shrink-0 cursor-pointer items-center gap-2 text-xs font-semibold text-fg-2"
+    <SettingRow
+      icon={<LightningIcon size={16} weight="duotone" />}
+      title="Keep the microphone ready"
+      tip="Keeps the microphone open between recordings, so your system's microphone indicator stays on. Off, it closes after 60 seconds without a recording."
+      description={<p className="text-xs text-muted">The first word is never clipped.</p>}
     >
-      Keep ready
       <Switch checked={keepOpen} disabled={busy} onChange={(on) => { void change(on) }} aria-label="Keep the microphone ready" />
-    </label>
+    </SettingRow>
   )
 }

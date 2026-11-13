@@ -5,6 +5,7 @@ import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { useLiveChoice } from '../../app/useLiveChoice'
 import { Select } from '../../shared/ui/Select'
+import { SettingRow } from './SettingRow'
 import { modelUnloadOptions, useModelUnload } from '../models/queries'
 import type { ModelUnload } from '../../shared/types'
 
@@ -33,12 +34,13 @@ export function ModelUnloadSection() {
   const policy = pending ? pending.value : data ?? null
 
   return (
-    <div className="inline-flex h-8 items-center gap-2 rounded-lg bg-panel pr-1 pl-3 text-xs ring-1 ring-line-soft ring-inset">
-      <TimerIcon size={14} weight="bold" className="text-accent-ink" />
-      <span className="font-semibold text-fg">Unload idle model</span>
-      <div className="w-22">
+    <SettingRow
+      icon={<TimerIcon size={16} weight="duotone" />}
+      title="Unload the model when idle"
+      description={<p className="text-xs text-pretty text-muted">Frees memory; the next recording reloads it.</p>}
+    >
+      <div className="w-28 shrink-0">
         <Select
-          size="sm"
           value={policy}
           options={OPTIONS}
           onChange={(v) => { if (v !== policy) void choose(v) }}
@@ -46,6 +48,6 @@ export function ModelUnloadSection() {
           disabled={policy === null}
         />
       </div>
-    </div>
+    </SettingRow>
   )
 }

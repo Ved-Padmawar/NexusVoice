@@ -161,6 +161,10 @@ impl ModelLibrary {
         select_model(detect_backend(), settings.model().as_deref())
     }
 
+    pub fn dir(&self) -> &Path {
+        &self.models_dir
+    }
+
     pub fn path(&self, entry: &ModelEntry) -> PathBuf {
         self.models_dir.join(&entry.filename)
     }

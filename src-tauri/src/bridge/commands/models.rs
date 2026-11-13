@@ -160,7 +160,25 @@ pub struct LanguageSettings {
 #[tauri::command]
 #[specta::specta]
 pub fn get_language_options(settings: State<'_, Settings>) -> LanguageSettings {
-    let model = ModelLibrary::active(&settings);
+    language_options(
+        ModelLibrary::active(&settings),
+        settings.language().as_deref(),
+    )
+}
+
+/// The same list for any model, as the import dialog's model picker needs.
+#[tauri::command]
+#[specta::specta]
+pub fn get_language_options_for(
+    settings: State<'_, Settings>,
+    model: String,
+) -> Result<LanguageSettings, ApiError> {
+    let entry = catalog::find(&model)
+        .ok_or_else(|| ApiError::new("invalid_model", "That model isn't in the catalog."))?;
+    Ok(language_options(entry, settings.language().as_deref()))
+}
+
+fn language_options(model: &ModelEntry, saved: Option<&str>) -> LanguageSettings {
     if !model.multilingual {
         return LanguageSettings {
             supported: false,
@@ -169,8 +187,7 @@ pub fn get_language_options(settings: State<'_, Settings>) -> LanguageSettings {
     }
 
     let advertised = &model.languages;
-    let saved = settings.language();
-    let active = language::resolve(saved.as_deref());
+    let active = language::resolve(saved);
 
     // Region shown only where a language has several locales.
     let mut named: Vec<(String, String)> = advertised

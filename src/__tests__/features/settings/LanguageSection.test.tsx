@@ -78,14 +78,14 @@ describe('LanguageSection', () => {
   it('says a saved language waits while the recording in progress keeps the previous one', async () => {
     deferred = ['language']
     renderWithQuery(<LanguageSection />)
-    expect(await screen.findByText('Saved. This recording keeps the previous one.')).toBeInTheDocument()
+    await waitFor(() => expect(trigger().parentElement).toHaveAttribute('data-tip', 'Saved. This recording keeps the previous one.'))
   })
 
-  it('hides itself for an English-only model', async () => {
+  it('is disabled and says why for an English-only model', async () => {
     mockInvoke.mockImplementation(cmd =>
       Promise.resolve(cmd === 'get_language_options' ? { supported: false, options: [] } : null))
-    const { container } = renderWithQuery(<LanguageSection />)
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('get_language_options'))
-    expect(container).toBeEmptyDOMElement()
+    renderWithQuery(<LanguageSection />)
+    await waitFor(() => expect(trigger().parentElement).toHaveAttribute('data-tip', 'This model only understands English'))
+    expect(trigger()).toBeDisabled()
   })
 })

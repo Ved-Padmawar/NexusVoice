@@ -4,7 +4,7 @@ use std::path::Path;
 
 use transcribe_cpp::{RunExtension, RunOptions, StreamOptions, TimestampKind, WhisperRunOptions};
 
-use crate::engine::{CancelMark, EngineError, Ran, Supervisor, WorkerSpec};
+use crate::engine::{CancelMark, Canceller, EngineError, Ran, Supervisor, WorkerSpec};
 use crate::models::catalog::ModelEntry;
 use crate::models::decode::StreamSession;
 use crate::models::provider::{detect_backend, select_model};
@@ -63,10 +63,13 @@ fn load_failure(entry: &ModelEntry, cause: &dyn std::fmt::Display) -> String {
 impl TranscriptionEngine {
     /// Load the model selected by `override_id` (or hardware) from
     /// `models_dir`, in a worker that finds the CUDA pack in `app_data_dir`.
+    /// A cancel through `canceller` after `mark` stops the load.
     pub fn new(
         models_dir: &Path,
         app_data_dir: &Path,
         override_id: Option<&str>,
+        canceller: Canceller,
+        mark: CancelMark,
     ) -> Result<Self, String> {
         let entry = select_model(detect_backend(), override_id);
 
@@ -77,11 +80,15 @@ impl TranscriptionEngine {
         }
 
         let exe = crate::engine::worker_exe().map_err(|e| e.to_string())?;
-        let (supervisor, info) = Supervisor::start(WorkerSpec {
-            exe,
-            model: model_path,
-            app_data_dir: app_data_dir.to_path_buf(),
-        })
+        let (supervisor, info) = Supervisor::start(
+            WorkerSpec {
+                exe,
+                model: model_path,
+                app_data_dir: app_data_dir.to_path_buf(),
+            },
+            canceller,
+            mark,
+        )
         .map_err(|e| load_failure(entry, &e))?;
 
         // The bound device may differ from the request (e.g. CPU fallback).
@@ -111,7 +118,7 @@ impl TranscriptionEngine {
 
         // Warmup pass so the first real transcription isn't stalled by load.
         let silence = vec![0.0f32; 16_000];
-        let _ = engine.transcribe_segments(engine.cancel_mark(), &silence, "", Pass::Final, None);
+        let _ = engine.transcribe_segments(mark, &silence, "", Pass::Final, None);
         log::info!("engine warmed up");
 
         Ok(engine)

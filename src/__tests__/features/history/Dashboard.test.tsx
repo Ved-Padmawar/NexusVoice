@@ -8,6 +8,8 @@ import { addTranscript } from '../../../features/history/queries'
 import type { Transcript, UsageStats } from '../../../shared/types'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
+vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({ onDragDropEvent: () => Promise.resolve(() => {}) }) }))
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 
 const mockInvoke = vi.mocked(invoke)
@@ -31,8 +33,8 @@ class MockIntersectionObserver {
 vi.stubGlobal('IntersectionObserver', MockIntersectionObserver)
 
 const sampleTranscripts: Transcript[] = [
-  { id: 1, content: 'Hello world', wordCount: 2, durationSeconds: 5, targetApp: 'VS Code', createdAt: new Date().toISOString() },
-  { id: 2, content: 'Testing search', wordCount: 2, durationSeconds: 3, targetApp: null, createdAt: new Date().toISOString() },
+  { id: 1, content: 'Hello world', wordCount: 2, durationSeconds: 5, targetApp: 'VS Code', pinned: false, audioPath: null, sourceName: null, model: null, pending: false, revision: 0, createdAt: new Date().toISOString() },
+  { id: 2, content: 'Testing search', wordCount: 2, durationSeconds: 3, targetApp: null, pinned: false, audioPath: null, sourceName: null, model: null, pending: false, revision: 0, createdAt: new Date().toISOString() },
 ]
 
 const fullPage = Array.from({ length: 50 }, (_, i): Transcript => ({
@@ -40,7 +42,7 @@ const fullPage = Array.from({ length: 50 }, (_, i): Transcript => ({
   content: `row ${i + 1}`,
   wordCount: 1,
   durationSeconds: null,
-  targetApp: null,
+  targetApp: null, pinned: false, audioPath: null, sourceName: null, model: null, pending: false, revision: 0,
   createdAt: `2026-01-01T00:00:${String(i + 1).padStart(2, '0')}`,
 }))
 
@@ -57,6 +59,8 @@ function mockBackend({ transcripts = [], search = [], stats = null, pushToTalk =
     if (cmd === 'search_transcripts') return Promise.resolve(search)
     if (cmd === 'get_usage_stats') return Promise.resolve(stats)
     if (cmd === 'get_daily_words') return Promise.resolve([])
+    if (cmd === 'get_jobs') return Promise.resolve([])
+    if (cmd === 'get_saved_audio') return Promise.resolve({ enabled: true, keep: 10, bytes: 0 })
     if (cmd === 'get_hotkeys') return Promise.resolve({ pushToTalk, dictation: null, dictationCommit: null })
     return Promise.resolve(undefined)
   })
@@ -103,7 +107,7 @@ describe('Dashboard — transcripts', () => {
   it('omits the app label when the target app is unknown', async () => {
     renderDashboard()
     await screen.findByText('Hello world')
-    // The second fixture has targetApp: null, so it is labelled as the clipboard.
+    // The second fixture has targetApp: null, pinned: false, audioPath: null, sourceName: null, model: null, so it is labelled as the clipboard.
     expect(screen.getAllByText('VS Code')).toHaveLength(1)
     expect(screen.getAllByText('Clipboard')).toHaveLength(1)
   })
@@ -133,7 +137,7 @@ describe('Dashboard — search', () => {
   })
 
   it('shows search results when the query matches', async () => {
-    const hit: Transcript = { id: 9, content: 'Matched result', wordCount: 2, durationSeconds: null, targetApp: null, createdAt: new Date().toISOString() }
+    const hit: Transcript = { id: 9, content: 'Matched result', wordCount: 2, durationSeconds: null, targetApp: null, pinned: false, audioPath: null, sourceName: null, model: null, pending: false, revision: 0, createdAt: new Date().toISOString() }
     mockBackend({ transcripts: [], search: [hit] })
     renderDashboard()
 
@@ -301,7 +305,7 @@ describe('Dashboard day groups', () => {
     renderDashboard()
     const day = (await screen.findByText('Hello world')).closest('section')!
     await act(async () => {
-      await addTranscript({ id: 3, content: 'Fresh dictation', wordCount: 2, durationSeconds: 1, targetApp: null, createdAt: new Date().toISOString() })
+      await addTranscript({ id: 3, content: 'Fresh dictation', wordCount: 2, durationSeconds: 1, targetApp: null, pinned: false, audioPath: null, sourceName: null, model: null, pending: false, revision: 0, createdAt: new Date().toISOString() })
     })
     expect(await screen.findByText('Fresh dictation')).toBeInTheDocument()
     // Same node: the group was updated in place, not torn down and rebuilt.
@@ -313,7 +317,7 @@ describe('Dashboard day groups', () => {
 describe('Dashboard day groups across years', () => {
   it('keeps the same weekday and date from different years apart', async () => {
     // Monday 8 Nov in both years: identical labels without the year.
-    const at = (id: number, createdAt: string): Transcript => ({ id, content: `Entry ${id}`, wordCount: 2, durationSeconds: 1, targetApp: null, createdAt })
+    const at = (id: number, createdAt: string): Transcript => ({ id, content: `Entry ${id}`, wordCount: 2, durationSeconds: 1, targetApp: null, pinned: false, audioPath: null, sourceName: null, model: null, pending: false, revision: 0, createdAt })
     mockBackend({ transcripts: [at(1, '2021-11-08T12:00:00'), at(2, '2010-11-08T12:00:00')] })
     renderDashboard()
     const newer = (await screen.findByText('Entry 1')).closest('section')!

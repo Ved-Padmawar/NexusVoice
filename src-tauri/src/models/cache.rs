@@ -10,6 +10,7 @@ use tauri_specta::Event;
 use tokio::sync::watch;
 
 use crate::bridge::events::LanguageReset;
+use crate::engine::Canceller;
 use crate::settings::Settings;
 use crate::sync::lock_recovering;
 
@@ -298,7 +299,15 @@ impl EngineCache {
         let models_dir = self.models_dir.clone();
         let app_data_dir = self.app_data_dir.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            TranscriptionEngine::new(&models_dir, &app_data_dir, model.as_deref())
+            let canceller = Canceller::default();
+            let mark = canceller.mark();
+            TranscriptionEngine::new(
+                &models_dir,
+                &app_data_dir,
+                model.as_deref(),
+                canceller,
+                mark,
+            )
         })
         .await
         .map_err(|e| {

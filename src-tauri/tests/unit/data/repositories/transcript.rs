@@ -464,3 +464,53 @@ async fn a_prefix_search_finds_a_partially_typed_word() {
         .expect("search");
     assert_eq!(rows.len(), 1, "prefix match should find 'projections'");
 }
+
+#[tokio::test]
+async fn releasing_audio_skips_pinned_entries_and_never_the_newest() {
+    let pool = pool().await;
+    // Oldest first: a pinned one, two unpinned with audio, one unpinned without, the newest with audio.
+    let pinned = insert(&pool, "pinned", "2024-01-01 10:00:00").await;
+    let old = insert(&pool, "old", "2024-01-02 10:00:00").await;
+    let mid = insert(&pool, "mid", "2024-01-03 10:00:00").await;
+    insert(&pool, "text only", "2024-01-04 10:00:00").await;
+    let newest = insert(&pool, "newest", "2024-01-05 10:00:00").await;
+    let repo = TranscriptRepository::new(pool);
+    for id in [pinned, old, mid, newest] {
+        repo.set_has_audio(id, true).await.unwrap();
+    }
+    repo.set_pinned(pinned, true).await.unwrap();
+
+    // Two kept: the pinned one doesn't count, the entry without audio can't.
+    assert_eq!(repo.release_audio_beyond(Some(2)).await.unwrap(), [old]);
+    assert_eq!(repo.release_audio_beyond(Some(1)).await.unwrap(), [mid]);
+    assert_eq!(repo.release_audio_beyond(None).await.unwrap(), [newest]);
+    let has_audio = |id| {
+        let repo = &repo;
+        async move { repo.get_by_id(id).await.unwrap().unwrap().has_audio }
+    };
+    assert!(has_audio(pinned).await);
+    assert!(!has_audio(old).await);
+}
+
+#[tokio::test]
+async fn an_undo_applies_only_to_the_rewrite_it_belongs_to() {
+    let pool = pool().await;
+    let id = insert(&pool, "original", "2024-01-01 10:00:00").await;
+    let repo = TranscriptRepository::new(pool);
+    repo.set_text(id, "same words", "model-a").await.unwrap();
+    let first = repo.get_by_id(id).await.unwrap().unwrap().revision;
+    // A newer retry with another model that happens to produce the same words.
+    repo.set_text(id, "same words", "model-b").await.unwrap();
+    let second = repo.get_by_id(id).await.unwrap().unwrap().revision;
+
+    assert!(!repo
+        .restore_text(id, first, "original", None)
+        .await
+        .unwrap());
+    assert!(repo
+        .restore_text(id, second, "same words", Some("model-a"))
+        .await
+        .unwrap());
+    let entry = repo.get_by_id(id).await.unwrap().unwrap();
+    assert_eq!(entry.model.as_deref(), Some("model-a"));
+}

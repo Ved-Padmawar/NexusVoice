@@ -22,6 +22,14 @@ const SQLITE_UTC = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
 
 /** SQLite's CURRENT_TIMESTAMP is UTC with no zone, which `new Date` reads as
  *  local time. Fixed here, not in Rust: the raw string is also the pagination cursor. */
+/** Playback time: `1:05`, or `1:02:03` past an hour. */
+export function fmtClock(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds))
+  const sec = String(s % 60).padStart(2, '0')
+  if (s < 3600) return `${Math.floor(s / 60)}:${sec}`
+  return `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${sec}`
+}
+
 export function parseSqliteDate(d: string): Date {
   return new Date(SQLITE_UTC.test(d) ? `${d.replace(' ', 'T')}Z` : d)
 }

@@ -85,6 +85,12 @@ async revealInFolder(path: string) : Promise<null> {
 async getInjectionStatus() : Promise<InjectionStatus> {
     return await TAURI_INVOKE("get_injection_status");
 },
+async getPasteMode() : Promise<PasteMode> {
+    return await TAURI_INVOKE("get_paste_mode");
+},
+async setPasteMode(mode: PasteMode) : Promise<null> {
+    return await TAURI_INVOKE("set_paste_mode", { mode });
+},
 async getHotkeys() : Promise<HotkeyBindings> {
     return await TAURI_INVOKE("get_hotkeys");
 },
@@ -155,6 +161,12 @@ async setModelOverride(variant: string) : Promise<null> {
  */
 async getLanguageOptions() : Promise<LanguageSettings> {
     return await TAURI_INVOKE("get_language_options");
+},
+/**
+ * The same list for any model, as the import dialog's model picker needs.
+ */
+async getLanguageOptionsFor(model: string) : Promise<LanguageSettings> {
+    return await TAURI_INVOKE("get_language_options_for", { model });
 },
 async setLanguage(code: string | null) : Promise<null> {
     return await TAURI_INVOKE("set_language", { code });
@@ -260,6 +272,65 @@ async cancelRestart() : Promise<void> {
  */
 async relaunchApp() : Promise<null> {
     return await TAURI_INVOKE("relaunch_app");
+},
+async getSavedAudio() : Promise<SavedAudioView> {
+    return await TAURI_INVOKE("get_saved_audio");
+},
+/**
+ * Save the policy and apply it now: audio past the new limit, or all of it
+ * when switched off, is deleted before this returns.
+ */
+async setSavedAudio(enabled: boolean, keep: number) : Promise<SavedAudioView> {
+    return await TAURI_INVOKE("set_saved_audio", { enabled, keep });
+},
+/**
+ * Delete every unpinned entry's audio. The entries and their text stay.
+ * Refused while files wait to be transcribed: they still need theirs.
+ */
+async clearSavedAudio() : Promise<SavedAudioView> {
+    return await TAURI_INVOKE("clear_saved_audio");
+},
+/**
+ * Pin an entry to keep its audio past the limit; unpinning applies the limit again.
+ */
+async setTranscriptPinned(id: number, pinned: boolean) : Promise<null> {
+    return await TAURI_INVOKE("set_transcript_pinned", { id, pinned });
+},
+/**
+ * Put back what a re-transcription replaced, which is how one is undone.
+ * `revision` is the entry's after that re-transcription: once it moved on, a
+ * later change happened and this undo no longer applies.
+ */
+async restoreTranscript(id: number, previous: Previous, revision: number) : Promise<TranscriptResponse> {
+    return await TAURI_INVOKE("restore_transcript", { id, previous, revision });
+},
+/**
+ * What the import dialog shows about a picked or dropped file.
+ */
+async inspectAudioFile(path: string) : Promise<AudioFileInfo> {
+    return await TAURI_INVOKE("inspect_audio_file", { path });
+},
+/**
+ * The running transcription job, then the queued ones in order.
+ */
+async getJobs() : Promise<JobSnapshot[]> {
+    return await TAURI_INVOKE("get_jobs");
+},
+async cancelJob(transcriptId: number) : Promise<null> {
+    return await TAURI_INVOKE("cancel_job", { transcriptId });
+},
+/**
+ * Queue an entry's saved audio to be transcribed again with `model`.
+ */
+async retranscribeTranscript(id: number, model: string) : Promise<null> {
+    return await TAURI_INVOKE("retranscribe_transcript", { id, model });
+},
+/**
+ * Add an audio file to History and queue its transcription. Nothing is
+ * pasted. The entry arrives as `TranscriptSaved`.
+ */
+async importAudioFile(path: string, model: string, language: string | null) : Promise<null> {
+    return await TAURI_INVOKE("import_audio_file", { path, model, language });
 }
 }
 
@@ -272,6 +343,8 @@ cudaDownloadComplete: CudaDownloadComplete,
 cudaDownloadError: CudaDownloadError,
 cudaDownloadProgress: CudaDownloadProgress,
 cudaDownloadVerifying: CudaDownloadVerifying,
+jobFinished: JobFinished,
+jobUpdated: JobUpdated,
 languageReset: LanguageReset,
 modelDownloadCancelled: ModelDownloadCancelled,
 modelDownloadComplete: ModelDownloadComplete,
@@ -284,6 +357,7 @@ modelSwitched: ModelSwitched,
 pillSettingsChanged: PillSettingsChanged,
 pillWaveform: PillWaveform,
 recordingStateChanged: RecordingStateChanged,
+savedAudioChanged: SavedAudioChanged,
 transcriptSaved: TranscriptSaved,
 transcriptionComplete: TranscriptionComplete,
 transcriptionError: TranscriptionError,
@@ -296,6 +370,8 @@ cudaDownloadComplete: "cuda-download-complete",
 cudaDownloadError: "cuda-download-error",
 cudaDownloadProgress: "cuda-download-progress",
 cudaDownloadVerifying: "cuda-download-verifying",
+jobFinished: "job-finished",
+jobUpdated: "job-updated",
 languageReset: "language-reset",
 modelDownloadCancelled: "model-download-cancelled",
 modelDownloadComplete: "model-download-complete",
@@ -308,6 +384,7 @@ modelSwitched: "model-switched",
 pillSettingsChanged: "pill-settings-changed",
 pillWaveform: "pill-waveform",
 recordingStateChanged: "recording-state-changed",
+savedAudioChanged: "saved-audio-changed",
 transcriptSaved: "transcript-saved",
 transcriptionComplete: "transcription-complete",
 transcriptionError: "transcription-error",
@@ -324,6 +401,11 @@ transcriptionWarning: "transcription-warning"
 
 export type ActiveDownload = { id: string; status: DownloadStatus; progress: number; error: string | null }
 export type ApiError = { code: string; message: string }
+export type AudioFileInfo = { name: string; sizeBytes: number; 
+/**
+ * `None` when the file doesn't say how long it plays.
+ */
+durationSeconds: number | null }
 export type CatalogModel = { id: string; displayName: string; family: string; 
 /**
  * Every decode path this model supports.
@@ -358,6 +440,10 @@ day: string; words: number }
 export type DictionaryResponse = { id: number; term: string; replacement: string; hits: number; createdAt: string }
 export type DownloadStatus = "queued" | "running" | "error"
 export type DownloadedModel = { variant: string; displayName: string; sizeBytes: number; isActive: boolean }
+/**
+ * Where an entry's saved audio is now; `None` once it was deleted.
+ */
+export type EntryAudio = { id: number; audioPath: string | null }
 /**
  * A change from the settings screen.
  */
@@ -411,6 +497,49 @@ export type InputDeviceInfo = {
  * What to save: identical mics share a name.
  */
 id: string; name: string; isDefault: boolean; isSelected: boolean }
+export type JobFinish = { transcriptId: number; kind: JobKind; outcome: JobOutcome; 
+/**
+ * What a re-transcription replaced, which Undo restores.
+ */
+previous: Previous | null; 
+/**
+ * The entry with its new text. An import that wasn't done is deleted.
+ */
+entry: TranscriptResponse | null; 
+/**
+ * Why the job failed, for the user.
+ */
+message: string | null }
+/**
+ * A transcription job ended, by finishing, being cancelled or failing.
+ */
+export type JobFinished = JobFinish
+export type JobKind = "retranscribe" | "import"
+export type JobOutcome = "done" | "cancelled" | "failed"
+/**
+ * A queued or running job.
+ */
+export type JobSnapshot = { transcriptId: number; kind: JobKind; 
+/**
+ * What the job is about: the file's name, or the start of the entry's text.
+ */
+label: string; model: string; 
+/**
+ * Waiting for the jobs ahead of it.
+ */
+queued: boolean; 
+/**
+ * 0 to 1.
+ */
+progress: number; 
+/**
+ * Waiting for a recording to finish.
+ */
+paused: boolean }
+/**
+ * A transcription job was queued, started, moved on, paused or resumed.
+ */
+export type JobUpdated = JobSnapshot
 export type LanguageOption = { 
 /**
  * ISO code, or `auto` for the detect-per-decode sentinel.
@@ -478,6 +607,18 @@ export type PackState = "absent" |
  */
 export type PageQuery = { limit: number | null; cursorCreatedAt: string | null; cursorId: number | null; from: string | null; to: string | null; sortAsc: boolean | null }
 /**
+ * How a finished transcript is pasted where the clipboard route applies.
+ */
+export type PasteMode = 
+/**
+ * Ctrl+Shift+V in a terminal, Ctrl+V anywhere else.
+ */
+"auto" | "ctrlV" | "ctrlShiftV" | "shiftInsert" | 
+/**
+ * Leave the transcript on the clipboard and send no keys.
+ */
+"copyOnly"
+/**
  * The pill's box in CSS pixels, relative to the window's client area.
  */
 export type PillHitbox = { x: number; y: number; width: number; height: number }
@@ -514,6 +655,10 @@ export type PillWaveform = [number, number, number, number, number, number, numb
  * buffer per call, [`Self::Streaming`] is fed incrementally.
  */
 export type Pipeline = "single-shot" | "streaming"
+/**
+ * An entry's text and model before a re-transcription.
+ */
+export type Previous = { text: string; model: string | null }
 export type ProfileUpdate = { baseUrl: string; model: string; 
 /**
  * `None` keeps the saved key, an empty string removes it.
@@ -532,11 +677,44 @@ export type RecordingSnapshot = { revision: number; status: RecordingStatus;
 deferred: RecordingInput[] }
 export type RecordingStateChanged = RecordingSnapshot
 export type RecordingStatus = "idle" | "recording" | "dictation" | "dictation-paused" | "processing"
+/**
+ * History entries gained or lost their saved audio.
+ */
+export type SavedAudioChanged = EntryAudio[]
+export type SavedAudioView = { enabled: boolean; keep: number; 
+/**
+ * Disk the saved audio takes.
+ */
+bytes: number }
 export type TranscriptResponse = { id: number; content: string; wordCount: number; durationSeconds: number | null; 
 /**
  * App the transcript was dictated into; `None` when it wasn't determined.
  */
-targetApp: string | null; createdAt: string }
+targetApp: string | null; createdAt: string; 
+/**
+ * Kept past the saved-audio limit.
+ */
+pinned: boolean; 
+/**
+ * Where the saved audio is, when the entry has some.
+ */
+audioPath: string | null; 
+/**
+ * File name of the imported audio, for entries that were not dictated.
+ */
+sourceName: string | null; 
+/**
+ * Catalog id of the model that produced the text.
+ */
+model: string | null; 
+/**
+ * An import whose text is still being transcribed.
+ */
+pending: boolean; 
+/**
+ * Changes with every rewrite of the text; Undo names the one it undoes.
+ */
+revision: number }
 export type TranscriptSaved = TranscriptResponse
 /**
  * A recording finished. Saving and pasting are reported separately: a failed

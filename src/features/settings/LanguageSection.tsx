@@ -6,43 +6,48 @@ import { extractErrorMessage } from '../../shared/errors'
 import { useLiveChoice } from '../../app/useLiveChoice'
 import { Select } from '../../shared/ui/Select'
 import { languageOptions, useLanguageOptions } from '../models/queries'
-import { InputHint } from './InputHint'
+import { useKeptByRecording } from './queries'
 
 /** Matches `models::language::AUTO`. */
 const AUTO = 'auto'
+const ENGLISH = 'en'
+const ENGLISH_ONLY = [{ value: ENGLISH, label: 'English' }]
 
 const saveLanguage = (code: string) => commands.setLanguage(code)
 const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Could not set language'))
 
+/** What you dictate in, as a compact picker for the Voice toolbar. */
 export const LanguageSection = memo(function LanguageSection() {
   const { data, error } = useLanguageOptions()
   const { pending, choose } = useLiveChoice(languageOptions, saveLanguage, saveFailed)
+  const kept = useKeptByRecording('language')
 
   useEffect(() => {
     if (error) toast.error(extractErrorMessage(error, 'Could not load languages'))
   }, [error])
 
-  // Inert for an English-only model.
-  if (!data?.supported) return null
+  const supported = data?.supported === true
+  // An English-only model shows English as its value, not as a faint placeholder.
+  const options = supported ? data.options.map(o => ({ value: o.code, label: o.name, dividerAfter: o.code === AUTO })) : ENGLISH_ONLY
+  const selected = supported ? (pending ? pending.value : data.options.find(o => o.isSelected)?.code ?? AUTO) : data ? ENGLISH : null
 
-  const options = data.options
-  const selected = pending ? pending.value : options.find(o => o.isSelected)?.code ?? AUTO
+  let tip = 'Language: what you dictate in'
+  if (!supported && data) tip = 'This model only understands English'
+  else if (kept) tip = 'Saved. This recording keeps the previous one.'
 
   return (
-    <div className="flex min-w-0 flex-col gap-2.5">
-      <div>
-        <p className="text-sm font-semibold text-fg">Language</p>
-        <InputHint input="language">What you dictate in. Auto-detect handles mixed speech.</InputHint>
-      </div>
-
+    <span data-tip={tip} data-tip-pos="bottom" data-tip-align="end" className="block w-40 shrink-0">
       <Select
         value={selected}
-        options={options.map(o => ({ value: o.code, label: o.name, dividerAfter: o.code === AUTO }))}
+        options={options}
         onChange={(v) => { if (v !== selected) void choose(v) }}
         aria-label="Language"
+        placeholder="Language"
         icon={<TranslateIcon size={14} weight="bold" />}
         searchPlaceholder={`Search ${options.length} languages`}
+        disabled={!supported}
+        className="h-8 rounded-lg text-xs font-semibold disabled:opacity-60"
       />
-    </div>
+    </span>
   )
 })

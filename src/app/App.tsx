@@ -6,6 +6,7 @@ import { Toaster } from 'sonner'
 
 import { useAppStore } from './store/useAppStore'
 import { addTranscript } from '../features/history/queries'
+import { listenForAudioEvents } from '../features/history/jobs'
 import { refreshDictionaryUses } from '../features/dictionary/queries'
 import { listenForModelEvents } from '../features/models/queries'
 import { listenForCudaEvents, useCuda } from '../features/models/cuda'
@@ -87,7 +88,7 @@ function App() {
   }, [startup])
 
   useEffect(() => {
-    const cleanups = [listenForModelEvents(), listenForCudaEvents(), listenForRecordingState()]
+    const cleanups = [listenForModelEvents(), listenForCudaEvents(), listenForRecordingState(), listenForAudioEvents()]
     return () => { cleanups.forEach(cleanup => cleanup.then(fn => fn()).catch(() => {})) }
   }, [])
 

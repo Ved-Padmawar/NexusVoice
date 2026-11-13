@@ -1,11 +1,16 @@
 //! Clipboard paste for Windows and macOS: publish the transcript to the
 //! clipboard, then send the paste chord.
 //!
+//! On Windows the chord follows the paste setting (see [`chord`]); macOS always
+//! sends Cmd+V, since its terminals paste with it too.
+//!
 //! Windows also gives the user's clipboard back once the target has read the
 //! transcript (see [`windows`]). macOS leaves the transcript on the clipboard.
 
 #[cfg(target_os = "windows")]
 mod caret;
+#[cfg(any(target_os = "windows", test))]
+mod chord;
 #[cfg(any(target_os = "windows", test))]
 mod settle;
 #[cfg(any(target_os = "windows", test))]
@@ -18,10 +23,8 @@ use std::time::Duration;
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use tauri::AppHandle;
 
-#[cfg(target_os = "macos")]
-const PASTE_MODIFIER: Key = Key::Meta;
-#[cfg(not(target_os = "macos"))]
-const PASTE_MODIFIER: Key = Key::Control;
+#[cfg(target_os = "windows")]
+use chord::Chord;
 
 /// Wait before the chord, so the hotkey's own modifiers are released first —
 /// otherwise Ctrl+V lands as e.g. Ctrl+Alt+V.
@@ -54,16 +57,40 @@ pub async fn type_text(app: &AppHandle, text: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Press the platform paste chord. Returns whether the paste itself went out.
+/// Press the macOS paste chord. Returns whether the paste itself went out.
+#[cfg(target_os = "macos")]
 fn send_paste_chord() -> bool {
+    press(&[Key::Meta], Key::Unicode('v'))
+}
+
+/// Press `chord`. Returns whether the paste itself went out.
+#[cfg(target_os = "windows")]
+fn send_paste_chord(chord: Chord) -> bool {
+    match chord {
+        Chord::CtrlV => press(&[Key::Control], Key::Unicode('v')),
+        Chord::CtrlShiftV => press(&[Key::Control, Key::Shift], Key::Unicode('v')),
+        Chord::ShiftInsert => press(&[Key::Shift], Key::Insert),
+    }
+}
+
+/// Hold `modifiers`, click `key`, release the modifiers.
+fn press(modifiers: &[Key], key: Key) -> bool {
     let Ok(mut enigo) = Enigo::new(&Settings::default()) else {
         return false;
     };
-    let pressed = enigo.key(PASTE_MODIFIER, Direction::Press).is_ok();
-    let sent = pressed && enigo.key(Key::Unicode('v'), Direction::Click).is_ok();
-    // Always release, so a failed click never leaves the modifier stuck down.
-    if enigo.key(PASTE_MODIFIER, Direction::Release).is_err() {
-        log::warn!("paste modifier could not be released");
+    let mut held = Vec::with_capacity(modifiers.len());
+    for &modifier in modifiers {
+        if enigo.key(modifier, Direction::Press).is_err() {
+            break;
+        }
+        held.push(modifier);
+    }
+    let sent = held.len() == modifiers.len() && enigo.key(key, Direction::Click).is_ok();
+    // Always release, so a failed click never leaves a modifier stuck down.
+    for modifier in held.into_iter().rev() {
+        if enigo.key(modifier, Direction::Release).is_err() {
+            log::warn!("paste modifier could not be released");
+        }
     }
     sent
 }

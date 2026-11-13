@@ -7,6 +7,7 @@ export type TranscriptFilters = {
 export const queryKeys = {
   transcriptsRoot: ['transcripts'] as const,
   transcripts: (filters: TranscriptFilters) => ['transcripts', 'feed', filters] as const,
+  transcriptSearchRoot: ['transcripts', 'search'] as const,
   transcriptSearch: (query: string, filters: TranscriptFilters) =>
     ['transcripts', 'search', query, filters] as const,
   stats: ['stats'] as const,
@@ -18,6 +19,7 @@ export const queryKeys = {
   downloads: ['downloads'] as const,
   languageOptions: ['languageOptions'] as const,
   modelUnload: ['modelUnload'] as const,
+  pasteMode: ['pasteMode'] as const,
   inputDevices: ['inputDevices'] as const,
   recording: ['recording'] as const,
   hotkeys: ['hotkeys'] as const,
@@ -25,4 +27,7 @@ export const queryKeys = {
   pillSettings: ['pillSettings'] as const,
   formatConfig: ['formatConfig'] as const,
   cuda: ['cuda'] as const,
+  savedAudio: ['savedAudio'] as const,
+  jobs: ['jobs'] as const,
+  downloadedModels: ['downloadedModels'] as const,
 }

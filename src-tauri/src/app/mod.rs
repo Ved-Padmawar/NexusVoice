@@ -5,8 +5,10 @@ mod bindings;
 use tauri::Manager;
 
 use crate::data::Database;
+use crate::jobs::Jobs;
 use crate::models::{cache::EngineCache, cuda::CudaPack, library::ModelLibrary};
 use crate::platform::{hardware, hotkeys::Hotkeys, pill, remote, tray};
+use crate::recordings::Recordings;
 use crate::session::Recorder;
 use crate::settings::{Secrets, Settings};
 use crate::text::dictionary::Dictionary;
@@ -106,6 +108,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(specta_builder.invoke_handler())
         .setup(move |app| {
             specta_builder.mount_events(app);
@@ -151,6 +154,8 @@ fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .set_keep_mic_open(app.state::<Settings>().keep_mic_open());
     Recorder::follow_engine(app.handle());
     app.manage(Hotkeys::default());
+    app.manage(Recordings::open(app_data_dir.join("recordings")));
+    app.manage(Jobs::default());
 
     spawn_open_database(app.handle().clone(), app_data_dir.join("nexusvoice.db"));
     spawn_log_hardware();
@@ -201,6 +206,12 @@ fn spawn_open_database(app: tauri::AppHandle, db_path: std::path::PathBuf) {
         log::info!("database ready");
         if let Err(e) = app.state::<Dictionary>().load(&pool).await {
             log::error!("could not load the dictionary: {e}");
+        }
+        if let Err(e) = crate::recordings::reconcile(&app).await {
+            log::warn!("could not reconcile the saved audio: {e}");
+        }
+        if let Err(e) = crate::jobs::resume(&app).await {
+            log::warn!("could not resume the interrupted imports: {e}");
         }
     });
 }

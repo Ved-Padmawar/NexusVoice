@@ -17,8 +17,8 @@ mod supervisor;
 mod worker;
 
 pub use supervisor::{
-    gpu_unavailable, record_launched_exe, worker_exe, CancelMark, EngineError, Finalized, Ran,
-    StreamHandle, Supervisor, WorkerSpec,
+    gpu_unavailable, record_launched_exe, worker_exe, CancelMark, Canceller, EngineError,
+    Finalized, Ran, StreamHandle, Supervisor, WorkerSpec,
 };
 
 /// Hidden first argument that turns the executable into a worker.

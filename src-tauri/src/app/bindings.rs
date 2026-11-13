@@ -25,6 +25,8 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::save_export,
             commands::reveal_in_folder,
             commands::get_injection_status,
+            commands::get_paste_mode,
+            commands::set_paste_mode,
             commands::get_hotkeys,
             commands::get_bound_hotkeys,
             commands::set_hotkey,
@@ -38,6 +40,7 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::cancel_model_download,
             commands::set_model_override,
             commands::get_language_options,
+            commands::get_language_options_for,
             commands::set_language,
             commands::get_model_unload,
             commands::set_model_unload,
@@ -60,6 +63,16 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::prepare_restart,
             commands::cancel_restart,
             commands::relaunch_app,
+            commands::get_saved_audio,
+            commands::set_saved_audio,
+            commands::clear_saved_audio,
+            commands::set_transcript_pinned,
+            commands::restore_transcript,
+            commands::inspect_audio_file,
+            commands::get_jobs,
+            commands::cancel_job,
+            commands::retranscribe_transcript,
+            commands::import_audio_file,
         ])
         .events(tauri_specta::collect_events![
             events::RecordingStateChanged,
@@ -85,6 +98,9 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             events::CudaDownloadComplete,
             events::CudaDownloadCancelled,
             events::CudaDownloadError,
+            events::SavedAudioChanged,
+            events::JobUpdated,
+            events::JobFinished,
         ])
 }
 

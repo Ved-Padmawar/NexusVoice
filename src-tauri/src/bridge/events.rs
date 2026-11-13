@@ -49,6 +49,26 @@ pub struct TranscriptionWarning(pub String);
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct TranscriptSaved(pub TranscriptResponse);
 
+/// History entries gained or lost their saved audio.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct SavedAudioChanged(pub Vec<EntryAudio>);
+
+/// Where an entry's saved audio is now; `None` once it was deleted.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EntryAudio {
+    pub id: i64,
+    pub audio_path: Option<String>,
+}
+
+/// A transcription job was queued, started, moved on, paused or resumed.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct JobUpdated(pub crate::jobs::JobSnapshot);
+
+/// A transcription job ended, by finishing, being cancelled or failing.
+#[derive(Debug, Clone, Serialize, Type, Event)]
+pub struct JobFinished(pub crate::jobs::JobFinish);
+
 /// Capture levels for the pill waveform, one per band, 0–1.
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct PillWaveform(pub [f32; BANDS]);

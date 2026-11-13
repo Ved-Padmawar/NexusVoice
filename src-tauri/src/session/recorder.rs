@@ -12,6 +12,7 @@ use crate::audio::{chime::Chime, error::friendly_capture_error, MicStream, Wavef
 use crate::bridge::events::{
     RecordingStateChanged, TranscriptionComplete, TranscriptionError, TranscriptionWarning,
 };
+use crate::jobs::Jobs;
 use crate::models::cache::{EngineCache, EngineLease};
 use crate::models::decode::StreamingSession;
 use crate::platform::focus::FocusTarget;
@@ -401,6 +402,7 @@ impl Recorder {
             ));
         }
         self.claim_start(mode)?;
+        app.state::<Jobs>().yield_to_dictation();
         self.publish(app);
         self.prepare(app, focus);
 

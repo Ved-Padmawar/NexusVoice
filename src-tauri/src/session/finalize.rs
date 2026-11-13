@@ -19,6 +19,7 @@ use crate::models::decode::{contains_speech, FinalText, Streamed, StreamingSessi
 use crate::models::transcript::strip_leading_dashes;
 use crate::models::TranscriptionEngine;
 use crate::platform::focus::{foreground_app, FocusTarget};
+use crate::recordings::Recordings;
 use crate::settings::Settings;
 use crate::text::dictionary::Dictionary;
 use crate::text::remove_fillers;
@@ -52,6 +53,13 @@ pub async fn run(app: &AppHandle, recording: Recording) {
     } = recording;
 
     let language = lease.language().map(str::to_string);
+    let model = engine.entry.id.clone();
+    // Kept apart from the decode, which consumes the samples.
+    let audio = app
+        .state::<Settings>()
+        .saved_audio()
+        .enabled
+        .then(|| samples.clone());
     let decoded = decode(engine, session, streamed, samples, sample_rate, language).await;
     // A long dictation is use too: the idle clock starts when it ends.
     app.state::<EngineCache>().touch();
@@ -100,7 +108,8 @@ pub async fn run(app: &AppHandle, recording: Recording) {
 
     // Where the text lands is whatever has focus now, not where recording began.
     let landed = foreground_app().or(focus);
-    let saved = save(app, pool.ok(), &text, duration_seconds, landed).await;
+    let saved_id = save(app, pool.ok(), &text, duration_seconds, landed, model).await;
+    let saved = saved_id.is_some();
     let paste_error = crate::platform::injection::type_text(app, &text)
         .await
         .err();
@@ -108,6 +117,9 @@ pub async fn run(app: &AppHandle, recording: Recording) {
         log::warn!("paste failed: {e}");
     }
     let _ = TranscriptionComplete { paste_error, saved }.emit(app);
+    if let (Some(id), Some(samples)) = (saved_id, audio) {
+        crate::recordings::keep_native(app, id, samples, sample_rate);
+    }
 }
 
 const ENGINE_FAILED: &str = "Transcription failed unexpectedly. Please try again.";
@@ -202,14 +214,16 @@ async fn format(app: &AppHandle, text: String, focus: Option<&FocusTarget>) -> S
     }
 }
 
-/// A failed save is reported but does not stop the paste.
+/// A failed save is reported but does not stop the paste. Returns the new
+/// entry's id.
 async fn save(
     app: &AppHandle,
     pool: Option<sqlx::SqlitePool>,
     text: &str,
     duration_seconds: Option<f64>,
     landed: Option<FocusTarget>,
-) -> bool {
+    model: String,
+) -> Option<i64> {
     #[allow(clippy::cast_possible_wrap)] // word count never exceeds i64::MAX
     let word_count = text.split_whitespace().count() as i64;
     let saved = match pool {
@@ -219,6 +233,10 @@ async fn save(
                 word_count,
                 duration_seconds,
                 target_app: landed.map(|f| f.name),
+                source_name: None,
+                model: Some(model),
+                pending: false,
+                language: None,
             })
             .await
             .map_err(|e| e.to_string()),
@@ -226,8 +244,10 @@ async fn save(
     };
     match saved {
         Ok(saved) => {
-            let _ = TranscriptSaved(TranscriptResponse::from(saved)).emit(app);
-            true
+            let id = saved.id;
+            let _ = TranscriptSaved(TranscriptResponse::new(saved, &app.state::<Recordings>()))
+                .emit(app);
+            Some(id)
         }
         Err(e) => {
             log::error!("could not save the transcript: {e}");
@@ -235,7 +255,7 @@ async fn save(
                 "This dictation couldn't be saved to your history.".to_string(),
             )
             .emit(app);
-            false
+            None
         }
     }
 }

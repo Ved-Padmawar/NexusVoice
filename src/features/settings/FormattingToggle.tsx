@@ -14,6 +14,7 @@ import type { VendorId } from '../../shared/vendors'
 import { toast } from 'sonner'
 import { readFresh } from '../../app/queryClient'
 import { useLiveChoice } from '../../app/useLiveChoice'
+import { SettingRow } from './SettingRow'
 import { formatConfigOptions, useFormatConfig } from './queries'
 import { isConfigured, keepingKeys } from './formatConfig'
 import type { FormatterUpdate, FormatterView, ProfileView } from '../../shared/types'
@@ -80,7 +81,6 @@ export function FormattingToggle() {
   const configured = isConfigured(config.provider, active)
   // On while a first endpoint is being set up; closing unsaved puts it back.
   const enabled = pending ? pending.value : config.enabled || (modalOpen && !configured)
-  const dim = enabled ? '' : 'opacity-50'
 
   const toggle = (next: boolean) => {
     if (next && !configured) openModal()
@@ -95,49 +95,44 @@ export function FormattingToggle() {
   const preset = PRESETS.find((p) => p.id === config.provider)
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl bg-panel p-4 ring-1 ring-line-soft ring-inset">
-      <div className="flex items-center gap-3">
-        <span className="grid size-8 place-items-center rounded-[10px] bg-accent-soft text-base text-accent-ink">
-          <SparkleIcon size={16} weight="duotone" />
-        </span>
-        <p className="flex-1 text-sm font-semibold text-fg">Smart formatting</p>
-        <Switch checked={enabled} disabled={!loaded} onChange={toggle} aria-label="Smart formatting" />
-      </div>
-      <p className="text-xs text-pretty text-muted">
-        Sends each transcript to your LLM to fix punctuation and turn spoken lists into real ones. If it fails, you get the raw transcript.
-      </p>
-
-      {/* The formatter in use, at the same height as the live-transcript
-          preview beside it, so the two cards line up. */}
-      <div className={`mt-auto flex h-20 items-center gap-3 rounded-lg bg-field px-4 ring-1 ring-line-soft ring-inset`}>
-        <span className={`grid size-11 shrink-0 place-items-center rounded-xl bg-panel shadow-(--shadow-sm) ring-1 ring-line-soft ring-inset transition-opacity ${dim}`}>
-          {configured
-            ? <VendorMark vendor={config.provider as VendorId} className="size-5.5" />
-            : <PlugIcon size={20} className="text-muted" />}
-        </span>
-        <span className="min-w-0 flex-1">
-          {configured ? (
-            <>
-              <span className="block text-sm font-semibold text-fg">{preset?.label ?? config.provider}</span>
-              <span className="block truncate text-xs text-muted">
+    <SettingRow
+      tone="accent"
+      icon={<SparkleIcon size={16} weight="duotone" />}
+      title="Smart formatting"
+      tip="Each transcript goes to the endpoint below. If it fails or times out, the raw transcript is pasted. Pick a small instruct model, not a reasoning one."
+      description={<p className="text-xs text-pretty text-muted">Your LLM fixes punctuation and spoken lists.</p>}
+      below={
+        <div className={`flex h-11 items-center gap-2.5 rounded-lg bg-[light-dark(var(--surface),var(--field))] pr-1.5 pl-2 ring-1 ring-line-soft ring-inset transition-opacity ${enabled ? '' : 'opacity-60'}`}>
+          <span className="grid size-7 shrink-0 place-items-center rounded-md bg-panel ring-1 ring-line-soft ring-inset">
+            {configured
+              ? <VendorMark vendor={config.provider as VendorId} className="size-4" />
+              : <PlugIcon size={14} className="text-muted" />}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-xs text-muted">
+            {configured ? (
+              <>
+                <span className="font-semibold text-fg">{preset?.label ?? config.provider}</span>
+                {' · '}
                 <span className="font-mono text-fg-2">{active.model}</span>
                 {active.baseUrl && ` at ${hostOf(active.baseUrl)}`}
-              </span>
-            </>
-          ) : (
-            <span className="block text-sm font-semibold text-fg">No endpoint configured</span>
-          )}
-        </span>
-        <Button variant="chip" disabled={!loaded} onClick={openModal} className="hover:text-accent-ink hover:ring-accent-line">
-          <SlidersHorizontalIcon size={12} weight="bold" />
-          Configure
-        </Button>
-      </div>
+              </>
+            ) : (
+              <span className="font-semibold text-fg">No endpoint configured</span>
+            )}
+          </span>
+          <Button variant="chip" size="sm" disabled={!loaded} onClick={openModal} className="hover:text-accent-ink hover:ring-accent-line">
+            <SlidersHorizontalIcon size={12} weight="bold" />
+            Configure
+          </Button>
+        </div>
+      }
+    >
+      <Switch checked={enabled} disabled={!loaded} onChange={toggle} aria-label="Smart formatting" />
 
       <Modal open={modalOpen} aria-labelledby="format-title" className="w-135" onClose={() => setModalOpen(false)}>
         <ProviderForm key={formKey} initial={config} onClose={() => setModalOpen(false)} onSaved={saved} />
       </Modal>
-    </div>
+    </SettingRow>
   )
 }
 

@@ -18,7 +18,7 @@ import type { DownloadedModel, HardwareProfile } from '../../shared/types'
 import {
   NO_MODELS, cancelDownload, startDownload, switchModel, useActiveModel, useCatalog, useDownload, usePendingDownloads,
 } from '../models/queries'
-import { ModelUnloadSection } from './ModelUnloadSection'
+import { LanguageSection } from './LanguageSection'
 import { useKeptByRecording } from './queries'
 
 const VENDOR_NAME: Record<string, string> = {
@@ -291,13 +291,13 @@ export function VoiceTab() {
       <div className="flex flex-wrap items-center gap-3">
         <Segmented value={filter} options={filterOptions} onChange={setFilter} aria-label="Filter models" />
         <div className="ml-auto flex items-center gap-3">
+          <LanguageSection />
           <Button variant="chip" onClick={() => setManagerOpen(true)} className="group">
             <HardDrivesIcon size={14} weight="bold" className="text-accent-ink" />
             Manage downloads
             <span className="font-normal text-muted tabular-nums">{formatModelSize(diskBytes)}</span>
             <CaretRightIcon size={10} weight="bold" className="text-muted transition-transform group-hover:translate-x-0.5" />
           </Button>
-          <ModelUnloadSection />
         </div>
       </div>
 

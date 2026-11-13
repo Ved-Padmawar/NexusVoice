@@ -26,6 +26,10 @@ const respond = (hotkeys = { pushToTalk: null as string | null, dictation: null,
     get_language_options: { supported: false, options: [] },
     get_format_config: { enabled: false, provider: 'ollama', profiles: {} },
     get_recording_state: { revision: 0, status: 'idle', deferred: [] },
+    get_model_unload: 'never',
+    get_paste_mode: 'auto',
+    get_saved_audio: { enabled: true, keep: 10, bytes: 0 },
+    get_jobs: [],
   } as Record<string, unknown>)[cmd]))
 
 // The Recording (push-to-talk) row's recorder — uniquely identified by its aria-label.

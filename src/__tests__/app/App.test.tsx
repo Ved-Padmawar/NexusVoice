@@ -18,6 +18,12 @@ vi.mock("@tauri-apps/api/window", () => ({
   })),
 }));
 
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({
+    onDragDropEvent: () => Promise.resolve(() => {}),
+  }),
+}));
+
 vi.mock("@tauri-apps/plugin-updater", () => ({
   check: vi.fn(() => Promise.resolve(null)),
 }));

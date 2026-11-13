@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.20.9-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.21.0-violet?style=flat-square)
 
 </div>
 
@@ -48,12 +48,15 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **First-run model picker** — choose your model on first launch with a hardware-aware recommendation, then download on demand
 - **Personal dictionary** — map spoken words to their correct form (e.g. "gonna" → "going to"), including names speech-to-text splits into several words ("next js" → "Next.js")
 - **Filler words removed** — "uh", "umm" and "hmm" are dropped from every transcript, plus "um", "er" and "ah" in English, with or without smart formatting
+- **Paste shortcut that fits the app (Windows)** — pastes with Ctrl+Shift+V in terminals and Ctrl+V everywhere else; or choose Ctrl+V, Ctrl+Shift+V, Shift+Insert or copy only (Settings → General)
 - **Your clipboard kept (Windows)** — whatever you had copied is put back after the paste, and the transcript stays out of clipboard history
-- **Unload when idle (optional)** — free the model's memory after 2, 5, 10, 15 or 60 minutes without dictation (Settings → Voice); the next dictation reloads it
+- **Unload when idle (optional)** — free the model's memory after 2, 5, 10, 15 or 60 minutes without dictation (Settings → General); the next dictation reloads it
 - **Smart formatting (optional)** — clean up punctuation and turn spoken lists into real lists using any OpenAI-compatible LLM. Off by default; works fully local with Ollama or LM Studio, or with a cloud provider (OpenAI, OpenRouter) if you prefer
 - **8 themes** — Steel, Midnight, Mocha, Crimson (dark) + Canvas, Dawn, Breeze, Blossom (light)
 - **Compact pill overlay** — draggable recording indicator that stays on top while you work
 - **Dashboard** — transcription history, word count, session stats
+- **Transcribe audio files** — import a WAV, MP3, M4A, FLAC or OGG file (up to an hour): it lands in History at once and transcribes in the background, with progress and Cancel in the jobs panel above History. Files and re-transcriptions queue, and a dictation always goes first
+- **Saved dictation audio** — your last few entries keep their audio, stored locally, so you can replay one or transcribe it again with another model (and undo). Choose how many, or switch it off, in Settings; pinned entries keep theirs
 - **System tray** — runs silently in the background
 
 ---
@@ -74,8 +77,9 @@ Hotkey released  →  a brief post-roll captures trailing speech, then only the
                  →  filler words removed
                  →  (optional) transcript reformatted by your chosen LLM
                  →  dictionary corrections applied
-                 →  text written to clipboard + Ctrl+V pasted; on Windows the
-                    previous clipboard returns once the app has read it
+                 →  text written to clipboard + pasted with the shortcut that
+                    fits the app; on Windows the previous clipboard returns
+                    once the app has read it
 ```
 
 Transcription runs while you speak rather than waiting until you finish, so releasing the hotkey only leaves the last few seconds to process — the longer you talk, the bigger the saving. Each pass re-reads the recent audio in full sentence context, and a word is only committed once two consecutive passes agree on it, so accuracy matches decoding everything at the end. Committed text is never revised, so what you see never rewrites itself.
@@ -139,7 +143,7 @@ Use a small **instruct** model (e.g. `qwen2.5-3b-instruct`) — not a reasoning/
 | Frontend | React 19 + TypeScript |
 | Styling | Tailwind CSS v4 + shadcn/ui |
 | State | Zustand |
-| Icons | lucide-react |
+| Icons | Phosphor Icons |
 
 ---
 
@@ -253,7 +257,7 @@ bun run tauri dev
 
 ## Privacy
 
-All **audio processing and transcription happen locally** on your device — audio is never transmitted anywhere. The only network request in the default setup is the one-time model download from HuggingFace.
+All **audio processing and transcription happen locally** on your device — audio is never transmitted anywhere. Saved dictation audio stays on your disk, and you can delete it or switch it off in Settings. The only network request in the default setup is the one-time model download from HuggingFace.
 
 **Smart Formatting** is the one optional exception, and it's **off by default**. When enabled, your transcript text (never the audio) is sent to whichever LLM endpoint you configure. Point it at a local server (Ollama or LM Studio) to keep everything on-device, or at a cloud provider (OpenAI, OpenRouter) if you choose — in which case the transcript text is sent to that provider. The choice, and whether to enable it at all, is entirely yours.
 

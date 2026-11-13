@@ -155,29 +155,62 @@ impl Shared {
     fn cancelled_since(&self, epoch: u64) -> bool {
         self.epoch() != epoch
     }
+
+    fn cancel(&self) {
+        self.cancel_epoch.fetch_add(1, Ordering::SeqCst);
+        // Taking the call tells the owner its worker was killed.
+        if let Some(control) = lock_recovering(&self.in_flight).take() {
+            info!(
+                "cancelling by stopping the transcription worker (pid {})",
+                control.pid
+            );
+            control.kill_for_cancel();
+        }
+    }
+}
+
+/// Cancels one supervisor's work, its model load included. Made before the
+/// supervisor, so a cancel can reach the load too.
+#[derive(Clone, Default)]
+pub struct Canceller(Arc<Shared>);
+
+impl Canceller {
+    pub fn mark(&self) -> CancelMark {
+        CancelMark(self.0.epoch())
+    }
+
+    /// See [`Supervisor::cancel`].
+    pub fn cancel(&self) {
+        self.0.cancel();
+    }
 }
 
 /// A point to cancel from: work given it counts as cancelled by any
 /// [`Supervisor::cancel`] after it was taken, even work that starts later.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CancelMark(u64);
 
 /// Owns one transcribe.cpp worker for one model.
 pub struct Supervisor {
     owner: Mutex<Owner>,
-    shared: Shared,
+    shared: Arc<Shared>,
 }
 
 impl Supervisor {
-    /// Start a worker and load the model in it.
-    pub fn start(spec: WorkerSpec) -> Result<(Self, LoadedInfo), EngineError> {
-        let shared = Shared::default();
+    /// Start a worker and load the model in it. A cancel through `canceller`
+    /// after `mark` stops the load.
+    pub fn start(
+        spec: WorkerSpec,
+        canceller: Canceller,
+        mark: CancelMark,
+    ) -> Result<(Self, LoadedInfo), EngineError> {
+        let Canceller(shared) = canceller;
         let mut owner = Owner {
             spec,
             worker: None,
             gpu_backend_error: false,
         };
-        let info = owner.start(&shared, shared.epoch())?;
+        let info = owner.start(&shared, mark.0)?;
         let supervisor = Self {
             owner: Mutex::new(owner),
             shared,
@@ -240,15 +273,7 @@ impl Supervisor {
     /// Stop the work in flight and any waiting its turn, by killing the busy
     /// worker. The next call starts a fresh one.
     pub fn cancel(&self) {
-        self.shared.cancel_epoch.fetch_add(1, Ordering::SeqCst);
-        // Taking the call tells the owner its worker was killed.
-        if let Some(control) = lock_recovering(&self.shared.in_flight).take() {
-            info!(
-                "cancelling by stopping the transcription worker (pid {})",
-                control.pid
-            );
-            control.kill_for_cancel();
-        }
+        self.shared.cancel();
     }
 }
 

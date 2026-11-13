@@ -1,12 +1,12 @@
-import { memo, useState, useRef, useEffect, useCallback, useMemo, type CSSProperties, type RefObject } from 'react'
+import { Fragment, memo, useState, useRef, useEffect, useCallback, useMemo, type CSSProperties, type RefObject } from 'react'
 import { useNavigate } from 'react-router'
 import {
   ArrowCounterClockwiseIcon, BracketsCurlyIcon, CalendarBlankIcon, CaretLeftIcon, CaretRightIcon, CheckIcon,
-  CopyIcon, ExportIcon, FileTextIcon, FunnelSimpleIcon, KeyboardIcon, MagnifyingGlassIcon, MicrophoneIcon,
-  TrashIcon, WarningCircleIcon, XIcon,
+  ArrowsClockwiseIcon, CopyIcon, ExportIcon, FileAudioIcon, FileTextIcon, FunnelSimpleIcon, KeyboardIcon, MagnifyingGlassIcon, MicrophoneIcon,
+  PushPinIcon, TrashIcon, WarningCircleIcon, WaveformIcon, XIcon,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { commands } from '../../shared/bindings'
+import { commands, type JobSnapshot } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { useHotkeys } from '../settings/queries'
 import {
@@ -27,6 +27,10 @@ import { MenuItem, Popover } from '@/shared/ui/Popover'
 import { Segmented } from '@/shared/ui/Segmented'
 import { TextInput } from '@/shared/ui/TextInput'
 import { SectionState } from '../../shared/ui/SectionState'
+import { AudioPlayer } from './AudioPlayer'
+import { ImportControls } from './ImportFlow'
+import { cancelJob, useHasJob, useJobs, useSavedAudio } from './jobs'
+import { ACTION_BUTTON, PinButton, RetranscribeButton } from './RowActions'
 import type { Transcript } from '../../shared/types'
 
 const TYPING_WPM = 40
@@ -134,7 +138,7 @@ function CopyButton({ text }: { text: string }) {
       type="button"
       aria-label="Copy"
       onClick={handleCopy}
-      className="copy-btn grid size-8 cursor-pointer place-items-center rounded-lg text-muted hover:bg-surface-hover hover:text-fg"
+      className={cn('copy-btn', ACTION_BUTTON)}
     >
       <CopyIcon size={15} className="c-idle" />
       <CheckIcon size={15} weight="bold" className="c-done" />
@@ -453,32 +457,123 @@ function groupByDay(items: Transcript[]) {
   return groups
 }
 
+/** The last entry whose audio the limit still keeps, when older ones lost theirs. */
+function audioBoundary(rows: Transcript[], keep: number, more: boolean): number | null {
+  const kept = rows.filter(row => row.audioPath && !row.pinned)
+  if (keep === 0 || kept.length !== keep) return null
+  const last = kept[keep - 1]
+  const older = rows.slice(rows.indexOf(last) + 1)
+  return more || older.some(row => !row.audioPath) ? last.id : null
+}
+
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
+
+/** Where the saved-audio limit falls in the feed. */
+function AudioBoundary({ keep, onChange }: { keep: number; onChange: () => void }) {
+  return (
+    <li className="flex items-center gap-3 py-2 pl-26 text-xs text-muted">
+      <span className="h-px w-6 bg-line-soft" />
+      <WaveformIcon size={13} />
+      <span>Audio is kept for your last {keep === 1 ? 'entry' : `${keep} entries`} and anything pinned. Older ones keep their text.</span>
+      <button type="button" onClick={onChange} className="cursor-pointer font-semibold text-accent-ink hover:underline">Change</button>
+      <span className="h-px flex-1 bg-line-soft" />
+    </li>
+  )
+}
+
+const ROW = "group relative grid grid-cols-[84px_minmax(0,1fr)_124px] gap-x-5 py-4 not-first:before:absolute not-first:before:top-0 not-first:before:right-0 not-first:before:left-26 not-first:before:h-px not-first:before:bg-line-soft not-first:before:content-['']"
+
+const jobStatus = (job: JobSnapshot) => {
+  if (job.queued) return `Waiting · ${job.model}`
+  if (job.paused) return 'Paused · dictation goes first'
+  return `${job.model} · ${Math.floor(job.progress * 100)}%`
+}
+
+/** Every queued and running transcription, above the feed so no search,
+ *  filter or feed error can hide its Cancel. */
+function JobsPanel() {
+  const jobs = useJobs()
+  if (jobs.length === 0) return null
+  return (
+    <ul className="mt-1 mb-2 rounded-xl bg-surface ring-1 ring-line-soft ring-inset">
+      {jobs.map(job => (
+        <li key={job.transcriptId} className="flex items-center gap-3 px-3.5 py-2.5 text-xs text-muted tabular-nums not-first:border-t not-first:border-line-soft">
+          {job.kind === 'import'
+            ? <FileAudioIcon size={14} weight="duotone" className="shrink-0 text-fg-2" />
+            : <ArrowsClockwiseIcon size={14} className="shrink-0 text-fg-2" />}
+          <span className="min-w-0 flex-1 truncate font-semibold text-fg-2">{job.label}</span>
+          <span className="relative h-1 w-28 shrink-0 overflow-hidden rounded-full bg-line-soft">
+            <span className="absolute inset-y-0 left-0 rounded-full bg-accent" style={{ width: `${job.progress * 100}%` }} />
+          </span>
+          <span className="w-44 shrink-0 truncate">{jobStatus(job)}</span>
+          <button type="button" onClick={() => void cancelJob(job.transcriptId)} className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 font-semibold text-fg-2 hover:bg-surface-hover hover:text-fg">
+            <XIcon size={11} weight="bold" />Cancel
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 const TranscriptRow = memo(function TranscriptRow({ item, onDelete }: { item: Transcript; onDelete: (id: number) => void }) {
   const { clock, meridiem } = splitClock(parseSqliteDate(item.createdAt))
+  // A pending import is busy before its job's first event arrives too.
+  const busy = useHasJob(item.id) || item.pending
+  const parts = [
+    item.sourceName
+      ? (
+        <span key="source" className="inline-flex items-center gap-1 font-semibold text-fg-2">
+          <FileAudioIcon size={12} weight="bold" /><span className="max-w-56 truncate">{item.sourceName}</span>
+        </span>
+      )
+      : <span key="source" className="font-semibold text-fg-2">{item.targetApp ?? 'Clipboard'}</span>,
+    !item.pending && <span key="words">{plural(item.wordCount, 'word')}</span>,
+    !item.audioPath && item.durationSeconds != null && <span key="seconds">{fmtTime(Math.round(item.durationSeconds))}</span>,
+    item.pinned && (
+      <span key="pinned" className="inline-flex items-center gap-1 font-semibold text-accent-ink">
+        <PushPinIcon size={11} weight="fill" />Pinned
+      </span>
+    ),
+  ].filter(Boolean)
   return (
-    <li
-      className="group relative grid grid-cols-[84px_minmax(0,1fr)_72px] gap-x-5 py-4 not-first:before:absolute not-first:before:top-0 not-first:before:right-0 not-first:before:left-26 not-first:before:h-px not-first:before:bg-line-soft not-first:before:content-['']"
-    >
+    <li className={ROW}>
       <p className="text-xl leading-tight font-bold tracking-tight text-fg tabular-nums">
         {clock}{meridiem && <small className="ml-0.5 text-xs font-semibold tracking-normal text-muted">{meridiem}</small>}
       </p>
       <div className="min-w-0">
-        <p className="text-[14.5px] leading-relaxed text-fg-2 text-pretty">{item.content}</p>
-        <p className="mt-1 text-xs text-muted tabular-nums">
-          <span className="font-semibold text-fg-2">{item.targetApp ?? 'Clipboard'}</span>
-          {' · '}{plural(item.wordCount, 'word')}
-          {item.durationSeconds != null && ` · ${fmtTime(Math.round(item.durationSeconds))}`}
-        </p>
+        {item.pending ? (
+          // No text yet to take the shape of: three lines, as a guess.
+          <div aria-hidden="true" className="flex h-[4.875em] flex-col justify-center gap-2.5 text-[14.5px]">
+            <div className="h-3.5 w-full animate-pulse rounded bg-surface" />
+            <div className="h-3.5 w-full animate-pulse rounded bg-surface" />
+            <div className="h-3.5 w-2/3 animate-pulse rounded bg-surface" />
+          </div>
+        ) : (
+          <p className="text-[14.5px] leading-relaxed text-pretty text-fg-2">
+            <span aria-busy={busy} className={cn('text-skeleton', busy && 'animate-pulse')}>{item.content}</span>
+          </p>
+        )}
+        <div className="mt-1.5 flex min-h-6 items-center gap-2.5 text-xs text-muted tabular-nums">
+          <span className="flex min-w-0 items-center gap-1.5">
+            {parts.map((part, i) => <Fragment key={i}>{i > 0 && <span className="text-line">·</span>}{part}</Fragment>)}
+          </span>
+          {item.audioPath && (
+            <>
+              <span className="h-3.5 w-px bg-line-soft" />
+              <AudioPlayer id={item.id} path={item.audioPath} seconds={item.durationSeconds} />
+            </>
+          )}
+        </div>
       </div>
-      <div className="-mt-1.5 -mr-2 flex justify-self-end gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-        <CopyButton text={item.content} />
+      <div className="-mt-1 -mr-2 flex justify-self-end gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 has-aria-expanded:opacity-100">
+        {!busy && <CopyButton text={item.content} />}
+        {!busy && item.audioPath && <RetranscribeButton id={item.id} usedModel={item.model} />}
+        {item.audioPath && <PinButton id={item.id} pinned={item.pinned} />}
         <button
           type="button"
           aria-label="Delete"
           onClick={() => onDelete(item.id)}
-          className="grid size-8 cursor-pointer place-items-center rounded-lg text-muted hover:bg-danger-soft hover:text-danger"
+          className={cn(ACTION_BUTTON, 'hover:bg-danger-soft hover:text-danger')}
         >
           <TrashIcon size={15} />
         </button>
@@ -606,16 +701,21 @@ export function Dashboard() {
     ? () => { void stats.refetch(); void active.refetch() }
     : active.refetch
 
-  const groups = useMemo(() => {
-    const rows = active.data?.pages.flatMap(page => page.rows) ?? []
-    const seen = new Set<number>()
-    return groupByDay(rows.filter(row => !seen.has(row.id) && seen.add(row.id)))
-  }, [active.data])
 
   // A ref callback, not an effect: the sentinel mounts only after the feed's
   // skeleton is replaced, which changes no effect dependency — an effect would
   // read a null ref and never re-run.
   const { fetchNextPage, hasNextPage, isFetching } = active
+  const saved = useSavedAudio().data
+  const keep = saved?.enabled ? saved.keep : 0
+  // Only an unfiltered feed shows where the audio limit falls.
+  const wholeFeed = !isSearchMode && !isFiltered(filters)
+  const { groups, boundaryId } = useMemo(() => {
+    const rows = active.data?.pages.flatMap(page => page.rows) ?? []
+    const seen = new Set<number>()
+    const unique = rows.filter(row => !seen.has(row.id) && seen.add(row.id))
+    return { groups: groupByDay(unique), boundaryId: wholeFeed ? audioBoundary(unique, keep, hasNextPage) : null }
+  }, [active.data, keep, wholeFeed, hasNextPage])
   const canFetchNext = hasNextPage && !isFetching
   const sentinelRef = useCallback((node: HTMLDivElement | null) => {
     observerRef.current?.disconnect()
@@ -713,10 +813,12 @@ export function Dashboard() {
           <div className="ml-auto flex items-center gap-1.5">
             <SearchBox onSearch={setSearchTerm} typedRef={typedRef} />
             <FilterDropdown filters={filters} onChange={setFilters} />
+            <ImportControls />
             <ExportButton typedRef={typedRef} filters={filters} />
           </div>
         </div>
 
+        <JobsPanel />
         <SectionState
           status={active.status}
           error={active.error?.message}
@@ -736,7 +838,12 @@ export function Dashboard() {
                   </h3>
                   <ol>
                     {group.items.map(item => (
-                      <TranscriptRow key={item.id} item={item} onDelete={deleteTranscript} />
+                      <Fragment key={item.id}>
+                        <TranscriptRow item={item} onDelete={deleteTranscript} />
+                        {item.id === boundaryId && (
+                          <AudioBoundary keep={keep} onChange={() => navigate(ROUTES.SETTINGS, { state: { tab: 'general' } })} />
+                        )}
+                      </Fragment>
                     ))}
                   </ol>
                 </section>

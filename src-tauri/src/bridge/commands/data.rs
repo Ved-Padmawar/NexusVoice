@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::data::repositories::transcript::{Cursor, TranscriptRepository};
 use crate::data::Database;
+use crate::recordings::Recordings;
 use crate::text::dictionary::{Dictionary, DictionaryError};
 
 use super::dto::{DictionaryResponse, TranscriptResponse};
@@ -189,6 +190,7 @@ fn sqlite_datetime(at: DateTime<Utc>) -> String {
 #[specta::specta]
 pub async fn get_transcripts(
     db: State<'_, Database>,
+    recordings: State<'_, Recordings>,
     page: PageQuery,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
     let range = page.created_at_range()?;
@@ -202,13 +204,17 @@ pub async fn get_transcripts(
             page.sort_desc(),
         )
         .await?;
-    Ok(items.into_iter().map(TranscriptResponse::from).collect())
+    Ok(items
+        .into_iter()
+        .map(|t| TranscriptResponse::new(t, &recordings))
+        .collect())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn search_transcripts(
     db: State<'_, Database>,
+    recordings: State<'_, Recordings>,
     query: String,
     page: PageQuery,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
@@ -237,15 +243,29 @@ pub async fn search_transcripts(
             page.sort_desc(),
         )
         .await?;
-    Ok(items.into_iter().map(TranscriptResponse::from).collect())
+    Ok(items
+        .into_iter()
+        .map(|t| TranscriptResponse::new(t, &recordings))
+        .collect())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn delete_transcript(db: State<'_, Database>, id: i64) -> Result<(), ApiError> {
+pub async fn delete_transcript(
+    app: AppHandle,
+    db: State<'_, Database>,
+    id: i64,
+) -> Result<(), ApiError> {
+    crate::jobs::cancel(&app, id).await;
+    // The entry goes first: a save still writing its audio then finds it
+    // gone and deletes its own file. A file that won't delete is swept up by
+    // the next launch's reconcile.
     TranscriptRepository::new(db.pool().await?)
         .delete_by_id(id)
         .await?;
+    if let Err(e) = crate::recordings::delete(&app, id) {
+        log::warn!("{e}");
+    }
     Ok(())
 }
 

@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { queryClient } from '../../app/queryClient'
 import { queryKeys } from '../../shared/queryKeys'
-import { addTranscript, fetchAllTranscripts, NO_FILTERS, PAGE_SIZE, useDeleteTranscript, useTranscripts, useTranscriptSearch, type TranscriptPage, type TranscriptPages } from '../../features/history/queries'
+import { addTranscript, fetchAllTranscripts, NO_FILTERS, PAGE_SIZE, patchRows, showRewritten, useDeleteTranscript, useTranscripts, useTranscriptSearch, type TranscriptPage, type TranscriptPages } from '../../features/history/queries'
 import { refreshDictionaryUses, useDeleteDictionaryEntry, useDictionary, useUpdateDictionary } from '../../features/dictionary/queries'
 import type { DictionaryResponse } from '../../shared/bindings'
 import type { Transcript } from '../../shared/types'
@@ -16,7 +16,7 @@ vi.mock('sonner', () => ({ toast: Object.assign((_: string, options: ToastOption
 /** The undo window ran out: the real delete goes ahead. */
 const closeUndoToast = () => act(async () => { toasts.at(-1)?.onAutoClose?.() })
 const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-const row = (id: number): Transcript => ({ id, content: `Transcript ${id}`, createdAt: `2026-09-02T12:00:${String(id % 60).padStart(2, '0')}Z`, wordCount: 2, durationSeconds: 1, targetApp: null })
+const row = (id: number): Transcript => ({ id, content: `Transcript ${id}`, createdAt: `2026-09-02T12:00:${String(id % 60).padStart(2, '0')}Z`, wordCount: 2, durationSeconds: 1, targetApp: null, pinned: false, audioPath: null, sourceName: null, model: null, pending: false, revision: 0 })
 const page = (rows: Transcript[]): TranscriptPage => {
   const last = rows.at(-1)
   return { rows, next: last && rows.length >= PAGE_SIZE ? { cursorCreatedAt: last.createdAt, cursorId: last.id } : undefined }
@@ -109,6 +109,16 @@ describe('local Query cache', () => {
     expect(invoke).not.toHaveBeenCalled()
   })
 
+  it('patches a rewritten entry into the feed and reruns searches, whose matches its text decides', async () => {
+    const searchKey = queryKeys.transcriptSearch('hello', NO_FILTERS)
+    queryClient.setQueryData(feedKey, pages([row(1)]))
+    queryClient.setQueryData(searchKey, pages([row(1)]))
+    await showRewritten({ ...row(1), content: 'Rewritten' })
+    expect(queryClient.getQueryData<TranscriptPages>(feedKey)?.pages[0].rows[0].content).toBe('Rewritten')
+    expect(queryClient.getQueryState(feedKey)?.isInvalidated).toBe(false)
+    expect(queryClient.getQueryState(searchKey)?.isInvalidated).toBe(true)
+  })
+
   it('removes a deleted transcript from every loaded page without refetching them', async () => {
     const searchKey = queryKeys.transcriptSearch('hello', NO_FILTERS)
     queryClient.setQueryData(feedKey, { pages: [page([row(3), row(2)]), page([row(1)])], pageParams: [{ cursorCreatedAt: null, cursorId: null }, { cursorCreatedAt: row(2).createdAt, cursorId: 2 }] })
@@ -156,7 +166,7 @@ describe('local Query cache', () => {
     expect(vi.mocked(invoke).mock.calls.some(([cmd]) => cmd === 'delete_transcript')).toBe(true)
   })
 
-  it('keeps a pending delete hidden when a refetch or export returns it, and gone once it commits', async () => {
+  it('keeps a pending delete hidden when a refetch or export returns it, and gone once it commits; export skips an untranscribed import', async () => {
     queryClient.setQueryData(feedKey, pages([row(3), row(2), row(1)]))
     // The database still holds both rows until their undo windows close.
     vi.mocked(invoke).mockImplementation((cmd) => Promise.resolve(cmd === 'delete_transcript' ? undefined : [row(3), row(2), row(1)]))
@@ -167,7 +177,7 @@ describe('local Query cache', () => {
     await act(async () => { await result.current.feed.refetch() })
     expect(ids(result.current.feed.data)).toEqual([3, 1])
     let finishRead = () => {}
-    vi.mocked(invoke).mockImplementation(() => new Promise(resolve => { finishRead = () => resolve([row(3), row(2), row(1)]) }))
+    vi.mocked(invoke).mockImplementation(() => new Promise(resolve => { finishRead = () => resolve([{ ...row(4), pending: true }, row(3), row(2), row(1)]) }))
     const exported = fetchAllTranscripts('', NO_FILTERS)
     // Row 2's undo window closes while the export is still reading it.
     vi.mocked(invoke).mockImplementation((cmd) => Promise.resolve(cmd === 'delete_transcript' ? undefined : [row(3), row(1)]))
@@ -197,7 +207,7 @@ describe('local Query cache', () => {
     expect(result.current.feed.hasNextPage).toBe(true)
   })
 
-  it('keeps a deleted transcript out when a fetch already in flight returns it', async () => {
+  it('keeps a deleted transcript out, and a changed one changed, when a fetch already in flight returns the old rows', async () => {
     queryClient.setQueryData(feedKey, pages([row(2), row(1)]))
     let finishStale!: (rows: Transcript[]) => void
     vi.mocked(invoke)
@@ -210,6 +220,22 @@ describe('local Query cache', () => {
     await act(async () => { finishStale([row(2), row(1)]) })
     await waitFor(() => expect(ids(queryClient.getQueryData<TranscriptPages>(feedKey))).toEqual([2]))
     await waitFor(() => expect(queryClient.getQueryState(feedKey)?.fetchStatus).toBe('idle'))
+
+    // Changes in place too, like audio deleted under a read that still has it:
+    // all in one write, which restarts that read once.
+    const withAudio = (id: number) => ({ ...row(id), audioPath: `/${id}.wav` })
+    queryClient.setQueryData(feedKey, pages([withAudio(3), withAudio(2)]))
+    vi.mocked(invoke)
+      .mockReset()
+      .mockImplementationOnce(() => new Promise(r => { finishStale = r as typeof finishStale }))
+      .mockImplementation(() => Promise.resolve([row(3), row(2)]))
+    act(() => { void result.current.feed.refetch() })
+    const lost = (entry: Transcript) => ({ ...entry, audioPath: null })
+    await act(async () => { await patchRows(new Map([[3, lost], [2, lost]])) })
+    await act(async () => { finishStale([withAudio(3), withAudio(2)]) })
+    await waitFor(() => expect(queryClient.getQueryState(feedKey)?.fetchStatus).toBe('idle'))
+    expect(queryClient.getQueryData<TranscriptPages>(feedKey)?.pages[0].rows.map(r => r.audioPath)).toEqual([null, null])
+    expect(invoke).toHaveBeenCalledTimes(2)
   })
 
   it('prevents an older in-flight response from erasing a new transcript', async () => {

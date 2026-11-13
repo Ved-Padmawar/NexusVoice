@@ -6,7 +6,7 @@ import { extractErrorMessage } from '../../shared/errors'
 import { readFresh } from '../../app/queryClient'
 import { useLiveChoice } from '../../app/useLiveChoice'
 import { Select } from '../../shared/ui/Select'
-import { KeepMicOpenToggle } from './KeepMicOpenToggle'
+import { SettingRow } from './SettingRow'
 import { InputHint } from './InputHint'
 import { inputDevices, useInputDevices } from './queries'
 import type { InputDevice } from '../../shared/types'
@@ -68,23 +68,18 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
   ]
 
   return (
-    <div className="flex min-w-0 flex-col gap-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-fg">Microphone</p>
-          <InputHint input="microphone">The device that records your voice.</InputHint>
-        </div>
-        <KeepMicOpenToggle />
-      </div>
-
-      <div className="flex gap-2">
+    <SettingRow
+      icon={<MicrophoneIcon size={16} weight="duotone" />}
+      title="Microphone"
+      description={<InputHint input="microphone">The device that records your voice.</InputHint>}
+    >
+      <div className="flex min-w-0 flex-1 gap-1">
         <div className="min-w-0 flex-1">
           <Select
             value={selected}
             options={options}
             onChange={(v) => { if (v !== selected) void choose(v) }}
             aria-label="Microphone"
-            icon={<MicrophoneIcon size={14} weight="bold" />}
             disabled={devicesQuery.isPending}
           />
         </div>
@@ -95,11 +90,11 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
           aria-label="Refresh the device list"
           data-tip="Refresh the device list"
           data-tip-pos="bottom"
-          className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-lg bg-field text-fg-2 ring-1 ring-line-soft ring-inset transition hover:text-fg hover:ring-line disabled:opacity-50"
+          className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-lg text-fg-2 transition hover:bg-surface-hover hover:text-fg disabled:opacity-50"
         >
           <ArrowsClockwiseIcon size={14} weight="bold" className={refreshing ? 'animate-spin' : undefined} />
         </button>
       </div>
-    </div>
+    </SettingRow>
   )
 })

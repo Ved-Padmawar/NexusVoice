@@ -25,6 +25,8 @@ export function useFormatConfig() {
   return useQuery(formatConfigOptions)
 }
 
+export const pasteModeOptions = live(queryKeys.pasteMode, () => commands.getPasteMode())
+
 const recordingOptions = live(queryKeys.recording, () => commands.getRecordingState())
 
 /** Keep the recording snapshot current; a revision rejects a late older one. */
