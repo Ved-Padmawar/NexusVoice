@@ -13,14 +13,14 @@ use super::Secrets;
 const DEFAULT_PROVIDER: &str = "ollama";
 
 /// One provider's endpoint as saved. Its key is in the credential store.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Endpoint {
     pub base_url: String,
     pub model: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct FormatterSettings {
     pub enabled: bool,

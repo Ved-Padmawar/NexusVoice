@@ -6,6 +6,7 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .commands(tauri_specta::collect_commands![
+            commands::subscribe,
             commands::get_recording_state,
             commands::list_input_devices,
             commands::set_input_device,
@@ -32,7 +33,6 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::set_hotkey,
             commands::suspend_hotkeys,
             commands::resume_hotkeys,
-            commands::get_pill_settings,
             commands::set_pill_setting,
             commands::get_model_info,
             commands::start_model_download,

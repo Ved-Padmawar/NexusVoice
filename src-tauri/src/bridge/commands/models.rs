@@ -265,7 +265,8 @@ pub fn set_model_unload(
     settings: State<'_, Settings>,
     policy: ModelUnload,
 ) -> Result<(), ApiError> {
-    Ok(settings.set_model_unload(policy)?)
+    settings.set_model_unload(policy)?;
+    Ok(())
 }
 
 #[derive(Debug, Serialize, specta::Type)]

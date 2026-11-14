@@ -7,9 +7,8 @@ import { queryClient } from '../../../app/queryClient'
 import { queryKeys } from '../../../shared/queryKeys'
 import type { HotkeyBindings } from '../../../shared/types'
 import { invoke } from '@tauri-apps/api/core'
-import { renderWithQuery } from '../../utils'
+import { mirror, renderWithQuery } from '../../utils'
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 const mockInvoke = vi.mocked(invoke)
@@ -38,7 +37,6 @@ const respond = (initial: HotkeyBindings = { pushToTalk: null, dictation: null, 
     get_paste_mode: 'auto',
     get_saved_audio: { enabled: true, keep: 10, bytes: 0 },
     get_jobs: [],
-    get_pill_settings: { theme: 'steel', waveformStyle: 'bars', liveTranscript: false, startSound: false },
   } as Record<string, unknown>)[cmd])
   })
 }
@@ -63,9 +61,10 @@ async function renderSettings() {
   return result
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   mockInvoke.mockReset()
   respond()
+  await mirror()
 })
 
 describe('FormattingToggle', () => {

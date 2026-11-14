@@ -237,10 +237,11 @@ impl ModelLibrary {
         if !active {
             return Ok(());
         }
-        match self.best_on_disk(Some(&entry.id)) {
-            Some(next) => Self::select(app, next),
-            None => settings.set_model(None),
+        if let Some(next) = self.best_on_disk(Some(&entry.id)) {
+            return Self::select(app, next);
         }
+        settings.set_model(None)?;
+        Ok(())
     }
 
     /// Fetch a model in the background. Beyond `MAX_CONCURRENT_DOWNLOADS` it

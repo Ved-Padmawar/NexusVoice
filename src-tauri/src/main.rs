@@ -6,6 +6,7 @@ mod bridge;
 mod data;
 mod engine;
 mod jobs;
+mod mirror;
 mod models;
 mod platform;
 mod recordings;

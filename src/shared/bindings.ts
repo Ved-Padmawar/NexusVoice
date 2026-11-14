@@ -5,6 +5,12 @@
 
 
 export const commands = {
+/**
+ * The newest patch of every slice, then each change on `patches`, in order.
+ */
+async subscribe(patches: TAURI_CHANNEL<Patch>) : Promise<Patch[]> {
+    return await TAURI_INVOKE("subscribe", { patches });
+},
 async getRecordingState() : Promise<RecordingSnapshot> {
     return await TAURI_INVOKE("get_recording_state");
 },
@@ -117,10 +123,7 @@ async suspendHotkeys() : Promise<null> {
 async resumeHotkeys() : Promise<null> {
     return await TAURI_INVOKE("resume_hotkeys");
 },
-async getPillSettings() : Promise<PillSettings> {
-    return await TAURI_INVOKE("get_pill_settings");
-},
-async setPillSetting(change: PillSetting) : Promise<null> {
+async setPillSetting(change: PillSetting) : Promise<Committed> {
     return await TAURI_INVOKE("set_pill_setting", { change });
 },
 async getModelInfo() : Promise<ModelInfoResponse> {
@@ -397,6 +400,12 @@ export type Changed = Topic
  * What clearing the saved audio did; what is left is pinned.
  */
 export type ClearedAudio = { deleted: number; kept: number }
+/**
+ * The revision a write left its store at, so the window that made it knows
+ * when its mirror holds the result. A write that changed nothing returns the
+ * current revision.
+ */
+export type Committed = { rev: number }
 export type CudaDownloadComplete = null
 export type CudaDownloadError = string
 export type CudaStatus = { 
@@ -579,6 +588,10 @@ export type PasteMode =
  */
 "copyOnly"
 /**
+ * One slice's whole value at a revision.
+ */
+export type Patch = { slice: "settings"; rev: number; value: SettingsView }
+/**
  * The pill's box in CSS pixels, relative to the window's client area.
  */
 export type PillHitbox = { x: number; y: number; width: number; height: number }
@@ -646,6 +659,10 @@ export type SavedAudioView = { enabled: boolean; keep: number;
  * Disk the saved audio takes.
  */
 bytes: number }
+/**
+ * What the windows mirror of the saved preferences. Keys never belong here.
+ */
+export type SettingsView = { pill: PillSettings }
 /**
  * Whose data changed. The windows read again every query that reads it.
  */

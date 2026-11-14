@@ -7,8 +7,8 @@ import { listen, type EventCallback } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { PillApp } from '../../pill/PillApp'
 import { followRust } from '../../app/sync'
-import { queryKeys } from '../../shared/queryKeys'
-import type { PillSettings } from '../../shared/types'
+import type { Patch, PillSettings } from '../../shared/bindings'
+import { mirror, settingsAt } from '../utils'
 
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({ setAlwaysOnTop: vi.fn().mockResolvedValue(undefined), startDragging: vi.fn().mockResolvedValue(undefined) }) }))
 vi.mock('../../shared/ui/WaveformCanvas', () => ({ WaveformCanvas: () => <canvas /> }))
@@ -27,26 +27,21 @@ const emit = async (event: string, payload: unknown = null) => {
   await act(async () => { for (const handler of listeners.get(event) ?? []) await handler({ event, id: 1, payload }) })
 }
 
-const DEFAULT_PILL: PillSettings = { theme: 'steel', waveformStyle: 'bars', liveTranscript: false, startSound: false }
 let recordingRevision = 0
 const record = (status: string) => emit('recording-state-changed', { revision: ++recordingRevision, status })
 
 type Download = { id: string; status: 'queued' | 'running' | 'error'; progress: number; error: string | null }
 /** What Rust holds, as its read commands return it. */
-let pill = DEFAULT_PILL
 let downloads: Download[] = []
 const respond = (cmd: string): unknown => ({
   get_recording_state: { revision: 0, status: 'idle' },
-  get_pill_settings: pill,
   get_active_downloads: downloads,
 })[cmd]
 
-/** Rust saved a change to the pill's preferences and announced it. */
-const setPill = async (change: Partial<PillSettings>) => {
-  pill = { ...DEFAULT_PILL, ...change }
-  await emit('changed', 'settings')
-  await waitFor(() => expect(queryClient.getQueryData(queryKeys.pillSettings)).toEqual(pill))
-}
+/** Rust saved a change to the pill's preferences and sent it. */
+let sendPatch: (patch: Patch) => Promise<void>
+let settingsRev = 0
+const setPill = (change: Partial<PillSettings>) => sendPatch(settingsAt(++settingsRev, change))
 /** Rust's download list changed and was announced. */
 const setDownloads = async (next: Download[]) => {
   downloads = next
@@ -66,7 +61,7 @@ beforeEach(async () => {
     finished: new Promise(resolve => setTimeout(resolve, 280)),
   } as unknown as CSSTransition])
   recordingRevision = 0
-  pill = DEFAULT_PILL
+  settingsRev = 0
   downloads = []
   vi.mocked(invoke).mockReset().mockImplementation(cmd => Promise.resolve(respond(cmd)))
   vi.mocked(listen).mockReset().mockImplementation(async (event, handler) => {
@@ -77,6 +72,7 @@ beforeEach(async () => {
   })
   // As pill-main does before the first render.
   await followRust()
+  sendPatch = await mirror()
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 

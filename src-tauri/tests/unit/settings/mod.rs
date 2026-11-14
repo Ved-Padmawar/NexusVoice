@@ -118,7 +118,7 @@ fn turning_formatting_off_keeps_the_endpoint_saved_just_before() {
         .unwrap();
     settings.set_formatter_enabled(false).unwrap();
 
-    let saved = lock_recovering(&load(dir.path()).file).formatter.clone();
+    let saved = load(dir.path()).read(|f| f.formatter.clone());
     assert!(!saved.enabled);
     assert_eq!(saved.provider, "ollama");
     assert_eq!(saved.endpoints["ollama"].model, "qwen-new");
@@ -194,7 +194,7 @@ fn the_old_per_setting_files_are_imported_once_then_removed() {
     assert_eq!(settings.model_unload(), ModelUnload::After10Minutes);
     assert_eq!(settings.language().as_deref(), Some("de"));
     assert_eq!(settings.input_device().as_deref(), Some("USB Mic"));
-    let formatter = lock_recovering(&settings.file).formatter.clone();
+    let formatter = settings.read(|f| f.formatter.clone());
     assert!(formatter.enabled);
     assert_eq!(formatter.endpoints["ollama"].model, "qwen");
 

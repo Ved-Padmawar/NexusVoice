@@ -8,6 +8,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { queryClient } from './queryClient'
 import { useAppStore } from './store/useAppStore'
 import { showMainWindow } from './showMainWindow'
+import { mirrorRust } from './mirror'
 import { followRust } from './sync'
 import { logger } from '../shared/logger'
 
@@ -29,4 +30,6 @@ const render = () => createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-followRust().catch((e: unknown) => logger.error('could not follow backend changes', e)).finally(render)
+Promise.all([followRust(), mirrorRust()])
+  .catch((e: unknown) => logger.error('could not follow backend changes', e))
+  .finally(render)

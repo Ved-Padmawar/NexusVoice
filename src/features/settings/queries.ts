@@ -1,10 +1,11 @@
 import { useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { commands, type PillSetting, type PillSettings, type RecordingInput } from '../../shared/bindings'
+import { commands, type PillSetting, type RecordingInput } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
+import { useSlice } from '../../app/mirror'
 import { reads } from '../../app/sync'
-import { useLiveChoice } from '../../app/useLiveChoice'
+import { useChoice } from '../../app/useChoice'
 import { takeLegacyPill } from '../../app/store/legacyPill'
 import { useRecordingState } from '../../pill/recordingState'
 import { queryKeys } from '../../shared/queryKeys'
@@ -69,15 +70,9 @@ export function useBoundHotkeys() {
   })
 }
 
-const DEFAULT_PILL: PillSettings = { theme: 'steel', waveformStyle: 'bars', liveTranscript: false, startSound: false }
-
 /** The pill's saved preferences, which the pill window also follows. */
 export function usePillSettings() {
-  return useQuery({
-    queryKey: queryKeys.pillSettings,
-    queryFn: () => commands.getPillSettings(),
-    ...reads('settings'),
-  }).data ?? DEFAULT_PILL
+  return useSlice('settings', settings => settings.pill)
 }
 
 type PillKind = PillSetting['kind']
@@ -89,9 +84,9 @@ const pillSaveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Could
 
 /** One pill preference: the pick shows at once, then the saved value. */
 export function usePillSetting<K extends PillKind>(kind: K) {
-  const saved = usePillSettings()[kind] as PillValue<K>
+  const saved = useSlice('settings', settings => settings.pill[kind]) as PillValue<K>
   const save = useCallback((value: PillValue<K>) => savePillSetting({ kind, value } as PillSetting), [kind])
-  const { pending, choose } = useLiveChoice(queryKeys.pillSettings, save, pillSaveFailed, kind)
+  const { pending, choose } = useChoice('settings', `pill.${kind}`, save, pillSaveFailed)
   return [pending ? pending.value : saved, choose] as const
 }
 

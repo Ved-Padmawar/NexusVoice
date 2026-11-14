@@ -7,13 +7,13 @@ mod migrate;
 mod secrets;
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::mirror::{Committed, Patch, Slice, Store};
 use crate::models::idle::ModelUnload;
-use crate::sync::{announce, lock_recovering, Topic};
+use crate::sync::{announce, Topic};
 use crate::text::llm::FormatConfig;
 
 use formatter::{FormatterDraft, FormatterSettings, FormatterView};
@@ -140,7 +140,7 @@ pub struct HotkeyBindings {
     pub dictation_commit: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 struct SettingsFile {
     version: u32,
@@ -159,9 +159,25 @@ struct SettingsFile {
     pill: PillSettings,
 }
 
+/// What the windows mirror of the saved preferences. Keys never belong here.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsView {
+    pub pill: PillSettings,
+}
+
+impl Slice for SettingsFile {
+    fn patch(&self, rev: u64) -> Patch {
+        Patch::Settings {
+            rev,
+            value: SettingsView { pill: self.pill },
+        }
+    }
+}
+
 pub struct Settings {
     path: PathBuf,
-    file: Mutex<SettingsFile>,
+    file: Store<SettingsFile>,
     secrets: Secrets,
 }
 
@@ -185,32 +201,30 @@ impl Settings {
         };
         Self {
             path,
-            file: Mutex::new(file),
+            file: Store::new(file),
             secrets,
         }
     }
 
-    /// The only write: apply `change`, persist it, then announce it. Memory
-    /// only changes once the file has.
-    fn update(&self, change: impl FnOnce(&mut SettingsFile)) -> std::io::Result<()> {
-        let mut file = lock_recovering(&self.file);
-        let mut next = file.clone();
-        change(&mut next);
-        write_atomic(&self.path, &next)?;
-        *file = next;
+    /// The only write: apply `change` and write the file; memory and the
+    /// windows change only once the file has.
+    fn update(&self, change: impl FnOnce(&mut SettingsFile)) -> std::io::Result<Committed> {
+        let committed = self
+            .file
+            .update(change, |next| write_atomic(&self.path, next))?;
         announce(Topic::Settings);
-        Ok(())
+        Ok(committed)
     }
 
     fn read<T>(&self, get: impl FnOnce(&SettingsFile) -> T) -> T {
-        get(&lock_recovering(&self.file))
+        self.file.read(get)
     }
 
     pub fn hotkeys(&self) -> HotkeyBindings {
         self.read(|f| f.hotkeys.clone())
     }
 
-    pub fn set_hotkeys(&self, hotkeys: HotkeyBindings) -> std::io::Result<()> {
+    pub fn set_hotkeys(&self, hotkeys: HotkeyBindings) -> std::io::Result<Committed> {
         self.update(|f| f.hotkeys = hotkeys)
     }
 
@@ -218,7 +232,7 @@ impl Settings {
         self.read(|f| f.model.clone())
     }
 
-    pub fn set_model(&self, id: Option<String>) -> std::io::Result<()> {
+    pub fn set_model(&self, id: Option<String>) -> std::io::Result<Committed> {
         self.update(|f| f.model = id)
     }
 
@@ -226,7 +240,7 @@ impl Settings {
         self.read(|f| f.model_unload)
     }
 
-    pub fn set_model_unload(&self, policy: ModelUnload) -> std::io::Result<()> {
+    pub fn set_model_unload(&self, policy: ModelUnload) -> std::io::Result<Committed> {
         self.update(|f| f.model_unload = policy)
     }
 
@@ -234,7 +248,7 @@ impl Settings {
         self.read(|f| f.language.clone())
     }
 
-    pub fn set_language(&self, code: Option<String>) -> std::io::Result<()> {
+    pub fn set_language(&self, code: Option<String>) -> std::io::Result<Committed> {
         self.update(|f| f.language = code)
     }
 
@@ -242,7 +256,7 @@ impl Settings {
         self.read(|f| f.input_device.clone())
     }
 
-    pub fn set_input_device(&self, id: Option<String>) -> std::io::Result<()> {
+    pub fn set_input_device(&self, id: Option<String>) -> std::io::Result<Committed> {
         self.update(|f| f.input_device = id)
     }
 
@@ -250,7 +264,7 @@ impl Settings {
         self.read(|f| f.keep_mic_open)
     }
 
-    pub fn set_keep_mic_open(&self, keep: bool) -> std::io::Result<()> {
+    pub fn set_keep_mic_open(&self, keep: bool) -> std::io::Result<Committed> {
         self.update(|f| f.keep_mic_open = keep)
     }
 
@@ -258,7 +272,7 @@ impl Settings {
         self.read(|f| f.saved_audio)
     }
 
-    pub fn set_saved_audio(&self, change: SavedAudioSetting) -> std::io::Result<()> {
+    pub fn set_saved_audio(&self, change: SavedAudioSetting) -> std::io::Result<Committed> {
         self.update(|f| f.saved_audio.apply(change))
     }
 
@@ -266,7 +280,7 @@ impl Settings {
         self.read(|f| f.paste_mode)
     }
 
-    pub fn set_paste_mode(&self, mode: PasteMode) -> std::io::Result<()> {
+    pub fn set_paste_mode(&self, mode: PasteMode) -> std::io::Result<Committed> {
         self.update(|f| f.paste_mode = mode)
     }
 
@@ -274,7 +288,7 @@ impl Settings {
         self.read(|f| f.pill)
     }
 
-    pub fn set_pill(&self, change: PillSetting) -> std::io::Result<()> {
+    pub fn set_pill(&self, change: PillSetting) -> std::io::Result<Committed> {
         self.update(|f| f.pill.apply(change))
     }
 
@@ -282,12 +296,12 @@ impl Settings {
         self.read(|f| f.formatter.view(&self.secrets))
     }
 
-    pub fn set_formatter_enabled(&self, enabled: bool) -> std::io::Result<()> {
+    pub fn set_formatter_enabled(&self, enabled: bool) -> std::io::Result<Committed> {
         self.update(|f| f.formatter.enabled = enabled)
     }
 
     /// The endpoint goes to the file, its key to the credential store.
-    pub fn save_formatter_endpoint(&self, draft: &FormatterDraft) -> Result<(), String> {
+    pub fn save_formatter_endpoint(&self, draft: &FormatterDraft) -> Result<Committed, String> {
         draft.store_key(&self.secrets)?;
         self.update(|f| draft.apply(&mut f.formatter))
             .map_err(|e| e.to_string())

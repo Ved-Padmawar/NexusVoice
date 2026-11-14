@@ -23,7 +23,6 @@ export const queryKeys = {
   inputDevices: ['inputDevices'] as const,
   hotkeys: ['hotkeys'] as const,
   boundHotkeys: ['boundHotkeys'] as const,
-  pillSettings: ['pillSettings'] as const,
   formatConfig: ['formatConfig'] as const,
   cuda: ['cuda'] as const,
   savedAudio: ['savedAudio'] as const,

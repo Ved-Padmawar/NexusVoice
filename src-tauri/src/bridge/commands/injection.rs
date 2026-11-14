@@ -22,5 +22,6 @@ pub fn get_paste_mode(settings: State<'_, Settings>) -> PasteMode {
 #[tauri::command]
 #[specta::specta]
 pub fn set_paste_mode(settings: State<'_, Settings>, mode: PasteMode) -> Result<(), ApiError> {
-    Ok(settings.set_paste_mode(mode)?)
+    settings.set_paste_mode(mode)?;
+    Ok(())
 }

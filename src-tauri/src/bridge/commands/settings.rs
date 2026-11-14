@@ -2,21 +2,16 @@
 
 use tauri::State;
 
-use crate::settings::{PillSetting, PillSettings, Settings};
+use crate::mirror::Committed;
+use crate::settings::{PillSetting, Settings};
 
 use super::error::ApiError;
-
-#[tauri::command]
-#[specta::specta]
-pub fn get_pill_settings(settings: State<'_, Settings>) -> PillSettings {
-    settings.pill()
-}
 
 #[tauri::command]
 #[specta::specta]
 pub fn set_pill_setting(
     settings: State<'_, Settings>,
     change: PillSetting,
-) -> Result<(), ApiError> {
+) -> Result<Committed, ApiError> {
     Ok(settings.set_pill(change)?)
 }

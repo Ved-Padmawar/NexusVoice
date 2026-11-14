@@ -17,7 +17,8 @@ pub fn get_format_config(settings: State<'_, Settings>) -> FormatterView {
 #[tauri::command]
 #[specta::specta]
 pub fn set_format_enabled(settings: State<'_, Settings>, enabled: bool) -> Result<(), ApiError> {
-    Ok(settings.set_formatter_enabled(enabled)?)
+    settings.set_formatter_enabled(enabled)?;
+    Ok(())
 }
 
 /// Save the provider modal's endpoint as the active one, and turn formatting on.
@@ -32,7 +33,8 @@ pub fn save_format_endpoint(
         .map_err(|message| ApiError::new("invalid_input", message))?;
     settings
         .save_formatter_endpoint(&draft)
-        .map_err(|e| ApiError::new("settings_error", e))
+        .map_err(|e| ApiError::new("settings_error", e))?;
+    Ok(())
 }
 
 /// Send one trivial request with a draft from the provider modal. Saves

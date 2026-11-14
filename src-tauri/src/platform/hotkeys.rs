@@ -142,7 +142,8 @@ impl Hotkeys {
         *kind.slot(&mut saved) = hotkey;
         settings
             .set_hotkeys(saved)
-            .map_err(|e| HotkeyError::Save(e.to_string()))
+            .map_err(|e| HotkeyError::Save(e.to_string()))?;
+        Ok(())
     }
 
     /// The shortcuts the OS actually granted, which can be fewer than saved.
