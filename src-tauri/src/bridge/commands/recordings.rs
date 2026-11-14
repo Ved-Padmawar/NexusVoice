@@ -12,7 +12,7 @@ use crate::jobs::{JobSnapshot, Jobs, Previous};
 use crate::models::catalog::{self, ModelEntry};
 use crate::models::library::ModelLibrary;
 use crate::recordings::Recordings;
-use crate::settings::{SavedAudio, Settings};
+use crate::settings::{SavedAudio, SavedAudioSetting, Settings};
 
 use super::error::ApiError;
 
@@ -39,24 +39,25 @@ pub fn get_saved_audio(
     }
 }
 
-/// Save the policy and apply it now: audio past the new limit, or all of it
-/// when switched off, is deleted before this returns. An error means the
-/// policy was not saved.
+/// Save one part of the policy and apply it now: audio past the new limit, or
+/// all of it when switched off, is deleted before this returns. An error means
+/// the change was not saved.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_saved_audio(
     app: AppHandle,
     settings: State<'_, Settings>,
-    enabled: bool,
-    keep: u32,
+    change: SavedAudioSetting,
 ) -> Result<(), ApiError> {
-    if !SavedAudio::KEEP_RANGE.contains(&keep) {
-        return Err(ApiError::new(
-            "invalid_input",
-            "Keep between 1 and 100 entries.",
-        ));
+    if let SavedAudioSetting::Keep(keep) = change {
+        if !SavedAudio::KEEP_RANGE.contains(&keep) {
+            return Err(ApiError::new(
+                "invalid_input",
+                "Keep between 1 and 100 entries.",
+            ));
+        }
     }
-    settings.set_saved_audio(SavedAudio { enabled, keep })?;
+    settings.set_saved_audio(change)?;
     // Pruning is its own outcome, like after a save: the next one tries again.
     if let Err(e) = crate::recordings::apply_limit(&app).await {
         log::warn!("could not apply the saved audio limit: {e}");

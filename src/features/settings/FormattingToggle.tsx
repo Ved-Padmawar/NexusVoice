@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   SparkleIcon, SlidersHorizontalIcon, XIcon, CheckIcon, CheckCircleIcon, SpinnerGapIcon, WarningCircleIcon,
   PlugIcon, PlugsConnectedIcon, LinkIcon, CubeIcon, KeyIcon, LockSimpleIcon,
@@ -17,8 +17,8 @@ import { caughtUp } from '../../app/sync'
 import { useLiveChoice } from '../../app/useLiveChoice'
 import { SettingRow } from './SettingRow'
 import { useFormatConfig } from './queries'
-import { isConfigured, keepingKeys } from './formatConfig'
-import type { FormatterUpdate, FormatterView, ProfileView } from '../../shared/types'
+import { isConfigured } from './formatConfig'
+import type { FormatterDraft, FormatterView, ProfileView } from '../../shared/types'
 
 const EMPTY_PROFILE: ProfileView = { baseUrl: '', model: '', hasApiKey: false }
 
@@ -50,14 +50,15 @@ const DEFAULT_CONFIG: FormatterView = { enabled: false, provider: 'ollama', prof
 /** Host and path of a base URL, without the scheme. */
 const hostOf = (url: string) => url.replace(/^https?:\/\//, '').replace(/\/+$/, '')
 
+const saveEnabled = (enabled: boolean) => commands.setFormatEnabled(enabled)
 const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Failed to save formatting settings'))
 
 /** Smart-formatting toggle + provider config. The formatter is an HTTP call,
  *  off by default; enabling without an endpoint opens the modal. */
 export function FormattingToggle() {
   const { data, error } = useFormatConfig()
-  // Nothing is editable until the saved setup is here: a save built on a
-  // placeholder would erase every other provider's profile.
+  // Nothing is editable until the saved setup is here: the switch and the form
+  // start from it.
   const loaded = data !== undefined
   const config = data ?? DEFAULT_CONFIG
   const [modalOpen, setModalOpen] = useState(false)
@@ -72,10 +73,6 @@ export function FormattingToggle() {
     if (error) toast.error(extractErrorMessage(error, 'Could not load formatting settings'))
   }, [error])
 
-  const saveEnabled = useCallback(
-    (enabled: boolean) => commands.setFormatConfig(keepingKeys({ ...config, enabled })),
-    [config],
-  )
   const { pending, choose } = useLiveChoice(queryKeys.formatConfig, saveEnabled, saveFailed)
 
   const active = activeProfile(config)
@@ -179,16 +176,10 @@ function ProviderForm({
     setRemoveKey(false)
   }
 
-  // Only the edited provider can change its key; the rest keep theirs.
-  const draft = (): FormatterUpdate => {
+  const draft = (): FormatterDraft => {
     const typed = apiKey.trim()
     const key = typed !== '' ? typed : removeKey ? '' : null
-    const base = keepingKeys(initial)
-    return {
-      ...base,
-      provider: providerId,
-      profiles: { ...base.profiles, [providerId]: { baseUrl: baseUrl.trim(), model: model.trim(), apiKey: key } },
-    }
+    return { provider: providerId, profile: { baseUrl: baseUrl.trim(), model: model.trim(), apiKey: key } }
   }
 
   const canSubmit = isConfigured(providerId, { baseUrl, model })
@@ -235,7 +226,7 @@ function ProviderForm({
     setSaving(true)
     // Saving also enables formatting: an endpoint is configured to be used.
     try {
-      await commands.setFormatConfig({ ...draft(), enabled: true })
+      await commands.saveFormatEndpoint(draft())
       toast.success('Smart formatting enabled')
       onSaved()
     } catch (e) {

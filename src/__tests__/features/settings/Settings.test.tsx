@@ -78,7 +78,7 @@ describe('FormattingToggle', () => {
     const base = mockInvoke.getMockImplementation()!
     mockInvoke.mockImplementation((cmd, args) => {
       if (cmd === 'get_format_config') return Promise.resolve(saved)
-      if (cmd === 'set_format_config') return Promise.reject({ code: 'io', message: 'disk full' })
+      if (cmd === 'set_format_enabled') return Promise.reject({ code: 'io', message: 'disk full' })
       return base(cmd, args)
     })
     await renderSettings()
@@ -87,7 +87,7 @@ describe('FormattingToggle', () => {
 
     fireEvent.click(toggle)
 
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_format_config', expect.anything()))
+    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_format_enabled', expect.anything()))
     await waitFor(() => expect(toggle).toBeChecked())
   })
 })

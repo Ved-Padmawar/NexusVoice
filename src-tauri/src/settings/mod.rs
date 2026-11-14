@@ -16,7 +16,7 @@ use crate::models::idle::ModelUnload;
 use crate::sync::{announce, lock_recovering, Topic};
 use crate::text::llm::FormatConfig;
 
-use formatter::{FormatterSettings, FormatterUpdate, FormatterView};
+use formatter::{FormatterDraft, FormatterSettings, FormatterView};
 pub use secrets::Secrets;
 
 const FILE_NAME: &str = "settings.json";
@@ -69,6 +69,22 @@ pub struct SavedAudio {
 
 impl SavedAudio {
     pub const KEEP_RANGE: std::ops::RangeInclusive<u32> = 1..=100;
+
+    fn apply(&mut self, change: SavedAudioSetting) {
+        match change {
+            SavedAudioSetting::Enabled(on) => self.enabled = on,
+            SavedAudioSetting::Keep(keep) => self.keep = keep,
+        }
+    }
+}
+
+/// One saved-audio choice, changed on its own, so a quick toggle and a change
+/// of the limit can't overwrite each other.
+#[derive(Debug, Clone, Copy, Deserialize, Type)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+pub enum SavedAudioSetting {
+    Enabled(bool),
+    Keep(u32),
 }
 
 impl Default for SavedAudio {
@@ -242,8 +258,8 @@ impl Settings {
         self.read(|f| f.saved_audio)
     }
 
-    pub fn set_saved_audio(&self, saved_audio: SavedAudio) -> std::io::Result<()> {
-        self.update(|f| f.saved_audio = saved_audio)
+    pub fn set_saved_audio(&self, change: SavedAudioSetting) -> std::io::Result<()> {
+        self.update(|f| f.saved_audio.apply(change))
     }
 
     pub fn paste_mode(&self) -> PasteMode {
@@ -266,10 +282,14 @@ impl Settings {
         self.read(|f| f.formatter.view(&self.secrets))
     }
 
-    /// Endpoint details go to the file, keys to the credential store.
-    pub fn set_formatter(&self, update: FormatterUpdate) -> Result<(), String> {
-        update.store_keys(&self.secrets)?;
-        self.update(|f| f.formatter = update.into_settings())
+    pub fn set_formatter_enabled(&self, enabled: bool) -> std::io::Result<()> {
+        self.update(|f| f.formatter.enabled = enabled)
+    }
+
+    /// The endpoint goes to the file, its key to the credential store.
+    pub fn save_formatter_endpoint(&self, draft: &FormatterDraft) -> Result<(), String> {
+        draft.store_key(&self.secrets)?;
+        self.update(|f| draft.apply(&mut f.formatter))
             .map_err(|e| e.to_string())
     }
 
@@ -280,7 +300,7 @@ impl Settings {
 
     /// An unsaved draft from the settings screen, completed with the saved
     /// key where the draft leaves it unchanged.
-    pub fn format_config_for(&self, draft: &FormatterUpdate) -> FormatConfig {
+    pub fn format_config_for(&self, draft: &FormatterDraft) -> FormatConfig {
         draft.resolve(&self.secrets)
     }
 }

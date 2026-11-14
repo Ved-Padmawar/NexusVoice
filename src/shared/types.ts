@@ -23,6 +23,6 @@ export type {
   PillTheme,
   WaveformStyle,
   FormatterView,
-  FormatterUpdate,
+  FormatterDraft,
   ProfileView,
 } from './bindings'

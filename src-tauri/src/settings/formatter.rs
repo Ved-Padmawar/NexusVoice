@@ -87,13 +87,13 @@ pub struct ProfileView {
     pub has_api_key: bool,
 }
 
-/// A change from the settings screen.
+/// One provider's endpoint from the provider modal. Saving it touches only that
+/// endpoint, so a toggle landing mid-save can't bring back an older one.
 #[derive(Debug, Clone, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct FormatterUpdate {
-    pub enabled: bool,
+pub struct FormatterDraft {
     pub provider: String,
-    pub profiles: HashMap<String, ProfileUpdate>,
+    pub profile: ProfileUpdate,
 }
 
 #[derive(Debug, Clone, Deserialize, Type)]
@@ -105,63 +105,46 @@ pub struct ProfileUpdate {
     pub api_key: Option<String>,
 }
 
-impl FormatterUpdate {
-    /// Reject a draft whose active provider has an address no request could
-    /// reach. An empty address is a draft in progress, not an error, and
-    /// turning formatting off never needs a reachable address.
+impl FormatterDraft {
+    /// Reject an address no request could reach. An empty address is a draft
+    /// in progress, not an error.
     pub fn validate(&self) -> Result<(), &'static str> {
-        if !self.enabled {
+        if self.provider == "anthropic" || self.profile.base_url.trim().is_empty() {
             return Ok(());
         }
-        let Some(profile) = self.profiles.get(&self.provider) else {
-            return Ok(());
-        };
-        if self.provider == "anthropic" || profile.base_url.trim().is_empty() {
-            return Ok(());
-        }
-        check_base_url(&profile.base_url)
+        check_base_url(&self.profile.base_url)
     }
 
-    pub fn store_keys(&self, secrets: &Secrets) -> Result<(), String> {
-        for (provider, profile) in &self.profiles {
-            match profile.api_key.as_deref().map(str::trim) {
-                None => {}
-                Some("") => secrets.delete_api_key(provider)?,
-                Some(key) => secrets.set_api_key(provider, key)?,
-            }
+    pub fn store_key(&self, secrets: &Secrets) -> Result<(), String> {
+        match self.profile.api_key.as_deref().map(str::trim) {
+            None => Ok(()),
+            Some("") => secrets.delete_api_key(&self.provider),
+            Some(key) => secrets.set_api_key(&self.provider, key),
         }
-        Ok(())
     }
 
-    pub fn into_settings(self) -> FormatterSettings {
-        FormatterSettings {
-            enabled: self.enabled,
-            provider: self.provider,
-            endpoints: self
-                .profiles
-                .into_iter()
-                .map(|(provider, p)| {
-                    let endpoint = Endpoint {
-                        base_url: p.base_url.trim().to_string(),
-                        model: p.model.trim().to_string(),
-                    };
-                    (provider, endpoint)
-                })
-                .collect(),
+    fn endpoint(&self) -> Endpoint {
+        Endpoint {
+            base_url: self.profile.base_url.trim().to_string(),
+            model: self.profile.model.trim().to_string(),
         }
+    }
+
+    /// Make this the active endpoint and turn formatting on.
+    pub fn apply(&self, saved: &mut FormatterSettings) {
+        saved
+            .endpoints
+            .insert(self.provider.clone(), self.endpoint());
+        saved.provider.clone_from(&self.provider);
+        saved.enabled = true;
     }
 
     pub fn resolve(&self, secrets: &Secrets) -> FormatConfig {
-        let profile = self.profiles.get(&self.provider);
-        let endpoint = profile.map_or_else(Endpoint::default, |p| Endpoint {
-            base_url: p.base_url.trim().to_string(),
-            model: p.model.trim().to_string(),
-        });
-        let api_key = match profile.and_then(|p| p.api_key.as_deref()) {
+        let api_key = match self.profile.api_key.as_deref() {
             Some(key) => key.trim().to_string(),
             None => secrets.api_key(&self.provider).unwrap_or_default(),
         };
-        active_config(self.enabled, &self.provider, endpoint, api_key)
+        active_config(true, &self.provider, self.endpoint(), api_key)
     }
 }
 

@@ -97,6 +97,56 @@ fn a_pill_change_keeps_the_other_pill_choices() {
 }
 
 #[test]
+fn turning_formatting_off_keeps_the_endpoint_saved_just_before() {
+    // The toggle can land before the screen has read the new endpoint back.
+    let dir = tempfile::tempdir().unwrap();
+    let settings = load(dir.path());
+    let draft = |provider: &str, model: &str| formatter::FormatterDraft {
+        provider: provider.into(),
+        profile: formatter::ProfileUpdate {
+            base_url: "http://localhost:11434/v1".into(),
+            model: model.into(),
+            api_key: None,
+        },
+    };
+
+    settings
+        .save_formatter_endpoint(&draft("lmstudio", "qwen-old"))
+        .unwrap();
+    settings
+        .save_formatter_endpoint(&draft("ollama", "qwen-new"))
+        .unwrap();
+    settings.set_formatter_enabled(false).unwrap();
+
+    let saved = lock_recovering(&load(dir.path()).file).formatter.clone();
+    assert!(!saved.enabled);
+    assert_eq!(saved.provider, "ollama");
+    assert_eq!(saved.endpoints["ollama"].model, "qwen-new");
+    assert_eq!(saved.endpoints["lmstudio"].model, "qwen-old");
+}
+
+#[test]
+fn a_saved_audio_change_keeps_the_other_choice() {
+    let dir = tempfile::tempdir().unwrap();
+    let settings = load(dir.path());
+
+    settings
+        .set_saved_audio(SavedAudioSetting::Keep(25))
+        .unwrap();
+    settings
+        .set_saved_audio(SavedAudioSetting::Enabled(false))
+        .unwrap();
+
+    assert_eq!(
+        load(dir.path()).saved_audio(),
+        SavedAudio {
+            enabled: false,
+            keep: 25
+        }
+    );
+}
+
+#[test]
 fn a_change_is_announced_only_once_it_is_saved() {
     let dir = tempfile::tempdir().unwrap();
     let settings = load(dir.path());

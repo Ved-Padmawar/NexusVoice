@@ -14,10 +14,10 @@ const RETRIES = 2
 const retryDelay = (failures: number) => 100 * 2 ** failures
 
 /** Options for a query of Rust data, naming every owner its command reads. It
- *  reads again when one announces a change, or, if the window was hidden then,
- *  once the window is shown. */
+ *  reads again when one announces a change, and whenever its window is shown,
+ *  so nothing on screen outlives a change it wasn't told about. */
 export const reads = (...topics: Topic[]) =>
-  ({ meta: { reads: topics }, staleTime: Infinity, refetchOnWindowFocus: true, retry: RETRIES, retryDelay }) as const
+  ({ meta: { reads: topics }, staleTime: Infinity, refetchOnWindowFocus: 'always', retry: RETRIES, retryDelay }) as const
 
 const readsTopic = (topic: Topic) => (query: Query) => query.meta?.reads?.includes(topic) === true
 

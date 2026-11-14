@@ -107,6 +107,15 @@ describe('following Rust', () => {
     await answer(1, stats(2))
     await waitFor(() => expect(result.current.data?.totalWords).toBe(2))
   })
+
+  it('reads a window again when it is shown, even with no change announced', async () => {
+    const { result } = renderHook(() => useStats(), { wrapper })
+    await answer(0, stats(1))
+    act(() => { window.dispatchEvent(new Event('visibilitychange')) })
+    await waitFor(() => expect(reads).toHaveLength(2))
+    await answer(1, stats(2))
+    await waitFor(() => expect(result.current.data?.totalWords).toBe(2))
+  })
 })
 
 describe('caughtUp', () => {

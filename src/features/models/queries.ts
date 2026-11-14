@@ -19,9 +19,8 @@ type Downloads = Record<string, Download>
 export const NO_MODELS: CatalogModel[] = []
 
 // Dev and release share the model files, and neither hears the other's
-// changes: what is on disk is read again whenever a view opens or the
-// window comes forward.
-const ON_DISK = { ...reads('models', 'settings'), refetchOnMount: 'always', refetchOnWindowFocus: 'always' } as const
+// changes: what is on disk is read again whenever a view opens too.
+const ON_DISK = { ...reads('models', 'settings'), refetchOnMount: 'always' } as const
 
 export function useCatalog() {
   return useQuery({

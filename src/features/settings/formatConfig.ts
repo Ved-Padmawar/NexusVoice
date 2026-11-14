@@ -1,4 +1,4 @@
-import type { FormatterUpdate, FormatterView, ProfileView } from '../../shared/types'
+import type { ProfileView } from '../../shared/types'
 
 /**
  * Whether a provider has the minimum needed to make a request. Mirrors
@@ -13,13 +13,4 @@ export function isConfigured(
 ): boolean {
   if (profile.model.trim() === '') return false
   return provider === 'anthropic' || profile.baseUrl.trim() !== ''
-}
-
-/** The saved settings as an update that keeps every saved key. */
-export function keepingKeys(view: FormatterView): FormatterUpdate {
-  const profiles = Object.fromEntries(
-    Object.entries(view.profiles).flatMap(([id, p]) =>
-      p ? [[id, { baseUrl: p.baseUrl, model: p.model, apiKey: null }]] : []),
-  )
-  return { enabled: view.enabled, provider: view.provider, profiles }
 }

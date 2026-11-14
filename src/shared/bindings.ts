@@ -213,15 +213,21 @@ async removeCudaPack() : Promise<null> {
 async getFormatConfig() : Promise<FormatterView> {
     return await TAURI_INVOKE("get_format_config");
 },
-async setFormatConfig(config: FormatterUpdate) : Promise<null> {
-    return await TAURI_INVOKE("set_format_config", { config });
+async setFormatEnabled(enabled: boolean) : Promise<null> {
+    return await TAURI_INVOKE("set_format_enabled", { enabled });
+},
+/**
+ * Save the provider modal's endpoint as the active one, and turn formatting on.
+ */
+async saveFormatEndpoint(draft: FormatterDraft) : Promise<null> {
+    return await TAURI_INVOKE("save_format_endpoint", { draft });
 },
 /**
  * Send one trivial request with a draft from the provider modal. Saves
  * nothing.
  */
-async testFormatConnection(config: FormatterUpdate) : Promise<null> {
-    return await TAURI_INVOKE("test_format_connection", { config });
+async testFormatConnection(draft: FormatterDraft) : Promise<null> {
+    return await TAURI_INVOKE("test_format_connection", { draft });
 },
 async openLogsFolder() : Promise<null> {
     return await TAURI_INVOKE("open_logs_folder");
@@ -274,12 +280,12 @@ async getSavedAudio() : Promise<SavedAudioView> {
     return await TAURI_INVOKE("get_saved_audio");
 },
 /**
- * Save the policy and apply it now: audio past the new limit, or all of it
- * when switched off, is deleted before this returns. An error means the
- * policy was not saved.
+ * Save one part of the policy and apply it now: audio past the new limit, or
+ * all of it when switched off, is deleted before this returns. An error means
+ * the change was not saved.
  */
-async setSavedAudio(enabled: boolean, keep: number) : Promise<null> {
-    return await TAURI_INVOKE("set_saved_audio", { enabled, keep });
+async setSavedAudio(change: SavedAudioSetting) : Promise<null> {
+    return await TAURI_INVOKE("set_saved_audio", { change });
 },
 /**
  * Delete every unpinned entry's audio. The entries and their text stay.
@@ -415,9 +421,10 @@ export type DictionaryResponse = { id: number; term: string; replacement: string
 export type DownloadStatus = "queued" | "running" | "error"
 export type DownloadedModel = { variant: string; displayName: string; sizeBytes: number; isActive: boolean }
 /**
- * A change from the settings screen.
+ * One provider's endpoint from the provider modal. Saving it touches only that
+ * endpoint, so a toggle landing mid-save can't bring back an older one.
  */
-export type FormatterUpdate = { enabled: boolean; provider: string; profiles: Partial<{ [key in string]: ProfileUpdate }> }
+export type FormatterDraft = { provider: string; profile: ProfileUpdate }
 /**
  * The settings screen's view: whether a key is saved, never the key.
  */
@@ -629,6 +636,11 @@ deferred: RecordingInput[] }
  */
 export type RecordingStateChanged = RecordingSnapshot
 export type RecordingStatus = "idle" | "recording" | "dictation" | "dictation-paused" | "processing"
+/**
+ * One saved-audio choice, changed on its own, so a quick toggle and a change
+ * of the limit can't overwrite each other.
+ */
+export type SavedAudioSetting = { kind: "enabled"; value: boolean } | { kind: "keep"; value: number }
 export type SavedAudioView = { enabled: boolean; keep: number; 
 /**
  * Disk the saved audio takes.

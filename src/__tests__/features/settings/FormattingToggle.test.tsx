@@ -74,7 +74,7 @@ describe('FormattingToggle save', () => {
   it('shows why Rust refused the toggle', async () => {
     mockInvoke.mockImplementation((cmd) => {
       if (cmd === 'get_format_config') return Promise.resolve(CONFIG)
-      if (cmd === 'set_format_config') return Promise.reject({ code: 'io_error', message: 'settings.json is read-only' })
+      if (cmd === 'set_format_enabled') return Promise.reject({ code: 'io_error', message: 'settings.json is read-only' })
       return Promise.resolve(null)
     })
     renderWithQuery(<FormattingToggle />)

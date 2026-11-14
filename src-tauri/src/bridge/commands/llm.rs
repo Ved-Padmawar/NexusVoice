@@ -2,7 +2,7 @@
 
 use tauri::State;
 
-use crate::settings::formatter::{FormatterUpdate, FormatterView};
+use crate::settings::formatter::{FormatterDraft, FormatterView};
 use crate::settings::Settings;
 use crate::text::llm::config::check_base_url;
 
@@ -16,15 +16,22 @@ pub fn get_format_config(settings: State<'_, Settings>) -> FormatterView {
 
 #[tauri::command]
 #[specta::specta]
-pub fn set_format_config(
+pub fn set_format_enabled(settings: State<'_, Settings>, enabled: bool) -> Result<(), ApiError> {
+    Ok(settings.set_formatter_enabled(enabled)?)
+}
+
+/// Save the provider modal's endpoint as the active one, and turn formatting on.
+#[tauri::command]
+#[specta::specta]
+pub fn save_format_endpoint(
     settings: State<'_, Settings>,
-    config: FormatterUpdate,
+    draft: FormatterDraft,
 ) -> Result<(), ApiError> {
-    config
+    draft
         .validate()
         .map_err(|message| ApiError::new("invalid_input", message))?;
     settings
-        .set_formatter(config)
+        .save_formatter_endpoint(&draft)
         .map_err(|e| ApiError::new("settings_error", e))
 }
 
@@ -34,9 +41,9 @@ pub fn set_format_config(
 #[specta::specta]
 pub async fn test_format_connection(
     settings: State<'_, Settings>,
-    config: FormatterUpdate,
+    draft: FormatterDraft,
 ) -> Result<(), ApiError> {
-    let config = settings.format_config_for(&config);
+    let config = settings.format_config_for(&draft);
     let active = config.active();
     if config.provider != "anthropic" {
         check_base_url(&active.base_url)
