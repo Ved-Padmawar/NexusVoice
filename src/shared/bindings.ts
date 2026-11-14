@@ -11,9 +11,6 @@ export const commands = {
 async subscribe(patches: TAURI_CHANNEL<Patch>) : Promise<Patch[]> {
     return await TAURI_INVOKE("subscribe", { patches });
 },
-async getRecordingState() : Promise<RecordingSnapshot> {
-    return await TAURI_INVOKE("get_recording_state");
-},
 /**
  * Usable input devices, excluding loopback and virtual endpoints. The UI
  * lists "Default" first; these are the named alternatives.
@@ -54,19 +51,16 @@ async getTranscripts(page: PageQuery) : Promise<TranscriptResponse[]> {
 async searchTranscripts(query: string, page: PageQuery) : Promise<TranscriptResponse[]> {
     return await TAURI_INVOKE("search_transcripts", { query, page });
 },
-async getDictionary() : Promise<DictionaryResponse[]> {
-    return await TAURI_INVOKE("get_dictionary");
-},
 async deleteTranscript(id: number) : Promise<null> {
     return await TAURI_INVOKE("delete_transcript", { id });
 },
 /**
  * Add an entry, or with `id` edit that one (a rename keeps its use count).
  */
-async updateDictionary(term: string, replacement: string, id: number | null) : Promise<DictionaryResponse> {
+async updateDictionary(term: string, replacement: string, id: number | null) : Promise<Committed> {
     return await TAURI_INVOKE("update_dictionary", { term, replacement, id });
 },
-async deleteDictionaryEntry(id: number) : Promise<null> {
+async deleteDictionaryEntry(id: number) : Promise<Committed> {
     return await TAURI_INVOKE("delete_dictionary_entry", { id });
 },
 /**
@@ -241,12 +235,6 @@ async relaunchApp() : Promise<null> {
     return await TAURI_INVOKE("relaunch_app");
 },
 /**
- * Disk the saved audio takes, pinned entries' included.
- */
-async getSavedAudioBytes() : Promise<number> {
-    return await TAURI_INVOKE("get_saved_audio_bytes");
-},
-/**
  * Save one part of the policy and apply it now: audio past the new limit, or
  * all of it when switched off, is deleted before this returns. An error means
  * the change was not saved.
@@ -281,12 +269,6 @@ async restoreTranscript(id: number, previous: Previous, revision: number) : Prom
 async inspectAudioFile(path: string) : Promise<AudioFileInfo> {
     return await TAURI_INVOKE("inspect_audio_file", { path });
 },
-/**
- * The running transcription job, then the queued ones in order.
- */
-async getJobs() : Promise<JobSnapshot[]> {
-    return await TAURI_INVOKE("get_jobs");
-},
 async cancelJob(transcriptId: number) : Promise<null> {
     return await TAURI_INVOKE("cancel_job", { transcriptId });
 },
@@ -316,7 +298,6 @@ jobFinished: JobFinished,
 languageReset: LanguageReset,
 modelDownloadCancelled: ModelDownloadCancelled,
 pillWaveform: PillWaveform,
-recordingStateChanged: RecordingStateChanged,
 transcriptionComplete: TranscriptionComplete,
 transcriptionError: TranscriptionError,
 transcriptionPartial: TranscriptionPartial,
@@ -330,7 +311,6 @@ jobFinished: "job-finished",
 languageReset: "language-reset",
 modelDownloadCancelled: "model-download-cancelled",
 pillWaveform: "pill-waveform",
-recordingStateChanged: "recording-state-changed",
 transcriptionComplete: "transcription-complete",
 transcriptionError: "transcription-error",
 transcriptionPartial: "transcription-partial",
@@ -578,7 +558,23 @@ export type Patch = { slice: "settings"; rev: number; value: SettingsView } |
 /**
  * The CUDA pack; `None` until the GPU has been probed.
  */
-{ slice: "cuda"; rev: number; value: CudaStatus | null }
+{ slice: "cuda"; rev: number; value: CudaStatus | null } | 
+/**
+ * The recording, and the saved changes it does not use.
+ */
+{ slice: "recording"; rev: number; value: RecordingSnapshot } | 
+/**
+ * The running transcription job, then the queued ones.
+ */
+{ slice: "jobs"; rev: number; value: JobSnapshot[] } | 
+/**
+ * Dictionary entries and their use counts, sorted by term.
+ */
+{ slice: "dictionary"; rev: number; value: DictionaryResponse[] } | 
+/**
+ * Bytes the saved audio takes, pinned entries' included.
+ */
+{ slice: "savedAudio"; rev: number; value: number }
 /**
  * The pill's box in CSS pixels, relative to the window's client area.
  */
@@ -626,16 +622,11 @@ export type ProfileView = { baseUrl: string; model: string; hasApiKey: boolean }
  * it started with.
  */
 export type RecordingInput = "model" | "microphone" | "language"
-export type RecordingSnapshot = { revision: number; status: RecordingStatus; 
+export type RecordingSnapshot = { status: RecordingStatus; 
 /**
  * Saved changes the recording in progress does not use.
  */
 deferred: RecordingInput[] }
-/**
- * Every transition of the recording, each with its revision, so a window
- * drops one older than the snapshot it holds.
- */
-export type RecordingStateChanged = RecordingSnapshot
 export type RecordingStatus = "idle" | "recording" | "dictation" | "dictation-paused" | "processing"
 /**
  * Whether dictations keep their audio, and for how many of the newest ones.
@@ -676,21 +667,9 @@ export type Topic =
  */
 "settings" | 
 /**
- * Dictionary entries and their use counts.
- */
-"dictionary" | 
-/**
  * The transcripts table: History, search and the totals.
  */
-"history" | 
-/**
- * The saved audio files.
- */
-"savedAudio" | 
-/**
- * The transcription job queue.
- */
-"jobs"
+"history"
 export type TranscriptResponse = { id: number; content: string; wordCount: number; durationSeconds: number | null; 
 /**
  * App the transcript was dictated into; `None` when it wasn't determined.

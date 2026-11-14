@@ -9,6 +9,7 @@ import { fetchAllTranscripts, NO_FILTERS, useDeleteTranscript, useTranscripts, u
 import { useDeleteDictionaryEntry, useDictionary, useUpdateDictionary } from '../../features/dictionary/queries'
 import type { DictionaryResponse } from '../../shared/bindings'
 import type { Transcript } from '../../shared/types'
+import { mirror } from '../utils'
 
 type ToastOptions = { onAutoClose?: () => void; onDismiss?: () => void; action?: { onClick: () => void } }
 const toasts = vi.hoisted(() => [] as ToastOptions[])
@@ -119,36 +120,27 @@ describe('deleting behind Undo', () => {
     expect(ids(reopened.result.current.data)).toEqual([7])
   })
 
-  it('keeps a pending dictionary delete hidden when the list refetches', async () => {
+  it('keeps a pending dictionary delete hidden when Rust sends the list again', async () => {
     const entry = (id: number): DictionaryResponse => ({ id, term: `term ${id}`, replacement: `fix ${id}`, hits: 0, createdAt: '2026-09-02T12:00:00Z' })
-    vi.mocked(invoke).mockResolvedValue([entry(1), entry(2)])
+    const send = await mirror([{ slice: 'dictionary', rev: 0, value: [entry(1), entry(2)] }])
     const { result } = renderHook(() => ({ list: useDictionary(), del: useDeleteDictionaryEntry() }), { wrapper })
-    await waitFor(() => expect(result.current.list.data).toHaveLength(2))
     act(() => result.current.del(entry(2)))
-    await act(async () => { await result.current.list.refetch() })
-    expect(result.current.list.data?.map(e => e.id)).toEqual([1])
+    // A dictation counted a hit before the delete went out.
+    await send({ slice: 'dictionary', rev: 1, value: [entry(1), { ...entry(2), hits: 1 }] })
+    expect(result.current.list.map(e => e.id)).toEqual([1])
   })
 })
 
 describe('saves', () => {
   it('settles a dictionary save only once the list shows it', async () => {
-    let answerList: (entries: unknown[]) => void = () => {}
-    let listCalls = 0
-    vi.mocked(invoke).mockImplementation((cmd) => {
-      if (cmd === 'get_dictionary') {
-        listCalls += 1
-        return listCalls === 1 ? Promise.resolve([]) : new Promise(resolve => { answerList = resolve })
-      }
-      return Promise.resolve(null)
-    })
+    const send = await mirror()
+    vi.mocked(invoke).mockImplementation(cmd => Promise.resolve(cmd === 'update_dictionary' ? { rev: 1 } : null))
     const { result } = renderHook(() => ({ list: useDictionary(), update: useUpdateDictionary() }), { wrapper })
-    await waitFor(() => expect(result.current.list.isSuccess).toBe(true))
     let settled = false
-    act(() => { void result.current.update.mutateAsync({ term: 'teh', replacement: 'the' }).then(() => { settled = true }) })
-    await waitFor(() => expect(listCalls).toBe(2))
+    await act(async () => { void result.current.update.mutateAsync({ term: 'teh', replacement: 'the' }).then(() => { settled = true }) })
     expect(settled).toBe(false)
-    await act(async () => { answerList([{ id: 1, term: 'teh', replacement: 'the', hits: 0 }]) })
+    await send({ slice: 'dictionary', rev: 1, value: [{ id: 1, term: 'teh', replacement: 'the', hits: 0, createdAt: '2026-09-02T12:00:00Z' }] })
     await waitFor(() => expect(settled).toBe(true))
-    expect(result.current.list.data).toHaveLength(1)
+    expect(result.current.list).toHaveLength(1)
   })
 })

@@ -4,7 +4,7 @@ import { CheckIcon, PauseIcon, PlayIcon } from '@phosphor-icons/react'
 import { commands, type TranscriptionPartial } from '../shared/bindings'
 import { extractErrorMessage } from '../shared/errors'
 import { useEventListener } from '../shared/hooks'
-import { subscribeRecordingState } from './recordingState'
+import { useSlice } from '../app/mirror'
 import { useDownloadSummary } from '../features/models/queries'
 import { usePillSettings } from '../features/settings/queries'
 import { WaveformCanvas } from '../shared/ui/WaveformCanvas'
@@ -89,7 +89,15 @@ function captureErrorLabel(message: string): string {
 type SessionState = Exclude<PillState, 'downloading'>
 
 export function PillApp() {
-  const [session, setSession] = useState<SessionState>('idle')
+  const status = useSlice('recording', recording => recording.status)
+  const [errorShown, setErrorShown] = useState(false)
+  // Any state but idle replaces the error, which doesn't come back after it.
+  const [seenStatus, setSeenStatus] = useState(status)
+  if (status !== seenStatus) {
+    setSeenStatus(status)
+    if (status !== 'idle') setErrorShown(false)
+  }
+  const session: SessionState = errorShown ? 'error' : status
   const [errorMsg, setErrorMsg] = useState('')
   // From Rust's download registry, shared with the Voice tab. Null when idle.
   const downloadPct = useDownloadSummary()
@@ -163,14 +171,11 @@ export function PillApp() {
     tooltipTimerRef.current = setTimeout(() => setTooltip(''), 3000)
   }, [])
 
-  // Resets only if still showing the error — a recording may have started since.
   const showError = useCallback((msg: string) => {
     setErrorMsg(msg)
-    setSession('error')
+    setErrorShown(true)
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
-    errorTimerRef.current = setTimeout(() => {
-      setSession(current => current === 'error' ? 'idle' : current)
-    }, 3000)
+    errorTimerRef.current = setTimeout(() => setErrorShown(false), 3000)
   }, [])
 
   useEffect(() => () => {
@@ -184,11 +189,9 @@ export function PillApp() {
   useEventListener('transcriptionPartialEnd', () => setPartial(null))
   useEffect(() => () => { livePartial = null; setPartial(null) }, [])
 
-  useEffect(() => subscribeRecordingState(snapshot => {
-    const next = snapshot.status
-    if (next !== 'recording' && next !== 'dictation' && next !== 'dictation-paused') setPartial(null)
-    setSession(current => next === 'idle' && current === 'error' ? current : next)
-  }), [])
+  useEffect(() => {
+    if (status !== 'recording' && status !== 'dictation' && status !== 'dictation-paused') setPartial(null)
+  }, [status])
 
   useEventListener('transcriptionComplete', ({ pasteError, saved }) => {
     if (pasteError) showTooltip(saved ? "Couldn't paste - it's saved in your history" : "Couldn't paste or save this dictation")

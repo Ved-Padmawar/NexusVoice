@@ -152,7 +152,7 @@ fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(Settings::load(&app_data_dir, secrets));
     reset_input_device_saved_by_name(&app.state::<Settings>());
     app.manage(Database::default());
-    app.manage(Dictionary::default());
+    app.manage(Dictionary::new());
     app.manage(EngineCache::new(models_dir.clone(), app_data_dir.clone()));
     app.manage(ModelLibrary::new(models_dir));
     app.manage(CudaPack::new(app_data_dir.clone(), cuda_damaged));
@@ -163,7 +163,7 @@ fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Recorder::follow_engine(app.handle());
     app.manage(Hotkeys::new());
     app.manage(Recordings::open(app_data_dir.join("recordings")));
-    app.manage(Jobs::default());
+    app.manage(Jobs::new());
 
     spawn_open_database(app.handle().clone(), app_data_dir.join("nexusvoice.db"));
     spawn_log_hardware();

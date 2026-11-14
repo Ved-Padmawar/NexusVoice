@@ -41,6 +41,10 @@ const FRESH: Patch[] = [
   { slice: 'models', rev: 0, value: [] },
   { slice: 'downloads', rev: 0, value: [] },
   { slice: 'cuda', rev: 0, value: null },
+  { slice: 'recording', rev: 0, value: { status: 'idle', deferred: [] } },
+  { slice: 'jobs', rev: 0, value: [] },
+  { slice: 'dictionary', rev: 0, value: [] },
+  { slice: 'savedAudio', rev: 0, value: 0 },
 ]
 
 /** Mirror Rust's state, as each window does before its first render: `given`,

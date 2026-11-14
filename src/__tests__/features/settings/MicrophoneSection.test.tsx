@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { MicrophoneSection } from '../../../features/settings/MicrophoneSection'
 import { invoke } from '@tauri-apps/api/core'
+import type { RecordingInput } from '../../../shared/bindings'
 import { mirror, renderWithQuery, settingsAt } from '../../utils'
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
@@ -9,7 +10,6 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.f
 const mockInvoke = vi.mocked(invoke)
 
 let saves: (string | null)[]
-let deferred: string[]
 
 const device = (id: string, name: string, isDefault = false) => ({ id, name, isDefault })
 
@@ -21,21 +21,20 @@ const DEVICES = [
   device('usb-b', 'USB Mic'),
 ]
 
-/** Render with `saved` as Rust's saved device. */
-async function renderSaved(saved: string | null = null) {
-  await mirror([settingsAt(0, { inputDevice: saved })])
+/** Render with `saved` as Rust's saved device, and `deferred` what the
+ *  recording in progress keeps. */
+async function renderSaved(saved: string | null = null, deferred: RecordingInput[] = []) {
+  await mirror([settingsAt(0, { inputDevice: saved }), { slice: 'recording', rev: 0, value: { status: 'dictation', deferred } }])
   renderWithQuery(<MicrophoneSection />)
   await waitFor(() => expect(trigger()).toBeEnabled())
 }
 
 beforeEach(() => {
   saves = []
-  deferred = []
   mockInvoke.mockReset()
   mockInvoke.mockImplementation((cmd, args) => {
     switch (cmd) {
       case 'list_input_devices': return Promise.resolve(DEVICES)
-      case 'get_recording_state': return Promise.resolve({ revision: 1, status: 'dictation', deferred })
       case 'set_input_device':
         saves.push((args as { id: string | null }).id)
         return Promise.resolve({ rev: 0 })
@@ -60,8 +59,7 @@ describe('MicrophoneSection', () => {
   })
 
   it('says a saved device waits while the recording in progress keeps the previous one', async () => {
-    deferred = ['microphone']
-    await renderSaved()
+    await renderSaved(null, ['microphone'])
     expect(await screen.findByText('Saved. This recording keeps the previous one.')).toBeInTheDocument()
     expect(screen.queryByText('The device that records your voice.')).not.toBeInTheDocument()
   })

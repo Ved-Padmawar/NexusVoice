@@ -8,10 +8,11 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::data::repositories::transcript::{Cursor, TranscriptRepository};
 use crate::data::Database;
+use crate::mirror::Committed;
 use crate::recordings::Recordings;
 use crate::text::dictionary::{Dictionary, DictionaryError};
 
-use super::dto::{DictionaryResponse, TranscriptResponse};
+use super::dto::TranscriptResponse;
 use super::error::ApiError;
 
 #[derive(Debug, Serialize, specta::Type)]
@@ -269,15 +270,6 @@ pub async fn delete_transcript(
     Ok(())
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn get_dictionary(
-    dictionary: State<'_, Dictionary>,
-) -> Result<Vec<DictionaryResponse>, ApiError> {
-    let entries = dictionary.entries().await;
-    Ok(entries.into_iter().map(DictionaryResponse::from).collect())
-}
-
 /// Add an entry, or with `id` edit that one (a rename keeps its use count).
 #[tauri::command]
 #[specta::specta]
@@ -287,16 +279,15 @@ pub async fn update_dictionary(
     term: String,
     replacement: String,
     id: Option<i64>,
-) -> Result<DictionaryResponse, ApiError> {
-    let entry = dictionary
+) -> Result<Committed, ApiError> {
+    dictionary
         .save(&db.pool().await?, id, &term, &replacement)
         .await
         .map_err(|e| match e {
             DictionaryError::Invalid(message) => ApiError::new("invalid_input", message),
             DictionaryError::Duplicate(message) => ApiError::new("dictionary_duplicate", message),
             DictionaryError::Database(e) => e.into(),
-        })?;
-    Ok(entry.into())
+        })
 }
 
 #[tauri::command]
@@ -305,7 +296,7 @@ pub async fn delete_dictionary_entry(
     db: State<'_, Database>,
     dictionary: State<'_, Dictionary>,
     id: i64,
-) -> Result<(), ApiError> {
+) -> Result<Committed, ApiError> {
     Ok(dictionary.delete(&db.pool().await?, id).await?)
 }
 

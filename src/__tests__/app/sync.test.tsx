@@ -38,7 +38,7 @@ describe('following Rust', () => {
   it('reads a query again when an owner it reads announces a change, and only then', async () => {
     const { result } = renderHook(() => useStats(), { wrapper })
     await answer(0, stats(1))
-    act(() => announce('dictionary'))
+    act(() => announce('settings'))
     expect(reads).toHaveLength(1)
     act(() => announce('history'))
     await answer(1, stats(2))

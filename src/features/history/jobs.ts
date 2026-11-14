@@ -1,38 +1,26 @@
-import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { commands, events, type JobFinish, type Previous } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { reads } from '../../app/sync'
-import { queryKeys } from '../../shared/queryKeys'
-
-/** The running transcription job, then the queued ones. */
-const jobsOptions = {
-  queryKey: queryKeys.jobs,
-  queryFn: () => commands.getJobs(),
-  ...reads('jobs'),
-}
+import { useSlice } from '../../app/mirror'
 
 /** Disk the saved audio takes, pinned entries' included. */
 export function useSavedAudioBytes() {
-  return useQuery({
-    queryKey: queryKeys.savedAudio,
-    queryFn: () => commands.getSavedAudioBytes(),
-    ...reads('savedAudio'),
-  })
+  return useSlice('savedAudio', bytes => bytes)
 }
 
+/** The running transcription job, then the queued ones. */
 export function useJobs() {
-  return useQuery(jobsOptions).data ?? []
+  return useSlice('jobs', jobs => jobs)
 }
 
 /** Whether a file is waiting or being transcribed. A boolean, so callers sleep through progress. */
 export function useImporting() {
-  return useQuery({ ...jobsOptions, select: jobs => jobs.some(job => job.kind === 'import') }).data ?? false
+  return useSlice('jobs', jobs => jobs.some(job => job.kind === 'import'))
 }
 
 /** Whether entry `id` has a job. A boolean, so rows sleep through its progress. */
 export function useHasJob(id: number) {
-  return useQuery({ ...jobsOptions, select: jobs => jobs.some(job => job.transcriptId === id) }).data ?? false
+  return useSlice('jobs', jobs => jobs.some(job => job.transcriptId === id))
 }
 
 async function undoRetranscribe(id: number, previous: Previous, revision: number) {

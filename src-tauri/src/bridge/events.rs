@@ -19,11 +19,6 @@ use crate::sync::Topic;
 #[derive(Debug, Clone, Copy, Serialize, Type, Event)]
 pub struct Changed(pub Topic);
 
-/// Every transition of the recording, each with its revision, so a window
-/// drops one older than the snapshot it holds.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct RecordingStateChanged(pub crate::session::recorder::RecordingSnapshot);
-
 /// Live transcript while recording. Both decode paths produce the same split,
 /// so the pill never needs to know which one ran.
 #[derive(Debug, Clone, Serialize, Type, Event)]

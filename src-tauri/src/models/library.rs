@@ -47,18 +47,19 @@ struct DownloadEntry {
     error: Option<String>,
     /// Awaited alongside the network read, so a cancel interrupts immediately
     /// instead of waiting for the current chunk to finish.
-    cancel: CancellationToken,
+    cancel: Arc<CancellationToken>,
     /// Make the model the active one once it is on disk.
     activate: bool,
 }
 
-/// The cancel token is the entry's handle, not part of what it shows.
+/// Two entries are the same download only with the same token.
 impl PartialEq for DownloadEntry {
     fn eq(&self, other: &Self) -> bool {
         self.status == other.status
             && self.progress == other.progress
             && self.error == other.error
             && self.activate == other.activate
+            && Arc::ptr_eq(&self.cancel, &other.cancel)
     }
 }
 
@@ -125,7 +126,7 @@ impl Downloads {
                     status: DownloadStatus::Queued,
                     progress: 0,
                     error: None,
-                    cancel: cancel.clone(),
+                    cancel: Arc::new(cancel.clone()),
                     activate,
                 },
             );

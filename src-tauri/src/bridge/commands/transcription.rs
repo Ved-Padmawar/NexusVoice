@@ -3,9 +3,8 @@
 use tauri::{AppHandle, State};
 
 use crate::mirror::Committed;
-use crate::models::cache::EngineCache;
 use crate::session::{
-    recorder::{Action, RecordingSnapshot},
+    recorder::Action,
     Recorder,
 };
 use crate::settings::Settings;
@@ -93,13 +92,4 @@ pub fn set_keep_mic_open(
     let committed = settings.set_keep_mic_open(keep)?;
     recorder.set_keep_mic_open(keep);
     Ok(committed)
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn get_recording_state(
-    recorder: State<'_, Recorder>,
-    engine: State<'_, EngineCache>,
-) -> RecordingSnapshot {
-    recorder.snapshot(&engine)
 }

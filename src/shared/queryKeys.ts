@@ -10,10 +10,7 @@ export const queryKeys = {
     ['transcripts', 'search', query, filters] as const,
   stats: ['stats'] as const,
   dailyWords: (days: number) => ['stats', 'daily', days] as const,
-  dictionary: ['dictionary'] as const,
   catalog: ['catalog'] as const,
   languageOptionsFor: (model: string | null, settingsRev: number) => ['languageOptions', model, settingsRev] as const,
   inputDevices: ['inputDevices'] as const,
-  savedAudio: ['savedAudio'] as const,
-  jobs: ['jobs'] as const,
 }

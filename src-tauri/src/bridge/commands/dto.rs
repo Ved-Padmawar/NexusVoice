@@ -51,7 +51,7 @@ impl TranscriptResponse {
     }
 }
 
-#[derive(Debug, Serialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DictionaryResponse {
     pub id: i64,

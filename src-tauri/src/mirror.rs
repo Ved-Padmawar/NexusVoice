@@ -12,8 +12,11 @@ use serde::Serialize;
 use specta::Type;
 use tauri::ipc::Channel;
 
+use crate::bridge::commands::dto::DictionaryResponse;
+use crate::jobs::JobSnapshot;
 use crate::models::cuda::CudaStatus;
 use crate::models::library::{Download, DownloadedModel};
+use crate::session::recorder::RecordingSnapshot;
 use crate::settings::{HotkeyBindings, SettingsView};
 use crate::sync::lock_recovering;
 
@@ -30,6 +33,14 @@ pub enum Patch {
     Downloads { rev: u64, value: Vec<Download> },
     /// The CUDA pack; `None` until the GPU has been probed.
     Cuda { rev: u64, value: Option<CudaStatus> },
+    /// The recording, and the saved changes it does not use.
+    Recording { rev: u64, value: RecordingSnapshot },
+    /// The running transcription job, then the queued ones.
+    Jobs { rev: u64, value: Vec<JobSnapshot> },
+    /// Dictionary entries and their use counts, sorted by term.
+    Dictionary { rev: u64, value: Vec<DictionaryResponse> },
+    /// Bytes the saved audio takes, pinned entries' included.
+    SavedAudio { rev: u64, value: u64 },
 }
 
 /// The revision a write left its store at, so the window that made it knows

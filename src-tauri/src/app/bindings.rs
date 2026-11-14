@@ -7,7 +7,6 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .commands(tauri_specta::collect_commands![
             commands::subscribe,
-            commands::get_recording_state,
             commands::list_input_devices,
             commands::set_input_device,
             commands::set_keep_mic_open,
@@ -18,7 +17,6 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::get_daily_words,
             commands::get_transcripts,
             commands::search_transcripts,
-            commands::get_dictionary,
             commands::delete_transcript,
             commands::update_dictionary,
             commands::delete_dictionary_entry,
@@ -54,20 +52,17 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::prepare_restart,
             commands::cancel_restart,
             commands::relaunch_app,
-            commands::get_saved_audio_bytes,
             commands::set_saved_audio,
             commands::clear_saved_audio,
             commands::set_transcript_pinned,
             commands::restore_transcript,
             commands::inspect_audio_file,
-            commands::get_jobs,
             commands::cancel_job,
             commands::retranscribe_transcript,
             commands::import_audio_file,
         ])
         .events(tauri_specta::collect_events![
             events::Changed,
-            events::RecordingStateChanged,
             events::TranscriptionPartial,
             events::TranscriptionPartialEnd,
             events::TranscriptionComplete,

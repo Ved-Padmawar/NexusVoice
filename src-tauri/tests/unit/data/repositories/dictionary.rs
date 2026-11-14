@@ -145,5 +145,5 @@ async fn delete_reports_whether_anything_was_removed() {
         !repo.delete_by_id(entry.id).await.expect("second delete"),
         "deleting a missing row reports false, not an error"
     );
-    assert!(repo.list_all().await.expect("list").is_empty());
+    assert_eq!(repo.list_all().await.expect("list"), []);
 }

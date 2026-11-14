@@ -7,7 +7,7 @@ import { listen, type EventCallback } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { PillApp } from '../../pill/PillApp'
 import { followRust } from '../../app/sync'
-import type { Download, Patch, PillSettings } from '../../shared/bindings'
+import type { Download, Patch, PillSettings, RecordingStatus } from '../../shared/bindings'
 import { mirror, pillAt } from '../utils'
 
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({ setAlwaysOnTop: vi.fn().mockResolvedValue(undefined), startDragging: vi.fn().mockResolvedValue(undefined) }) }))
@@ -27,12 +27,7 @@ const emit = async (event: string, payload: unknown = null) => {
   await act(async () => { for (const handler of listeners.get(event) ?? []) await handler({ event, id: 1, payload }) })
 }
 
-let recordingRevision = 0
-const record = (status: string) => emit('recording-state-changed', { revision: ++recordingRevision, status })
 
-const respond = (cmd: string): unknown => ({
-  get_recording_state: { revision: 0, status: 'idle' },
-})[cmd]
 
 let sendPatch: (patch: Patch) => Promise<void>
 let rev = 0
@@ -40,6 +35,8 @@ let rev = 0
 const setPill = (change: Partial<PillSettings>) => sendPatch(pillAt(++rev, change))
 /** Rust's download list changed and was sent. */
 const setDownloads = (next: Download[]) => sendPatch({ slice: 'downloads', rev: ++rev, value: next })
+/** The recording moved to `status`. */
+const record = (status: RecordingStatus) => sendPatch({ slice: 'recording', rev: ++rev, value: { status, deferred: [] } })
 const running = (id: string, progress: number): Download => ({ id, status: 'running', progress, error: null })
 
 const DELIVERED = { pasteError: null, saved: true }
@@ -53,9 +50,8 @@ beforeEach(async () => {
     transitionProperty: 'width',
     finished: new Promise(resolve => setTimeout(resolve, 280)),
   } as unknown as CSSTransition])
-  recordingRevision = 0
   rev = 0
-  vi.mocked(invoke).mockReset().mockImplementation(cmd => Promise.resolve(respond(cmd)))
+  vi.mocked(invoke).mockReset().mockResolvedValue(null)
   vi.mocked(listen).mockReset().mockImplementation(async (event, handler) => {
     const callbacks = listeners.get(event) ?? new Set()
     callbacks.add(handler as EventCallback<unknown>)
@@ -71,7 +67,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 it.each([44, 200])('keeps a transcript of height %i in its card layout until collapse finishes', async innerHeight => {
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(innerHeight)
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
   await setPill({ liveTranscript: true })
   await record('recording')
   await emit('transcription-partial', { committed: 'Live transcript', tentative: '' })
@@ -91,7 +87,7 @@ it.each([44, 200])('keeps a transcript of height %i in its card layout until col
 it('keeps outgoing words available during the transcript exit fade', async () => {
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(44)
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
   await setPill({ liveTranscript: true })
   await record('recording')
   await emit('transcription-partial', { committed: 'Keep these words', tentative: 'visible' })
@@ -161,7 +157,7 @@ it.each([
   ['transcription-error', 'Decode failed', 'error'],
 ])('keeps %s subscribed across repeated recordings and live preference renders', async (event, payload, expected) => {
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
   for (let i = 0; i < 20; i++) {
     await record('recording')
     await setPill({ theme: i % 2 ? 'steel' : 'dawn' })
@@ -171,25 +167,6 @@ it.each([
     expect(view.getByRole('status')).toHaveAttribute('aria-label', `NexusVoice: ${expected}`)
   }
   expect(vi.mocked(listen).mock.calls.filter(([name]) => name === event)).toHaveLength(1)
-})
-
-it('ignores a delayed snapshot after newer backend events and survives a renderer reload', async () => {
-  let resolveSnapshot!: (value: unknown) => void
-  vi.mocked(invoke).mockImplementation(cmd => cmd === 'get_recording_state'
-    ? new Promise(resolve => { resolveSnapshot = resolve }) : Promise.resolve(respond(cmd)))
-  const view = render(<PillApp />)
-  await waitFor(() => expect(resolveSnapshot).toBeTypeOf('function'))
-  await record('dictation-paused')
-  await act(async () => resolveSnapshot({ revision: 0, status: 'idle' }))
-  expect(view.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: dictation-paused')
-  view.unmount()
-  vi.mocked(invoke).mockImplementation(cmd => Promise.resolve(cmd === 'get_recording_state'
-    ? { revision: recordingRevision, status: 'dictation-paused' } : respond(cmd)))
-  const reloaded = render(<PillApp />)
-  await waitFor(() => expect(reloaded.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: dictation-paused'))
-  await record('processing')
-  await record('idle')
-  expect(reloaded.getByRole('status')).toHaveAttribute('aria-label', 'NexusVoice: idle')
 })
 
 it.each([
@@ -210,10 +187,10 @@ it('shrinks the window even when recording ends before expansion IPC resolves', 
     if (cmd === 'resize_pill' && (args as { expanded: boolean }).expanded) {
       return new Promise<void>(resolve => { finishExpansion = resolve })
     }
-    return Promise.resolve(respond(cmd))
+    return Promise.resolve(null)
   })
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
   await setPill({ liveTranscript: true })
   await record('recording')
   await emit('transcription-partial', { committed: 'Short recording', tentative: '' })
@@ -230,7 +207,7 @@ it('shrinks the window even when recording ends before expansion IPC resolves', 
 it('does not let a cancelled close shrink a reopened card', async () => {
   vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(100)
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
   await setPill({ liveTranscript: true })
   await record('recording')
   await emit('transcription-partial', { committed: 'First recording', tentative: '' })
@@ -308,7 +285,7 @@ it('stages idle content when a card returns directly to idle without processing'
 
 it('has one subscription per event after StrictMode remounts and cleans them all up', async () => {
   const view = render(<StrictMode><PillApp /></StrictMode>)
-  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
   for (const callbacks of listeners.values()) expect(callbacks.size).toBe(1)
   view.unmount()
   // Each subscription resolves to its unlisten; let those run.
@@ -331,7 +308,7 @@ it('unsubscribes registrations that resolve after unmount', async () => {
 it.each(['bars', 'memo'] as const)('updates %s audio levels without rendering the pill or invoking commands', async style => {
   const onRender = vi.fn()
   const view = render(<Profiler id="pill" onRender={onRender}><PillApp /></Profiler>)
-  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
   await setPill({ waveformStyle: style })
   await record('recording')
   onRender.mockClear()
@@ -345,7 +322,7 @@ it.each(['bars', 'memo'] as const)('updates %s audio levels without rendering th
 
 it('keeps a newer recording visible when late delivery or model events arrive', async () => {
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
   await record('recording')
   await record('processing')
   await record('idle')
@@ -357,7 +334,7 @@ it('keeps a newer recording visible when late delivery or model events arrive', 
 
 it('clears a capture error after the backend returns to idle', async () => {
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
   await record('recording')
   await emit('transcription-error', 'Mic access denied')
   await record('idle')
@@ -367,7 +344,7 @@ it('clears a capture error after the backend returns to idle', async () => {
 
 it('shows concurrent downloads as one figure that a finishing download never lowers', async () => {
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
   const pct = () => view.container.querySelector('.pill__pct')?.textContent
   await setDownloads([running('a', 40), running('b', 10)])
   await waitFor(() => expect(pct()).toBe('10%'))
@@ -392,7 +369,7 @@ it('picks up a download already running when the pill window opens', async () =>
 
 it('lowers the figure when a download starts mid-way, since there is more left to do', async () => {
   const view = render(<PillApp />)
-  await waitFor(() => expect(listeners.get('recording-state-changed')?.size).toBe(1))
+  await waitFor(() => expect(listeners.get('transcription-complete')?.size).toBe(1))
   const pct = () => view.container.querySelector('.pill__pct')?.textContent
   await setDownloads([running('a', 80)])
   await waitFor(() => expect(pct()).toBe('80%'))

@@ -1,18 +1,10 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { useCallback } from 'react'
+import { useMutation } from '@tanstack/react-query'
+import { useMemo } from 'react'
 import { toast } from 'sonner'
 import { commands, type DictionaryResponse } from '../../shared/bindings'
 import { createPendingDeletes, deleteWithUndo } from '../../shared/deleteWithUndo'
 import { extractErrorMessage } from '../../shared/errors'
-import { queryClient } from '../../app/queryClient'
-import { caughtUp, reads } from '../../app/sync'
-import { queryKeys } from '../../shared/queryKeys'
-
-const dictionaryOptions = {
-  queryKey: queryKeys.dictionary,
-  queryFn: () => commands.getDictionary(),
-  ...reads('dictionary'),
-}
+import { mirrored, useSlice } from '../../app/mirror'
 
 export type UpdateDictionaryArgs = {
   term: string
@@ -23,21 +15,19 @@ export type UpdateDictionaryArgs = {
 
 const pendingDeletes = createPendingDeletes()
 
+/** Every entry, sorted by term, without those waiting out their undo window. */
 export function useDictionary() {
   const ids = pendingDeletes.useIds()
-  const select = useCallback(
-    (list: DictionaryResponse[]) => (ids.size ? list.filter(entry => !ids.has(entry.id)) : list),
-    [ids],
-  )
-  return useQuery({ ...dictionaryOptions, select })
+  const entries = useSlice('dictionary', dictionary => dictionary)
+  return useMemo(() => (ids.size ? entries.filter(entry => !ids.has(entry.id)) : entries), [entries, ids])
 }
 
 /** Settles once the list shows the save, so an edited row never flashes its old text. */
 export function useUpdateDictionary() {
   return useMutation({
     mutationFn: async ({ term, replacement, id }: UpdateDictionaryArgs) => {
-      await commands.updateDictionary(term, replacement, id ?? null)
-      await caughtUp('dictionary')
+      const { rev } = await commands.updateDictionary(term, replacement, id ?? null)
+      await mirrored('dictionary', rev)
     },
     onError: (e) => toast.error(extractErrorMessage(e, 'Failed to update dictionary')),
   })
@@ -56,5 +46,3 @@ export function useDeleteDictionaryEntry() {
     commit: () => mutateAsync(entry.id),
   })
 }
-
-export const prefetchDictionary = () => queryClient.query(dictionaryOptions).catch(() => {})

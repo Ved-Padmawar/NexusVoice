@@ -6,7 +6,6 @@ import { extractErrorMessage } from '../../shared/errors'
 import { useSlice } from '../../app/mirror'
 import { useChoice } from '../../app/useChoice'
 import { takeLegacyPill } from '../../app/store/legacyPill'
-import { useRecordingState } from '../../pill/recordingState'
 import { queryKeys } from '../../shared/queryKeys'
 
 /** Devices come and go with no announcement, so each visit enumerates them again. */
@@ -31,7 +30,7 @@ export function useSetting<K extends keyof SettingsView>(
 
 /** True while the recording in progress keeps its previous `input`. */
 export function useKeptByRecording(input: RecordingInput) {
-  return useRecordingState()?.deferred.includes(input) === true
+  return useSlice('recording', recording => recording.deferred.includes(input))
 }
 
 /** The pill's saved preferences, which the pill window also follows. */

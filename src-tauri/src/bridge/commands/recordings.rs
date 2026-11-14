@@ -8,21 +8,13 @@ use tauri::{AppHandle, State};
 
 use crate::data::repositories::transcript::TranscriptRepository;
 use crate::data::Database;
-use crate::jobs::{JobSnapshot, Jobs, Previous};
+use crate::jobs::Previous;
 use crate::mirror::Committed;
 use crate::models::catalog::{self, ModelEntry};
 use crate::models::library::ModelLibrary;
-use crate::recordings::Recordings;
 use crate::settings::{SavedAudio, SavedAudioSetting, Settings};
 
 use super::error::ApiError;
-
-/// Disk the saved audio takes, pinned entries' included.
-#[tauri::command]
-#[specta::specta]
-pub fn get_saved_audio_bytes(recordings: State<'_, Recordings>) -> u64 {
-    recordings.size()
-}
 
 /// Save one part of the policy and apply it now: audio past the new limit, or
 /// all of it when switched off, is deleted before this returns. An error means
@@ -165,13 +157,6 @@ pub async fn inspect_audio_file(path: String) -> Result<AudioFileInfo, ApiError>
     })
     .await
     .expect("audio inspection panicked")
-}
-
-/// The running transcription job, then the queued ones in order.
-#[tauri::command]
-#[specta::specta]
-pub fn get_jobs(jobs: State<'_, Jobs>) -> Vec<JobSnapshot> {
-    jobs.list()
 }
 
 #[tauri::command]

@@ -34,7 +34,7 @@ export function SavedAudioSection() {
     keep: keepPick.pending?.value ?? saved.keep,
   }
   // Pinned audio, or what a failed cleanup left, stays on disk with saving off.
-  const remaining = useSavedAudioBytes().data ?? 0
+  const remaining = useSavedAudioBytes()
 
   const clear = () => {
     commands.clearSavedAudio()

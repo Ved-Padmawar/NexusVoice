@@ -34,7 +34,8 @@ use crate::recordings::Recordings;
 use crate::session::recorder::RecordingStatus;
 use crate::session::Recorder;
 use crate::settings::Settings;
-use crate::sync::{announce, lock_recovering, Topic};
+use crate::mirror::{Patch, Slice, Store};
+use crate::sync::lock_recovering;
 use crate::text::dictionary::Dictionary;
 use crate::text::remove_fillers;
 
@@ -54,7 +55,7 @@ pub enum JobKind {
 }
 
 /// A queued or running job.
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct JobSnapshot {
     pub transcript_id: i64,
@@ -168,10 +169,33 @@ struct State {
     working: bool,
 }
 
-/// Every change to the list `get_jobs` reads is announced under its lock.
-#[derive(Default)]
+impl State {
+    /// The running job, then the queued ones in order.
+    fn list(&self) -> Vec<JobSnapshot> {
+        self.running
+            .iter()
+            .map(|running| running.snapshot.clone())
+            .chain(self.queue.iter().map(Job::snapshot))
+            .collect()
+    }
+}
+
+#[derive(Clone, PartialEq)]
+struct JobList(Vec<JobSnapshot>);
+
+impl Slice for JobList {
+    fn patch(&self, rev: u64) -> Patch {
+        Patch::Jobs {
+            rev,
+            value: self.0.clone(),
+        }
+    }
+}
+
 pub struct Jobs {
     state: Mutex<State>,
+    /// What the windows see; sent by `edit` under the state's lock.
+    list: Store<JobList>,
 }
 
 /// A job found nothing to do, or could not finish.
@@ -184,15 +208,21 @@ impl From<String> for Failure {
 }
 
 impl Jobs {
-    /// The running job, then the queued ones in order.
-    pub fn list(&self) -> Vec<JobSnapshot> {
-        let state = lock_recovering(&self.state);
-        state
-            .running
-            .iter()
-            .map(|running| running.snapshot.clone())
-            .chain(state.queue.iter().map(Job::snapshot))
-            .collect()
+    pub fn new() -> Self {
+        Self {
+            state: Mutex::new(State::default()),
+            list: Store::new(JobList(Vec::new())),
+        }
+    }
+
+    /// Change the queue, and send its job list while still holding it, so the
+    /// windows see every change in order.
+    fn edit<R>(&self, change: impl FnOnce(&mut State) -> R) -> R {
+        let mut state = lock_recovering(&self.state);
+        let out = change(&mut state);
+        let list = state.list();
+        self.list.set(|shown| shown.0 = list);
+        out
     }
 
     fn has(state: &State, transcript_id: i64) -> bool {
@@ -217,11 +247,9 @@ impl Jobs {
     /// Queue `job`, re-transcriptions ahead of imports: someone is waiting on
     /// those. False when the entry already has a job.
     fn enqueue(app: &AppHandle, job: Job) -> bool {
-        let start = {
-            let jobs = app.state::<Self>();
-            let mut state = lock_recovering(&jobs.state);
-            if Self::has(&state, job.transcript_id) {
-                return false;
+        let queued = app.state::<Self>().edit(|state| {
+            if Self::has(state, job.transcript_id) {
+                return None;
             }
             let at = match job.kind {
                 JobKind::Retranscribe => state
@@ -232,8 +260,10 @@ impl Jobs {
                 JobKind::Import => state.queue.len(),
             };
             state.queue.insert(at, job);
-            announce(Topic::Jobs);
-            !std::mem::replace(&mut state.working, true)
+            Some(!std::mem::replace(&mut state.working, true))
+        });
+        let Some(start) = queued else {
+            return false;
         };
         if start {
             let app = app.clone();
@@ -246,32 +276,30 @@ impl Jobs {
     fn next(app: &AppHandle) -> Option<(Job, Arc<Stop>, Canceller)> {
         let stop = Arc::new(Stop::default());
         let canceller = Canceller::default();
-        let jobs = app.state::<Self>();
-        let mut state = lock_recovering(&jobs.state);
-        let Some(job) = state.queue.pop_front() else {
-            state.working = false;
-            return None;
-        };
-        let snapshot = JobSnapshot {
-            queued: false,
-            ..job.snapshot()
-        };
-        state.running = Some(Running {
-            snapshot,
-            stop: Arc::clone(&stop),
-            canceller: canceller.clone(),
-        });
-        announce(Topic::Jobs);
-        Some((job, stop, canceller))
+        app.state::<Self>().edit(|state| {
+            let Some(job) = state.queue.pop_front() else {
+                state.working = false;
+                return None;
+            };
+            let snapshot = JobSnapshot {
+                queued: false,
+                ..job.snapshot()
+            };
+            state.running = Some(Running {
+                snapshot,
+                stop: Arc::clone(&stop),
+                canceller: canceller.clone(),
+            });
+            Some((job, stop, canceller))
+        })
     }
 
     fn update(app: &AppHandle, change: impl FnOnce(&mut JobSnapshot)) {
-        let jobs = app.state::<Self>();
-        let mut state = lock_recovering(&jobs.state);
-        if let Some(running) = state.running.as_mut() {
-            change(&mut running.snapshot);
-            announce(Topic::Jobs);
-        }
+        app.state::<Self>().edit(|state| {
+            if let Some(running) = state.running.as_mut() {
+                change(&mut running.snapshot);
+            }
+        });
     }
 }
 
@@ -378,30 +406,22 @@ pub async fn resume(app: &AppHandle) -> Result<(), String> {
 /// Stop entry `transcript_id`'s job at once, queued or running. Too late once
 /// it is saving.
 pub async fn cancel(app: &AppHandle, transcript_id: i64) {
-    let dropped = {
-        let jobs = app.state::<Jobs>();
-        let mut state = lock_recovering(&jobs.state);
-        match &state.running {
-            // A running job reports its own end.
-            Some(running) if running.snapshot.transcript_id == transcript_id => {
-                if running.stop.cancel() {
-                    running.canceller.cancel();
-                }
-                None
+    let dropped = app.state::<Jobs>().edit(|state| match &state.running {
+        // A running job reports its own end.
+        Some(running) if running.snapshot.transcript_id == transcript_id => {
+            if running.stop.cancel() {
+                running.canceller.cancel();
             }
-            _ => {
-                let at = state
-                    .queue
-                    .iter()
-                    .position(|job| job.transcript_id == transcript_id);
-                let dropped = at.and_then(|at| state.queue.remove(at));
-                if dropped.is_some() {
-                    announce(Topic::Jobs);
-                }
-                dropped
-            }
+            None
         }
-    };
+        _ => {
+            let at = state
+                .queue
+                .iter()
+                .position(|job| job.transcript_id == transcript_id);
+            at.and_then(|at| state.queue.remove(at))
+        }
+    });
     let Some(job) = dropped else {
         return;
     };
@@ -409,8 +429,6 @@ pub async fn cancel(app: &AppHandle, transcript_id: i64) {
     if job.kind == JobKind::Import {
         discard(app, job.transcript_id).await;
     }
-    let jobs = app.state::<Jobs>();
-    let _state = lock_recovering(&jobs.state);
     let _ = JobFinished(finish_of(&job, Ok(None))).emit(app);
 }
 
@@ -430,10 +448,7 @@ fn work(app: &AppHandle) {
         if job.kind == JobKind::Import && finish.outcome != JobOutcome::Done {
             tauri::async_runtime::block_on(discard(app, job.transcript_id));
         }
-        let jobs = app.state::<Jobs>();
-        let mut state = lock_recovering(&jobs.state);
-        state.running = None;
-        announce(Topic::Jobs);
+        app.state::<Jobs>().edit(|state| state.running = None);
         let _ = JobFinished(finish).emit(app);
     }
 }

@@ -1,7 +1,6 @@
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { logger } from '../../shared/logger'
-import { prefetchDictionary } from '../../features/dictionary/queries'
 import { prefetchStats, prefetchTranscripts } from '../../features/history/queries'
 import type { StateCreator } from 'zustand'
 import type { AppState } from './useAppStore'
@@ -33,7 +32,7 @@ export const createAppSlice: StateCreator<AppState, [], [], AppSlice> = (set) =>
         }
         // Reveal the initial page with its data together, rather than moving the
         // feed after each response. Each query handles its own error state.
-        await Promise.all([prefetchTranscripts(), prefetchStats(), prefetchDictionary()])
+        await Promise.all([prefetchTranscripts(), prefetchStats()])
         set({ starting: false, startupError: null })
       })().finally(() => { startupInFlight = null })
       return startupInFlight

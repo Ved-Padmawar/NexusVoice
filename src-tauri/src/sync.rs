@@ -19,14 +19,8 @@ pub fn lock_recovering<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 pub enum Topic {
     /// `settings.json`: every preference, the active model among them.
     Settings,
-    /// Dictionary entries and their use counts.
-    Dictionary,
     /// The transcripts table: History, search and the totals.
     History,
-    /// The saved audio files.
-    SavedAudio,
-    /// The transcription job queue.
-    Jobs,
 }
 
 type Sink = Box<dyn Fn(Topic) + Send + Sync>;

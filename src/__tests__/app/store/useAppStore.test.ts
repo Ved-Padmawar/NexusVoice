@@ -43,7 +43,7 @@ describe('useAppStore — startup', () => {
     expect(first).toBe(second)
     await vi.waitFor(() => expect(finishTranscripts).toBeTypeOf('function'))
     expect(useAppStore.getState().starting).toBe(true)
-    for (const command of ['wait_for_app_ready', 'get_transcripts', 'get_usage_stats', 'get_dictionary']) {
+    for (const command of ['wait_for_app_ready', 'get_transcripts', 'get_usage_stats']) {
       expect(mockInvoke.mock.calls.filter(([cmd]) => cmd === command)).toHaveLength(1)
     }
     finishTranscripts([])

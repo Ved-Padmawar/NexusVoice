@@ -11,23 +11,45 @@ use tauri::{AppHandle, Manager};
 
 use crate::data::repositories::transcript::TranscriptRepository;
 use crate::data::Database;
+use crate::mirror::{Patch, Slice, Store};
 use crate::models::preprocess::To16k;
 use crate::settings::Settings;
-use crate::sync::{announce, Topic};
 
-/// Every file written or deleted is announced: the disk they take moves.
-/// Whether an entry offers a player is its `has_audio` flag, a History write.
+/// Bytes the saved audio takes.
+#[derive(Clone, PartialEq)]
+struct Size(u64);
+
+impl Slice for Size {
+    fn patch(&self, rev: u64) -> Patch {
+        Patch::SavedAudio { rev, value: self.0 }
+    }
+}
+
+/// Every file written or deleted measures the folder again: the disk they
+/// take moves. Whether an entry offers a player is its `has_audio` flag, a
+/// History write.
 pub struct Recordings {
     dir: PathBuf,
     /// Ids with a file when the app opened the folder, before any save could
     /// start: [`reconcile`] judges only these.
     at_launch: Vec<i64>,
+    size: Store<Size>,
 }
 
 impl Recordings {
     pub fn open(dir: PathBuf) -> Self {
         let at_launch = scan(&dir);
-        Self { dir, at_launch }
+        let size = Store::new(Size(measure(&dir)));
+        Self {
+            dir,
+            at_launch,
+            size,
+        }
+    }
+
+    fn measure(&self) {
+        let bytes = measure(&self.dir);
+        self.size.set(|size| size.0 = bytes);
     }
 
     pub fn path(&self, id: i64) -> PathBuf {
@@ -48,7 +70,7 @@ impl Recordings {
         let tmp = path.with_extension("wav.part");
         std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
-        announce(Topic::SavedAudio);
+        self.measure();
         Ok(())
     }
 
@@ -56,24 +78,24 @@ impl Recordings {
     pub fn remove(&self, id: i64) -> Result<(), String> {
         match std::fs::remove_file(self.path(id)) {
             Ok(()) => {
-                announce(Topic::SavedAudio);
+                self.measure();
                 Ok(())
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(format!("could not delete the audio of entry {id}: {e}")),
         }
     }
+}
 
-    /// Bytes the saved audio takes.
-    pub fn size(&self) -> u64 {
-        std::fs::read_dir(&self.dir).map_or(0, |entries| {
-            entries
-                .filter_map(Result::ok)
-                .filter_map(|e| e.metadata().ok())
-                .map(|m| m.len())
-                .sum()
-        })
-    }
+/// Bytes the files in `dir` take.
+fn measure(dir: &Path) -> u64 {
+    std::fs::read_dir(dir).map_or(0, |entries| {
+        entries
+            .filter_map(Result::ok)
+            .filter_map(|e| e.metadata().ok())
+            .map(|m| m.len())
+            .sum()
+    })
 }
 
 /// Ids of the WAVs in `dir`; temp files of interrupted writes are deleted.

@@ -1,6 +1,6 @@
 use chrono::NaiveDateTime;
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct DictionaryEntry {
     pub id: i64,
     pub term: String,
