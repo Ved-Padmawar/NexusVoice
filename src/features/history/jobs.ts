@@ -12,11 +12,12 @@ const jobsOptions = {
   ...reads('jobs'),
 }
 
-export function useSavedAudio() {
+/** Disk the saved audio takes, pinned entries' included. */
+export function useSavedAudioBytes() {
   return useQuery({
     queryKey: queryKeys.savedAudio,
-    queryFn: () => commands.getSavedAudio(),
-    ...reads('settings', 'savedAudio'),
+    queryFn: () => commands.getSavedAudioBytes(),
+    ...reads('savedAudio'),
   })
 }
 

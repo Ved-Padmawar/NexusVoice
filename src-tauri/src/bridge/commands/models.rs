@@ -4,11 +4,12 @@
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
+use crate::mirror::Committed;
 use crate::models::cache::EngineCache;
 use crate::models::catalog::{self, ModelEntry, Pipeline};
 use crate::models::cuda::{CudaPack, PackState};
 use crate::models::idle::ModelUnload;
-use crate::models::language::{self, AUTO};
+use crate::models::language::{self, LanguageSettings, AUTO};
 use crate::models::library::{DownloadStatus, ModelLibrary};
 use crate::models::provider::canonical_override;
 use crate::settings::Settings;
@@ -137,36 +138,7 @@ pub fn set_model_override(
     Ok(ModelLibrary::select(&app, entry)?)
 }
 
-#[derive(Debug, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct LanguageOption {
-    /// ISO code, or `auto` for the detect-per-decode sentinel.
-    pub code: String,
-    pub name: String,
-    pub is_selected: bool,
-}
-
-#[derive(Debug, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct LanguageSettings {
-    /// Whether the active model handles anything but English.
-    pub supported: bool,
-    /// Empty when `supported` is false.
-    pub options: Vec<LanguageOption>,
-}
-
-/// The picker's list with the active choice marked, `auto` first. Codes come
-/// from the catalog, so the list is complete whether or not a model has loaded.
-#[tauri::command]
-#[specta::specta]
-pub fn get_language_options(settings: State<'_, Settings>) -> LanguageSettings {
-    language_options(
-        ModelLibrary::active(&settings),
-        settings.language().as_deref(),
-    )
-}
-
-/// The same list for any model, as the import dialog's model picker needs.
+/// The language list for any model, as the import dialog's model picker needs.
 #[tauri::command]
 #[specta::specta]
 pub fn get_language_options_for(
@@ -175,60 +147,7 @@ pub fn get_language_options_for(
 ) -> Result<LanguageSettings, ApiError> {
     let entry = catalog::find(&model)
         .ok_or_else(|| ApiError::new("invalid_model", "That model isn't in the catalog."))?;
-    Ok(language_options(entry, settings.language().as_deref()))
-}
-
-fn language_options(model: &ModelEntry, saved: Option<&str>) -> LanguageSettings {
-    if !model.multilingual {
-        return LanguageSettings {
-            supported: false,
-            options: Vec::new(),
-        };
-    }
-
-    let advertised = &model.languages;
-    let active = language::resolve(saved);
-
-    // Region shown only where a language has several locales.
-    let mut named: Vec<(String, String)> = advertised
-        .iter()
-        .map(|code| {
-            let base = language::primary_of(code);
-            let regioned = advertised
-                .iter()
-                .filter(|c| language::primary_of(c) == base)
-                .count()
-                > 1;
-            (code.clone(), language::display_name(code, regioned))
-        })
-        .collect();
-    named.sort_by(|a, b| {
-        a.1.to_lowercase()
-            .cmp(&b.1.to_lowercase())
-            .then_with(|| a.0.cmp(&b.0))
-    });
-
-    let codes: Vec<&str> = named.iter().map(|(code, _)| code.as_str()).collect();
-    let selected = active
-        .and_then(|want| language::offered_for(&codes, want))
-        .map(str::to_owned);
-
-    let options = std::iter::once(LanguageOption {
-        code: AUTO.to_string(),
-        name: "Auto-detect".to_string(),
-        is_selected: active.is_none(),
-    })
-    .chain(named.into_iter().map(|(code, name)| LanguageOption {
-        is_selected: selected.as_deref() == Some(code.as_str()),
-        code,
-        name,
-    }))
-    .collect();
-
-    LanguageSettings {
-        supported: true,
-        options,
-    }
+    Ok(language::options(entry, settings.language().as_deref()))
 }
 
 #[tauri::command]
@@ -237,7 +156,7 @@ pub fn set_language(
     settings: State<'_, Settings>,
     engine: State<'_, EngineCache>,
     code: Option<String>,
-) -> Result<(), ApiError> {
+) -> Result<Committed, ApiError> {
     let model = ModelLibrary::active(&settings);
     if let Some(c) = code.as_deref() {
         if c != AUTO && !model.languages.iter().any(|l| l == c) {
@@ -247,15 +166,9 @@ pub fn set_language(
             ));
         }
     }
-    settings.set_language(code)?;
+    let committed = settings.set_language(code)?;
     engine.apply_language(&settings);
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn get_model_unload(settings: State<'_, Settings>) -> ModelUnload {
-    settings.model_unload()
+    Ok(committed)
 }
 
 /// Takes effect at the idle watcher's next check.
@@ -264,9 +177,8 @@ pub fn get_model_unload(settings: State<'_, Settings>) -> ModelUnload {
 pub fn set_model_unload(
     settings: State<'_, Settings>,
     policy: ModelUnload,
-) -> Result<(), ApiError> {
-    settings.set_model_unload(policy)?;
-    Ok(())
+) -> Result<Committed, ApiError> {
+    Ok(settings.set_model_unload(policy)?)
 }
 
 #[derive(Debug, Serialize, specta::Type)]

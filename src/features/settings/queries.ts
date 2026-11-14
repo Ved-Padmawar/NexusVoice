@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { commands, type PillSetting, type RecordingInput } from '../../shared/bindings'
+import { commands, type Committed, type PillSetting, type RecordingInput, type SettingsView } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { useSlice } from '../../app/mirror'
 import { reads } from '../../app/sync'
@@ -16,35 +16,19 @@ export function useInputDevices() {
   return useQuery({
     queryKey: queryKeys.inputDevices,
     queryFn: () => commands.listInputDevices(),
-    ...reads('settings'),
     refetchOnMount: 'always',
   })
 }
 
-/** The formatter's saved setup. Keys never leave Rust: profiles carry `hasApiKey`. */
-export function useFormatConfig() {
-  return useQuery({
-    queryKey: queryKeys.formatConfig,
-    queryFn: () => commands.getFormatConfig(),
-    ...reads('settings'),
-  })
-}
-
-export function usePasteMode(enabled: boolean) {
-  return useQuery({
-    queryKey: queryKeys.pasteMode,
-    queryFn: () => commands.getPasteMode(),
-    enabled,
-    ...reads('settings'),
-  })
-}
-
-export function useKeepMicOpen() {
-  return useQuery({
-    queryKey: queryKeys.keepMicOpen,
-    queryFn: () => commands.getKeepMicOpen(),
-    ...reads('settings'),
-  })
+/** A saved preference, and how to change it: a pick shows until it is saved. */
+export function useSetting<K extends keyof SettingsView>(
+  key: K,
+  save: (value: SettingsView[K]) => Promise<Committed>,
+  onError: (error: unknown) => void,
+) {
+  const saved = useSlice('settings', settings => settings[key])
+  const { pending, choose } = useChoice('settings', key, save, onError)
+  return [pending ? pending.value : saved, choose] as const
 }
 
 /** True while the recording in progress keeps its previous `input`. */

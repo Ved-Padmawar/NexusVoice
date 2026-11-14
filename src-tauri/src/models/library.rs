@@ -168,7 +168,12 @@ impl ModelLibrary {
 
     /// The model recordings use: the saved choice, else the hardware pick.
     pub fn active(settings: &Settings) -> &'static ModelEntry {
-        select_model(detect_backend(), settings.model().as_deref())
+        Self::active_for(settings.model().as_deref())
+    }
+
+    /// The model a `saved` choice resolves to on this hardware.
+    pub fn active_for(saved: Option<&str>) -> &'static ModelEntry {
+        select_model(detect_backend(), saved)
     }
 
     pub fn dir(&self) -> &Path {

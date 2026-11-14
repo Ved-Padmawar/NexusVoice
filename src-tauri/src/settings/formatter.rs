@@ -1,7 +1,7 @@
 //! Smart-formatting provider settings. Each provider keeps its own endpoint,
 //! so switching between them and back preserves what was entered for each.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -40,7 +40,8 @@ impl Default for FormatterSettings {
 }
 
 impl FormatterSettings {
-    pub fn view(&self, secrets: &Secrets) -> FormatterView {
+    /// The settings screen's view; `keyed` are the providers with a saved key.
+    pub fn view(&self, keyed: &BTreeSet<String>) -> FormatterView {
         FormatterView {
             enabled: self.enabled,
             provider: self.provider.clone(),
@@ -51,7 +52,7 @@ impl FormatterSettings {
                     let view = ProfileView {
                         base_url: endpoint.base_url.clone(),
                         model: endpoint.model.clone(),
-                        has_api_key: secrets.api_key(provider).is_some(),
+                        has_api_key: keyed.contains(provider),
                     };
                     (provider.clone(), view)
                 })
@@ -71,7 +72,7 @@ impl FormatterSettings {
 }
 
 /// The settings screen's view: whether a key is saved, never the key.
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct FormatterView {
     pub enabled: bool,
@@ -79,7 +80,7 @@ pub struct FormatterView {
     pub profiles: HashMap<String, ProfileView>,
 }
 
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileView {
     pub base_url: String,
@@ -113,6 +114,15 @@ impl FormatterDraft {
             return Ok(());
         }
         check_base_url(&self.profile.base_url)
+    }
+
+    /// Whether the provider has a key once `store_key` ran; `None` leaves it
+    /// as it was.
+    pub fn has_key(&self) -> Option<bool> {
+        self.profile
+            .api_key
+            .as_deref()
+            .map(|key| !key.trim().is_empty())
     }
 
     pub fn store_key(&self, secrets: &Secrets) -> Result<(), String> {

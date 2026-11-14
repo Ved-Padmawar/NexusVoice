@@ -3,9 +3,8 @@ import {
   SparkleIcon, SlidersHorizontalIcon, XIcon, CheckIcon, CheckCircleIcon, SpinnerGapIcon, WarningCircleIcon,
   PlugIcon, PlugsConnectedIcon, LinkIcon, CubeIcon, KeyIcon, LockSimpleIcon,
 } from '@phosphor-icons/react'
-import { commands } from '../../shared/bindings'
+import { commands, type Committed } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { queryKeys } from '../../shared/queryKeys'
 import { VendorMark } from '../../shared/ui/VendorMark'
 import { Button } from '../../shared/ui/Button'
 import { Modal } from '../../shared/ui/Modal'
@@ -13,10 +12,9 @@ import { Switch } from '../../shared/ui/Switch'
 import { TextInput } from '../../shared/ui/TextInput'
 import type { VendorId } from '../../shared/vendors'
 import { toast } from 'sonner'
-import { caughtUp } from '../../app/sync'
-import { useLiveChoice } from '../../app/useLiveChoice'
+import { mirrored, useSlice } from '../../app/mirror'
+import { useChoice } from '../../app/useChoice'
 import { SettingRow } from './SettingRow'
-import { useFormatConfig } from './queries'
 import { isConfigured } from './formatConfig'
 import type { FormatterDraft, FormatterView, ProfileView } from '../../shared/types'
 
@@ -45,8 +43,6 @@ const PRESETS: Preset[] = [
   { id: 'custom',     label: 'Custom',     hint: 'Any OpenAI-compatible', baseUrl: '',                      needsKey: false, modelHint: 'your-model-name' },
 ]
 
-const DEFAULT_CONFIG: FormatterView = { enabled: false, provider: 'ollama', profiles: {} }
-
 /** Host and path of a base URL, without the scheme. */
 const hostOf = (url: string) => url.replace(/^https?:\/\//, '').replace(/\/+$/, '')
 
@@ -56,11 +52,7 @@ const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Failed to
 /** Smart-formatting toggle + provider config. The formatter is an HTTP call,
  *  off by default; enabling without an endpoint opens the modal. */
 export function FormattingToggle() {
-  const { data, error } = useFormatConfig()
-  // Nothing is editable until the saved setup is here: the switch and the form
-  // start from it.
-  const loaded = data !== undefined
-  const config = data ?? DEFAULT_CONFIG
+  const config = useSlice('settings', settings => settings.formatter)
   const [modalOpen, setModalOpen] = useState(false)
   // Bumped per opening, so the form starts from the saved config each time.
   const [formKey, setFormKey] = useState(0)
@@ -69,11 +61,7 @@ export function FormattingToggle() {
     setModalOpen(true)
   }
 
-  useEffect(() => {
-    if (error) toast.error(extractErrorMessage(error, 'Could not load formatting settings'))
-  }, [error])
-
-  const { pending, choose } = useLiveChoice(queryKeys.formatConfig, saveEnabled, saveFailed)
+  const { pending, choose } = useChoice('settings', 'formatter.enabled', saveEnabled, saveFailed)
 
   const active = activeProfile(config)
   const configured = isConfigured(config.provider, active)
@@ -82,12 +70,12 @@ export function FormattingToggle() {
 
   const toggle = (next: boolean) => {
     if (next && !configured) openModal()
-    else void choose(next)
+    else choose(next)
   }
 
   // Closes once the saved setup is on screen, so the switch never flickers off.
-  const saved = () => {
-    void caughtUp('settings').then(() => setModalOpen(false))
+  const saved = ({ rev }: Committed) => {
+    void mirrored('settings', rev).then(() => setModalOpen(false))
   }
 
   const preset = PRESETS.find((p) => p.id === config.provider)
@@ -118,14 +106,14 @@ export function FormattingToggle() {
               <span className="font-semibold text-fg">No endpoint configured</span>
             )}
           </span>
-          <Button variant="chip" size="sm" disabled={!loaded} onClick={openModal} className="hover:text-accent-ink hover:ring-accent-line">
+          <Button variant="chip" size="sm" onClick={openModal} className="hover:text-accent-ink hover:ring-accent-line">
             <SlidersHorizontalIcon size={12} weight="bold" />
             Configure
           </Button>
         </div>
       }
     >
-      <Switch checked={enabled} disabled={!loaded} onChange={toggle} aria-label="Smart formatting" />
+      <Switch checked={enabled} onChange={toggle} aria-label="Smart formatting" />
 
       <Modal open={modalOpen} aria-labelledby="format-title" className="w-135" onClose={() => setModalOpen(false)}>
         <ProviderForm key={formKey} initial={config} onClose={() => setModalOpen(false)} onSaved={saved} />
@@ -141,7 +129,7 @@ function ProviderForm({
 }: {
   initial: FormatterView
   onClose: () => void
-  onSaved: () => void
+  onSaved: (committed: Committed) => void
 }) {
   const [providerId, setProviderId] = useState(initial.provider || 'ollama')
   const seed = activeProfile(initial)
@@ -226,9 +214,9 @@ function ProviderForm({
     setSaving(true)
     // Saving also enables formatting: an endpoint is configured to be used.
     try {
-      await commands.saveFormatEndpoint(draft())
+      const committed = await commands.saveFormatEndpoint(draft())
       toast.success('Smart formatting enabled')
-      onSaved()
+      onSaved(committed)
     } catch (e) {
       toast.error(extractErrorMessage(e, 'Failed to save settings'))
     } finally {

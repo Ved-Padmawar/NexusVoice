@@ -43,6 +43,12 @@ export function useSlice<S extends SliceName, R>(slice: S, select: (value: Slice
   return useSyncExternalStore(listen, () => select(valueOf(slice)))
 }
 
+/** The revision of `slice` this window holds. A read of Rust data that
+ *  depends on the slice keys on it, so a change reads it afresh. */
+export function useRevision(slice: SliceName): number {
+  return useSyncExternalStore(listen, () => held.get(slice)?.rev ?? -1)
+}
+
 /** Resolves once this window holds `slice` at `rev` or a newer revision. */
 export function mirrored(slice: SliceName, rev: number) {
   return new Promise<void>((resolve) => {

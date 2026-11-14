@@ -1,13 +1,10 @@
-import { useEffect } from 'react'
 import { TimerIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { queryKeys } from '../../shared/queryKeys'
-import { useLiveChoice } from '../../app/useLiveChoice'
 import { Select } from '../../shared/ui/Select'
 import { SettingRow } from './SettingRow'
-import { useModelUnload } from '../models/queries'
+import { useSetting } from './queries'
 import type { ModelUnload } from '../../shared/types'
 
 const OPTIONS: { value: ModelUnload; label: string }[] = [
@@ -24,15 +21,7 @@ const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Could not
 
 /** When an idle model is unloaded to free memory. */
 export function ModelUnloadSection() {
-  const { data, error } = useModelUnload()
-  const { pending, choose } = useLiveChoice(queryKeys.modelUnload, saveUnload, saveFailed)
-
-  useEffect(() => {
-    if (error) toast.error(extractErrorMessage(error, 'Could not load the unload setting'))
-  }, [error])
-
-  // The select waits for the saved value, so a late read can never overwrite a click.
-  const policy = pending ? pending.value : data ?? null
+  const [policy, choose] = useSetting('modelUnload', saveUnload, saveFailed)
 
   return (
     <SettingRow
@@ -44,9 +33,8 @@ export function ModelUnloadSection() {
         <Select
           value={policy}
           options={OPTIONS}
-          onChange={(v) => { if (v !== policy) void choose(v) }}
+          onChange={(v) => { if (v !== policy) choose(v) }}
           aria-label="Unload idle model"
-          disabled={policy === null}
         />
       </div>
     </SettingRow>

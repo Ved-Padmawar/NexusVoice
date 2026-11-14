@@ -2,7 +2,8 @@
 
 use tauri::State;
 
-use crate::settings::formatter::{FormatterDraft, FormatterView};
+use crate::mirror::Committed;
+use crate::settings::formatter::FormatterDraft;
 use crate::settings::Settings;
 use crate::text::llm::config::check_base_url;
 
@@ -10,15 +11,11 @@ use super::error::ApiError;
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_format_config(settings: State<'_, Settings>) -> FormatterView {
-    settings.formatter()
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn set_format_enabled(settings: State<'_, Settings>, enabled: bool) -> Result<(), ApiError> {
-    settings.set_formatter_enabled(enabled)?;
-    Ok(())
+pub fn set_format_enabled(
+    settings: State<'_, Settings>,
+    enabled: bool,
+) -> Result<Committed, ApiError> {
+    Ok(settings.set_formatter_enabled(enabled)?)
 }
 
 /// Save the provider modal's endpoint as the active one, and turn formatting on.
@@ -27,14 +24,13 @@ pub fn set_format_enabled(settings: State<'_, Settings>, enabled: bool) -> Resul
 pub fn save_format_endpoint(
     settings: State<'_, Settings>,
     draft: FormatterDraft,
-) -> Result<(), ApiError> {
+) -> Result<Committed, ApiError> {
     draft
         .validate()
         .map_err(|message| ApiError::new("invalid_input", message))?;
     settings
         .save_formatter_endpoint(&draft)
-        .map_err(|e| ApiError::new("settings_error", e))?;
-    Ok(())
+        .map_err(|e| ApiError::new("settings_error", e))
 }
 
 /// Send one trivial request with a draft from the provider modal. Saves

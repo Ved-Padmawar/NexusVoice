@@ -1,14 +1,11 @@
-import { useEffect } from 'react'
 import { ClipboardTextIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { queryKeys } from '../../shared/queryKeys'
 import { isWindows } from '../../shared/platform'
-import { useLiveChoice } from '../../app/useLiveChoice'
 import { Select } from '../../shared/ui/Select'
 import { SettingRow } from './SettingRow'
-import { usePasteMode } from './queries'
+import { useSetting } from './queries'
 import type { PasteMode } from '../../shared/types'
 
 const MODES: { value: PasteMode; label: string; about: string }[] = [
@@ -27,16 +24,9 @@ const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Could not
 /** How the transcript gets into the focused app. Only the Windows clipboard
  *  route has a choice: macOS always sends Cmd+V and Linux types the text. */
 export function PasteModeSection() {
-  const { data, error } = usePasteMode(isWindows)
-  const { pending, choose } = useLiveChoice(queryKeys.pasteMode, savePasteMode, saveFailed)
-
-  useEffect(() => {
-    if (error) toast.error(extractErrorMessage(error, 'Could not load the paste setting'))
-  }, [error])
+  const [mode, choose] = useSetting('pasteMode', savePasteMode, saveFailed)
 
   if (!isWindows) return null
-
-  const mode = pending ? pending.value : data ?? null
 
   return (
     <SettingRow
@@ -49,9 +39,8 @@ export function PasteModeSection() {
         <Select
           value={mode}
           options={MODES}
-          onChange={(v) => { if (v !== mode) void choose(v) }}
+          onChange={(v) => { if (v !== mode) choose(v) }}
           aria-label="Paste with"
-          disabled={mode === null}
         />
       </div>
     </SettingRow>

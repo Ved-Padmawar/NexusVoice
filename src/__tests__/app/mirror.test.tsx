@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useSlice } from '../../app/mirror'
 import { useChoice } from '../../app/useChoice'
 import type { Committed, Patch, PillTheme } from '../../shared/bindings'
-import { mirror, settingsAt } from '../utils'
+import { mirror, pillAt, settingsAt } from '../utils'
 
 const useTheme = () => useSlice('settings', settings => settings.pill.theme)
 
@@ -12,11 +12,11 @@ describe('mirror', () => {
   it('ignores a patch older than the one it holds, and starts over when the window subscribes again', async () => {
     const send = await mirror([settingsAt(0)])
     const { result } = renderHook(useTheme)
-    await send(settingsAt(2, { theme: 'dawn' }))
-    await send(settingsAt(1, { theme: 'aurora' }))
+    await send(pillAt(2, { theme: 'dawn' }))
+    await send(pillAt(1, { theme: 'aurora' }))
     expect(result.current).toBe('dawn')
 
-    await act(async () => { await mirror([settingsAt(0, { theme: 'glass' })]) })
+    await act(async () => { await mirror([pillAt(0, { theme: 'glass' })]) })
     expect(result.current).toBe('glass')
   })
 })
@@ -50,9 +50,9 @@ describe('useChoice', () => {
     await writes[0].commit(1)
     expect(writes.map(w => w.value)).toEqual(['aurora', 'glass'])
     await writes[1].commit(2)
-    await send(settingsAt(1, { theme: 'aurora' }))
+    await send(pillAt(1, { theme: 'aurora' }))
     expect(result.current.pending?.value).toBe('glass')
-    await send(settingsAt(2, { theme: 'glass' }))
+    await send(pillAt(2, { theme: 'glass' }))
     expect(result.current.pending).toBeNull()
     expect(result.current.saved).toBe('glass')
   })
@@ -64,6 +64,18 @@ describe('useChoice', () => {
     expect(onError).toHaveBeenCalledWith({ code: 'io', message: 'disk full' })
     expect(result.current.pending).toBeNull()
     expect(result.current.saved).toBe('steel')
+  })
+
+  it('says nothing when an older pick fails with a newer one waiting, and saves the newer', async () => {
+    const { result } = renderChoice('superseded')
+    act(() => { result.current.choose('aurora'); result.current.choose('dawn') })
+    await writes[0].refuse()
+    expect(onError).not.toHaveBeenCalled()
+    expect(result.current.pending?.value).toBe('dawn')
+    await writes[1].commit(1)
+    await send(pillAt(1, { theme: 'dawn' }))
+    expect(result.current.pending).toBeNull()
+    expect(result.current.saved).toBe('dawn')
   })
 
   it('keeps one queue for a value when its screen closes and reopens mid-save', async () => {

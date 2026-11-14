@@ -57,23 +57,6 @@ export function useActiveModel() {
   })
 }
 
-/** The active model's languages, with the saved one marked. */
-export function useLanguageOptions() {
-  return useQuery({
-    queryKey: queryKeys.languageOptions,
-    queryFn: () => commands.getLanguageOptions(),
-    ...reads('settings'),
-  })
-}
-
-export function useModelUnload() {
-  return useQuery({
-    queryKey: queryKeys.modelUnload,
-    queryFn: () => commands.getModelUnload(),
-    ...reads('settings'),
-  })
-}
-
 const downloadsOptions = {
   queryKey: queryKeys.downloads,
   queryFn: async (): Promise<Downloads> => Object.fromEntries(

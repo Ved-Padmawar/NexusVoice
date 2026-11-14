@@ -1,12 +1,11 @@
-import { useEffect, memo } from 'react'
+import { memo } from 'react'
 import { TranslateIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { queryKeys } from '../../shared/queryKeys'
-import { useLiveChoice } from '../../app/useLiveChoice'
+import { useSlice } from '../../app/mirror'
+import { useChoice } from '../../app/useChoice'
 import { Select } from '../../shared/ui/Select'
-import { useLanguageOptions } from '../models/queries'
 import { useKeptByRecording } from './queries'
 
 /** Matches `models::language::AUTO`. */
@@ -19,21 +18,17 @@ const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Could not
 
 /** What you dictate in, as a compact picker for the Voice toolbar. */
 export const LanguageSection = memo(function LanguageSection() {
-  const { data, error } = useLanguageOptions()
-  const { pending, choose } = useLiveChoice(queryKeys.languageOptions, saveLanguage, saveFailed)
+  const language = useSlice('settings', settings => settings.language)
+  const { pending, choose } = useChoice('settings', 'language', saveLanguage, saveFailed)
   const kept = useKeptByRecording('language')
 
-  useEffect(() => {
-    if (error) toast.error(extractErrorMessage(error, 'Could not load languages'))
-  }, [error])
-
-  const supported = data?.supported === true
+  const { supported } = language
   // An English-only model shows English as its value, not as a faint placeholder.
-  const options = supported ? data.options.map(o => ({ value: o.code, label: o.name, dividerAfter: o.code === AUTO })) : ENGLISH_ONLY
-  const selected = supported ? (pending ? pending.value : data.options.find(o => o.isSelected)?.code ?? AUTO) : data ? ENGLISH : null
+  const options = supported ? language.options.map(o => ({ value: o.code, label: o.name, dividerAfter: o.code === AUTO })) : ENGLISH_ONLY
+  const selected = supported ? (pending ? pending.value : language.options.find(o => o.isSelected)?.code ?? AUTO) : ENGLISH
 
   let tip = 'Language: what you dictate in'
-  if (!supported && data) tip = 'This model only understands English'
+  if (!supported) tip = 'This model only understands English'
   else if (kept) tip = 'Saved. This recording keeps the previous one.'
 
   return (
@@ -41,7 +36,7 @@ export const LanguageSection = memo(function LanguageSection() {
       <Select
         value={selected}
         options={options}
-        onChange={(v) => { if (v !== selected) void choose(v) }}
+        onChange={(v) => { if (v !== selected) choose(v) }}
         aria-label="Language"
         placeholder="Language"
         icon={<TranslateIcon size={14} weight="bold" />}

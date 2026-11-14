@@ -5,7 +5,7 @@ import { invoke, type Channel } from '@tauri-apps/api/core'
 import { vi } from 'vitest'
 import { queryClient } from '../app/queryClient'
 import { mirrorRust } from '../app/mirror'
-import type { Patch, PillSettings } from '../shared/bindings'
+import type { Patch, PillSettings, SettingsView } from '../shared/bindings'
 
 /** Render against the app's own client, which event handlers also write to. */
 export function renderWithQuery(ui: ReactElement) {
@@ -13,11 +13,24 @@ export function renderWithQuery(ui: ReactElement) {
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>)
 }
 
-const DEFAULT_PILL: PillSettings = { theme: 'steel', waveformStyle: 'bars', liveTranscript: false, startSound: false }
+const DEFAULT_SETTINGS: SettingsView = {
+  language: { supported: false, options: [] },
+  modelUnload: 'never',
+  inputDevice: null,
+  keepMicOpen: false,
+  savedAudio: { enabled: true, keep: 10 },
+  pasteMode: 'auto',
+  formatter: { enabled: false, provider: 'ollama', profiles: {} },
+  pill: { theme: 'steel', waveformStyle: 'bars', liveTranscript: false, startSound: false },
+}
+
+/** The settings slice at `rev`, changed from the defaults by `change`. */
+export const settingsAt = (rev: number, change: Partial<SettingsView> = {}): Patch =>
+  ({ slice: 'settings', rev, value: { ...DEFAULT_SETTINGS, ...change } })
 
 /** The settings slice at `rev`, with `pill` changed from the defaults. */
-export const settingsAt = (rev: number, pill: Partial<PillSettings> = {}): Patch =>
-  ({ slice: 'settings', rev, value: { pill: { ...DEFAULT_PILL, ...pill } } })
+export const pillAt = (rev: number, pill: Partial<PillSettings>): Patch =>
+  settingsAt(rev, { pill: { ...DEFAULT_SETTINGS.pill, ...pill } })
 
 /** Mirror `snapshot` as Rust's state, as each window does before its first
  *  render. Returns how Rust sends this window a later patch. */

@@ -19,6 +19,7 @@ import {
   NO_FILTERS,
 } from './queries'
 import type { TranscriptFilters } from '../../shared/queryKeys'
+import { useSlice } from '../../app/mirror'
 import { ROUTES } from '../../app/routes'
 import { cn, fmtTime, fmtDate, parseSqliteDate } from '../../shared/utils'
 import { Button } from '@/shared/ui/Button'
@@ -29,7 +30,7 @@ import { TextInput } from '@/shared/ui/TextInput'
 import { SectionState } from '../../shared/ui/SectionState'
 import { AudioPlayer } from './AudioPlayer'
 import { ImportControls } from './ImportFlow'
-import { cancelJob, useHasJob, useJobs, useSavedAudio } from './jobs'
+import { cancelJob, useHasJob, useJobs } from './jobs'
 import { ACTION_BUTTON, PinButton, RetranscribeButton } from './RowActions'
 import type { Transcript } from '../../shared/types'
 
@@ -706,8 +707,7 @@ export function Dashboard() {
   // skeleton is replaced, which changes no effect dependency — an effect would
   // read a null ref and never re-run.
   const { fetchNextPage, hasNextPage, isFetching } = active
-  const saved = useSavedAudio().data
-  const keep = saved?.enabled ? saved.keep : 0
+  const keep = useSlice('settings', settings => (settings.savedAudio.enabled ? settings.savedAudio.keep : 0))
   // Only an unfiltered feed shows where the audio limit falls.
   const wholeFeed = !isSearchMode && !isFiltered(filters)
   const { groups, boundaryId } = useMemo(() => {

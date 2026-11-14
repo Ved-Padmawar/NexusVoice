@@ -1,13 +1,12 @@
-import { useEffect } from 'react'
 import { MinusIcon, PlusIcon, TrashIcon, WaveformIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { queryKeys } from '../../shared/queryKeys'
 import { cn } from '../../shared/utils'
-import { useLiveChoice } from '../../app/useLiveChoice'
+import { useSlice } from '../../app/mirror'
+import { useChoice } from '../../app/useChoice'
 import { Switch } from '../../shared/ui/Switch'
-import { useImporting, useSavedAudio } from '../history/jobs'
+import { useImporting, useSavedAudioBytes } from '../history/jobs'
 import { SettingRow, SettingsCard } from './SettingRow'
 
 const MIN_KEEP = 1
@@ -24,22 +23,18 @@ const stepper = 'grid size-7 cursor-pointer place-items-center text-fg-2 hover:t
 
 /** Whether History entries keep their audio for replay and re-transcribing, and for how many. */
 export function SavedAudioSection() {
-  const { data, error } = useSavedAudio()
-  const enabledPick = useLiveChoice(queryKeys.savedAudio, saveEnabled, saveFailed, 'enabled')
-  const keepPick = useLiveChoice(queryKeys.savedAudio, saveKeep, saveFailed, 'keep')
+  const saved = useSlice('settings', settings => settings.savedAudio)
+  const enabledPick = useChoice('settings', 'savedAudio.enabled', saveEnabled, saveFailed)
+  const keepPick = useChoice('settings', 'savedAudio.keep', saveKeep, saveFailed)
   // Mirrors Rust, which won't clear while imported files still need their audio.
   const importing = useImporting()
 
-  useEffect(() => {
-    if (error) toast.error(extractErrorMessage(error, 'Could not load the audio setting'))
-  }, [error])
-
-  const shown = data && {
-    enabled: enabledPick.pending?.value ?? data.enabled,
-    keep: keepPick.pending?.value ?? data.keep,
+  const shown = {
+    enabled: enabledPick.pending?.value ?? saved.enabled,
+    keep: keepPick.pending?.value ?? saved.keep,
   }
   // Pinned audio, or what a failed cleanup left, stays on disk with saving off.
-  const remaining = data?.bytes ?? 0
+  const remaining = useSavedAudioBytes().data ?? 0
 
   const clear = () => {
     commands.clearSavedAudio()
@@ -58,20 +53,20 @@ export function SavedAudioSection() {
         tip="Lets you replay or re-transcribe an entry from History. Dictations and imported files share the limit. Stored as WAV, about 1.9 MB a minute. Pinned entries always keep theirs, and a file still being transcribed keeps its audio until it finishes, even with this off."
         description={
           <p className="text-xs text-muted tabular-nums">
-            {shown?.enabled ? `Last ${shown.keep} entries · ${fmtBytes(remaining)}` : remaining ? `Off · ${fmtBytes(remaining)} still saved` : 'Off'}
+            {shown.enabled ? `Last ${shown.keep} entries · ${fmtBytes(remaining)}` : remaining ? `Off · ${fmtBytes(remaining)} still saved` : 'Off'}
           </p>
         }
       >
         <span
-          className={cn('inline-flex shrink-0 items-center rounded-lg bg-field ring-1 ring-line-soft transition-opacity ring-inset', !shown?.enabled && 'pointer-events-none opacity-40')}
+          className={cn('inline-flex shrink-0 items-center rounded-lg bg-field ring-1 ring-line-soft transition-opacity ring-inset', !shown.enabled && 'pointer-events-none opacity-40')}
           data-tip="How many recent entries keep their audio"
           data-tip-align="end"
         >
-          <button type="button" aria-label="Fewer" disabled={!shown || shown.keep <= MIN_KEEP} onClick={() => shown && void keepPick.choose(shown.keep - 1)} className={stepper}>
+          <button type="button" aria-label="Fewer" disabled={shown.keep <= MIN_KEEP} onClick={() => keepPick.choose(shown.keep - 1)} className={stepper}>
             <MinusIcon size={11} weight="bold" />
           </button>
-          <b className="w-7 text-center text-sm font-semibold text-fg tabular-nums">{shown?.keep ?? '–'}</b>
-          <button type="button" aria-label="More" disabled={!shown || shown.keep >= MAX_KEEP} onClick={() => shown && void keepPick.choose(shown.keep + 1)} className={stepper}>
+          <b className="w-7 text-center text-sm font-semibold text-fg tabular-nums">{shown.keep}</b>
+          <button type="button" aria-label="More" disabled={shown.keep >= MAX_KEEP} onClick={() => keepPick.choose(shown.keep + 1)} className={stepper}>
             <PlusIcon size={11} weight="bold" />
           </button>
         </span>
@@ -82,15 +77,14 @@ export function SavedAudioSection() {
           data-tip-align="end"
           disabled={importing}
           onClick={clear}
-          className={cn('grid size-7 shrink-0 cursor-pointer place-items-center rounded-lg text-muted hover:bg-danger-soft hover:text-danger disabled:pointer-events-none disabled:opacity-40', !shown?.enabled && !remaining && 'invisible')}
+          className={cn('grid size-7 shrink-0 cursor-pointer place-items-center rounded-lg text-muted hover:bg-danger-soft hover:text-danger disabled:pointer-events-none disabled:opacity-40', !shown.enabled && !remaining && 'invisible')}
         >
           <TrashIcon size={14} />
         </button>
         <Switch
           aria-label="Saved audio"
-          checked={shown?.enabled ?? false}
-          disabled={!shown}
-          onChange={(enabled) => void enabledPick.choose(enabled)}
+          checked={shown.enabled}
+          onChange={enabledPick.choose}
         />
       </SettingRow>
     </SettingsCard>

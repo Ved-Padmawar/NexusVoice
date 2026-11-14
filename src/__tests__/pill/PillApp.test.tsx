@@ -8,7 +8,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { PillApp } from '../../pill/PillApp'
 import { followRust } from '../../app/sync'
 import type { Patch, PillSettings } from '../../shared/bindings'
-import { mirror, settingsAt } from '../utils'
+import { mirror, pillAt } from '../utils'
 
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({ setAlwaysOnTop: vi.fn().mockResolvedValue(undefined), startDragging: vi.fn().mockResolvedValue(undefined) }) }))
 vi.mock('../../shared/ui/WaveformCanvas', () => ({ WaveformCanvas: () => <canvas /> }))
@@ -41,7 +41,7 @@ const respond = (cmd: string): unknown => ({
 /** Rust saved a change to the pill's preferences and sent it. */
 let sendPatch: (patch: Patch) => Promise<void>
 let settingsRev = 0
-const setPill = (change: Partial<PillSettings>) => sendPatch(settingsAt(++settingsRev, change))
+const setPill = (change: Partial<PillSettings>) => sendPatch(pillAt(++settingsRev, change))
 /** Rust's download list changed and was announced. */
 const setDownloads = async (next: Download[]) => {
   downloads = next

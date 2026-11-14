@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { FileAudioIcon, UploadSimpleIcon, WaveformIcon, XIcon } from '@phosphor-icons/react'
@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import { commands, type AudioFileInfo } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { queryKeys } from '../../shared/queryKeys'
-import { reads } from '../../app/sync'
+import { useRevision } from '../../app/mirror'
 import { fmtClock } from '../../shared/utils'
 import { Button } from '../../shared/ui/Button'
 import { Modal } from '../../shared/ui/Modal'
@@ -134,11 +134,13 @@ function ImportModal({ file, reading, onReading, onClose }: ImportModalProps) {
 
   const options = models.data ?? []
   const model = picked ?? options.find(m => m.isActive)?.variant ?? options[0]?.variant ?? null
+  const settingsRev = useRevision('settings')
   const languages = useQuery({
-    queryKey: queryKeys.languageOptionsFor(model),
+    queryKey: queryKeys.languageOptionsFor(model, settingsRev),
     queryFn: () => commands.getLanguageOptionsFor(model ?? ''),
     enabled: file !== null && model !== null,
-    ...reads('settings'),
+    staleTime: Infinity,
+    placeholderData: keepPreviousData,
   })
   const codes = languages.data?.supported ? languages.data.options : []
   const chosen = language ?? codes.find(o => o.isSelected)?.code ?? null

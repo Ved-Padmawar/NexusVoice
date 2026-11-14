@@ -24,13 +24,10 @@ async listInputDevices() : Promise<InputDeviceInfo[]> {
 /**
  * Choose an input device by id; `None` follows the OS default.
  */
-async setInputDevice(id: string | null) : Promise<null> {
+async setInputDevice(id: string | null) : Promise<Committed> {
     return await TAURI_INVOKE("set_input_device", { id });
 },
-async getKeepMicOpen() : Promise<boolean> {
-    return await TAURI_INVOKE("get_keep_mic_open");
-},
-async setKeepMicOpen(keep: boolean) : Promise<null> {
+async setKeepMicOpen(keep: boolean) : Promise<Committed> {
     return await TAURI_INVOKE("set_keep_mic_open", { keep });
 },
 async pauseDictation() : Promise<null> {
@@ -91,10 +88,7 @@ async revealInFolder(path: string) : Promise<null> {
 async getInjectionStatus() : Promise<InjectionStatus> {
     return await TAURI_INVOKE("get_injection_status");
 },
-async getPasteMode() : Promise<PasteMode> {
-    return await TAURI_INVOKE("get_paste_mode");
-},
-async setPasteMode(mode: PasteMode) : Promise<null> {
+async setPasteMode(mode: PasteMode) : Promise<Committed> {
     return await TAURI_INVOKE("set_paste_mode", { mode });
 },
 async getHotkeys() : Promise<HotkeyBindings> {
@@ -156,28 +150,18 @@ async setModelOverride(variant: string) : Promise<null> {
     return await TAURI_INVOKE("set_model_override", { variant });
 },
 /**
- * The picker's list with the active choice marked, `auto` first. Codes come
- * from the catalog, so the list is complete whether or not a model has loaded.
- */
-async getLanguageOptions() : Promise<LanguageSettings> {
-    return await TAURI_INVOKE("get_language_options");
-},
-/**
- * The same list for any model, as the import dialog's model picker needs.
+ * The language list for any model, as the import dialog's model picker needs.
  */
 async getLanguageOptionsFor(model: string) : Promise<LanguageSettings> {
     return await TAURI_INVOKE("get_language_options_for", { model });
 },
-async setLanguage(code: string | null) : Promise<null> {
+async setLanguage(code: string | null) : Promise<Committed> {
     return await TAURI_INVOKE("set_language", { code });
-},
-async getModelUnload() : Promise<ModelUnload> {
-    return await TAURI_INVOKE("get_model_unload");
 },
 /**
  * Takes effect at the idle watcher's next check.
  */
-async setModelUnload(policy: ModelUnload) : Promise<null> {
+async setModelUnload(policy: ModelUnload) : Promise<Committed> {
     return await TAURI_INVOKE("set_model_unload", { policy });
 },
 async getHardwareProfile() : Promise<HardwareProfileResponse> {
@@ -213,16 +197,13 @@ async cancelCudaDownload() : Promise<void> {
 async removeCudaPack() : Promise<null> {
     return await TAURI_INVOKE("remove_cuda_pack");
 },
-async getFormatConfig() : Promise<FormatterView> {
-    return await TAURI_INVOKE("get_format_config");
-},
-async setFormatEnabled(enabled: boolean) : Promise<null> {
+async setFormatEnabled(enabled: boolean) : Promise<Committed> {
     return await TAURI_INVOKE("set_format_enabled", { enabled });
 },
 /**
  * Save the provider modal's endpoint as the active one, and turn formatting on.
  */
-async saveFormatEndpoint(draft: FormatterDraft) : Promise<null> {
+async saveFormatEndpoint(draft: FormatterDraft) : Promise<Committed> {
     return await TAURI_INVOKE("save_format_endpoint", { draft });
 },
 /**
@@ -279,15 +260,18 @@ async cancelRestart() : Promise<void> {
 async relaunchApp() : Promise<null> {
     return await TAURI_INVOKE("relaunch_app");
 },
-async getSavedAudio() : Promise<SavedAudioView> {
-    return await TAURI_INVOKE("get_saved_audio");
+/**
+ * Disk the saved audio takes, pinned entries' included.
+ */
+async getSavedAudioBytes() : Promise<number> {
+    return await TAURI_INVOKE("get_saved_audio_bytes");
 },
 /**
  * Save one part of the policy and apply it now: audio past the new limit, or
  * all of it when switched off, is deleted before this returns. An error means
  * the change was not saved.
  */
-async setSavedAudio(change: SavedAudioSetting) : Promise<null> {
+async setSavedAudio(change: SavedAudioSetting) : Promise<Committed> {
     return await TAURI_INVOKE("set_saved_audio", { change });
 },
 /**
@@ -475,14 +459,13 @@ session: string; selected: string | null;
 tools: InjectionTool[] }
 export type InjectionTool = { name: string; available: boolean; preferred: boolean; installHint: string }
 /**
- * A selectable microphone. `is_default` marks the OS default; `is_selected`
- * marks the saved preference.
+ * A selectable microphone. `is_default` marks the OS default.
  */
 export type InputDeviceInfo = { 
 /**
  * What to save: identical mics share a name.
  */
-id: string; name: string; isDefault: boolean; isSelected: boolean }
+id: string; name: string; isDefault: boolean }
 export type JobFinish = { transcriptId: number; kind: JobKind; outcome: JobOutcome; 
 /**
  * What a re-transcription replaced, which Undo restores.
@@ -533,7 +516,7 @@ code: string; name: string; isSelected: boolean }
 export type LanguageReset = null
 export type LanguageSettings = { 
 /**
- * Whether the active model handles anything but English.
+ * Whether the model handles anything but English.
  */
 supported: boolean; 
 /**
@@ -650,19 +633,26 @@ deferred: RecordingInput[] }
 export type RecordingStateChanged = RecordingSnapshot
 export type RecordingStatus = "idle" | "recording" | "dictation" | "dictation-paused" | "processing"
 /**
+ * Whether dictations keep their audio, and for how many of the newest ones.
+ */
+export type SavedAudio = { enabled: boolean; keep: number }
+/**
  * One saved-audio choice, changed on its own, so a quick toggle and a change
  * of the limit can't overwrite each other.
  */
 export type SavedAudioSetting = { kind: "enabled"; value: boolean } | { kind: "keep"; value: number }
-export type SavedAudioView = { enabled: boolean; keep: number; 
-/**
- * Disk the saved audio takes.
- */
-bytes: number }
 /**
  * What the windows mirror of the saved preferences. Keys never belong here.
  */
-export type SettingsView = { pill: PillSettings }
+export type SettingsView = { 
+/**
+ * The active model's languages, with the saved one marked.
+ */
+language: LanguageSettings; modelUnload: ModelUnload; 
+/**
+ * Input device id; `None` follows the OS default.
+ */
+inputDevice: string | null; keepMicOpen: boolean; savedAudio: SavedAudio; pasteMode: PasteMode; formatter: FormatterView; pill: PillSettings }
 /**
  * Whose data changed. The windows read again every query that reads it.
  */

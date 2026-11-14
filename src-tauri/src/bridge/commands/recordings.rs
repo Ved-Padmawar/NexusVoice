@@ -9,6 +9,7 @@ use tauri::{AppHandle, State};
 use crate::data::repositories::transcript::TranscriptRepository;
 use crate::data::Database;
 use crate::jobs::{JobSnapshot, Jobs, Previous};
+use crate::mirror::Committed;
 use crate::models::catalog::{self, ModelEntry};
 use crate::models::library::ModelLibrary;
 use crate::recordings::Recordings;
@@ -16,27 +17,11 @@ use crate::settings::{SavedAudio, SavedAudioSetting, Settings};
 
 use super::error::ApiError;
 
-#[derive(Debug, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct SavedAudioView {
-    pub enabled: bool,
-    pub keep: u32,
-    /// Disk the saved audio takes.
-    pub bytes: u64,
-}
-
+/// Disk the saved audio takes, pinned entries' included.
 #[tauri::command]
 #[specta::specta]
-pub fn get_saved_audio(
-    settings: State<'_, Settings>,
-    recordings: State<'_, Recordings>,
-) -> SavedAudioView {
-    let SavedAudio { enabled, keep } = settings.saved_audio();
-    SavedAudioView {
-        enabled,
-        keep,
-        bytes: recordings.size(),
-    }
+pub fn get_saved_audio_bytes(recordings: State<'_, Recordings>) -> u64 {
+    recordings.size()
 }
 
 /// Save one part of the policy and apply it now: audio past the new limit, or
@@ -48,7 +33,7 @@ pub async fn set_saved_audio(
     app: AppHandle,
     settings: State<'_, Settings>,
     change: SavedAudioSetting,
-) -> Result<(), ApiError> {
+) -> Result<Committed, ApiError> {
     if let SavedAudioSetting::Keep(keep) = change {
         if !SavedAudio::KEEP_RANGE.contains(&keep) {
             return Err(ApiError::new(
@@ -57,12 +42,12 @@ pub async fn set_saved_audio(
             ));
         }
     }
-    settings.set_saved_audio(change)?;
+    let committed = settings.set_saved_audio(change)?;
     // Pruning is its own outcome, like after a save: the next one tries again.
     if let Err(e) = crate::recordings::apply_limit(&app).await {
         log::warn!("could not apply the saved audio limit: {e}");
     }
-    Ok(())
+    Ok(committed)
 }
 
 /// Delete every unpinned entry's audio. The entries and their text stay.

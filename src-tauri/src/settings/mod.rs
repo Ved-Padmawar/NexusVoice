@@ -6,6 +6,7 @@ pub mod formatter;
 mod migrate;
 mod secrets;
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -13,6 +14,8 @@ use specta::Type;
 
 use crate::mirror::{Committed, Patch, Slice, Store};
 use crate::models::idle::ModelUnload;
+use crate::models::language::{self, LanguageSettings};
+use crate::models::library::ModelLibrary;
 use crate::sync::{announce, Topic};
 use crate::text::llm::FormatConfig;
 
@@ -159,25 +162,53 @@ struct SettingsFile {
     pill: PillSettings,
 }
 
+/// What a write can change: the file, and which providers have a key in the
+/// credential store, so building the view never asks the store.
+#[derive(Debug, Clone, PartialEq)]
+struct Saved {
+    file: SettingsFile,
+    keyed: BTreeSet<String>,
+}
+
 /// What the windows mirror of the saved preferences. Keys never belong here.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsView {
+    /// The active model's languages, with the saved one marked.
+    pub language: LanguageSettings,
+    pub model_unload: ModelUnload,
+    /// Input device id; `None` follows the OS default.
+    pub input_device: Option<String>,
+    pub keep_mic_open: bool,
+    pub saved_audio: SavedAudio,
+    pub paste_mode: PasteMode,
+    pub formatter: FormatterView,
     pub pill: PillSettings,
 }
 
-impl Slice for SettingsFile {
+impl Slice for Saved {
     fn patch(&self, rev: u64) -> Patch {
+        let file = &self.file;
+        let model = ModelLibrary::active_for(file.model.as_deref());
         Patch::Settings {
             rev,
-            value: SettingsView { pill: self.pill },
+            value: SettingsView {
+                language: language::options(model, file.language.as_deref()),
+                model_unload: file.model_unload,
+                input_device: file.input_device.clone(),
+                keep_mic_open: file.keep_mic_open,
+                saved_audio: file.saved_audio,
+                paste_mode: file.paste_mode,
+                formatter: file.formatter.view(&self.keyed),
+                pill: file.pill,
+            },
         }
     }
 }
 
 pub struct Settings {
     path: PathBuf,
-    file: Store<SettingsFile>,
+    saved: Store<Saved>,
     secrets: Secrets,
 }
 
@@ -199,25 +230,32 @@ impl Settings {
             }
             imported.file
         };
+        let keyed = file
+            .formatter
+            .endpoints
+            .keys()
+            .filter(|provider| secrets.api_key(provider).is_some())
+            .cloned()
+            .collect();
         Self {
             path,
-            file: Store::new(file),
+            saved: Store::new(Saved { file, keyed }),
             secrets,
         }
     }
 
     /// The only write: apply `change` and write the file; memory and the
     /// windows change only once the file has.
-    fn update(&self, change: impl FnOnce(&mut SettingsFile)) -> std::io::Result<Committed> {
+    fn update(&self, change: impl FnOnce(&mut Saved)) -> std::io::Result<Committed> {
         let committed = self
-            .file
-            .update(change, |next| write_atomic(&self.path, next))?;
+            .saved
+            .update(change, |next| write_atomic(&self.path, &next.file))?;
         announce(Topic::Settings);
         Ok(committed)
     }
 
     fn read<T>(&self, get: impl FnOnce(&SettingsFile) -> T) -> T {
-        self.file.read(get)
+        self.saved.read(|saved| get(&saved.file))
     }
 
     pub fn hotkeys(&self) -> HotkeyBindings {
@@ -225,7 +263,7 @@ impl Settings {
     }
 
     pub fn set_hotkeys(&self, hotkeys: HotkeyBindings) -> std::io::Result<Committed> {
-        self.update(|f| f.hotkeys = hotkeys)
+        self.update(|s| s.file.hotkeys = hotkeys)
     }
 
     pub fn model(&self) -> Option<String> {
@@ -233,7 +271,7 @@ impl Settings {
     }
 
     pub fn set_model(&self, id: Option<String>) -> std::io::Result<Committed> {
-        self.update(|f| f.model = id)
+        self.update(|s| s.file.model = id)
     }
 
     pub fn model_unload(&self) -> ModelUnload {
@@ -241,7 +279,7 @@ impl Settings {
     }
 
     pub fn set_model_unload(&self, policy: ModelUnload) -> std::io::Result<Committed> {
-        self.update(|f| f.model_unload = policy)
+        self.update(|s| s.file.model_unload = policy)
     }
 
     pub fn language(&self) -> Option<String> {
@@ -249,7 +287,7 @@ impl Settings {
     }
 
     pub fn set_language(&self, code: Option<String>) -> std::io::Result<Committed> {
-        self.update(|f| f.language = code)
+        self.update(|s| s.file.language = code)
     }
 
     pub fn input_device(&self) -> Option<String> {
@@ -257,7 +295,7 @@ impl Settings {
     }
 
     pub fn set_input_device(&self, id: Option<String>) -> std::io::Result<Committed> {
-        self.update(|f| f.input_device = id)
+        self.update(|s| s.file.input_device = id)
     }
 
     pub fn keep_mic_open(&self) -> bool {
@@ -265,7 +303,7 @@ impl Settings {
     }
 
     pub fn set_keep_mic_open(&self, keep: bool) -> std::io::Result<Committed> {
-        self.update(|f| f.keep_mic_open = keep)
+        self.update(|s| s.file.keep_mic_open = keep)
     }
 
     pub fn saved_audio(&self) -> SavedAudio {
@@ -273,7 +311,7 @@ impl Settings {
     }
 
     pub fn set_saved_audio(&self, change: SavedAudioSetting) -> std::io::Result<Committed> {
-        self.update(|f| f.saved_audio.apply(change))
+        self.update(|s| s.file.saved_audio.apply(change))
     }
 
     pub fn paste_mode(&self) -> PasteMode {
@@ -281,7 +319,7 @@ impl Settings {
     }
 
     pub fn set_paste_mode(&self, mode: PasteMode) -> std::io::Result<Committed> {
-        self.update(|f| f.paste_mode = mode)
+        self.update(|s| s.file.paste_mode = mode)
     }
 
     pub fn pill(&self) -> PillSettings {
@@ -289,22 +327,29 @@ impl Settings {
     }
 
     pub fn set_pill(&self, change: PillSetting) -> std::io::Result<Committed> {
-        self.update(|f| f.pill.apply(change))
-    }
-
-    pub fn formatter(&self) -> FormatterView {
-        self.read(|f| f.formatter.view(&self.secrets))
+        self.update(|s| s.file.pill.apply(change))
     }
 
     pub fn set_formatter_enabled(&self, enabled: bool) -> std::io::Result<Committed> {
-        self.update(|f| f.formatter.enabled = enabled)
+        self.update(|s| s.file.formatter.enabled = enabled)
     }
 
     /// The endpoint goes to the file, its key to the credential store.
     pub fn save_formatter_endpoint(&self, draft: &FormatterDraft) -> Result<Committed, String> {
         draft.store_key(&self.secrets)?;
-        self.update(|f| draft.apply(&mut f.formatter))
-            .map_err(|e| e.to_string())
+        self.update(|s| {
+            draft.apply(&mut s.file.formatter);
+            match draft.has_key() {
+                Some(true) => {
+                    s.keyed.insert(draft.provider.clone());
+                }
+                Some(false) => {
+                    s.keyed.remove(&draft.provider);
+                }
+                None => {}
+            }
+        })
+        .map_err(|e| e.to_string())
     }
 
     /// The formatter as the finalize step calls it, with its key.

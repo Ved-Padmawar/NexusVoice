@@ -3,8 +3,8 @@ import { MicrophoneIcon, ArrowsClockwiseIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { queryKeys } from '../../shared/queryKeys'
-import { useLiveChoice } from '../../app/useLiveChoice'
+import { useSlice } from '../../app/mirror'
+import { useChoice } from '../../app/useChoice'
 import { Select } from '../../shared/ui/Select'
 import { SettingRow } from './SettingRow'
 import { InputHint } from './InputHint'
@@ -36,9 +36,11 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
   const devices = devicesQuery.data ?? NO_DEVICES
   const refetchDevices = devicesQuery.refetch
   const [refreshing, setRefreshing] = useState(false)
-  const { pending, choose } = useLiveChoice(queryKeys.inputDevices, saveDevice, saveFailed)
+  const savedId = useSlice('settings', settings => settings.inputDevice)
+  const { pending, choose } = useChoice('settings', 'inputDevice', saveDevice, saveFailed)
 
-  const saved = devices.find(d => d.isSelected && !d.isDefault)?.id ?? DEFAULT_VALUE
+  // A saved mic that is unplugged, or is the OS default, shows as Default.
+  const saved = devices.find(d => d.id === savedId && !d.isDefault)?.id ?? DEFAULT_VALUE
   const selected = pending ? pending.value : saved
 
   useEffect(() => {
@@ -79,7 +81,7 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
           <Select
             value={selected}
             options={options}
-            onChange={(v) => { if (v !== selected) void choose(v) }}
+            onChange={(v) => { if (v !== selected) choose(v) }}
             aria-label="Microphone"
             disabled={devicesQuery.isPending}
           />

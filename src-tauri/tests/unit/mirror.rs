@@ -1,21 +1,38 @@
 //! A store's one write path, and what a subscribed window receives from it.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use tauri::ipc::InvokeResponseBody;
 
 use super::*;
-use crate::settings::{PillSettings, PillTheme};
+use crate::models::language::LanguageSettings;
+use crate::settings::formatter::FormatterView;
+use crate::settings::{PillSettings, PillTheme, SavedAudio};
 
 #[derive(Clone, PartialEq)]
 struct Pill(PillSettings);
 
 impl Slice for Pill {
     fn patch(&self, rev: u64) -> Patch {
-        Patch::Settings {
-            rev,
-            value: SettingsView { pill: self.0 },
-        }
+        let value = SettingsView {
+            language: LanguageSettings {
+                supported: false,
+                options: Vec::new(),
+            },
+            model_unload: crate::models::idle::ModelUnload::default(),
+            input_device: None,
+            keep_mic_open: false,
+            saved_audio: SavedAudio::default(),
+            paste_mode: crate::settings::PasteMode::default(),
+            formatter: FormatterView {
+                enabled: false,
+                provider: "ollama".into(),
+                profiles: HashMap::new(),
+            },
+            pill: self.0,
+        };
+        Patch::Settings { rev, value }
     }
 }
 

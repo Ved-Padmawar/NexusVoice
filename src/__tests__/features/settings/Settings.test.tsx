@@ -29,13 +29,7 @@ const respond = (initial: HotkeyBindings = { pushToTalk: null, dictation: null, 
     get_model_catalog: [],
     get_model_info: { modelName: 'Whisper Tiny', downloaded: true },
     list_input_devices: [],
-    get_keep_mic_open: false,
-    get_language_options: { supported: false, options: [] },
-    get_format_config: { enabled: false, provider: 'ollama', profiles: {} },
     get_recording_state: { revision: 0, status: 'idle', deferred: [] },
-    get_model_unload: 'never',
-    get_paste_mode: 'auto',
-    get_saved_audio: { enabled: true, keep: 10, bytes: 0 },
     get_jobs: [],
   } as Record<string, unknown>)[cmd])
   })
@@ -65,30 +59,6 @@ beforeEach(async () => {
   mockInvoke.mockReset()
   respond()
   await mirror()
-})
-
-describe('FormattingToggle', () => {
-  it('shows the saved setting again when turning it off fails to save', async () => {
-    const saved = {
-      enabled: true,
-      provider: 'ollama',
-      profiles: { ollama: { baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5-3b-instruct', hasApiKey: false } },
-    }
-    const base = mockInvoke.getMockImplementation()!
-    mockInvoke.mockImplementation((cmd, args) => {
-      if (cmd === 'get_format_config') return Promise.resolve(saved)
-      if (cmd === 'set_format_enabled') return Promise.reject({ code: 'io', message: 'disk full' })
-      return base(cmd, args)
-    })
-    await renderSettings()
-    const toggle = await screen.findByRole('switch', { name: /smart formatting/i })
-    await waitFor(() => expect(toggle).toBeChecked())
-
-    fireEvent.click(toggle)
-
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_format_enabled', expect.anything()))
-    await waitFor(() => expect(toggle).toBeChecked())
-  })
 })
 
 describe('HotkeySection', () => {

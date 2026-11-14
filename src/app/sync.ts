@@ -1,4 +1,4 @@
-import { focusManager, type Query, type QueryKey } from '@tanstack/react-query'
+import { focusManager, type Query } from '@tanstack/react-query'
 import { events, type Topic } from '../shared/bindings'
 import { queryClient } from './queryClient'
 
@@ -89,25 +89,4 @@ export async function caughtUp(topic: Topic) {
   const matches = readsTopic(topic)
   const onScreen = queryClient.getQueryCache().findAll({ predicate: query => matches(query) && query.isActive() })
   await Promise.all(onScreen.map(query => readNow(query).catch(() => {})))
-}
-
-/** Resolves once `queryKey` holds a successful read started after this call:
- *  this one, or, if it fails, any later one. */
-export function readAfresh(queryKey: QueryKey) {
-  const query = queryClient.getQueryCache().find({ queryKey, exact: true })
-  if (!query) return Promise.resolve()
-  return new Promise<void>((resolve) => {
-    let startedSince = false
-    const done = () => {
-      stop()
-      resolve()
-    }
-    const stop = queryClient.getQueryCache().subscribe((event) => {
-      if (event.query !== query) return
-      if (event.type === 'removed') done()
-      else if (event.type === 'updated' && event.action.type === 'fetch') startedSince = true
-      else if (event.type === 'updated' && event.action.type === 'success' && startedSince) done()
-    })
-    readNow(query).then(done, () => {})
-  })
 }

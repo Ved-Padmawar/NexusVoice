@@ -3,13 +3,12 @@ import { screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { Dashboard } from '../../../features/history/Dashboard'
 import { invoke } from '@tauri-apps/api/core'
-import { renderWithQuery } from '../../utils'
+import { mirror, renderWithQuery } from '../../utils'
 import { listen, type EventCallback } from '@tauri-apps/api/event'
 import { followRust } from '../../../app/sync'
 import type { Topic } from '../../../shared/bindings'
 import type { Transcript, UsageStats } from '../../../shared/types'
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({ onDragDropEvent: () => Promise.resolve(() => {}) }) }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
@@ -63,7 +62,6 @@ function mockBackend({ transcripts = [], search = [], stats = null, pushToTalk =
     if (cmd === 'get_daily_words') return Promise.resolve([])
     if (cmd === 'get_jobs') return Promise.resolve([])
     if (cmd === 'get_downloaded_models') return Promise.resolve([])
-    if (cmd === 'get_saved_audio') return Promise.resolve({ enabled: true, keep: 10, bytes: 0 })
     if (cmd === 'get_hotkeys') return Promise.resolve({ pushToTalk, dictation: null, dictationCommit: null })
     return Promise.resolve(undefined)
   })
@@ -83,6 +81,7 @@ beforeEach(async () => {
     return () => {}
   })
   await followRust()
+  await mirror()
 })
 
 describe('Dashboard — empty state', () => {
