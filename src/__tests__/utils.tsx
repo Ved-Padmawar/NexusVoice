@@ -14,6 +14,8 @@ export function renderWithQuery(ui: ReactElement) {
 }
 
 const DEFAULT_SETTINGS: SettingsView = {
+  activeModel: 'whisper-tiny',
+  hotkeys: { pushToTalk: null, dictation: null, dictationCommit: null },
   language: { supported: false, options: [] },
   modelUnload: 'never',
   inputDevice: null,
@@ -32,9 +34,20 @@ export const settingsAt = (rev: number, change: Partial<SettingsView> = {}): Pat
 export const pillAt = (rev: number, pill: Partial<PillSettings>): Patch =>
   settingsAt(rev, { pill: { ...DEFAULT_SETTINGS.pill, ...pill } })
 
-/** Mirror `snapshot` as Rust's state, as each window does before its first
- *  render. Returns how Rust sends this window a later patch. */
-export async function mirror(snapshot: Patch[] = [settingsAt(0)]) {
+/** Every slice as a fresh install starts. */
+const FRESH: Patch[] = [
+  settingsAt(0),
+  { slice: 'hotkeys', rev: 0, value: DEFAULT_SETTINGS.hotkeys },
+  { slice: 'models', rev: 0, value: [] },
+  { slice: 'downloads', rev: 0, value: [] },
+  { slice: 'cuda', rev: 0, value: null },
+]
+
+/** Mirror Rust's state, as each window does before its first render: `given`,
+ *  and a fresh install's value of every other slice. Returns how Rust sends
+ *  this window a later patch. */
+export async function mirror(given: Patch[] = []) {
+  const snapshot = [...given, ...FRESH.filter(patch => !given.some(g => g.slice === patch.slice))]
   let channel: Channel<Patch> | undefined
   vi.mocked(invoke).mockImplementationOnce((_cmd, args) => {
     channel = (args as { patches: Channel<Patch> }).patches

@@ -4,6 +4,7 @@
 //! slice it was sent, so it never asks for state and never shows an older one.
 
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::mem::{discriminant, Discriminant};
 use std::sync::{LazyLock, Mutex};
 
@@ -11,7 +12,9 @@ use serde::Serialize;
 use specta::Type;
 use tauri::ipc::Channel;
 
-use crate::settings::SettingsView;
+use crate::models::cuda::CudaStatus;
+use crate::models::library::{Download, DownloadedModel};
+use crate::settings::{HotkeyBindings, SettingsView};
 use crate::sync::lock_recovering;
 
 /// One slice's whole value at a revision.
@@ -19,6 +22,14 @@ use crate::sync::lock_recovering;
 #[serde(tag = "slice", rename_all = "camelCase")]
 pub enum Patch {
     Settings { rev: u64, value: SettingsView },
+    /// The shortcuts the OS granted, which can be fewer than the saved ones.
+    Hotkeys { rev: u64, value: HotkeyBindings },
+    /// The models on disk.
+    Models { rev: u64, value: Vec<DownloadedModel> },
+    /// Model downloads queued, running or failed.
+    Downloads { rev: u64, value: Vec<Download> },
+    /// The CUDA pack; `None` until the GPU has been probed.
+    Cuda { rev: u64, value: Option<CudaStatus> },
 }
 
 /// The revision a write left its store at, so the window that made it knows
@@ -56,6 +67,13 @@ impl<T: Slice> Store<T> {
         read(&lock_recovering(&self.current).value)
     }
 
+    /// The revision the store is at.
+    pub fn committed(&self) -> Committed {
+        Committed {
+            rev: lock_recovering(&self.current).rev,
+        }
+    }
+
     /// The only write. Apply `change`; if it changed anything, `persist` the
     /// result, and only once that succeeds take the next revision and send it.
     /// All under the store's lock, so the windows receive revisions in order.
@@ -74,6 +92,12 @@ impl<T: Slice> Store<T> {
             publish(current.value.patch(current.rev));
         }
         Ok(Committed { rev: current.rev })
+    }
+
+    /// The write for state that lives only in memory.
+    pub fn set(&self, change: impl FnOnce(&mut T)) -> Committed {
+        let Ok(committed) = self.update(change, |_| Ok::<(), Infallible>(()));
+        committed
     }
 }
 

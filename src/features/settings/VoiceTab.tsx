@@ -14,9 +14,9 @@ import { VendorMark } from '../../shared/ui/VendorMark'
 import { ModelManagerModal } from '../models/ModelManagerModal'
 import { vendorForFamily } from '../../shared/vendors'
 import { cn } from '../../shared/utils'
-import type { DownloadedModel, HardwareProfile } from '../../shared/types'
+import type { HardwareProfile } from '../../shared/types'
 import {
-  NO_MODELS, cancelDownload, startDownload, switchModel, useActiveModel, useCatalog, useDownload, useDownloadedModels,
+  NO_MODELS, cancelDownload, startDownload, switchModel, useActiveModelId, useCatalog, useDownload, useDownloadedModels,
 } from '../models/queries'
 import { LanguageSection } from './LanguageSection'
 import { useKeptByRecording } from './queries'
@@ -118,7 +118,7 @@ const ModelCard = memo(function ModelCard({
   onUse: (id: ModelId) => void
 }) {
   // Per-card subscription: a progress tick re-renders only this card.
-  const download = useDownload(model.id).data
+  const download = useDownload(model.id)
   const streaming = isStreaming(model)
   const vendor = vendorForFamily(model.family)
   const failed = download?.status === 'error'
@@ -222,8 +222,6 @@ const ModelCard = memo(function ModelCard({
 
 type Filter = 'all' | 'installed' | 'streaming' | 'multilingual'
 
-const NO_DOWNLOADED: DownloadedModel[] = []
-
 const FILTER_LABEL: Record<Filter, string> = {
   all: 'All', installed: 'On this PC', streaming: 'Streaming', multilingual: 'Multilingual',
 }
@@ -236,8 +234,8 @@ export function VoiceTab() {
   const [filter, setFilter] = useState<Filter>('all')
 
   const catalog = useCatalog().data ?? NO_MODELS
-  const onDisk = useDownloadedModels().data ?? NO_DOWNLOADED
-  const selected = useActiveModel().data?.id ?? null
+  const onDisk = useDownloadedModels()
+  const selected = useActiveModelId()
 
   useEffect(() => {
     commands.getHardwareProfile().then(setProfile).catch(() => {})
@@ -246,7 +244,7 @@ export function VoiceTab() {
   const onDiskVariants = useMemo(() => new Set(onDisk.map(m => m.variant)), [onDisk])
   const recommendedVariant = profile ? modelNameToId(profile.recommendedModel, catalog) : null
   // `selected` is set even with nothing downloaded, so require the file too.
-  const loadedVariant = selected && onDiskVariants.has(selected) ? selected : null
+  const loadedVariant = onDiskVariants.has(selected) ? selected : null
   const modelKept = useKeptByRecording('model')
 
   // On disk first, then the rest; smallest first. Choosing a model never reorders.

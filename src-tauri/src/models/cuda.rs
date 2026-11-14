@@ -5,7 +5,6 @@
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
@@ -14,8 +13,9 @@ use tauri_specta::Event;
 use tokio_util::sync::CancellationToken;
 
 use crate::bridge::events::{CudaDownloadComplete, CudaDownloadError};
+use crate::mirror::{Patch, Slice, Store};
 use crate::models::downloader::{describe_io, describe_request_error, download_file, CANCELLED};
-use crate::sync::{announce, lock_recovering, Topic};
+use crate::sync::lock_recovering;
 
 const PACK_DIR: &str = "cuda";
 const STAGING_DIR: &str = "cuda.next";
@@ -288,15 +288,38 @@ pub fn remove(app_data_dir: &Path) -> std::io::Result<()> {
     std::fs::remove_dir_all(&dir).or_else(|_| File::create(dir.join(REMOVE_MARKER)).map(drop))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CudaStatus {
+    /// An NVIDIA GPU on a platform the pack is built for; CUDA is hidden otherwise.
+    pub supported: bool,
+    pub pack: PackState,
+    /// Percent of the running download; `None` when idle.
+    pub download_progress: Option<u8>,
+    /// The running download is unpacking and checking the pack.
+    pub verifying: bool,
+}
+
+/// `None` until the GPU and the pack on disk have been checked.
+#[derive(Clone, PartialEq)]
+struct Status(Option<CudaStatus>);
+
+impl Slice for Status {
+    fn patch(&self, rev: u64) -> Patch {
+        Patch::Cuda {
+            rev,
+            value: self.0.clone(),
+        }
+    }
+}
+
 /// The pack in the app data dir, and the one download of it allowed at a time.
-/// Every change `get_cuda_status` would show is announced.
 pub struct CudaPack {
     app_data_dir: PathBuf,
     /// The installed pack failed its integrity check at start (see `activate`).
     damaged: bool,
     cancel: Mutex<Option<CancellationToken>>,
-    progress: AtomicU8,
-    verifying: AtomicBool,
+    status: Store<Status>,
 }
 
 impl CudaPack {
@@ -305,8 +328,7 @@ impl CudaPack {
             app_data_dir,
             damaged,
             cancel: Mutex::new(None),
-            progress: AtomicU8::new(0),
-            verifying: AtomicBool::new(false),
+            status: Store::new(Status(None)),
         }
     }
 
@@ -322,24 +344,36 @@ impl CudaPack {
     }
 
     /// Cancel any download, then delete the pack; one in use goes at the next
-    /// start.
+    /// start. Blocks on the disk.
     pub fn remove(&self) -> std::io::Result<()> {
         self.cancel();
         remove(&self.app_data_dir)?;
-        announce(Topic::Cuda);
+        self.check_pack();
         Ok(())
     }
 
-    /// Progress of the running download, or `None` when idle.
-    pub fn progress(&self) -> Option<u8> {
-        self.lock()
-            .is_some()
-            .then(|| self.progress.load(Ordering::Relaxed))
+    /// Check the GPU and the pack on disk again. Blocks on the driver and the
+    /// disk, so it runs off the main thread.
+    fn check_pack(&self) {
+        let (supported, pack) = (supported(), self.state());
+        self.status.set(|status| {
+            let status = status.0.get_or_insert(CudaStatus {
+                supported,
+                pack,
+                download_progress: None,
+                verifying: false,
+            });
+            status.supported = supported;
+            status.pack = pack;
+        });
     }
 
-    /// A finished download is being unpacked and checked.
-    pub fn verifying(&self) -> bool {
-        self.lock().is_some() && self.verifying.load(Ordering::Relaxed)
+    fn edit_download(&self, change: impl FnOnce(&mut CudaStatus)) {
+        self.status.set(|status| {
+            if let Some(status) = status.0.as_mut() {
+                change(status);
+            }
+        });
     }
 
     pub fn cancel(&self) {
@@ -351,36 +385,47 @@ impl CudaPack {
     /// Fetch the pack into staging in the background. Its end is also a
     /// notice, for the toast. A running download is left alone.
     pub fn start_download(app: &AppHandle) {
-        // Claimed before returning, so a status read right after reports it.
+        // Claimed before returning, so the status shows it at once.
         let Some(cancel) = app.state::<Self>().claim() else {
             return;
         };
-        announce(Topic::Cuda);
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             let pack = app.state::<Self>();
             let result = pack.fetch(&cancel).await;
             *pack.lock() = None;
-            announce(Topic::Cuda);
+            pack.edit_download(|status| {
+                status.download_progress = None;
+                status.verifying = false;
+            });
+            let checked = app.clone();
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                checked.state::<Self>().check_pack();
+            })
+            .await;
             match result {
                 Ok(()) => {
                     let _ = CudaDownloadComplete.emit(&app);
                 }
                 Err(e) if e == CANCELLED => {}
-                Err(e) => {
-                    log::warn!("CUDA pack download failed: {e}");
-                    let _ = CudaDownloadError(e).emit(&app);
+                Err(message) => {
+                    log::warn!("CUDA pack download failed: {message}");
+                    let after = pack.status.committed();
+                    let _ = CudaDownloadError { message, after }.emit(&app);
                 }
             }
         });
     }
 
-    /// Re-download a pack installed before verification existed.
-    pub fn replace_unverified(app: &AppHandle) {
+    /// Check the GPU and the pack at startup, and re-download a pack installed
+    /// before verification existed.
+    pub fn check_at_start(app: &AppHandle) {
         let app = app.clone();
         // NVML loads the driver library: keep it off the startup path.
         tauri::async_runtime::spawn_blocking(move || {
-            if app.state::<Self>().state() == PackState::Unverified && supported() {
+            let pack = app.state::<Self>();
+            pack.check_pack();
+            if pack.state() == PackState::Unverified && supported() {
                 log::info!("CUDA pack predates verification; downloading a verified copy");
                 Self::start_download(&app);
             }
@@ -392,8 +437,10 @@ impl CudaPack {
         if slot.is_some() {
             return None;
         }
-        self.progress.store(0, Ordering::Relaxed);
-        self.verifying.store(false, Ordering::Relaxed);
+        self.edit_download(|status| {
+            status.download_progress = Some(0);
+            status.verifying = false;
+        });
         Some(slot.insert(CancellationToken::new()).clone())
     }
 
@@ -447,8 +494,7 @@ impl CudaPack {
             self.report(done * 100 / total);
         }
 
-        self.verifying.store(true, Ordering::Relaxed);
-        announce(Topic::Cuda);
+        self.edit_download(|status| status.verifying = true);
         let (staged, expected) = (staging.clone(), manifest.clone());
         let cancelled = cancel.clone();
         tokio::task::spawn_blocking(move || {
@@ -475,9 +521,7 @@ impl CudaPack {
 
     fn report(&self, pct: u64) {
         let pct = u8::try_from(pct.min(100)).unwrap_or(100);
-        if self.progress.swap(pct, Ordering::Relaxed) != pct {
-            announce(Topic::Cuda);
-        }
+        self.edit_download(|status| status.download_progress = Some(pct));
     }
 }
 

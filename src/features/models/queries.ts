@@ -1,91 +1,69 @@
-import { useCallback } from 'react'
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { commands, events } from '../../shared/bindings'
-import { caughtUp, reads } from '../../app/sync'
+import { commands, events, type Download } from '../../shared/bindings'
+import { mirrored, useSlice } from '../../app/mirror'
 import { queryKeys } from '../../shared/queryKeys'
-import type { DownloadStatus, ModelInfo } from '../../shared/types'
-import { modelNameToId, type CatalogModel, type ModelId } from './models'
-
-export type Download = {
-  status: DownloadStatus
-  progress: number
-  error?: string | null
-}
-
-/** Every download queued, running, or holding an error, keyed by model id. */
-type Downloads = Record<string, Download>
+import type { CatalogModel, ModelId } from './models'
 
 export const NO_MODELS: CatalogModel[] = []
 
-// Dev and release share the model files, and neither hears the other's
-// changes: what is on disk is read again whenever a view opens too.
-const ON_DISK = { ...reads('models', 'settings'), refetchOnMount: 'always' } as const
-
+/** Every model the app offers; it never changes while the app runs. */
 export function useCatalog() {
   return useQuery({
     queryKey: queryKeys.catalog,
     queryFn: () => commands.getModelCatalog(),
-    ...ON_DISK,
+    staleTime: Infinity,
   })
 }
 
-/** The models on disk, with the size each takes. */
+/** The models on disk, as Rust last saw them. */
+export function useModelsOnDisk() {
+  return useSlice('models', models => models)
+}
+
+/** Dev and release share the model files and neither hears the other, so a
+ *  list of them asks Rust to look again as it opens. */
+export const rescanModels = () => { void commands.rescanModels() }
+
+/** The models on disk, looked at again as the view opens. */
 export function useDownloadedModels() {
-  return useQuery({
-    queryKey: queryKeys.downloadedModels,
-    queryFn: () => commands.getDownloadedModels(),
-    ...ON_DISK,
-  })
+  useEffect(rescanModels, [])
+  return useModelsOnDisk()
 }
 
-/** The model Rust will load, as a catalog id once the catalog is known. */
-export function useActiveModel() {
-  const catalog = useCatalog().data
-  const select = useCallback(
-    (info: ModelInfo) => ({
-      id: catalog ? modelNameToId(info.modelName, catalog) : null,
-      downloaded: info.downloaded,
-    }),
-    [catalog],
-  )
-  return useQuery({
-    queryKey: queryKeys.activeModel,
-    queryFn: () => commands.getModelInfo(),
-    select,
-    ...ON_DISK,
-  })
+/** Catalog id of the model recordings use. */
+export function useActiveModelId() {
+  return useSlice('settings', settings => settings.activeModel)
 }
 
-const downloadsOptions = {
-  queryKey: queryKeys.downloads,
-  queryFn: async (): Promise<Downloads> => Object.fromEntries(
-    (await commands.getActiveDownloads()).map(({ id, status, progress, error }) => [id, { status, progress, error }]),
-  ),
-  ...reads('downloads'),
+/** Whether the active model is on disk. */
+export function useActiveModelDownloaded() {
+  const id = useActiveModelId()
+  return useSlice('models', models => models.some(model => model.variant === id))
 }
 
-export function useDownload(id: ModelId | null) {
-  return useQuery({ ...downloadsOptions, select: (downloads: Downloads) => (id ? downloads[id] : undefined) })
+export function useDownload(id: ModelId | null): Download | undefined {
+  return useSlice('downloads', downloads => downloads.find(download => download.id === id))
 }
 
 /** The furthest-behind pending download's progress, or null when none is.
  * A finished download never lowers it; a newly started one does. */
-function summarizeDownloads(downloads: Downloads): number | null {
-  const pending = Object.values(downloads).filter(d => d.status !== 'error')
+function summarizeDownloads(downloads: Download[]): number | null {
+  const pending = downloads.filter(d => d.status !== 'error')
   if (pending.length === 0) return null
   return Math.min(...pending.map(d => d.progress))
 }
 
 /** One figure for every download in flight, so concurrent ones don't take turns. */
 export function useDownloadSummary() {
-  return useQuery({ ...downloadsOptions, select: summarizeDownloads })
+  return useSlice('downloads', summarizeDownloads)
 }
 
 /** Make `id`, a model on disk, the one Rust loads. Settles once the screen shows it. */
 export async function switchModel(id: ModelId) {
-  await commands.setModelOverride(id)
-  await caughtUp('settings')
+  const { rev } = await commands.setModelOverride(id)
+  await mirrored('settings', rev)
 }
 
 /** Resolves false when the backend refused to start the download, else once
@@ -93,8 +71,8 @@ export async function switchModel(id: ModelId) {
  * active one once it is on disk. */
 export async function startDownload(id: ModelId, { activate = false } = {}): Promise<boolean> {
   try {
-    await commands.startModelDownload(id, activate)
-    await caughtUp('downloads')
+    const { rev } = await commands.startModelDownload(id, activate)
+    await mirrored('downloads', rev)
     return true
   } catch {
     return false

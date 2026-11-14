@@ -1,13 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import App from "../../app/App";
-import { renderWithQuery } from "../utils";
+import { mirror, renderWithQuery } from "../utils";
 import { useAppStore } from "../../app/store/useAppStore";
 import { invoke } from "@tauri-apps/api/core";
-
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
-}));
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: vi.fn(() => ({
@@ -29,7 +25,7 @@ vi.mock("@tauri-apps/plugin-updater", () => ({
 }));
 
 describe("App", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.mocked(invoke).mockReset();
     vi.mocked(invoke).mockImplementation((cmd: string) => {
       if (cmd === "get_transcripts") return Promise.resolve([]);
@@ -50,6 +46,7 @@ describe("App", () => {
       // Otherwise the first-run model picker mounts over the app.
       modelChosen: true,
     });
+    await mirror();
   });
 
   it("shows the dashboard, with no sign-in step", async () => {

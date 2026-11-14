@@ -80,7 +80,7 @@ const Download = ({ onClick }: { onClick: () => void }) => (
 
 /** Download, restart into, or remove the on-demand CUDA pack. NVIDIA only. */
 function CudaCard({ activeBackend }: { activeBackend: string | null }) {
-  const cuda = useCuda().data
+  const cuda = useCuda()
   const error = useAppStore(s => s.cudaError)
 
   if (!cuda?.supported) return null
@@ -238,7 +238,7 @@ function Stat({ icon, label, value, first }: { icon: ReactNode; label: string; v
 
 export function AboutTab() {
   const [profile, setProfile] = useState<HardwareProfile | null>(null)
-  const onDisk = useDownloadedModels().data ?? []
+  const onDisk = useDownloadedModels()
 
   useEffect(() => {
     commands.getHardwareProfile().then(setProfile).catch(() => {})

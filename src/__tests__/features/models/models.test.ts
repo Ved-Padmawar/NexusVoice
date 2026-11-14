@@ -18,8 +18,6 @@ function model(overrides: Partial<CatalogModel> = {}): CatalogModel {
     multilingual: false,
     description: 'Balanced performance',
     detail: 'Great for most machines.',
-    downloaded: false,
-    isActive: false,
     ...overrides,
   }
 }

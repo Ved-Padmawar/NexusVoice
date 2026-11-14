@@ -1,25 +1,20 @@
 import { useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { relaunchApp } from '../../shared/relaunch'
 import { toast } from 'sonner'
 import { commands, events } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { caughtUp, reads } from '../../app/sync'
+import { mirrored, useSlice } from '../../app/mirror'
 import { useAppStore } from '../../app/store/useAppStore'
-import { queryKeys } from '../../shared/queryKeys'
 
+/** The CUDA pack and its download; null until Rust has probed the GPU. */
 export function useCuda() {
-  const query = useQuery({
-    queryKey: queryKeys.cuda,
-    queryFn: () => commands.getCudaStatus(),
-    ...reads('cuda'),
-  })
+  const cuda = useSlice('cuda', status => status)
   // CUDA added from About counts too: removing it later must not re-offer it.
-  const installed = query.data !== undefined && query.data.pack !== 'absent'
+  const installed = cuda !== null && cuda.pack !== 'absent'
   useEffect(() => {
     if (installed) useAppStore.setState({ cudaOfferSeen: true })
   }, [installed])
-  return query
+  return cuda
 }
 
 const setCudaError = (cudaError: string | null) => useAppStore.setState({ cudaError })
@@ -59,10 +54,10 @@ export async function listenForCudaNotices(): Promise<() => void> {
         action: { label: 'Restart', onClick: () => { void relaunchApp() } },
       })
     }),
-    events.cudaDownloadError.listen((e) => {
-      setCudaError(e.payload || 'Download failed')
+    events.cudaDownloadError.listen(({ payload: { message, after } }) => {
+      setCudaError(message || 'Download failed')
       // The offer checks the status, which must no longer show the download.
-      void caughtUp('cuda').then(() => useAppStore.getState().offerCuda())
+      void mirrored('cuda', after.rev).then(() => useAppStore.getState().offerCuda())
     }),
   ])
   return () => unlisteners.forEach(fn => fn())

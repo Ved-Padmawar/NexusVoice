@@ -1,8 +1,6 @@
 import type { StateCreator } from 'zustand'
-import { queryClient } from '../../app/queryClient'
+import { latest } from '../../app/mirror'
 import type { AppState } from '../../app/store/useAppStore'
-import { queryKeys } from '../../shared/queryKeys'
-import type { CudaStatus } from '../../shared/types'
 
 /** The CUDA dialog, and the last CUDA failure shown by it and the About tab. */
 export type CudaSlice = {
@@ -33,7 +31,7 @@ export const createCudaSlice: StateCreator<AppState, [], [], CudaSlice> = (set, 
     clearTimeout(offerTimer)
     // Re-checked when the timer fires: the picker or a download may have moved on.
     const due = () => {
-      const cuda = queryClient.getQueryData<CudaStatus>(queryKeys.cuda)
+      const cuda = latest('cuda')
       const { modelChosen, cudaOfferSeen, cudaRetryShown, cudaOfferOpen } = get()
       if (!modelChosen || cudaOfferOpen || cuda?.supported !== true || cuda.downloadProgress !== null) return false
       if (cuda.pack === 'absent') return !cudaOfferSeen

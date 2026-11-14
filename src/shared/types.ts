@@ -3,7 +3,6 @@ export type {
   TranscriptResponse as Transcript,
   DictionaryResponse as DictionaryEntry,
   UsageStatsResponse as UsageStats,
-  ModelInfoResponse as ModelInfo,
   HardwareProfileResponse as HardwareProfile,
   ModelUnload,
   PasteMode,

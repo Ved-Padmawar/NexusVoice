@@ -1,15 +1,23 @@
 use super::*;
 
+/// What the windows see of the downloads.
+fn snapshot(d: &Downloads) -> Vec<Download> {
+    match d.entries.read(|entries| entries.patch(0)) {
+        Patch::Downloads { value, .. } => value,
+        other => panic!("downloads sent {other:?}"),
+    }
+}
+
 #[test]
 fn enqueue_registers_a_queued_entry() {
     let d = Downloads::new();
     assert!(d.enqueue("whisper-tiny", false).is_some());
 
-    let snap = d.snapshot();
+    let snap = snapshot(&d);
     assert_eq!(snap.len(), 1);
-    assert_eq!(snap[0].0, "whisper-tiny");
-    assert_eq!(snap[0].1, DownloadStatus::Queued);
-    assert_eq!(snap[0].2, 0);
+    assert_eq!(snap[0].id, "whisper-tiny");
+    assert_eq!(snap[0].status, DownloadStatus::Queued);
+    assert_eq!(snap[0].progress, 0);
 }
 
 #[test]
@@ -47,9 +55,9 @@ fn a_failed_download_can_be_retried() {
     d.set_error("whisper-tiny", "network unreachable".into());
 
     // An error is terminal for the run but not for the model.
-    assert_eq!(d.snapshot()[0].1, DownloadStatus::Error);
+    assert_eq!(snapshot(&d)[0].status, DownloadStatus::Error);
     assert!(d.enqueue("whisper-tiny", false).is_some());
-    assert_eq!(d.snapshot()[0].1, DownloadStatus::Queued);
+    assert_eq!(snapshot(&d)[0].status, DownloadStatus::Queued);
     // The retry is a new request: it activates only if it asks to.
     assert!(!d.activates("whisper-tiny"));
 }
@@ -61,15 +69,15 @@ fn progress_and_error_surface_in_the_snapshot() {
     d.set_running("parakeet");
     d.set_progress("parakeet", 42);
 
-    let snap = d.snapshot();
-    assert_eq!(snap[0].1, DownloadStatus::Running);
-    assert_eq!(snap[0].2, 42);
-    assert_eq!(snap[0].3, None);
+    let snap = snapshot(&d);
+    assert_eq!(snap[0].status, DownloadStatus::Running);
+    assert_eq!(snap[0].progress, 42);
+    assert_eq!(snap[0].error, None);
 
     d.set_error("parakeet", "boom".into());
-    let snap = d.snapshot();
-    assert_eq!(snap[0].1, DownloadStatus::Error);
-    assert_eq!(snap[0].3.as_deref(), Some("boom"));
+    let snap = snapshot(&d);
+    assert_eq!(snap[0].status, DownloadStatus::Error);
+    assert_eq!(snap[0].error.as_deref(), Some("boom"));
 }
 
 #[test]
@@ -105,8 +113,8 @@ fn downloads_are_tracked_independently() {
     assert!(d.cancel("a"));
     d.remove("a");
 
-    let snap = d.snapshot();
+    let snap = snapshot(&d);
     assert_eq!(snap.len(), 1);
-    assert_eq!(snap[0].0, "b");
-    assert_eq!(snap[0].1, DownloadStatus::Queued);
+    assert_eq!(snap[0].id, "b");
+    assert_eq!(snap[0].status, DownloadStatus::Queued);
 }

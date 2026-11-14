@@ -156,12 +156,12 @@ fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(EngineCache::new(models_dir.clone(), app_data_dir.clone()));
     app.manage(ModelLibrary::new(models_dir));
     app.manage(CudaPack::new(app_data_dir.clone(), cuda_damaged));
-    CudaPack::replace_unverified(app.handle());
+    CudaPack::check_at_start(app.handle());
     app.manage(Recorder::new());
     app.state::<Recorder>()
         .set_keep_mic_open(app.state::<Settings>().keep_mic_open());
     Recorder::follow_engine(app.handle());
-    app.manage(Hotkeys::default());
+    app.manage(Hotkeys::new());
     app.manage(Recordings::open(app_data_dir.join("recordings")));
     app.manage(Jobs::default());
 

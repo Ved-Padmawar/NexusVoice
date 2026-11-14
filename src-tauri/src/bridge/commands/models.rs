@@ -10,7 +10,7 @@ use crate::models::catalog::{self, ModelEntry, Pipeline};
 use crate::models::cuda::{CudaPack, PackState};
 use crate::models::idle::ModelUnload;
 use crate::models::language::{self, LanguageSettings, AUTO};
-use crate::models::library::{DownloadStatus, ModelLibrary};
+use crate::models::library::ModelLibrary;
 use crate::models::provider::canonical_override;
 use crate::settings::Settings;
 
@@ -39,18 +39,12 @@ pub struct CatalogModel {
     pub multilingual: bool,
     pub description: String,
     pub detail: String,
-    pub downloaded: bool,
-    pub is_active: bool,
 }
 
-/// The catalog with per-model download state, for the model picker.
+/// Every model the app offers. Fixed for the life of the app.
 #[tauri::command]
 #[specta::specta]
-pub fn get_model_catalog(
-    settings: State<'_, Settings>,
-    library: State<'_, ModelLibrary>,
-) -> Vec<CatalogModel> {
-    let active = ModelLibrary::active(&settings);
+pub fn get_model_catalog() -> Vec<CatalogModel> {
     catalog::all()
         .iter()
         .map(|entry| CatalogModel {
@@ -63,40 +57,15 @@ pub fn get_model_catalog(
             multilingual: entry.multilingual,
             description: entry.description.clone(),
             detail: entry.detail.clone(),
-            downloaded: library.is_downloaded(entry),
-            is_active: entry.id == active.id,
         })
         .collect()
 }
 
-#[derive(Debug, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct DownloadedModel {
-    pub variant: String,
-    pub display_name: String,
-    pub size_bytes: u64,
-    pub is_active: bool,
-}
-
+/// Look at the model files again, for a view that lists them as it opens.
 #[tauri::command]
 #[specta::specta]
-pub fn get_downloaded_models(
-    settings: State<'_, Settings>,
-    library: State<'_, ModelLibrary>,
-) -> Vec<DownloadedModel> {
-    let active = ModelLibrary::active(&settings);
-    catalog::all()
-        .iter()
-        .filter_map(|entry| {
-            let size_bytes = library.path(entry).metadata().ok()?.len();
-            Some(DownloadedModel {
-                variant: entry.id.clone(),
-                display_name: entry.display_name.clone(),
-                size_bytes,
-                is_active: entry.id == active.id,
-            })
-        })
-        .collect()
+pub fn rescan_models(library: State<'_, ModelLibrary>) -> Committed {
+    library.rescan()
 }
 
 /// Delete a downloaded model, the active one included.
@@ -106,7 +75,7 @@ pub fn delete_model(
     app: AppHandle,
     library: State<'_, ModelLibrary>,
     variant: String,
-) -> Result<(), ApiError> {
+) -> Result<Committed, ApiError> {
     let entry = catalog_entry(&variant)?;
     if !library.is_downloaded(entry) {
         return Err(ApiError::new("not_found", "That model isn't downloaded."));
@@ -130,7 +99,7 @@ pub fn set_model_override(
     app: AppHandle,
     library: State<'_, ModelLibrary>,
     variant: String,
-) -> Result<(), ApiError> {
+) -> Result<Committed, ApiError> {
     let entry = catalog_entry(&variant)?;
     if !library.is_downloaded(entry) {
         return Err(ApiError::new("not_found", "Download this model first."));
@@ -231,26 +200,6 @@ fn hardware_profile(
     }
 }
 
-#[derive(Debug, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelInfoResponse {
-    pub downloaded: bool,
-    pub model_name: String,
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn get_model_info(
-    settings: State<'_, Settings>,
-    library: State<'_, ModelLibrary>,
-) -> ModelInfoResponse {
-    let entry = ModelLibrary::active(&settings);
-    ModelInfoResponse {
-        downloaded: library.is_downloaded(entry),
-        model_name: entry.display_name.clone(),
-    }
-}
-
 /// With `activate`, the model becomes the active one once it is on disk.
 #[tauri::command]
 #[specta::specta]
@@ -259,11 +208,10 @@ pub fn start_model_download(
     library: State<'_, ModelLibrary>,
     id: String,
     activate: bool,
-) -> Result<(), ApiError> {
+) -> Result<Committed, ApiError> {
     let entry = catalog::find(&id)
         .ok_or_else(|| ApiError::new("unknown_model", "That model isn't available."))?;
-    library.start_download(&app, entry, activate);
-    Ok(())
+    Ok(library.start_download(&app, entry, activate))
 }
 
 /// A cancel pressed in the last moments of a transfer arrives after the file
@@ -272,30 +220,4 @@ pub fn start_model_download(
 #[specta::specta]
 pub fn cancel_model_download(library: State<'_, ModelLibrary>, id: String) {
     library.cancel_download(&id);
-}
-
-#[derive(Debug, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ActiveDownload {
-    pub id: String,
-    pub status: DownloadStatus,
-    pub progress: u8,
-    pub error: Option<String>,
-}
-
-/// Every download queued, running or holding an error, so the UI can
-/// rehydrate after a reload without waiting for the next event.
-#[tauri::command]
-#[specta::specta]
-pub fn get_active_downloads(library: State<'_, ModelLibrary>) -> Vec<ActiveDownload> {
-    library
-        .downloads()
-        .into_iter()
-        .map(|(id, status, progress, error)| ActiveDownload {
-            id,
-            status,
-            progress,
-            error,
-        })
-        .collect()
 }

@@ -31,7 +31,8 @@ function listen(listener: () => void) {
   return () => { listeners.delete(listener) }
 }
 
-function valueOf<S extends SliceName>(slice: S): Slices[S] {
+/** `slice` as this window holds it now, for code outside a component. */
+export function latest<S extends SliceName>(slice: S): Slices[S] {
   const current = held.get(slice)
   if (!current) throw new Error(`Rust has not sent the ${slice} state`)
   return current.value as Slices[S]
@@ -40,7 +41,7 @@ function valueOf<S extends SliceName>(slice: S): Slices[S] {
 /** Part of a slice. `select` returns part of the value, never a new object, so
  *  a component redraws only when that part changes. */
 export function useSlice<S extends SliceName, R>(slice: S, select: (value: Slices[S]) => R): R {
-  return useSyncExternalStore(listen, () => select(valueOf(slice)))
+  return useSyncExternalStore(listen, () => select(latest(slice)))
 }
 
 /** The revision of `slice` this window holds. A read of Rust data that

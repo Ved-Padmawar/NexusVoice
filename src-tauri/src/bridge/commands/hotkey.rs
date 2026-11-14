@@ -2,24 +2,11 @@
 
 use tauri::{AppHandle, State};
 
+use crate::mirror::Committed;
 use crate::platform::hotkeys::{HotkeyKind, Hotkeys};
-use crate::settings::{HotkeyBindings, Settings};
+use crate::settings::Settings;
 
 use super::error::ApiError;
-
-#[tauri::command]
-#[specta::specta]
-pub fn get_hotkeys(settings: State<'_, Settings>) -> HotkeyBindings {
-    settings.hotkeys()
-}
-
-/// What is bound with the OS right now. A saved shortcut another application
-/// holds is saved but missing here.
-#[tauri::command]
-#[specta::specta]
-pub async fn get_bound_hotkeys(hotkeys: State<'_, Hotkeys>) -> Result<HotkeyBindings, ApiError> {
-    Ok(hotkeys.bound().await)
-}
 
 /// Bind `hotkey` to `kind`, or unbind it with `None`.
 #[tauri::command]
@@ -30,7 +17,7 @@ pub async fn set_hotkey(
     settings: State<'_, Settings>,
     kind: HotkeyKind,
     hotkey: Option<String>,
-) -> Result<(), ApiError> {
+) -> Result<Committed, ApiError> {
     let hotkey = hotkey.map(normalize_hotkey).transpose()?;
     Ok(hotkeys.set(&app, &settings, kind, hotkey).await?)
 }

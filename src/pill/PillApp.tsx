@@ -92,7 +92,7 @@ export function PillApp() {
   const [session, setSession] = useState<SessionState>('idle')
   const [errorMsg, setErrorMsg] = useState('')
   // From Rust's download registry, shared with the Voice tab. Null when idle.
-  const downloadPct = useDownloadSummary().data ?? null
+  const downloadPct = useDownloadSummary()
   // Downloads show only when nothing else needs the pill.
   const state: PillState = session === 'idle' && downloadPct !== null ? 'downloading' : session
   const [tooltip, setTooltip] = useState('')

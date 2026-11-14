@@ -12,7 +12,7 @@ import { fmtClock } from '../../shared/utils'
 import { Button } from '../../shared/ui/Button'
 import { Modal } from '../../shared/ui/Modal'
 import { Select } from '../../shared/ui/Select'
-import { useDownloadedModels } from '../models/queries'
+import { useActiveModelId, useDownloadedModels } from '../models/queries'
 
 const EXTENSIONS = ['wav', 'mp3', 'm4a', 'aac', 'flac', 'ogg', 'opus']
 
@@ -128,12 +128,12 @@ type ImportModalProps = {
 }
 
 function ImportModal({ file, reading, onReading, onClose }: ImportModalProps) {
-  const models = useDownloadedModels()
+  const options = useDownloadedModels()
+  const activeId = useActiveModelId()
   const [picked, setPicked] = useState<string | null>(null)
   const [language, setLanguage] = useState<string | null>(null)
 
-  const options = models.data ?? []
-  const model = picked ?? options.find(m => m.isActive)?.variant ?? options[0]?.variant ?? null
+  const model = picked ?? options.find(m => m.variant === activeId)?.variant ?? options[0]?.variant ?? null
   const settingsRev = useRevision('settings')
   const languages = useQuery({
     queryKey: queryKeys.languageOptionsFor(model, settingsRev),
@@ -183,7 +183,7 @@ function ImportModal({ file, reading, onReading, onClose }: ImportModalProps) {
           <Select
             value={model}
             aria-label="Model"
-            options={options.map(m => ({ value: m.variant, label: m.isActive ? `${m.displayName} (active)` : m.displayName }))}
+            options={options.map(m => ({ value: m.variant, label: m.variant === activeId ? `${m.displayName} (active)` : m.displayName }))}
             onChange={(value) => { setPicked(value); setLanguage(null) }}
             disabled={options.length === 0}
           />

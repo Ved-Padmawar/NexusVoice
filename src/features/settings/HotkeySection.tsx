@@ -7,8 +7,7 @@ import { SUPER_KEY_LABEL } from '../../shared/platform'
 import type { HotkeyKind } from '../../shared/types'
 import { Button } from '../../shared/ui/Button'
 import { Kbd } from '../../shared/ui/Kbd'
-import { useBoundHotkeys, useHotkeys } from './queries'
-import { caughtUp } from '../../app/sync'
+import { mirrored, useSlice } from '../../app/mirror'
 
 type HotkeyConfig = {
   kind: HotkeyKind
@@ -149,8 +148,8 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
     suspendedRef.current = false
     setSaving(true)
     try {
-      await commands.setHotkey(config.kind, shortcut)
-      await caughtUp('settings')
+      const { rev } = await commands.setHotkey(config.kind, shortcut)
+      await mirrored('settings', rev)
       toast.success(`${config.title} hotkey saved`)
     } catch (e: unknown) {
       // A failed save ends the edit, so the saved shortcuts come back now.
@@ -166,8 +165,8 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
 
   const handleRemoveHotkey = async () => {
     try {
-      await commands.setHotkey(config.kind, null)
-      await caughtUp('settings')
+      const { rev } = await commands.setHotkey(config.kind, null)
+      await mirrored('settings', rev)
     } catch (e: unknown) {
       toast.error(extractErrorMessage(e, `Failed to remove the ${config.title.toLowerCase()} hotkey.`))
     }
@@ -268,15 +267,14 @@ const HOTKEY_CONFIGS: HotkeyConfig[] = [
 ]
 
 export function HotkeySection() {
-  const hotkeys = useHotkeys().data
-  const bound = useBoundHotkeys().data
+  const hotkeys = useSlice('settings', settings => settings.hotkeys)
+  const bound = useSlice('hotkeys', granted => granted)
 
   return (
     <div className="flex flex-col divide-y divide-line-soft rounded-2xl bg-panel ring-1 ring-line-soft ring-inset">
       {HOTKEY_CONFIGS.map(config => {
-        const saved = hotkeys?.[config.kind] ?? null
-        // Until the OS state is read, assume it matches rather than flash a warning.
-        const inactive = saved !== null && bound !== undefined && bound[config.kind] !== saved
+        const saved = hotkeys[config.kind]
+        const inactive = saved !== null && bound[config.kind] !== saved
         return <HotkeyCard key={config.kind} config={config} currentHotkey={saved} inactive={inactive} />
       })}
     </div>

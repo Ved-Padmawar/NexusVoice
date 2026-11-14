@@ -91,7 +91,7 @@ function App() {
   }, [])
 
   // Not tied to setup: new installs see it once the picker closes, upgrades on launch.
-  const cudaKnown = useCuda().data !== undefined
+  const cudaKnown = useCuda() !== null
   useEffect(() => {
     if (!starting && modelChosen && cudaKnown) useAppStore.getState().offerCuda()
   }, [starting, modelChosen, cudaKnown])

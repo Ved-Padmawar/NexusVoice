@@ -7,7 +7,7 @@ import { extractErrorMessage } from '../../shared/errors'
 import { cn } from '../../shared/utils'
 import { formatModelSize, isStreaming, modelNameToId, sortForDisplay, type ModelId } from './models'
 import {
-  NO_MODELS, startDownload, useActiveModel, useCatalog, useDownload,
+  NO_MODELS, startDownload, useActiveModelDownloaded, useActiveModelId, useCatalog, useDownload,
 } from './queries'
 import { useAppStore } from '../../app/store/useAppStore'
 import { Button } from '../../shared/ui/Button'
@@ -28,14 +28,13 @@ export function ModelPickerModal() {
   const loadError = catalogQuery.isError ? 'Could not load the model catalog.' : hardwareError ?? startError
 
   // Returning user whose modelChosen got reset but model is on disk: skip the
-  // modal. Judged on the first read only; later ones follow the user's pick.
-  const active = useActiveModel().data
-  const judged = useRef(false)
+  // modal. Judged as it opens only; later changes follow the user's pick.
+  const activeId = useActiveModelId()
+  const activeDownloaded = useActiveModelDownloaded()
+  const [onDiskAtOpen] = useState(activeDownloaded)
   useEffect(() => {
-    if (!active || judged.current) return
-    judged.current = true
-    if (active.downloaded) setModelChosen(true)
-  }, [active, setModelChosen])
+    if (onDiskAtOpen) setModelChosen(true)
+  }, [onDiskAtOpen, setModelChosen])
 
   useEffect(() => {
     if (catalog.length === 0) return
@@ -82,9 +81,9 @@ export function ModelPickerModal() {
     if (id === awaiting.current) backToChoice()
   })
 
-  const download = useDownload(selected).data
+  const download = useDownload(selected)
   // Close once Rust reports the pick active and on disk.
-  const switched = active?.id === selected && active.downloaded
+  const switched = activeId === selected && activeDownloaded
   useEffect(() => {
     if (confirmed && switched) setModelChosen(true)
   }, [confirmed, switched, setModelChosen])

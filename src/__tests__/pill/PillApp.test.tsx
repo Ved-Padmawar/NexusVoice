@@ -7,7 +7,7 @@ import { listen, type EventCallback } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { PillApp } from '../../pill/PillApp'
 import { followRust } from '../../app/sync'
-import type { Patch, PillSettings } from '../../shared/bindings'
+import type { Download, Patch, PillSettings } from '../../shared/bindings'
 import { mirror, pillAt } from '../utils'
 
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({ setAlwaysOnTop: vi.fn().mockResolvedValue(undefined), startDragging: vi.fn().mockResolvedValue(undefined) }) }))
@@ -30,23 +30,16 @@ const emit = async (event: string, payload: unknown = null) => {
 let recordingRevision = 0
 const record = (status: string) => emit('recording-state-changed', { revision: ++recordingRevision, status })
 
-type Download = { id: string; status: 'queued' | 'running' | 'error'; progress: number; error: string | null }
-/** What Rust holds, as its read commands return it. */
-let downloads: Download[] = []
 const respond = (cmd: string): unknown => ({
   get_recording_state: { revision: 0, status: 'idle' },
-  get_active_downloads: downloads,
 })[cmd]
 
-/** Rust saved a change to the pill's preferences and sent it. */
 let sendPatch: (patch: Patch) => Promise<void>
-let settingsRev = 0
-const setPill = (change: Partial<PillSettings>) => sendPatch(pillAt(++settingsRev, change))
-/** Rust's download list changed and was announced. */
-const setDownloads = async (next: Download[]) => {
-  downloads = next
-  await emit('changed', 'downloads')
-}
+let rev = 0
+/** Rust saved a change to the pill's preferences and sent it. */
+const setPill = (change: Partial<PillSettings>) => sendPatch(pillAt(++rev, change))
+/** Rust's download list changed and was sent. */
+const setDownloads = (next: Download[]) => sendPatch({ slice: 'downloads', rev: ++rev, value: next })
 const running = (id: string, progress: number): Download => ({ id, status: 'running', progress, error: null })
 
 const DELIVERED = { pasteError: null, saved: true }
@@ -61,8 +54,7 @@ beforeEach(async () => {
     finished: new Promise(resolve => setTimeout(resolve, 280)),
   } as unknown as CSSTransition])
   recordingRevision = 0
-  settingsRev = 0
-  downloads = []
+  rev = 0
   vi.mocked(invoke).mockReset().mockImplementation(cmd => Promise.resolve(respond(cmd)))
   vi.mocked(listen).mockReset().mockImplementation(async (event, handler) => {
     const callbacks = listeners.get(event) ?? new Set()
@@ -388,7 +380,7 @@ it('shows concurrent downloads as one figure that a finishing download never low
 })
 
 it('picks up a download already running when the pill window opens', async () => {
-  downloads = [running('a', 62)]
+  await setDownloads([running('a', 62)])
   const view = render(<PillApp />)
   await waitFor(() => expect(view.container.querySelector('.pill__pct')?.textContent).toBe('62%'))
   // A recording takes the pill; the download returns once it is idle again.

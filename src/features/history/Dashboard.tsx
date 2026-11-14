@@ -8,7 +8,6 @@ import {
 import { toast } from 'sonner'
 import { commands, type JobSnapshot } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { useHotkeys } from '../settings/queries'
 import {
   useDailyWords,
   useTranscripts,
@@ -681,9 +680,8 @@ function EmptyFeed({ searching, dated, hotkey, onClearFilters }: EmptyFeedProps)
 }
 
 export function Dashboard() {
-  const pushToTalk = useHotkeys(hotkeys => hotkeys.pushToTalk)
-  const keys = pushToTalk.data ?? null
-  const missingHotkey = pushToTalk.isSuccess && keys === null
+  const keys = useSlice('settings', settings => settings.hotkeys.pushToTalk)
+  const missingHotkey = keys === null
   const navigate = useNavigate()
   const [searchTerm, setSearchTerm] = useState('')
   const typedRef = useRef('')

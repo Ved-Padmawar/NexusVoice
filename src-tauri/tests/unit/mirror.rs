@@ -16,6 +16,8 @@ struct Pill(PillSettings);
 impl Slice for Pill {
     fn patch(&self, rev: u64) -> Patch {
         let value = SettingsView {
+            active_model: "whisper-tiny".into(),
+            hotkeys: crate::settings::HotkeyBindings::default(),
             language: LanguageSettings {
                 supported: false,
                 options: Vec::new(),

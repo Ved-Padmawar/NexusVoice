@@ -1,17 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { TrashIcon, XIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { formatModelSize } from './models'
 import { VENDORS, vendorForFamily, isRaster } from '../../shared/vendors'
-import { caughtUp } from '../../app/sync'
-import { NO_MODELS, useCatalog, useDownloadedModels } from './queries'
+import { mirrored } from '../../app/mirror'
+import { NO_MODELS, rescanModels, useActiveModelId, useCatalog, useModelsOnDisk } from './queries'
 import { Modal } from '../../shared/ui/Modal'
 import { VendorMark } from '../../shared/ui/VendorMark'
-import type { DownloadedModel } from '../../shared/types'
-
-const NO_DOWNLOADED: DownloadedModel[] = []
 
 type Props = {
   open: boolean
@@ -20,7 +17,9 @@ type Props = {
 
 /** Models on this PC: where deleting lives. The total leads; the list, largest first, is the breakdown. */
 export function ModelManagerModal({ open, onClose }: Props) {
-  const models = useDownloadedModels().data ?? NO_DOWNLOADED
+  const models = useModelsOnDisk()
+  const activeId = useActiveModelId()
+  useEffect(() => { if (open) rescanModels() }, [open])
   // A Set: deleting A then B must not re-enable A while it is still going.
   const [deleting, setDeleting] = useState<ReadonlySet<string>>(new Set())
   const [confirming, setConfirming] = useState<string | null>(null)
@@ -30,9 +29,9 @@ export function ModelManagerModal({ open, onClose }: Props) {
     setConfirming(null)
     setDeleting(s => new Set(s).add(variant))
     try {
-      await commands.deleteModel(variant)
+      const { rev } = await commands.deleteModel(variant)
       // Marked deleting until the list no longer shows it.
-      await caughtUp('models')
+      await mirrored('models', rev)
       toast.success(`${displayName} deleted`)
     } catch (e) {
       toast.error(extractErrorMessage(e, 'Failed to delete model'))
@@ -84,7 +83,7 @@ export function ModelManagerModal({ open, onClose }: Props) {
                 </span>
                 <span className="flex min-w-0 flex-1 items-center gap-2 text-sm font-semibold text-fg">
                   <span className="truncate">{model.displayName}</span>
-                  {model.isActive && (
+                  {model.variant === activeId && (
                     <span className="shrink-0 rounded-md bg-accent-soft px-1.5 py-px text-[10px] font-semibold text-accent-ink">In use</span>
                   )}
                 </span>

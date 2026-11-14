@@ -91,20 +91,10 @@ async getInjectionStatus() : Promise<InjectionStatus> {
 async setPasteMode(mode: PasteMode) : Promise<Committed> {
     return await TAURI_INVOKE("set_paste_mode", { mode });
 },
-async getHotkeys() : Promise<HotkeyBindings> {
-    return await TAURI_INVOKE("get_hotkeys");
-},
-/**
- * What is bound with the OS right now. A saved shortcut another application
- * holds is saved but missing here.
- */
-async getBoundHotkeys() : Promise<HotkeyBindings> {
-    return await TAURI_INVOKE("get_bound_hotkeys");
-},
 /**
  * Bind `hotkey` to `kind`, or unbind it with `None`.
  */
-async setHotkey(kind: HotkeyKind, hotkey: string | null) : Promise<null> {
+async setHotkey(kind: HotkeyKind, hotkey: string | null) : Promise<Committed> {
     return await TAURI_INVOKE("set_hotkey", { kind, hotkey });
 },
 /**
@@ -120,21 +110,11 @@ async resumeHotkeys() : Promise<null> {
 async setPillSetting(change: PillSetting) : Promise<Committed> {
     return await TAURI_INVOKE("set_pill_setting", { change });
 },
-async getModelInfo() : Promise<ModelInfoResponse> {
-    return await TAURI_INVOKE("get_model_info");
-},
 /**
  * With `activate`, the model becomes the active one once it is on disk.
  */
-async startModelDownload(id: string, activate: boolean) : Promise<null> {
+async startModelDownload(id: string, activate: boolean) : Promise<Committed> {
     return await TAURI_INVOKE("start_model_download", { id, activate });
-},
-/**
- * Every download queued, running or holding an error, so the UI can
- * rehydrate after a reload without waiting for the next event.
- */
-async getActiveDownloads() : Promise<ActiveDownload[]> {
-    return await TAURI_INVOKE("get_active_downloads");
 },
 /**
  * A cancel pressed in the last moments of a transfer arrives after the file
@@ -146,7 +126,7 @@ async cancelModelDownload(id: string) : Promise<void> {
 /**
  * Make a model on disk the active one.
  */
-async setModelOverride(variant: string) : Promise<null> {
+async setModelOverride(variant: string) : Promise<Committed> {
     return await TAURI_INVOKE("set_model_override", { variant });
 },
 /**
@@ -168,22 +148,22 @@ async getHardwareProfile() : Promise<HardwareProfileResponse> {
     return await TAURI_INVOKE("get_hardware_profile");
 },
 /**
- * The catalog with per-model download state, for the model picker.
+ * Every model the app offers. Fixed for the life of the app.
  */
 async getModelCatalog() : Promise<CatalogModel[]> {
     return await TAURI_INVOKE("get_model_catalog");
 },
-async getDownloadedModels() : Promise<DownloadedModel[]> {
-    return await TAURI_INVOKE("get_downloaded_models");
+/**
+ * Look at the model files again, for a view that lists them as it opens.
+ */
+async rescanModels() : Promise<Committed> {
+    return await TAURI_INVOKE("rescan_models");
 },
 /**
  * Delete a downloaded model, the active one included.
  */
-async deleteModel(variant: string) : Promise<null> {
+async deleteModel(variant: string) : Promise<Committed> {
     return await TAURI_INVOKE("delete_model", { variant });
-},
-async getCudaStatus() : Promise<CudaStatus> {
-    return await TAURI_INVOKE("get_cuda_status");
 },
 async startCudaDownload() : Promise<null> {
     return await TAURI_INVOKE("start_cuda_download");
@@ -364,7 +344,6 @@ transcriptionWarning: "transcription-warning"
 
 /** user-defined types **/
 
-export type ActiveDownload = { id: string; status: DownloadStatus; progress: number; error: string | null }
 export type ApiError = { code: string; message: string }
 export type AudioFileInfo = { name: string; sizeBytes: number; 
 /**
@@ -375,7 +354,7 @@ export type CatalogModel = { id: string; displayName: string; family: string;
 /**
  * Every decode path this model supports.
  */
-pipelines: Pipeline[]; defaultPipeline: Pipeline; sizeBytes: number; multilingual: boolean; description: string; detail: string; downloaded: boolean; isActive: boolean }
+pipelines: Pipeline[]; defaultPipeline: Pipeline; sizeBytes: number; multilingual: boolean; description: string; detail: string }
 /**
  * An owner's data changed; read it again.
  */
@@ -391,7 +370,11 @@ export type ClearedAudio = { deleted: number; kept: number }
  */
 export type Committed = { rev: number }
 export type CudaDownloadComplete = null
-export type CudaDownloadError = string
+/**
+ * The CUDA download failed; `after` is the status revision that shows it
+ * ended, so the offer reopens on a status without the download.
+ */
+export type CudaDownloadError = { message: string; after: Committed }
 export type CudaStatus = { 
 /**
  * An NVIDIA GPU on a platform the pack is built for; CUDA is hidden otherwise.
@@ -411,8 +394,15 @@ export type DailyWordsResponse = {
  */
 day: string; words: number }
 export type DictionaryResponse = { id: number; term: string; replacement: string; hits: number; createdAt: string }
+/**
+ * A model download as the windows see it.
+ */
+export type Download = { id: string; status: DownloadStatus; progress: number; error: string | null }
 export type DownloadStatus = "queued" | "running" | "error"
-export type DownloadedModel = { variant: string; displayName: string; sizeBytes: number; isActive: boolean }
+/**
+ * A model on disk.
+ */
+export type DownloadedModel = { variant: string; displayName: string; sizeBytes: number }
 /**
  * One provider's endpoint from the provider modal. Saving it touches only that
  * endpoint, so a toggle landing mid-save can't bring back an older one.
@@ -527,7 +517,6 @@ options: LanguageOption[] }
  * A model download was cancelled, from any window.
  */
 export type ModelDownloadCancelled = { id: string }
-export type ModelInfoResponse = { downloaded: boolean; modelName: string }
 /**
  * When an idle model is unloaded.
  */
@@ -573,7 +562,23 @@ export type PasteMode =
 /**
  * One slice's whole value at a revision.
  */
-export type Patch = { slice: "settings"; rev: number; value: SettingsView }
+export type Patch = { slice: "settings"; rev: number; value: SettingsView } | 
+/**
+ * The shortcuts the OS granted, which can be fewer than the saved ones.
+ */
+{ slice: "hotkeys"; rev: number; value: HotkeyBindings } | 
+/**
+ * The models on disk.
+ */
+{ slice: "models"; rev: number; value: DownloadedModel[] } | 
+/**
+ * Model downloads queued, running or failed.
+ */
+{ slice: "downloads"; rev: number; value: Download[] } | 
+/**
+ * The CUDA pack; `None` until the GPU has been probed.
+ */
+{ slice: "cuda"; rev: number; value: CudaStatus | null }
 /**
  * The pill's box in CSS pixels, relative to the window's client area.
  */
@@ -646,6 +651,15 @@ export type SavedAudioSetting = { kind: "enabled"; value: boolean } | { kind: "k
  */
 export type SettingsView = { 
 /**
+ * Catalog id of the model recordings use: the saved choice, else the
+ * hardware pick.
+ */
+activeModel: string; 
+/**
+ * The saved shortcuts; the OS may grant fewer (`Patch::Hotkeys`).
+ */
+hotkeys: HotkeyBindings; 
+/**
  * The active model's languages, with the saved one marked.
  */
 language: LanguageSettings; modelUnload: ModelUnload; 
@@ -661,22 +675,6 @@ export type Topic =
  * `settings.json`: every preference, the active model among them.
  */
 "settings" | 
-/**
- * The shortcuts the OS granted.
- */
-"hotkeys" | 
-/**
- * Which model files are on disk.
- */
-"models" | 
-/**
- * Model downloads queued, running or failed.
- */
-"downloads" | 
-/**
- * The CUDA pack and its download.
- */
-"cuda" | 
 /**
  * Dictionary entries and their use counts.
  */

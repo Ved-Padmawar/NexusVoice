@@ -19,14 +19,6 @@ pub fn lock_recovering<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 pub enum Topic {
     /// `settings.json`: every preference, the active model among them.
     Settings,
-    /// The shortcuts the OS granted.
-    Hotkeys,
-    /// Which model files are on disk.
-    Models,
-    /// Model downloads queued, running or failed.
-    Downloads,
-    /// The CUDA pack and its download.
-    Cuda,
     /// Dictionary entries and their use counts.
     Dictionary,
     /// The transcripts table: History, search and the totals.

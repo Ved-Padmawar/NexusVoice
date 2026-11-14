@@ -6,31 +6,28 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { createElement, type ReactNode } from 'react'
-import { act, renderHook, waitFor } from '@testing-library/react'
-import { QueryClientProvider } from '@tanstack/react-query'
+import { act, renderHook } from '@testing-library/react'
 import { useAppStore } from '../../../app/store/useAppStore'
-import { queryClient } from '../../../app/queryClient'
 import { downloadCuda, listenForCudaNotices, useCuda } from '../../../features/models/cuda'
-import { queryKeys } from '../../../shared/queryKeys'
+import type { Patch } from '../../../shared/bindings'
 import type { CudaStatus } from '../../../shared/types'
-
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
-vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }))
+import { mirror, settingsAt } from '../../utils'
 
 const mockInvoke = vi.mocked(invoke)
 const mockListen = vi.mocked(listen)
-const wrapper = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client: queryClient }, children)
 
 const absent: CudaStatus = { supported: true, pack: 'absent', downloadProgress: null, verifying: false }
 const state = () => useAppStore.getState()
-const cuda = () => queryClient.getQueryData<CudaStatus>(queryKeys.cuda)
-const setCuda = (status: CudaStatus) => queryClient.setQueryData(queryKeys.cuda, status)
 
-beforeEach(() => {
+/** Rust's CUDA status, sent to this window. */
+let rev = 0
+let send: (patch: Patch) => Promise<void>
+const setCuda = (status: CudaStatus) => send({ slice: 'cuda', rev: ++rev, value: status })
+
+beforeEach(async () => {
   vi.clearAllMocks()
-  queryClient.clear()
-  setCuda(absent)
+  rev = 0
+  send = await mirror([settingsAt(0), { slice: 'cuda', rev: 0, value: absent }])
   useAppStore.setState({ cudaError: null, cudaOfferOpen: false, cudaOfferSeen: false, cudaRetryShown: false, modelChosen: true })
 })
 
@@ -62,21 +59,20 @@ describe('cuda pack', () => {
   })
 
   it('never offers CUDA again once it was installed, even after removal', async () => {
-    queryClient.clear()
-    mockInvoke.mockResolvedValue({ ...absent, pack: 'installed' })
-    const { unmount } = renderHook(() => useCuda(), { wrapper })
-    await waitFor(() => expect(state().cudaOfferSeen).toBe(true))
+    await setCuda({ ...absent, pack: 'installed' })
+    const { unmount } = renderHook(() => useCuda())
+    expect(state().cudaOfferSeen).toBe(true)
     unmount()
 
     // Removed from About: the pack is absent again, but the offer stays retired.
     vi.useFakeTimers()
-    setCuda(absent)
+    await setCuda(absent)
     state().offerCuda()
     vi.runAllTimers()
     expect(state().cudaOfferOpen).toBe(false)
   })
 
-  it('does not offer CUDA before a model is chosen or where it cannot run', () => {
+  it('does not offer CUDA before a model is chosen or where it cannot run', async () => {
     vi.useFakeTimers()
     useAppStore.setState({ modelChosen: false })
     state().offerCuda()
@@ -84,16 +80,16 @@ describe('cuda pack', () => {
     expect(state().cudaOfferOpen).toBe(false)
 
     useAppStore.setState({ modelChosen: true })
-    setCuda({ ...absent, supported: false })
+    await setCuda({ ...absent, supported: false })
     state().offerCuda()
     vi.runAllTimers()
     expect(state().cudaOfferOpen).toBe(false)
   })
 
-  it('asks once a session to retry an unverified pack, even after the offer was seen', () => {
+  it('asks once a session to retry an unverified pack, even after the offer was seen', async () => {
     vi.useFakeTimers()
     useAppStore.setState({ cudaOfferSeen: true })
-    setCuda({ ...absent, pack: 'unverified' })
+    await setCuda({ ...absent, pack: 'unverified' })
     state().offerCuda()
     vi.runAllTimers()
     expect(state().cudaOfferOpen).toBe(true)
@@ -110,28 +106,25 @@ describe('cuda pack', () => {
       handlers.set(event, handler as (e: { payload: unknown }) => void)
       return () => {}
     })
-    queryClient.clear()
     const unverified: CudaStatus = { ...absent, pack: 'unverified' }
-    mockInvoke.mockResolvedValue({ ...unverified, downloadProgress: 30 })
-    renderHook(() => useCuda(), { wrapper })
-    await waitFor(() => expect(cuda()?.downloadProgress).toBe(30))
+    await setCuda({ ...unverified, downloadProgress: 30 })
     await listenForCudaNotices()
 
-    // The error notice comes after Rust announced the download's end.
-    mockInvoke.mockResolvedValue(unverified)
+    // The error notice names the status revision that shows the download ended.
     vi.useFakeTimers()
-    handlers.get('cuda-download-error')?.({ payload: 'offline' })
+    handlers.get('cuda-download-error')?.({ payload: { message: 'offline', after: { rev: rev + 1 } } })
+    await setCuda(unverified)
     await act(() => vi.runAllTimersAsync())
 
     expect(state().cudaOfferOpen).toBe(true)
     expect(state().cudaError).toBeNull()
   })
 
-  it('does not offer CUDA while it is already downloading', () => {
+  it('does not offer CUDA while it is already downloading', async () => {
     // Started from About before the timer fired: the offer would be redundant.
     vi.useFakeTimers()
     state().offerCuda()
-    setCuda({ ...absent, downloadProgress: 10 })
+    await setCuda({ ...absent, downloadProgress: 10 })
     vi.runAllTimers()
     expect(state().cudaOfferOpen).toBe(false)
   })

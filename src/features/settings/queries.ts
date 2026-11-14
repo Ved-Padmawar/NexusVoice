@@ -4,12 +4,10 @@ import { toast } from 'sonner'
 import { commands, type Committed, type PillSetting, type RecordingInput, type SettingsView } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { useSlice } from '../../app/mirror'
-import { reads } from '../../app/sync'
 import { useChoice } from '../../app/useChoice'
 import { takeLegacyPill } from '../../app/store/legacyPill'
 import { useRecordingState } from '../../pill/recordingState'
 import { queryKeys } from '../../shared/queryKeys'
-import type { HotkeyBindings } from '../../shared/types'
 
 /** Devices come and go with no announcement, so each visit enumerates them again. */
 export function useInputDevices() {
@@ -34,24 +32,6 @@ export function useSetting<K extends keyof SettingsView>(
 /** True while the recording in progress keeps its previous `input`. */
 export function useKeptByRecording(input: RecordingInput) {
   return useRecordingState()?.deferred.includes(input) === true
-}
-
-export function useHotkeys<T = HotkeyBindings>(select?: (hotkeys: HotkeyBindings) => T) {
-  return useQuery({
-    queryKey: queryKeys.hotkeys,
-    queryFn: () => commands.getHotkeys(),
-    select,
-    ...reads('settings'),
-  })
-}
-
-/** The shortcuts the OS granted, which can be fewer than the saved ones. */
-export function useBoundHotkeys() {
-  return useQuery({
-    queryKey: queryKeys.boundHotkeys,
-    queryFn: () => commands.getBoundHotkeys(),
-    ...reads('hotkeys'),
-  })
 }
 
 /** The pill's saved preferences, which the pill window also follows. */

@@ -67,11 +67,13 @@ fn a_missing_or_partial_archive_is_fetched() {
 fn only_one_download_can_claim_the_pack() {
     let data = tempfile::tempdir().unwrap();
     let pack = CudaPack::new(data.path().to_path_buf(), false);
+    pack.check_pack();
 
     assert!(pack.claim().is_some());
     assert!(pack.claim().is_none());
-    assert_eq!(pack.progress(), Some(0));
-    assert!(!pack.verifying());
+    let status = pack.status.read(|s| s.0.clone()).unwrap();
+    assert_eq!(status.download_progress, Some(0));
+    assert!(!status.verifying);
 }
 
 #[test]
@@ -160,8 +162,10 @@ fn a_driver_older_than_cuda_13_never_qualifies() {
 fn an_idle_download_reports_no_progress_and_ignores_cancel() {
     // The UI reads `None` as "no download running".
     let download = CudaPack::new(std::env::temp_dir(), false);
+    download.check_pack();
     download.cancel();
-    assert_eq!(download.progress(), None);
+    let status = download.status.read(|s| s.0.clone()).unwrap();
+    assert_eq!(status.download_progress, None);
 }
 
 #[test]

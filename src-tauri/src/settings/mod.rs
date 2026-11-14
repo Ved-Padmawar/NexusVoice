@@ -174,6 +174,11 @@ struct Saved {
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsView {
+    /// Catalog id of the model recordings use: the saved choice, else the
+    /// hardware pick.
+    pub active_model: String,
+    /// The saved shortcuts; the OS may grant fewer (`Patch::Hotkeys`).
+    pub hotkeys: HotkeyBindings,
     /// The active model's languages, with the saved one marked.
     pub language: LanguageSettings,
     pub model_unload: ModelUnload,
@@ -193,6 +198,8 @@ impl Slice for Saved {
         Patch::Settings {
             rev,
             value: SettingsView {
+                active_model: model.id.clone(),
+                hotkeys: file.hotkeys.clone(),
                 language: language::options(model, file.language.as_deref()),
                 model_unload: file.model_unload,
                 input_device: file.input_device.clone(),
