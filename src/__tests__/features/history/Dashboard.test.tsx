@@ -4,7 +4,9 @@ import { MemoryRouter } from 'react-router'
 import { Dashboard } from '../../../features/history/Dashboard'
 import { invoke } from '@tauri-apps/api/core'
 import { renderWithQuery } from '../../utils'
-import { addTranscript } from '../../../features/history/queries'
+import { listen, type EventCallback } from '@tauri-apps/api/event'
+import { followRust } from '../../../app/sync'
+import type { Topic } from '../../../shared/bindings'
 import type { Transcript, UsageStats } from '../../../shared/types'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
@@ -60,6 +62,7 @@ function mockBackend({ transcripts = [], search = [], stats = null, pushToTalk =
     if (cmd === 'get_usage_stats') return Promise.resolve(stats)
     if (cmd === 'get_daily_words') return Promise.resolve([])
     if (cmd === 'get_jobs') return Promise.resolve([])
+    if (cmd === 'get_downloaded_models') return Promise.resolve([])
     if (cmd === 'get_saved_audio') return Promise.resolve({ enabled: true, keep: 10, bytes: 0 })
     if (cmd === 'get_hotkeys') return Promise.resolve({ pushToTalk, dictation: null, dictationCommit: null })
     return Promise.resolve(undefined)
@@ -69,10 +72,17 @@ function mockBackend({ transcripts = [], search = [], stats = null, pushToTalk =
 const renderDashboard = () =>
   renderWithQuery(<MemoryRouter><Dashboard /></MemoryRouter>)
 
-beforeEach(() => {
+let announce: (topic: Topic) => void = () => {}
+
+beforeEach(async () => {
   mockInvoke.mockReset()
   observed.clear()
   mockBackend()
+  vi.mocked(listen).mockImplementation(async (event, handler) => {
+    if (event === 'changed') announce = topic => (handler as EventCallback<Topic>)({ event, id: 0, payload: topic })
+    return () => {}
+  })
+  await followRust()
 })
 
 describe('Dashboard — empty state', () => {
@@ -270,6 +280,26 @@ describe('Dashboard — infinite scroll sentinel', () => {
     })
   })
 
+  it('shows a new dictation when the next page is asked for as its reread starts', async () => {
+    mockBackend({ transcripts: fullPage })
+    renderDashboard()
+    await waitFor(() => expect(observed.size).toBeGreaterThan(0))
+    let finishReread: (rows: Transcript[]) => void = () => {}
+    const base = mockInvoke.getMockImplementation()!
+    mockInvoke.mockImplementation((cmd, args) => {
+      if (cmd !== 'get_transcripts') return base(cmd, args)
+      // The first page is the reread; a later page is the next one, and empty.
+      const { page } = args as { page: { cursorId: number | null } }
+      return page.cursorId === null ? new Promise(resolve => { finishReread = resolve }) : Promise.resolve([])
+    })
+
+    // Same tick: the sentinel is still observed when the reread begins.
+    act(() => { announce('history'); fireIntersect?.() })
+    await act(async () => { finishReread([{ ...fullPage[0], id: 99, content: 'Fresh dictation' }, ...fullPage]) })
+
+    expect(await screen.findByText('Fresh dictation')).toBeInTheDocument()
+  })
+
   it('renders a row once when the next page repeats it', async () => {
     let call = 0
     const base = mockInvoke.getMockImplementation()!
@@ -304,9 +334,9 @@ describe('Dashboard day groups', () => {
     mockBackend({ transcripts: sampleTranscripts })
     renderDashboard()
     const day = (await screen.findByText('Hello world')).closest('section')!
-    await act(async () => {
-      await addTranscript({ id: 3, content: 'Fresh dictation', wordCount: 2, durationSeconds: 1, targetApp: null, pinned: false, audioPath: null, sourceName: null, model: null, pending: false, revision: 0, createdAt: new Date().toISOString() })
-    })
+    const fresh: Transcript = { id: 3, content: 'Fresh dictation', wordCount: 2, durationSeconds: 1, targetApp: null, pinned: false, audioPath: null, sourceName: null, model: null, pending: false, revision: 0, createdAt: new Date().toISOString() }
+    mockBackend({ transcripts: [fresh, ...sampleTranscripts] })
+    act(() => announce('history'))
     expect(await screen.findByText('Fresh dictation')).toBeInTheDocument()
     // Same node: the group was updated in place, not torn down and rebuilt.
     expect(screen.getByText('Hello world').closest('section')).toBe(day)

@@ -8,12 +8,9 @@ use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 use tokio_util::sync::CancellationToken;
 
-use crate::bridge::events::{
-    ModelDownloadCancelled, ModelDownloadComplete, ModelDownloadError, ModelDownloadRunning,
-    ModelDownloadStart, ModelEvicted, ModelSwitched,
-};
+use crate::bridge::events::ModelDownloadCancelled;
 use crate::settings::Settings;
-use crate::sync::lock_recovering;
+use crate::sync::{announce, lock_recovering, Topic};
 
 use super::cache::EngineCache;
 use super::catalog::{self, ModelEntry};
@@ -45,6 +42,7 @@ struct DownloadEntry {
 
 /// Every download in flight or waiting, keyed by model id. Success and cancel
 /// remove the entry; the file on disk is the truth for what is installed.
+/// Every change a snapshot would show is announced.
 pub struct Downloads {
     entries: Mutex<HashMap<String, DownloadEntry>>,
     permits: Arc<tokio::sync::Semaphore>,
@@ -60,6 +58,13 @@ impl Downloads {
 
     fn lock(&self) -> MutexGuard<'_, HashMap<String, DownloadEntry>> {
         lock_recovering(&self.entries)
+    }
+
+    /// Change `id`'s entry, announcing it when `change` reports a difference.
+    fn edit(&self, id: &str, change: impl FnOnce(&mut DownloadEntry) -> bool) {
+        if self.lock().get_mut(id).is_some_and(change) {
+            announce(Topic::Downloads);
+        }
     }
 
     /// Registers a queued download, returning its cancel token. A model already
@@ -85,6 +90,7 @@ impl Downloads {
                 activate,
             },
         );
+        announce(Topic::Downloads);
         Some(cancel)
     }
 
@@ -93,26 +99,28 @@ impl Downloads {
     }
 
     pub fn set_running(&self, id: &str) {
-        if let Some(e) = self.lock().get_mut(id) {
+        self.edit(id, |e| {
             e.status = DownloadStatus::Running;
-        }
+            true
+        });
     }
 
     pub fn set_progress(&self, id: &str, pct: u8) {
-        if let Some(e) = self.lock().get_mut(id) {
-            e.progress = pct;
-        }
+        self.edit(id, |e| std::mem::replace(&mut e.progress, pct) != pct);
     }
 
     pub fn set_error(&self, id: &str, msg: String) {
-        if let Some(e) = self.lock().get_mut(id) {
+        self.edit(id, |e| {
             e.status = DownloadStatus::Error;
             e.error = Some(msg);
-        }
+            true
+        });
     }
 
     pub fn remove(&self, id: &str) {
-        self.lock().remove(id);
+        if self.lock().remove(id).is_some() {
+            announce(Topic::Downloads);
+        }
     }
 
     /// Trips the cancel token, if this model has an entry to cancel.
@@ -143,6 +151,8 @@ pub fn best_on_disk(models_dir: &Path, except: Option<&str>) -> Option<&'static 
         .rfind(|m| Some(m.id.as_str()) != except && models_dir.join(&m.filename).exists())
 }
 
+/// Every model file added or deleted is announced. Which one is active is a
+/// setting, announced by `Settings`.
 pub struct ModelLibrary {
     models_dir: PathBuf,
     downloads: Arc<Downloads>,
@@ -195,20 +205,17 @@ impl ModelLibrary {
     }
 
     /// Publish a model now on disk. Switches to it first when its download
-    /// asked to, so the complete event already finds it active.
+    /// asked to, so the download ends with the model already active.
     fn complete(app: &AppHandle, downloads: &Downloads, entry: &ModelEntry) {
-        let id = entry.id.clone();
-        if downloads.activates(&id) {
+        announce(Topic::Models);
+        let id = entry.id.as_str();
+        if downloads.activates(id) {
             if let Err(e) = Self::select(app, entry) {
-                let error = format!("Downloaded, but could not switch to it: {e}");
-                downloads.set_error(&id, error.clone());
-                let _ = ModelDownloadError { id, error }.emit(app);
+                downloads.set_error(id, format!("Downloaded, but could not switch to it: {e}"));
                 return;
             }
-            let _ = ModelSwitched.emit(app);
         }
-        downloads.remove(&id);
-        let _ = ModelDownloadComplete { id }.emit(app);
+        downloads.remove(id);
     }
 
     /// Delete a downloaded model. Deleting the active one switches to the best
@@ -226,31 +233,25 @@ impl ModelLibrary {
             ));
         }
         std::fs::remove_file(self.path(entry))?;
+        announce(Topic::Models);
         if !active {
             return Ok(());
         }
-        if let Some(next) = self.best_on_disk(Some(&entry.id)) {
-            Self::select(app, next)?;
-            let _ = ModelSwitched.emit(app);
-        } else {
-            settings.set_model(None)?;
-            let _ = ModelEvicted.emit(app);
+        match self.best_on_disk(Some(&entry.id)) {
+            Some(next) => Self::select(app, next),
+            None => settings.set_model(None),
         }
-        Ok(())
     }
 
     /// Fetch a model in the background. Beyond `MAX_CONCURRENT_DOWNLOADS` it
     /// waits in `Queued`. With `activate`, it becomes the active model only
     /// once on disk, so the choice never points at a missing file.
     pub fn start_download(&self, app: &AppHandle, entry: &'static ModelEntry, activate: bool) {
-        let id = entry.id.clone();
-        // Already in flight: re-emitting `start` would rewind the caller's
-        // progress bar to 0.
-        let Some(cancel) = self.downloads.enqueue(&id, activate) else {
+        // Already in flight: it keeps its entry and its progress.
+        let Some(cancel) = self.downloads.enqueue(&entry.id, activate) else {
             return;
         };
-        // Already on disk: only the complete event clears the caller's
-        // optimistic `queued`, so emit one rather than returning quietly.
+        // Already on disk: the entry just queued ends at once.
         if self.is_downloaded(entry) {
             Self::complete(app, &self.downloads, entry);
             return;
@@ -259,32 +260,23 @@ impl ModelLibrary {
         let downloads = Arc::clone(&self.downloads);
         let models_dir = self.models_dir.clone();
         let app = app.clone();
-        let _ = ModelDownloadStart { id: id.clone() }.emit(&app);
-
         tauri::async_runtime::spawn(async move {
+            let id = entry.id.clone();
+            let cancelled = |downloads: &Downloads| {
+                downloads.remove(&id);
+                let _ = ModelDownloadCancelled { id: id.clone() }.emit(&app);
+            };
             let permit = tokio::select! {
                 p = Arc::clone(&downloads.permits).acquire_owned() => p,
-                () = cancel.cancelled() => {
-                    downloads.remove(&id);
-                    let _ = ModelDownloadCancelled { id }.emit(&app);
-                    return;
-                }
+                () = cancel.cancelled() => return cancelled(&downloads),
             };
             let Ok(_permit) = permit else { return };
 
             downloads.set_running(&id);
-            let _ = ModelDownloadRunning { id: id.clone() }.emit(&app);
-
-            match download_model(&models_dir, entry, &app, &downloads, cancel).await {
+            match download_model(&models_dir, entry, &downloads, cancel).await {
                 Ok(()) => Self::complete(&app, &downloads, entry),
-                Err(e) if e == CANCELLED => {
-                    downloads.remove(&id);
-                    let _ = ModelDownloadCancelled { id }.emit(&app);
-                }
-                Err(error) => {
-                    downloads.set_error(&id, error.clone());
-                    let _ = ModelDownloadError { id, error }.emit(&app);
-                }
+                Err(e) if e == CANCELLED => cancelled(&downloads),
+                Err(error) => downloads.set_error(&id, error),
             }
         });
     }

@@ -3,7 +3,6 @@ import {
   useInfiniteQuery,
   useMutation,
   useQuery,
-  useQueryClient,
   type InfiniteData,
 } from '@tanstack/react-query'
 import { useCallback } from 'react'
@@ -12,6 +11,7 @@ import { commands, type PageQuery } from '../../shared/bindings'
 import { createPendingDeletes, deleteWithUndo } from '../../shared/deleteWithUndo'
 import { extractErrorMessage } from '../../shared/errors'
 import { queryClient } from '../../app/queryClient'
+import { reads } from '../../app/sync'
 import { queryKeys, type TranscriptFilters } from '../../shared/queryKeys'
 import type { Transcript } from '../../shared/types'
 
@@ -22,9 +22,9 @@ export const NO_FILTERS: TranscriptFilters = { from: null, to: null, sortAsc: fa
 type Cursor = { cursorCreatedAt: string | null; cursorId: number | null }
 
 /** `next` is fixed at fetch time, so a delete can't make a full page look like the last. */
-export type TranscriptPage = { rows: Transcript[]; next?: Cursor }
+type TranscriptPage = { rows: Transcript[]; next?: Cursor }
 
-export type TranscriptPages = InfiniteData<TranscriptPage, Cursor>
+type TranscriptPages = InfiniteData<TranscriptPage, Cursor>
 
 const NO_CURSOR: Cursor = { cursorCreatedAt: null, cursorId: null }
 
@@ -46,33 +46,19 @@ const pageArg = (filters: TranscriptFilters, cursor: Cursor, limit = PAGE_SIZE):
 
 const EXPORT_PAGE_SIZE = 200
 
-
-const fetchFeed = (filters: TranscriptFilters, cursor: Cursor) =>
-  commands.getTranscripts(pageArg(filters, cursor)).then(toPage)
-
-const fetchSearch = (query: string, filters: TranscriptFilters, cursor: Cursor) =>
-  commands.searchTranscripts(query, pageArg(filters, cursor)).then(toPage)
-
-// Kept current by `transcriptSaved` and mutations, so never stale on a timer.
-// Invalidations skipped while hidden refetch when the window is shown.
-const EVENT_DRIVEN = { staleTime: Infinity, refetchOnWindowFocus: true } as const
-
 const feedOptions = (filters: TranscriptFilters) => ({
   queryKey: queryKeys.transcripts(filters),
-  queryFn: ({ pageParam }: { pageParam: Cursor }) => fetchFeed(filters, pageParam),
+  queryFn: ({ pageParam }: { pageParam: Cursor }) => commands.getTranscripts(pageArg(filters, pageParam)).then(toPage),
   initialPageParam: NO_CURSOR,
   getNextPageParam,
-  ...EVENT_DRIVEN,
+  ...reads('history'),
 })
 
 const statsOptions = {
   queryKey: queryKeys.stats,
   queryFn: () => commands.getUsageStats(),
-  ...EVENT_DRIVEN,
+  ...reads('history'),
 }
-
-/** Closing the main window only hides it; don't refetch for a page nobody sees. */
-const refetchType = () => (document.hidden ? 'none' : 'active')
 
 const pendingDeletes = createPendingDeletes()
 
@@ -117,14 +103,13 @@ export function useTranscriptSearch(query: string, filters: TranscriptFilters) {
   const select = useHidePendingDeletes()
   return useInfiniteQuery({
     queryKey: queryKeys.transcriptSearch(query, filters),
-    queryFn: ({ pageParam }) => fetchSearch(query, filters, pageParam),
+    queryFn: ({ pageParam }) => commands.searchTranscripts(query, pageArg(filters, pageParam)).then(toPage),
     initialPageParam: NO_CURSOR,
     getNextPageParam,
     enabled: query.length > 0,
     placeholderData: keepPreviousData,
     select,
-    // Same contract as the feed: `addTranscript` may skip the refetch while hidden.
-    ...EVENT_DRIVEN,
+    ...reads('history'),
   })
 }
 
@@ -149,42 +134,14 @@ export function useDailyWords(days: number) {
         return { day, words: byDay.get(key) ?? 0 }
       })
     },
-    ...EVENT_DRIVEN,
+    ...reads('history'),
   })
 }
 
-let feedWrites: Promise<unknown> = Promise.resolve()
-
-/** Run a feed write after every earlier one, so the writes for one entry
- *  apply in the order its events came, whatever each awaits first. */
-function inOrder(write: () => Promise<void>) {
-  const run = feedWrites.then(write)
-  feedWrites = run.catch(() => {})
-  return run
-}
-
-/** Change every cached feed and search in place rather than refetch every
- *  page. A fetch in flight would land older rows over the change, so those are
- *  cancelled first and run again after. */
-const writeRows = (update: (data: TranscriptPages) => TranscriptPages) => inOrder(async () => {
-  const root = { queryKey: queryKeys.transcriptsRoot }
-  const inFlight = queryClient.getQueryCache().findAll({ ...root, fetchStatus: 'fetching' })
-  await queryClient.cancelQueries(root)
-  queryClient.setQueriesData<TranscriptPages>(root, (data) => data && update(data))
-  inFlight.forEach(query => void queryClient.invalidateQueries({ queryKey: query.queryKey, exact: true }))
-})
-
-export const dropRow = (id: number) => writeRows(data => withoutRows(data, new Set([id])))
-
 /** Deletes a dictation behind an Undo toast. */
 export function useDeleteTranscript() {
-  const client = useQueryClient()
   const { mutateAsync } = useMutation({
     mutationFn: (id: number) => commands.deleteTranscript(id),
-    onSuccess: (_, id) => {
-      void client.invalidateQueries({ queryKey: queryKeys.stats })
-      return dropRow(id)
-    },
     onError: (e) => toast.error(extractErrorMessage(e, 'Failed to delete transcript')),
   })
   return useCallback((id: number) => deleteWithUndo({
@@ -195,55 +152,9 @@ export function useDeleteTranscript() {
   }), [mutateAsync])
 }
 
-/** Change the entries in `changes` in every cached feed and search, in one
- *  write. Only their rows get new objects, so the other rows' memos hold,
- *  unlike a refetch. */
-export const patchRows = (changes: ReadonlyMap<number, (row: Transcript) => Transcript>) => writeRows(data => ({
-  ...data,
-  pages: data.pages.map(page => page.rows.some(row => changes.has(row.id))
-    ? { ...page, rows: page.rows.map(row => changes.get(row.id)?.(row) ?? row) }
-    : page),
-}))
+export const setPinned = (id: number, pinned: boolean) => commands.setTranscriptPinned(id, pinned)
 
-export const patchRow = (id: number, change: (row: Transcript) => Transcript) => patchRows(new Map([[id, change]]))
+// Startup waits on these; a failed read shows in the screen that uses it.
+export const prefetchTranscripts = () => queryClient.infiniteQuery(feedOptions(NO_FILTERS)).catch(() => {})
 
-/** Show an entry whose text changed. Feeds take it in place; searches run
- *  again, since the new text may match differently. Its word count moves the stats. */
-export async function showRewritten(entry: Transcript) {
-  await patchRow(entry.id, () => entry)
-  void queryClient.invalidateQueries({ queryKey: queryKeys.transcriptSearchRoot, refetchType: refetchType() })
-  void queryClient.invalidateQueries({ queryKey: queryKeys.stats, refetchType: refetchType() })
-}
-
-/** Pin or unpin an entry, and show it on every cached feed and search at once. */
-export async function setPinned(id: number, pinned: boolean) {
-  await commands.setTranscriptPinned(id, pinned)
-  await patchRow(id, row => ({ ...row, pinned }))
-}
-
-export const prefetchTranscripts = () =>
-  queryClient.prefetchInfiniteQuery(feedOptions(NO_FILTERS))
-
-export const prefetchStats = () => queryClient.prefetchQuery(statsOptions)
-
-export const addTranscript = (transcript: Transcript) => inOrder(async () => {
-  const queryKey = queryKeys.transcripts(NO_FILTERS)
-  // An older response must not overwrite the event's newer database state.
-  await queryClient.cancelQueries({ queryKey, exact: true })
-  queryClient.setQueryData<TranscriptPages>(queryKey, (data) => {
-    if (!data) return data
-    if (data.pages.some(page => page.rows.some(row => row.id === transcript.id))) return data
-    // Grow, don't trim: the next page's cursor is fixed, so a trimmed row would vanish.
-    const [first = { rows: [] }, ...rest] = data.pages
-    return { ...data, pages: [{ ...first, rows: [transcript, ...first.rows] }, ...rest] }
-  })
-  const feed = queryClient.getQueryCache().find({ queryKey, exact: true })
-  // The default feed is already updated. Other filters/searches must be
-  // re-evaluated by the backend; inactive views only need marking stale.
-  void queryClient.invalidateQueries({
-    queryKey: queryKeys.transcriptsRoot,
-    predicate: query => query !== feed || !feed.state.data,
-    refetchType: refetchType(),
-  })
-  void queryClient.invalidateQueries({ queryKey: queryKeys.stats, refetchType: refetchType() })
-})
+export const prefetchStats = () => queryClient.query(statsOptions).catch(() => {})

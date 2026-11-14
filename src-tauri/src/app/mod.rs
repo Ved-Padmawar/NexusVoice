@@ -3,7 +3,9 @@
 mod bindings;
 
 use tauri::Manager;
+use tauri_specta::Event;
 
+use crate::bridge::events::Changed;
 use crate::data::Database;
 use crate::jobs::Jobs;
 use crate::models::{cache::EngineCache, cuda::CudaPack, library::ModelLibrary};
@@ -130,6 +132,12 @@ pub fn run() {
 
 /// Manage every owner and start the background work they need.
 fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // First, so no owner's change goes unannounced.
+    let handle = app.handle().clone();
+    crate::sync::announce_to(move |topic| {
+        let _ = Changed(topic).emit(&handle);
+    });
+
     let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
     std::fs::create_dir_all(&app_data_dir)?;
     let cuda_damaged = crate::models::cuda::install_staged(&app_data_dir);
@@ -194,19 +202,20 @@ fn spawn_open_database(app: tauri::AppHandle, db_path: std::path::PathBuf) {
     tauri::async_runtime::spawn(async move {
         // May run migrations; this is the slow part.
         let result = crate::data::connection::open_database(&db_path).await;
+        // Before the pool is published: a dictation waiting on it would
+        // otherwise be corrected against an empty dictionary.
+        if let Ok(pool) = &result {
+            if let Err(e) = app.state::<Dictionary>().load(pool).await {
+                log::error!("could not load the dictionary: {e}");
+            }
+        }
         // Publish either outcome, so waiting commands are released.
         app.state::<Database>().set(result.clone());
-        let pool = match result {
-            Ok(pool) => pool,
-            Err(e) => {
-                log::error!("database init failed: {e}");
-                return;
-            }
-        };
-        log::info!("database ready");
-        if let Err(e) = app.state::<Dictionary>().load(&pool).await {
-            log::error!("could not load the dictionary: {e}");
+        if let Err(e) = result {
+            log::error!("database init failed: {e}");
+            return;
         }
+        log::info!("database ready");
         if let Err(e) = crate::recordings::reconcile(&app).await {
             log::warn!("could not reconcile the saved audio: {e}");
         }

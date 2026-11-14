@@ -18,7 +18,7 @@ use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use crate::bridge::commands::dto::TranscriptResponse;
-use crate::bridge::events::{JobFinished, JobUpdated, TranscriptSaved};
+use crate::bridge::events::JobFinished;
 use crate::data::dto::transcript::CreateTranscript;
 use crate::data::repositories::transcript::TranscriptRepository;
 use crate::data::rows::transcript::Transcript;
@@ -34,7 +34,7 @@ use crate::recordings::Recordings;
 use crate::session::recorder::RecordingStatus;
 use crate::session::Recorder;
 use crate::settings::Settings;
-use crate::sync::lock_recovering;
+use crate::sync::{announce, lock_recovering, Topic};
 use crate::text::dictionary::Dictionary;
 use crate::text::remove_fillers;
 
@@ -168,6 +168,7 @@ struct State {
     working: bool,
 }
 
+/// Every change to the list `get_jobs` reads is announced under its lock.
 #[derive(Default)]
 pub struct Jobs {
     state: Mutex<State>,
@@ -230,8 +231,8 @@ impl Jobs {
                     .count(),
                 JobKind::Import => state.queue.len(),
             };
-            let _ = JobUpdated(job.snapshot()).emit(app);
             state.queue.insert(at, job);
+            announce(Topic::Jobs);
             !std::mem::replace(&mut state.working, true)
         };
         if start {
@@ -241,7 +242,7 @@ impl Jobs {
         true
     }
 
-    /// Start the next job and tell the window. `None` once the queue is empty.
+    /// Start the next job. `None` once the queue is empty.
     fn next(app: &AppHandle) -> Option<(Job, Arc<Stop>, Canceller)> {
         let stop = Arc::new(Stop::default());
         let canceller = Canceller::default();
@@ -255,12 +256,12 @@ impl Jobs {
             queued: false,
             ..job.snapshot()
         };
-        let _ = JobUpdated(snapshot.clone()).emit(app);
         state.running = Some(Running {
             snapshot,
             stop: Arc::clone(&stop),
             canceller: canceller.clone(),
         });
+        announce(Topic::Jobs);
         Some((job, stop, canceller))
     }
 
@@ -269,7 +270,7 @@ impl Jobs {
         let mut state = lock_recovering(&jobs.state);
         if let Some(running) = state.running.as_mut() {
             change(&mut running.snapshot);
-            let _ = JobUpdated(running.snapshot.clone()).emit(app);
+            announce(Topic::Jobs);
         }
     }
 }
@@ -322,13 +323,10 @@ pub async fn import(
         .await
         .map_err(|e| e.to_string())?
         .ok_or("The imported entry was deleted.")?;
-    let transcript_id = entry.id;
-    // Announced like a dictation's, before its job's first event.
-    let _ = TranscriptSaved(TranscriptResponse::new(entry, &app.state::<Recordings>())).emit(app);
     Jobs::enqueue(
         app,
         Job {
-            transcript_id,
+            transcript_id: entry.id,
             kind: JobKind::Import,
             label,
             model,
@@ -396,7 +394,11 @@ pub async fn cancel(app: &AppHandle, transcript_id: i64) {
                     .queue
                     .iter()
                     .position(|job| job.transcript_id == transcript_id);
-                at.and_then(|at| state.queue.remove(at))
+                let dropped = at.and_then(|at| state.queue.remove(at));
+                if dropped.is_some() {
+                    announce(Topic::Jobs);
+                }
+                dropped
             }
         }
     };
@@ -431,6 +433,7 @@ fn work(app: &AppHandle) {
         let jobs = app.state::<Jobs>();
         let mut state = lock_recovering(&jobs.state);
         state.running = None;
+        announce(Topic::Jobs);
         let _ = JobFinished(finish).emit(app);
     }
 }
@@ -465,7 +468,7 @@ async fn discard(app: &AppHandle, transcript_id: i64) {
         repo.delete_by_id(transcript_id)
             .await
             .map_err(|e| e.to_string())?;
-        crate::recordings::delete(app, transcript_id)
+        app.state::<Recordings>().remove(transcript_id)
     };
     if let Err(e) = deleted.await {
         log::warn!("could not discard the import of entry {transcript_id}: {e}");

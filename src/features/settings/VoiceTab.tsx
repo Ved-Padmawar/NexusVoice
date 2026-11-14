@@ -16,7 +16,7 @@ import { vendorForFamily } from '../../shared/vendors'
 import { cn } from '../../shared/utils'
 import type { DownloadedModel, HardwareProfile } from '../../shared/types'
 import {
-  NO_MODELS, cancelDownload, startDownload, switchModel, useActiveModel, useCatalog, useDownload, usePendingDownloads,
+  NO_MODELS, cancelDownload, startDownload, switchModel, useActiveModel, useCatalog, useDownload, useDownloadedModels,
 } from '../models/queries'
 import { LanguageSection } from './LanguageSection'
 import { useKeptByRecording } from './queries'
@@ -222,6 +222,8 @@ const ModelCard = memo(function ModelCard({
 
 type Filter = 'all' | 'installed' | 'streaming' | 'multilingual'
 
+const NO_DOWNLOADED: DownloadedModel[] = []
+
 const FILTER_LABEL: Record<Filter, string> = {
   all: 'All', installed: 'On this PC', streaming: 'Streaming', multilingual: 'Multilingual',
 }
@@ -230,24 +232,16 @@ const FILTER_LABEL: Record<Filter, string> = {
 export function VoiceTab() {
   const [profile, setProfile] = useState<HardwareProfile | null>(null)
   const [modelSaving, setModelSaving] = useState(false)
-  const [onDisk, setOnDisk] = useState<DownloadedModel[]>([])
   const [managerOpen, setManagerOpen] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
 
   const catalog = useCatalog().data ?? NO_MODELS
-  const pendingCount = usePendingDownloads().data
+  const onDisk = useDownloadedModels().data ?? NO_DOWNLOADED
   const selected = useActiveModel().data?.id ?? null
-
-  const refreshOnDisk = useCallback(() => {
-    commands.getDownloadedModels().then(setOnDisk).catch(() => setOnDisk([]))
-  }, [])
 
   useEffect(() => {
     commands.getHardwareProfile().then(setProfile).catch(() => {})
   }, [])
-
-  // Reads the disk on mount, and again when a finished download adds a file.
-  useEffect(() => { refreshOnDisk() }, [pendingCount, refreshOnDisk])
 
   const onDiskVariants = useMemo(() => new Set(onDisk.map(m => m.variant)), [onDisk])
   const recommendedVariant = profile ? modelNameToId(profile.recommendedModel, catalog) : null
@@ -323,13 +317,7 @@ export function VoiceTab() {
         </div>
       </div>
 
-      <ModelManagerModal
-        open={managerOpen}
-        onClose={() => {
-          setManagerOpen(false)
-          refreshOnDisk()
-        }}
-      />
+      <ModelManagerModal open={managerOpen} onClose={() => setManagerOpen(false)} />
     </div>
   )
 }

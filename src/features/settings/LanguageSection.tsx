@@ -3,9 +3,10 @@ import { TranslateIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
+import { queryKeys } from '../../shared/queryKeys'
 import { useLiveChoice } from '../../app/useLiveChoice'
 import { Select } from '../../shared/ui/Select'
-import { languageOptions, useLanguageOptions } from '../models/queries'
+import { useLanguageOptions } from '../models/queries'
 import { useKeptByRecording } from './queries'
 
 /** Matches `models::language::AUTO`. */
@@ -19,7 +20,7 @@ const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Could not
 /** What you dictate in, as a compact picker for the Voice toolbar. */
 export const LanguageSection = memo(function LanguageSection() {
   const { data, error } = useLanguageOptions()
-  const { pending, choose } = useLiveChoice(languageOptions, saveLanguage, saveFailed)
+  const { pending, choose } = useLiveChoice(queryKeys.languageOptions, saveLanguage, saveFailed)
   const kept = useKeptByRecording('language')
 
   useEffect(() => {

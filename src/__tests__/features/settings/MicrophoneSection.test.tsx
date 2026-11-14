@@ -80,17 +80,18 @@ describe('MicrophoneSection', () => {
     expect(trigger()).toHaveTextContent('USB Mic (2)')
   })
 
-  it('a late failure of an older pick never undoes a newer one that saved', async () => {
+  it('a failure of an older pick never undoes a newer one that saved', async () => {
     await loaded()
     holdSaves = true
     await pick('Blue Yeti')
     await pick('USB Headset')
     expect(trigger()).toHaveTextContent('USB Headset')
 
-    // The newer pick saves first; the older one fails afterwards.
-    await act(async () => { replies[1].resolve() })
-    expect(trigger()).toHaveTextContent('USB Headset')
+    // The newer pick waits for the older save, which fails.
     await act(async () => { replies[0].reject({ code: 'io', message: 'disk full' }) })
+    expect(trigger()).toHaveTextContent('USB Headset')
+    await waitFor(() => expect(replies).toHaveLength(2))
+    await act(async () => { replies[1].resolve() })
 
     await waitFor(() => expect(trigger()).toHaveTextContent('USB Headset'))
     expect(saved).toBe('headset')

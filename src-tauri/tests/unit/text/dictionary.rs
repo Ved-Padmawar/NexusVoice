@@ -3,6 +3,7 @@ use sqlx::SqlitePool;
 
 use super::{Dictionary, DictionaryError};
 use crate::data::connection::init_database;
+use crate::sync::Topic;
 
 async fn pool() -> SqlitePool {
     let pool = SqlitePoolOptions::new()
@@ -66,4 +67,38 @@ async fn a_term_matching_another_entry_is_a_duplicate_but_a_rename_keeps_its_row
         .expect("rename");
     assert_eq!(renamed.id, next.id);
     assert_eq!(dictionary.entries().await.len(), 2);
+}
+
+#[tokio::test]
+async fn a_saved_hit_is_counted_and_announced() {
+    let pool = pool().await;
+    let dictionary = Dictionary::default();
+    dictionary
+        .save(&pool, None, "teh", "the")
+        .await
+        .expect("save");
+    crate::sync::take_announced();
+
+    assert_eq!(dictionary.correct(&pool, "teh cat").await, "the cat");
+
+    assert_eq!(dictionary.entries().await[0].hits, 1);
+    assert_eq!(crate::sync::take_announced(), [Topic::Dictionary]);
+}
+
+#[tokio::test]
+async fn a_hit_the_database_refused_is_neither_counted_nor_announced() {
+    // Counted anyway, the window would show a use a restart takes back.
+    let pool = pool().await;
+    let dictionary = Dictionary::default();
+    dictionary
+        .save(&pool, None, "teh", "the")
+        .await
+        .expect("save");
+    crate::sync::take_announced();
+    pool.close().await;
+
+    assert_eq!(dictionary.correct(&pool, "teh cat").await, "the cat");
+
+    assert_eq!(dictionary.entries().await[0].hits, 0);
+    assert_eq!(crate::sync::take_announced(), Vec::<Topic>::new());
 }

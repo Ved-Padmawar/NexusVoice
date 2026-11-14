@@ -11,7 +11,8 @@ import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { formatModelSize } from '../models/models'
 import { cancelCudaDownload, downloadCuda, removeCuda, useCuda } from '../models/cuda'
-import type { DownloadedModel, HardwareProfile } from '../../shared/types'
+import { useDownloadedModels } from '../models/queries'
+import type { HardwareProfile } from '../../shared/types'
 import { useAppStore } from '../../app/store/useAppStore'
 import logoUrl from '../../assets/logo.png'
 
@@ -237,11 +238,10 @@ function Stat({ icon, label, value, first }: { icon: ReactNode; label: string; v
 
 export function AboutTab() {
   const [profile, setProfile] = useState<HardwareProfile | null>(null)
-  const [onDisk, setOnDisk] = useState<DownloadedModel[]>([])
+  const onDisk = useDownloadedModels().data ?? []
 
   useEffect(() => {
     commands.getHardwareProfile().then(setProfile).catch(() => {})
-    commands.getDownloadedModels().then(setOnDisk).catch(() => {})
   }, [])
 
   const modelBytes = onDisk.reduce((acc, m) => acc + m.sizeBytes, 0)

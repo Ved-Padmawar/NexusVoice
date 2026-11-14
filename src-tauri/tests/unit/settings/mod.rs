@@ -14,7 +14,7 @@ fn a_fresh_install_starts_from_defaults_and_writes_the_file() {
 
     assert_eq!(settings.hotkeys(), HotkeyBindings::default());
     assert_eq!(settings.model(), None);
-    assert_eq!(settings.pill().settings, PillSettings::default());
+    assert_eq!(settings.pill(), PillSettings::default());
     assert!(dir.path().join(FILE_NAME).exists());
 }
 
@@ -74,29 +74,42 @@ fn turning_the_microphone_hold_back_off_survives_a_restart() {
 }
 
 #[test]
-fn every_pill_change_moves_the_revision_forward() {
-    // A window drops an event older than its snapshot, so revisions must grow.
+fn a_pill_change_keeps_the_other_pill_choices() {
+    // Two quick edits of different preferences must not overwrite each other.
     let dir = tempfile::tempdir().unwrap();
     let settings = load(dir.path());
-    let before = settings.pill().revision;
 
-    let first = settings
-        .set_pill(PillSettings {
+    settings
+        .set_pill(PillSetting::Theme(PillTheme::Aurora))
+        .unwrap();
+    settings
+        .set_pill(PillSetting::LiveTranscript(true))
+        .unwrap();
+
+    assert_eq!(
+        load(dir.path()).pill(),
+        PillSettings {
             theme: PillTheme::Aurora,
-            ..PillSettings::default()
-        })
-        .unwrap();
-    let second = settings
-        .set_pill(PillSettings {
             live_transcript: true,
-            ..first.settings
-        })
-        .unwrap();
+            ..PillSettings::default()
+        }
+    );
+}
 
-    assert!(first.revision > before);
-    assert!(second.revision > first.revision);
-    assert_eq!(settings.pill().revision, second.revision);
-    assert_eq!(settings.pill().settings.theme, PillTheme::Aurora);
+#[test]
+fn a_change_is_announced_only_once_it_is_saved() {
+    let dir = tempfile::tempdir().unwrap();
+    let settings = load(dir.path());
+    crate::sync::take_announced();
+
+    settings.set_language(Some("fr".into())).unwrap();
+    assert_eq!(crate::sync::take_announced(), [Topic::Settings]);
+
+    // The folder is gone, so the next write fails and memory keeps "fr".
+    dir.close().unwrap();
+    assert!(settings.set_language(Some("de".into())).is_err());
+    assert_eq!(crate::sync::take_announced(), Vec::<Topic>::new());
+    assert_eq!(settings.language().as_deref(), Some("fr"));
 }
 
 #[test]

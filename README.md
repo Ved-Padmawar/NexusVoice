@@ -142,7 +142,7 @@ Use a small **instruct** model (e.g. `qwen2.5-3b-instruct`) — not a reasoning/
 | Database | SQLite via sqlx |
 | Frontend | React 19 + TypeScript |
 | Styling | Tailwind CSS v4 + shadcn/ui |
-| State | Zustand |
+| State | TanStack Query (app data), Zustand (UI) |
 | Icons | Phosphor Icons |
 
 ---

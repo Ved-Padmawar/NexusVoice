@@ -3,12 +3,12 @@ import { MicrophoneIcon, ArrowsClockwiseIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { readFresh } from '../../app/queryClient'
+import { queryKeys } from '../../shared/queryKeys'
 import { useLiveChoice } from '../../app/useLiveChoice'
 import { Select } from '../../shared/ui/Select'
 import { SettingRow } from './SettingRow'
 import { InputHint } from './InputHint'
-import { inputDevices, useInputDevices } from './queries'
+import { useInputDevices } from './queries'
 import type { InputDevice } from '../../shared/types'
 
 /** Sentinel for the "Default" option — maps to no saved preference. */
@@ -34,8 +34,9 @@ function labelled(devices: InputDevice[]) {
 export const MicrophoneSection = memo(function MicrophoneSection() {
   const devicesQuery = useInputDevices()
   const devices = devicesQuery.data ?? NO_DEVICES
+  const refetchDevices = devicesQuery.refetch
   const [refreshing, setRefreshing] = useState(false)
-  const { pending, choose } = useLiveChoice(inputDevices, saveDevice, saveFailed)
+  const { pending, choose } = useLiveChoice(queryKeys.inputDevices, saveDevice, saveFailed)
 
   const saved = devices.find(d => d.isSelected && !d.isDefault)?.id ?? DEFAULT_VALUE
   const selected = pending ? pending.value : saved
@@ -50,10 +51,10 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
     if (refreshing) return
     setRefreshing(true)
     Promise.all([
-      readFresh(inputDevices).catch(listFailed),
+      refetchDevices(),
       new Promise(r => setTimeout(r, 500)),
     ]).finally(() => setRefreshing(false))
-  }, [refreshing])
+  }, [refreshing, refetchDevices])
 
   const listed = labelled(devices)
   const defaultLabel = listed.find(d => d.isDefault)?.label

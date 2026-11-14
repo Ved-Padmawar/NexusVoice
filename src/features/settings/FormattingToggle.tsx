@@ -5,6 +5,7 @@ import {
 } from '@phosphor-icons/react'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
+import { queryKeys } from '../../shared/queryKeys'
 import { VendorMark } from '../../shared/ui/VendorMark'
 import { Button } from '../../shared/ui/Button'
 import { Modal } from '../../shared/ui/Modal'
@@ -12,10 +13,10 @@ import { Switch } from '../../shared/ui/Switch'
 import { TextInput } from '../../shared/ui/TextInput'
 import type { VendorId } from '../../shared/vendors'
 import { toast } from 'sonner'
-import { readFresh } from '../../app/queryClient'
+import { caughtUp } from '../../app/sync'
 import { useLiveChoice } from '../../app/useLiveChoice'
 import { SettingRow } from './SettingRow'
-import { formatConfigOptions, useFormatConfig } from './queries'
+import { useFormatConfig } from './queries'
 import { isConfigured, keepingKeys } from './formatConfig'
 import type { FormatterUpdate, FormatterView, ProfileView } from '../../shared/types'
 
@@ -75,7 +76,7 @@ export function FormattingToggle() {
     (enabled: boolean) => commands.setFormatConfig(keepingKeys({ ...config, enabled })),
     [config],
   )
-  const { pending, choose } = useLiveChoice(formatConfigOptions, saveEnabled, saveFailed)
+  const { pending, choose } = useLiveChoice(queryKeys.formatConfig, saveEnabled, saveFailed)
 
   const active = activeProfile(config)
   const configured = isConfigured(config.provider, active)
@@ -87,9 +88,9 @@ export function FormattingToggle() {
     else void choose(next)
   }
 
+  // Closes once the saved setup is on screen, so the switch never flickers off.
   const saved = () => {
-    setModalOpen(false)
-    void readFresh(formatConfigOptions).catch(() => {})
+    void caughtUp('settings').then(() => setModalOpen(false))
   }
 
   const preset = PRESETS.find((p) => p.id === config.provider)

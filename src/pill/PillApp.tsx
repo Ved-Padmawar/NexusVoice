@@ -1,12 +1,12 @@
 import { memo, useEffect, useState, useCallback, useRef, useMemo, useSyncExternalStore } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { CheckIcon, PauseIcon, PlayIcon } from '@phosphor-icons/react'
-import { commands, type PillSettings, type TranscriptionPartial } from '../shared/bindings'
+import { commands, type TranscriptionPartial } from '../shared/bindings'
 import { extractErrorMessage } from '../shared/errors'
 import { useEventListener } from '../shared/hooks'
-import { subscribePillSettings } from './pillSettings'
 import { subscribeRecordingState } from './recordingState'
-import { listenForDownloadEvents, useDownloadSummary } from '../features/models/queries'
+import { useDownloadSummary } from '../features/models/queries'
+import { usePillSettings } from '../features/settings/queries'
 import { WaveformCanvas } from '../shared/ui/WaveformCanvas'
 import { pillThemeDef } from './pillThemes'
 import { CARD_W, usePillGeometry } from './usePillGeometry'
@@ -78,8 +78,6 @@ function processingSpinner(accentRgb: string): [string, string] {
   return [`rgba(${accentRgb},0.15)`, `rgba(${accentRgb},0.9)`]
 }
 
-const DEFAULT_SETTINGS: PillSettings = { theme: 'steel', waveformStyle: 'bars', liveTranscript: false, startSound: false }
-
 /** Map a capture failure to the short label the pill has room for. */
 function captureErrorLabel(message: string): string {
   const raw = message.toLowerCase()
@@ -101,8 +99,7 @@ export function PillApp() {
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const barsRef = useRef<(HTMLSpanElement | null)[]>([])
-  const [settings, setSettings] = useState<PillSettings>(DEFAULT_SETTINGS)
-  const { theme: pillTheme, waveformStyle, liveTranscript } = settings
+  const { theme: pillTheme, waveformStyle, liveTranscript } = usePillSettings()
   const hasPartial = useSyncExternalStore(subscribePartial, getHasPartial)
   // Canvas styles read levels off a ref so a 30 Hz stream never re-renders.
   const levelsRef = useRef<number[]>(new Array(FLAT_BARS.length).fill(0))
@@ -137,8 +134,6 @@ export function PillApp() {
     // for every audio frame. Canvas styles consume the same levels ref.
     barsRef.current.forEach((bar, i) => updateBar(bar, norm[i]))
   })
-
-  useEffect(() => subscribePillSettings(setSettings), [])
 
   useEffect(() => {
     void getCurrentWindow().setAlwaysOnTop(true)
@@ -181,11 +176,6 @@ export function PillApp() {
   useEffect(() => () => {
     if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current)
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current)
-  }, [])
-
-  useEffect(() => {
-    const stop = listenForDownloadEvents()
-    return () => { void stop.then(fn => fn()).catch(() => {}) }
   }, [])
 
   useEventListener('transcriptionPartial', (p) => {

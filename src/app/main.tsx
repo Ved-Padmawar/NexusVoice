@@ -8,6 +8,8 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { queryClient } from './queryClient'
 import { useAppStore } from './store/useAppStore'
 import { showMainWindow } from './showMainWindow'
+import { followRust } from './sync'
+import { logger } from '../shared/logger'
 
 // Forward browser console to Tauri log file (no-op if plugin unavailable)
 attachConsole().catch(() => {})
@@ -17,7 +19,7 @@ document.documentElement.dataset.theme = useAppStore.getState().theme
 // Slow storage or a rendering error must still leave a visible window.
 setTimeout(showMainWindow, 1200)
 
-createRoot(document.getElementById('root')!).render(
+const render = () => createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
@@ -26,3 +28,5 @@ createRoot(document.getElementById('root')!).render(
     </ErrorBoundary>
   </StrictMode>,
 )
+
+followRust().catch((e: unknown) => logger.error('could not follow backend changes', e)).finally(render)

@@ -7,10 +7,7 @@
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
-use crate::bridge::commands::dto::TranscriptResponse;
-use crate::bridge::events::{
-    TranscriptSaved, TranscriptionComplete, TranscriptionError, TranscriptionWarning,
-};
+use crate::bridge::events::{TranscriptionComplete, TranscriptionError, TranscriptionWarning};
 use crate::data::dto::transcript::CreateTranscript;
 use crate::data::repositories::transcript::TranscriptRepository;
 use crate::data::Database;
@@ -19,7 +16,6 @@ use crate::models::decode::{contains_speech, FinalText, Streamed, StreamingSessi
 use crate::models::transcript::strip_leading_dashes;
 use crate::models::TranscriptionEngine;
 use crate::platform::focus::{foreground_app, FocusTarget};
-use crate::recordings::Recordings;
 use crate::settings::Settings;
 use crate::text::dictionary::Dictionary;
 use crate::text::remove_fillers;
@@ -243,12 +239,7 @@ async fn save(
         None => Err("database unavailable".to_string()),
     };
     match saved {
-        Ok(saved) => {
-            let id = saved.id;
-            let _ = TranscriptSaved(TranscriptResponse::new(saved, &app.state::<Recordings>()))
-                .emit(app);
-            Some(id)
-        }
+        Ok(saved) => Some(saved.id),
         Err(e) => {
             log::error!("could not save the transcript: {e}");
             let _ = TranscriptionWarning(

@@ -354,7 +354,7 @@ pub fn start_model_download(
 }
 
 /// A cancel pressed in the last moments of a transfer arrives after the file
-/// is published; the download then stands, reported by its complete event.
+/// is published; the download then stands.
 #[tauri::command]
 #[specta::specta]
 pub fn cancel_model_download(library: State<'_, ModelLibrary>, id: String) {

@@ -7,11 +7,12 @@ import { toast } from 'sonner'
 import { commands, type AudioFileInfo } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { queryKeys } from '../../shared/queryKeys'
+import { reads } from '../../app/sync'
 import { fmtClock } from '../../shared/utils'
 import { Button } from '../../shared/ui/Button'
 import { Modal } from '../../shared/ui/Modal'
 import { Select } from '../../shared/ui/Select'
-import { useDownloadedModels } from './jobs'
+import { useDownloadedModels } from '../models/queries'
 
 const EXTENSIONS = ['wav', 'mp3', 'm4a', 'aac', 'flac', 'ogg', 'opus']
 
@@ -127,16 +128,17 @@ type ImportModalProps = {
 }
 
 function ImportModal({ file, reading, onReading, onClose }: ImportModalProps) {
-  const models = useDownloadedModels(file !== null)
+  const models = useDownloadedModels()
   const [picked, setPicked] = useState<string | null>(null)
   const [language, setLanguage] = useState<string | null>(null)
 
   const options = models.data ?? []
   const model = picked ?? options.find(m => m.isActive)?.variant ?? options[0]?.variant ?? null
   const languages = useQuery({
-    queryKey: [...queryKeys.languageOptions, model],
+    queryKey: queryKeys.languageOptionsFor(model),
     queryFn: () => commands.getLanguageOptionsFor(model ?? ''),
     enabled: file !== null && model !== null,
+    ...reads('settings'),
   })
   const codes = languages.data?.supported ? languages.data.options : []
   const chosen = language ?? codes.find(o => o.isSelected)?.code ?? null

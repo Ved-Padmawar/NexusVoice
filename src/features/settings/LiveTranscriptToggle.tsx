@@ -2,12 +2,13 @@ import { ClosedCaptioningIcon, MicrophoneIcon } from '@phosphor-icons/react'
 import { Switch } from '../../shared/ui/Switch'
 import { SettingRow } from './SettingRow'
 import { pillThemeDef } from '../../pill/pillThemes'
-import { updatePill, usePillSettings } from './queries'
+import { usePillSetting, usePillSettings } from './queries'
 import './LiveTranscriptToggle.css'
 
 /** Expand the pill into a live transcript card as you speak. */
 export function LiveTranscriptToggle() {
-  const { liveTranscript, theme: pillTheme } = usePillSettings()
+  const [liveTranscript, chooseLiveTranscript] = usePillSetting('liveTranscript')
+  const pillTheme = usePillSettings().theme
   const theme = pillThemeDef(pillTheme)
 
   return (
@@ -47,7 +48,7 @@ export function LiveTranscriptToggle() {
       >
         <Switch
           checked={liveTranscript}
-          onChange={(on) => { void updatePill({ liveTranscript: on }) }}
+          onChange={(on) => { void chooseLiveTranscript(on) }}
           aria-label="Live transcript in the pill"
         />
       </SettingRow>

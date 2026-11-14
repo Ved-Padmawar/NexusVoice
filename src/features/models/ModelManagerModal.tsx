@@ -1,14 +1,17 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { TrashIcon, XIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { formatModelSize } from './models'
 import { VENDORS, vendorForFamily, isRaster } from '../../shared/vendors'
-import { NO_MODELS, useCatalog } from './queries'
+import { caughtUp } from '../../app/sync'
+import { NO_MODELS, useCatalog, useDownloadedModels } from './queries'
 import { Modal } from '../../shared/ui/Modal'
 import { VendorMark } from '../../shared/ui/VendorMark'
 import type { DownloadedModel } from '../../shared/types'
+
+const NO_DOWNLOADED: DownloadedModel[] = []
 
 type Props = {
   open: boolean
@@ -17,27 +20,20 @@ type Props = {
 
 /** Models on this PC: where deleting lives. The total leads; the list, largest first, is the breakdown. */
 export function ModelManagerModal({ open, onClose }: Props) {
-  const [models, setModels] = useState<DownloadedModel[]>([])
+  const models = useDownloadedModels().data ?? NO_DOWNLOADED
   // A Set: deleting A then B must not re-enable A while it is still going.
   const [deleting, setDeleting] = useState<ReadonlySet<string>>(new Set())
   const [confirming, setConfirming] = useState<string | null>(null)
   const catalog = useCatalog().data ?? NO_MODELS
-
-  const load = useCallback(() => {
-    commands.getDownloadedModels()
-      .then(setModels)
-      .catch(() => {})
-  }, [])
-
-  useEffect(() => { if (open) load() }, [open, load])
 
   const handleDelete = async (variant: string, displayName: string) => {
     setConfirming(null)
     setDeleting(s => new Set(s).add(variant))
     try {
       await commands.deleteModel(variant)
+      // Marked deleting until the list no longer shows it.
+      await caughtUp('models')
       toast.success(`${displayName} deleted`)
-      load()
     } catch (e) {
       toast.error(extractErrorMessage(e, 'Failed to delete model'))
     } finally {

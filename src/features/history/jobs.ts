@@ -1,20 +1,23 @@
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { commands, events, type JobFinish, type JobSnapshot, type Previous } from '../../shared/bindings'
+import { commands, events, type JobFinish, type Previous } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { live, patchLive, queryClient, readFresh } from '../../app/queryClient'
+import { reads } from '../../app/sync'
 import { queryKeys } from '../../shared/queryKeys'
-import type { Transcript } from '../../shared/types'
-import { refreshDictionaryUses } from '../dictionary/queries'
-import { dropRow, patchRows, showRewritten } from './queries'
 
 /** The running transcription job, then the queued ones. */
-export const jobsOptions = live(queryKeys.jobs, () => commands.getJobs())
-
-export const savedAudioOptions = live(queryKeys.savedAudio, () => commands.getSavedAudio())
+const jobsOptions = {
+  queryKey: queryKeys.jobs,
+  queryFn: () => commands.getJobs(),
+  ...reads('jobs'),
+}
 
 export function useSavedAudio() {
-  return useQuery(savedAudioOptions)
+  return useQuery({
+    queryKey: queryKeys.savedAudio,
+    queryFn: () => commands.getSavedAudio(),
+    ...reads('settings', 'savedAudio'),
+  })
 }
 
 export function useJobs() {
@@ -31,24 +34,9 @@ export function useHasJob(id: number) {
   return useQuery({ ...jobsOptions, select: jobs => jobs.some(job => job.transcriptId === id) }).data ?? false
 }
 
-/** Models on disk, read fresh each time a picker opens: a download may have finished. */
-export function useDownloadedModels(enabled = true) {
-  return useQuery({
-    queryKey: queryKeys.downloadedModels,
-    queryFn: () => commands.getDownloadedModels(),
-    staleTime: 0,
-    enabled,
-  })
-}
-
-const withJob = (jobs: JobSnapshot[], job: JobSnapshot) =>
-  jobs.some(j => j.transcriptId === job.transcriptId)
-    ? jobs.map(j => (j.transcriptId === job.transcriptId ? job : j))
-    : [...jobs, job]
-
 async function undoRetranscribe(id: number, previous: Previous, revision: number) {
   try {
-    await showRewritten(await commands.restoreTranscript(id, previous, revision))
+    await commands.restoreTranscript(id, previous, revision)
   } catch (e) {
     toast.error(extractErrorMessage(e, 'Could not restore the previous text'))
   }
@@ -72,31 +60,12 @@ function announce({ outcome, kind, transcriptId, previous, entry, message }: Job
   })
 }
 
-/** Keep the jobs, saved audio and the feed in step with the backend's events. */
-export async function listenForAudioEvents(): Promise<() => void> {
-  const unlisteners = await Promise.all([
-    events.jobUpdated.listen(({ payload }) => patchLive(jobsOptions, jobs => withJob(jobs, payload))),
-    events.jobFinished.listen(({ payload }) => {
-      patchLive(jobsOptions, jobs => jobs.filter(job => job.transcriptId !== payload.transcriptId))
-      announce(payload)
-      if (payload.entry) {
-        void showRewritten(payload.entry)
-        if (payload.kind === 'import') void refreshDictionaryUses()
-      } else if (payload.kind === 'import') {
-        // An import that didn't finish takes its entry, and its count in the totals, with it.
-        void dropRow(payload.transcriptId)
-        void queryClient.invalidateQueries({ queryKey: queryKeys.stats, refetchType: document.hidden ? 'none' : 'active' })
-      }
-    }),
-    events.savedAudioChanged.listen(({ payload }) => {
-      readFresh(savedAudioOptions).catch(() => {})
-      void patchRows(new Map(payload.map(({ id, audioPath }) => [id, (row: Transcript) => ({ ...row, audioPath })])))
-    }),
-  ])
-  return () => unlisteners.forEach(fn => fn())
+/** Toast each job's end. */
+export function listenForJobsFinishing() {
+  return events.jobFinished.listen(({ payload }) => announce(payload))
 }
 
-/** Queues the job; its progress arrives as events. */
+/** Queues the job; the job list follows it. */
 export async function startRetranscribe(id: number, model: string) {
   try {
     await commands.retranscribeTranscript(id, model)

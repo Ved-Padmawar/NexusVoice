@@ -13,12 +13,9 @@ use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 use tokio_util::sync::CancellationToken;
 
-use crate::bridge::events::{
-    CudaDownloadCancelled, CudaDownloadComplete, CudaDownloadError, CudaDownloadProgress,
-    CudaDownloadVerifying,
-};
+use crate::bridge::events::{CudaDownloadComplete, CudaDownloadError};
 use crate::models::downloader::{describe_io, describe_request_error, download_file, CANCELLED};
-use crate::sync::lock_recovering;
+use crate::sync::{announce, lock_recovering, Topic};
 
 const PACK_DIR: &str = "cuda";
 const STAGING_DIR: &str = "cuda.next";
@@ -292,6 +289,7 @@ pub fn remove(app_data_dir: &Path) -> std::io::Result<()> {
 }
 
 /// The pack in the app data dir, and the one download of it allowed at a time.
+/// Every change `get_cuda_status` would show is announced.
 pub struct CudaPack {
     app_data_dir: PathBuf,
     /// The installed pack failed its integrity check at start (see `activate`).
@@ -327,7 +325,9 @@ impl CudaPack {
     /// start.
     pub fn remove(&self) -> std::io::Result<()> {
         self.cancel();
-        remove(&self.app_data_dir)
+        remove(&self.app_data_dir)?;
+        announce(Topic::Cuda);
+        Ok(())
     }
 
     /// Progress of the running download, or `None` when idle.
@@ -348,26 +348,25 @@ impl CudaPack {
         }
     }
 
-    /// Fetch the pack into staging in the background, reported through the
-    /// `CudaDownload*` events. A running download is left alone.
+    /// Fetch the pack into staging in the background. Its end is also a
+    /// notice, for the toast. A running download is left alone.
     pub fn start_download(app: &AppHandle) {
         // Claimed before returning, so a status read right after reports it.
         let Some(cancel) = app.state::<Self>().claim() else {
             return;
         };
-        let _ = CudaDownloadProgress(0).emit(app);
+        announce(Topic::Cuda);
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             let pack = app.state::<Self>();
-            let result = pack.fetch(&app, &cancel).await;
+            let result = pack.fetch(&cancel).await;
             *pack.lock() = None;
+            announce(Topic::Cuda);
             match result {
                 Ok(()) => {
                     let _ = CudaDownloadComplete.emit(&app);
                 }
-                Err(e) if e == CANCELLED => {
-                    let _ = CudaDownloadCancelled.emit(&app);
-                }
+                Err(e) if e == CANCELLED => {}
                 Err(e) => {
                     log::warn!("CUDA pack download failed: {e}");
                     let _ = CudaDownloadError(e).emit(&app);
@@ -398,7 +397,7 @@ impl CudaPack {
         Some(slot.insert(CancellationToken::new()).clone())
     }
 
-    async fn fetch(&self, app: &AppHandle, cancel: &CancellationToken) -> Result<(), String> {
+    async fn fetch(&self, cancel: &CancellationToken) -> Result<(), String> {
         let app_data_dir = &self.app_data_dir;
         let platform = PLATFORM.ok_or("CUDA is not available on this platform")?;
         let (manifest, json, signature) = fetch_manifest(platform).await?;
@@ -438,18 +437,18 @@ impl CudaPack {
                 if !archive_complete(&gz, file.size) {
                     download_file(&url, &gz, cancel, file.size, |pct| {
                         let overall = (done + file.size * u64::from(pct) / 100) * 100 / total;
-                        self.report(app, overall);
+                        self.report(overall);
                     })
                     .await?;
                 }
                 downloaded.push((gz, dest, file.sha256.clone(), file.unpacked_size));
             }
             done += file.size;
-            self.report(app, done * 100 / total);
+            self.report(done * 100 / total);
         }
 
         self.verifying.store(true, Ordering::Relaxed);
-        let _ = CudaDownloadVerifying.emit(app);
+        announce(Topic::Cuda);
         let (staged, expected) = (staging.clone(), manifest.clone());
         let cancelled = cancel.clone();
         tokio::task::spawn_blocking(move || {
@@ -474,10 +473,10 @@ impl CudaPack {
         std::fs::write(confined_file(&staging, MANIFEST)?, json).map_err(|e| describe_io(&e))
     }
 
-    fn report(&self, app: &AppHandle, pct: u64) {
+    fn report(&self, pct: u64) {
         let pct = u8::try_from(pct.min(100)).unwrap_or(100);
         if self.progress.swap(pct, Ordering::Relaxed) != pct {
-            let _ = CudaDownloadProgress(pct).emit(app);
+            announce(Topic::Cuda);
         }
     }
 }

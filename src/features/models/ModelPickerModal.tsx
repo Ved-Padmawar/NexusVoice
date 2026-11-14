@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { LightningIcon, CheckIcon, HardDrivesIcon, GraphicsCardIcon, GlobeIcon, BroadcastIcon, DownloadSimpleIcon, CircleNotchIcon, ArrowsClockwiseIcon } from '@phosphor-icons/react'
-import { commands, events } from '../../shared/bindings'
+import { commands } from '../../shared/bindings'
+import { useEventListener } from '../../shared/hooks'
 import { extractErrorMessage } from '../../shared/errors'
 import { cn } from '../../shared/utils'
 import { formatModelSize, isStreaming, modelNameToId, sortForDisplay, type ModelId } from './models'
 import {
-  NO_MODELS, refreshActiveModel, startDownload, useActiveModel, useCatalog, useDownload,
+  NO_MODELS, startDownload, useActiveModel, useCatalog, useDownload,
 } from './queries'
 import { useAppStore } from '../../app/store/useAppStore'
 import { Button } from '../../shared/ui/Button'
@@ -26,12 +27,15 @@ export function ModelPickerModal() {
   const [startError, setStartError] = useState<string | null>(null)
   const loadError = catalogQuery.isError ? 'Could not load the model catalog.' : hardwareError ?? startError
 
-  // Returning user whose modelChosen got reset but model is on disk: skip the modal.
+  // Returning user whose modelChosen got reset but model is on disk: skip the
+  // modal. Judged on the first read only; later ones follow the user's pick.
+  const active = useActiveModel().data
+  const judged = useRef(false)
   useEffect(() => {
-    refreshActiveModel()
-      .then(info => { if (info.downloaded) setModelChosen(true) })
-      .catch(() => {})
-  }, [setModelChosen])
+    if (!active || judged.current) return
+    judged.current = true
+    if (active.downloaded) setModelChosen(true)
+  }, [active, setModelChosen])
 
   useEffect(() => {
     if (catalog.length === 0) return
@@ -47,37 +51,39 @@ export function ModelPickerModal() {
       })
   }, [catalog])
 
+  // The pick whose download is awaited, from the click on, so a cancel that
+  // lands while the download is still starting is not missed.
+  const awaiting = useRef<ModelId | null>(null)
+
+  // After a failed or cancelled download: back to the list.
+  const backToChoice = useCallback(() => {
+    awaiting.current = null
+    setConfirmed(false)
+    setConfirming(false)
+  }, [])
+
   // Rust switches to the pick once it is on disk; never before.
   const handleConfirm = async () => {
     if (!selected) return
+    awaiting.current = selected
     setConfirming(true)
     if (!(await startDownload(selected, { activate: true }))) {
+      awaiting.current = null
       setStartError('Could not start the download.')
       setConfirming(false)
       return
     }
     setStartError(null)
-    setConfirmed(true)
+    if (awaiting.current === selected) setConfirmed(true)
   }
 
-  // After a failed or cancelled download: back to the list.
-  const backToChoice = useCallback(() => {
-    setConfirmed(false)
-    setConfirming(false)
-  }, [])
-
   // A cancel from elsewhere leaves nothing to wait for.
-  useEffect(() => {
-    if (!confirmed) return
-    const unlisten = events.modelDownloadCancelled.listen(e => {
-      if (e.payload.id === selected) backToChoice()
-    })
-    return () => { void unlisten.then(fn => fn()) }
-  }, [confirmed, selected, backToChoice])
+  useEventListener('modelDownloadCancelled', ({ id }) => {
+    if (id === awaiting.current) backToChoice()
+  })
 
   const download = useDownload(selected).data
   // Close once Rust reports the pick active and on disk.
-  const active = useActiveModel().data
   const switched = active?.id === selected && active.downloaded
   useEffect(() => {
     if (confirmed && switched) setModelChosen(true)
@@ -153,7 +159,7 @@ export function ModelPickerModal() {
                 <button
                   key={id}
                   type="button"
-                  disabled={confirmed}
+                  disabled={confirming}
                   onClick={() => setSelected(id)}
                   title={model.detail}
                   className={cn(

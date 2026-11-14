@@ -20,4 +20,15 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // Cached Rust data changes only in sync.ts, on Rust's announcement.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/app/sync.ts', 'src/__tests__/**'],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: 'CallExpression[callee.property.name=/^(setQueryData|setQueriesData|invalidateQueries|refetchQueries|cancelQueries|resetQueries|removeQueries)$/]',
+        message: 'Only src/app/sync.ts changes cached Rust data. Read with useQuery and reads(...); wait on caughtUp(topic) after a save.',
+      }],
+    },
+  },
 ])

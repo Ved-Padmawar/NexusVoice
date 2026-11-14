@@ -1,24 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useCallback } from 'react'
 import { toast } from 'sonner'
 import { commands, type DictionaryResponse } from '../../shared/bindings'
 import { createPendingDeletes, deleteWithUndo } from '../../shared/deleteWithUndo'
 import { extractErrorMessage } from '../../shared/errors'
 import { queryClient } from '../../app/queryClient'
+import { caughtUp, reads } from '../../app/sync'
 import { queryKeys } from '../../shared/queryKeys'
 
-// Kept current by mutations and `transcriptSaved`, never by a timer. A refresh
-// skipped while hidden runs when the window is shown.
 const dictionaryOptions = {
   queryKey: queryKeys.dictionary,
   queryFn: () => commands.getDictionary(),
-  staleTime: Infinity,
-  refetchOnWindowFocus: true,
+  ...reads('dictionary'),
 }
-
-/** A dictation was saved: its corrections have already bumped the hit counts. */
-export const refreshDictionaryUses = () =>
-  queryClient.invalidateQueries({ queryKey: queryKeys.dictionary, refetchType: document.hidden ? 'none' : 'active' })
 
 export type UpdateDictionaryArgs = {
   term: string
@@ -38,28 +32,21 @@ export function useDictionary() {
   return useQuery({ ...dictionaryOptions, select })
 }
 
+/** Settles once the list shows the save, so an edited row never flashes its old text. */
 export function useUpdateDictionary() {
-  const client = useQueryClient()
   return useMutation({
-    mutationFn: ({ term, replacement, id }: UpdateDictionaryArgs) =>
-      commands.updateDictionary(term, replacement, id ?? null),
-    // Returned, so the mutation settles after the list refetches.
-    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.dictionary }),
+    mutationFn: async ({ term, replacement, id }: UpdateDictionaryArgs) => {
+      await commands.updateDictionary(term, replacement, id ?? null)
+      await caughtUp('dictionary')
+    },
     onError: (e) => toast.error(extractErrorMessage(e, 'Failed to update dictionary')),
   })
 }
 
 /** Deletes an entry behind an Undo toast. */
 export function useDeleteDictionaryEntry() {
-  const client = useQueryClient()
   const { mutateAsync } = useMutation({
     mutationFn: (id: number) => commands.deleteDictionaryEntry(id),
-    // Dropped first: an unmounted list is only marked stale. Returned, so the
-    // entry stays hidden until the refetch lands.
-    onSuccess: (_, id) => {
-      client.setQueryData<DictionaryResponse[]>(queryKeys.dictionary, list => list?.filter(e => e.id !== id))
-      return client.invalidateQueries({ queryKey: queryKeys.dictionary })
-    },
     onError: (e) => toast.error(extractErrorMessage(e, 'Failed to delete entry')),
   })
   return (entry: DictionaryResponse) => deleteWithUndo({
@@ -70,4 +57,4 @@ export function useDeleteDictionaryEntry() {
   })
 }
 
-export const prefetchDictionary = () => queryClient.prefetchQuery(dictionaryOptions)
+export const prefetchDictionary = () => queryClient.query(dictionaryOptions).catch(() => {})

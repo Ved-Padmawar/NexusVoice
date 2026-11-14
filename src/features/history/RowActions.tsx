@@ -4,7 +4,8 @@ import { toast } from 'sonner'
 import { extractErrorMessage } from '../../shared/errors'
 import { cn } from '../../shared/utils'
 import { MenuItem, Popover } from '../../shared/ui/Popover'
-import { startRetranscribe, useDownloadedModels } from './jobs'
+import { useDownloadedModels } from '../models/queries'
+import { startRetranscribe } from './jobs'
 import { setPinned } from './queries'
 
 export const ACTION_BUTTON = 'grid size-7 cursor-pointer place-items-center rounded-lg text-muted hover:bg-surface-hover hover:text-fg disabled:pointer-events-none disabled:opacity-40'
@@ -14,7 +15,7 @@ export const ACTION_BUTTON = 'grid size-7 cursor-pointer place-items-center roun
 export function RetranscribeButton({ id, usedModel }: { id: number; usedModel: string | null }) {
   const anchorRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
-  const models = useDownloadedModels(open)
+  const models = useDownloadedModels()
   return (
     <>
       <button

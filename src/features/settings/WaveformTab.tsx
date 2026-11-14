@@ -5,7 +5,7 @@ import { BARS, ease } from '../../shared/waveform'
 import { subscribeWhileVisible } from '../../shared/frameClock'
 import { pillThemeDef, type PillThemeDef } from '../../pill/pillThemes'
 import type { WaveformStyle } from '../../shared/types'
-import { updatePill, usePillSettings } from './queries'
+import { usePillSetting, usePillSettings } from './queries'
 
 type StyleDef = {
   id: WaveformStyle
@@ -172,12 +172,13 @@ function StyleSwatch({ s, active, onPick, levelsRef, theme }: {
 
 /** How the pill draws your voice while it records. */
 export const WaveformTab = memo(function WaveformTab() {
-  const { waveformStyle, theme: pillTheme } = usePillSettings()
+  const [waveformStyle, chooseStyle] = usePillSetting('waveformStyle')
+  const pillTheme = usePillSettings().theme
   const rootRef = useRef<HTMLDivElement | null>(null)
   const levelsRef = usePreviewLevels(rootRef)
   const theme = pillThemeDef(pillTheme)
 
-  const handleSelect = (id: WaveformStyle) => { void updatePill({ waveformStyle: id }) }
+  const handleSelect = (id: WaveformStyle) => { void chooseStyle(id) }
 
   return (
     <section>

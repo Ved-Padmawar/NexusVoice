@@ -9,6 +9,7 @@ use tokio::sync::RwLock;
 use crate::data::dto::dictionary::CreateDictionaryEntry;
 use crate::data::repositories::dictionary::DictionaryRepository;
 use crate::data::rows::dictionary::DictionaryEntry;
+use crate::sync::{announce, Topic};
 use crate::text::dictionary_engine::{match_key, MAX_SPAN};
 use crate::text::DictionaryCorrectionEngine;
 
@@ -48,6 +49,8 @@ fn validate(term: &str, replacement: &str) -> Result<(String, String), Dictionar
     Ok((term.to_string(), replacement.to_string()))
 }
 
+/// Every change to the in-memory copy, which `get_dictionary` reads, is
+/// announced once both it and the database hold it.
 #[derive(Default)]
 pub struct Dictionary {
     /// Keyed by term, which the matcher reports its hits by.
@@ -58,6 +61,7 @@ impl Dictionary {
     pub async fn load(&self, pool: &SqlitePool) -> Result<(), sqlx::Error> {
         let entries = DictionaryRepository::new(pool.clone()).list_all().await?;
         *self.entries.write().await = entries.into_iter().map(|e| (e.term.clone(), e)).collect();
+        announce(Topic::Dictionary);
         Ok(())
     }
 
@@ -98,6 +102,7 @@ impl Dictionary {
         };
         entries.retain(|_, e| e.id != entry.id);
         entries.insert(entry.term.clone(), entry.clone());
+        announce(Topic::Dictionary);
         Ok(entry)
     }
 
@@ -107,6 +112,7 @@ impl Dictionary {
             .await?
         {
             self.entries.write().await.retain(|_, e| e.id != id);
+            announce(Topic::Dictionary);
         }
         Ok(())
     }
@@ -119,18 +125,23 @@ impl Dictionary {
             return corrected;
         }
 
+        // Held across the write, like `save`: an edit reading the row back
+        // meanwhile would already hold this hit, and count it again here.
+        let mut entries = self.entries.write().await;
+        // Counted in memory only once saved, so a restart never takes hits back.
         if let Err(e) = DictionaryRepository::new(pool.clone())
             .increment_hits_batch(&matched)
             .await
         {
             log::warn!("could not count dictionary hits: {e}");
+            return corrected;
         }
-        let mut entries = self.entries.write().await;
         for term in &matched {
             if let Some(entry) = entries.get_mut(term) {
                 entry.hits += 1;
             }
         }
+        announce(Topic::Dictionary);
         corrected
     }
 }

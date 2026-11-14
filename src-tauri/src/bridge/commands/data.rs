@@ -263,7 +263,7 @@ pub async fn delete_transcript(
     TranscriptRepository::new(db.pool().await?)
         .delete_by_id(id)
         .await?;
-    if let Err(e) = crate::recordings::delete(&app, id) {
+    if let Err(e) = app.state::<Recordings>().remove(id) {
         log::warn!("{e}");
     }
     Ok(())

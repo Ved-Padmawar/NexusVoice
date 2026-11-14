@@ -1,34 +1,24 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { LightningIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
+import { queryKeys } from '../../shared/queryKeys'
+import { useLiveChoice } from '../../app/useLiveChoice'
 import { Switch } from '../../shared/ui/Switch'
 import { SettingRow } from './SettingRow'
+import { useKeepMicOpen } from './queries'
+
+const saveKeepOpen = (keep: boolean) => commands.setKeepMicOpen(keep)
+const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Could not save the microphone setting'))
 
 export function KeepMicOpenToggle() {
-  const [keepOpen, setKeepOpen] = useState(false)
-  // Locked until the first read and during a save: it shows only what Rust confirmed.
-  const [busy, setBusy] = useState(true)
+  const { data, error } = useKeepMicOpen()
+  const { pending, choose } = useLiveChoice(queryKeys.keepMicOpen, saveKeepOpen, saveFailed)
 
   useEffect(() => {
-    commands.getKeepMicOpen()
-      .then(setKeepOpen)
-      .catch((e) => toast.error(extractErrorMessage(e, 'Could not read the microphone setting')))
-      .finally(() => setBusy(false))
-  }, [])
-
-  const change = async (keep: boolean) => {
-    setBusy(true)
-    try {
-      await commands.setKeepMicOpen(keep)
-      setKeepOpen(keep)
-    } catch (e) {
-      toast.error(extractErrorMessage(e, 'Could not save the microphone setting'))
-    } finally {
-      setBusy(false)
-    }
-  }
+    if (error) toast.error(extractErrorMessage(error, 'Could not read the microphone setting'))
+  }, [error])
 
   return (
     <SettingRow
@@ -37,7 +27,12 @@ export function KeepMicOpenToggle() {
       tip="Keeps the microphone open between recordings, so your system's microphone indicator stays on. Off, it closes after 60 seconds without a recording."
       description={<p className="text-xs text-muted">The first word is never clipped.</p>}
     >
-      <Switch checked={keepOpen} disabled={busy} onChange={(on) => { void change(on) }} aria-label="Keep the microphone ready" />
+      <Switch
+        checked={pending ? pending.value : data === true}
+        disabled={data === undefined}
+        onChange={(on) => { void choose(on) }}
+        aria-label="Keep the microphone ready"
+      />
     </SettingRow>
   )
 }

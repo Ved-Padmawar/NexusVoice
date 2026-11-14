@@ -1,11 +1,11 @@
 import { SpeakerHighIcon } from '@phosphor-icons/react'
 import { Switch } from '../../shared/ui/Switch'
 import { SettingRow } from './SettingRow'
-import { updatePill, usePillSettings } from './queries'
+import { usePillSetting } from './queries'
 
 /** A short chime once the microphone is live, in either recording mode. */
 export function StartSoundToggle() {
-  const { startSound } = usePillSettings()
+  const [startSound, chooseStartSound] = usePillSetting('startSound')
 
   return (
     <SettingRow
@@ -15,7 +15,7 @@ export function StartSoundToggle() {
     >
       <Switch
         checked={startSound}
-        onChange={(on) => { void updatePill({ startSound: on }) }}
+        onChange={(on) => { void chooseStartSound(on) }}
         aria-label="Sound when recording starts"
       />
     </SettingRow>

@@ -14,7 +14,6 @@ use crate::models::library::ModelLibrary;
 use crate::recordings::Recordings;
 use crate::settings::{SavedAudio, Settings};
 
-use super::dto::TranscriptResponse;
 use super::error::ApiError;
 
 #[derive(Debug, Serialize, specta::Type)]
@@ -26,7 +25,12 @@ pub struct SavedAudioView {
     pub bytes: u64,
 }
 
-fn view(settings: &Settings, recordings: &Recordings) -> SavedAudioView {
+#[tauri::command]
+#[specta::specta]
+pub fn get_saved_audio(
+    settings: State<'_, Settings>,
+    recordings: State<'_, Recordings>,
+) -> SavedAudioView {
     let SavedAudio { enabled, keep } = settings.saved_audio();
     SavedAudioView {
         enabled,
@@ -35,26 +39,17 @@ fn view(settings: &Settings, recordings: &Recordings) -> SavedAudioView {
     }
 }
 
-#[tauri::command]
-#[specta::specta]
-pub fn get_saved_audio(
-    settings: State<'_, Settings>,
-    recordings: State<'_, Recordings>,
-) -> SavedAudioView {
-    view(&settings, &recordings)
-}
-
 /// Save the policy and apply it now: audio past the new limit, or all of it
-/// when switched off, is deleted before this returns.
+/// when switched off, is deleted before this returns. An error means the
+/// policy was not saved.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_saved_audio(
     app: AppHandle,
     settings: State<'_, Settings>,
-    recordings: State<'_, Recordings>,
     enabled: bool,
     keep: u32,
-) -> Result<SavedAudioView, ApiError> {
+) -> Result<(), ApiError> {
     if !SavedAudio::KEEP_RANGE.contains(&keep) {
         return Err(ApiError::new(
             "invalid_input",
@@ -62,11 +57,11 @@ pub async fn set_saved_audio(
         ));
     }
     settings.set_saved_audio(SavedAudio { enabled, keep })?;
-    crate::recordings::apply_limit(&app).await.map_err(|e| {
+    // Pruning is its own outcome, like after a save: the next one tries again.
+    if let Err(e) = crate::recordings::apply_limit(&app).await {
         log::warn!("could not apply the saved audio limit: {e}");
-        ApiError::new("io_error", "Couldn't delete the audio past the limit.")
-    })?;
-    Ok(view(&settings, &recordings))
+    }
+    Ok(())
 }
 
 /// Delete every unpinned entry's audio. The entries and their text stay.
@@ -76,24 +71,30 @@ pub async fn set_saved_audio(
 pub async fn clear_saved_audio(
     app: AppHandle,
     db: State<'_, Database>,
-    settings: State<'_, Settings>,
-    recordings: State<'_, Recordings>,
-) -> Result<SavedAudioView, ApiError> {
-    if !TranscriptRepository::new(db.pool().await?)
-        .pending()
-        .await?
-        .is_empty()
-    {
+) -> Result<ClearedAudio, ApiError> {
+    let repo = TranscriptRepository::new(db.pool().await?);
+    if !repo.pending().await?.is_empty() {
         return Err(ApiError::new(
             "imports_pending",
             "Files are still being transcribed. Clear the audio once they finish.",
         ));
     }
-    crate::recordings::trim(&app, None).await.map_err(|e| {
+    let deleted = crate::recordings::trim(&app, None).await.map_err(|e| {
         log::warn!("could not clear the saved audio: {e}");
         ApiError::new("io_error", "Couldn't delete the saved audio.")
     })?;
-    Ok(view(&settings, &recordings))
+    Ok(ClearedAudio {
+        deleted,
+        kept: repo.ids_with_audio().await?.len(),
+    })
+}
+
+/// What clearing the saved audio did; what is left is pinned.
+#[derive(Debug, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearedAudio {
+    pub deleted: usize,
+    pub kept: usize,
 }
 
 /// Pin an entry to keep its audio past the limit; unpinning applies the limit again.
@@ -124,19 +125,17 @@ pub async fn set_transcript_pinned(
 #[specta::specta]
 pub async fn restore_transcript(
     db: State<'_, Database>,
-    recordings: State<'_, Recordings>,
     id: i64,
     previous: Previous,
     revision: i64,
-) -> Result<TranscriptResponse, ApiError> {
+) -> Result<(), ApiError> {
     if previous.text.trim().is_empty() {
         return Err(ApiError::new(
             "invalid_input",
             "A transcript can't be empty.",
         ));
     }
-    let repo = TranscriptRepository::new(db.pool().await?);
-    if !repo
+    if !TranscriptRepository::new(db.pool().await?)
         .restore_text(id, revision, &previous.text, previous.model.as_deref())
         .await?
     {
@@ -145,11 +144,7 @@ pub async fn restore_transcript(
             "This entry changed since, so there's nothing to undo.",
         ));
     }
-    let entry = repo
-        .get_by_id(id)
-        .await?
-        .ok_or_else(|| ApiError::new("not_found", "That entry was deleted."))?;
-    Ok(TranscriptResponse::new(entry, &recordings))
+    Ok(())
 }
 
 #[derive(Debug, Serialize, specta::Type)]
@@ -232,7 +227,7 @@ pub async fn retranscribe_transcript(
 }
 
 /// Add an audio file to History and queue its transcription. Nothing is
-/// pasted. The entry arrives as `TranscriptSaved`.
+/// pasted.
 #[tauri::command]
 #[specta::specta]
 pub async fn import_audio_file(

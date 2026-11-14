@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { commands, events } from '../../shared/bindings'
-import { live, patchLive, readFresh } from '../../app/queryClient'
+import { caughtUp, reads } from '../../app/sync'
 import { queryKeys } from '../../shared/queryKeys'
 import type { DownloadStatus, ModelInfo } from '../../shared/types'
 import { modelNameToId, type CatalogModel, type ModelId } from './models'
@@ -18,21 +18,26 @@ type Downloads = Record<string, Download>
 
 export const NO_MODELS: CatalogModel[] = []
 
-const catalogOptions = live(queryKeys.catalog, () => commands.getModelCatalog())
-
-const activeModelOptions = live(queryKeys.activeModel, () => commands.getModelInfo())
-
-/** Support is per model, so every model change re-reads it. */
-export const languageOptions = live(queryKeys.languageOptions, () => commands.getLanguageOptions())
-
-export const modelUnloadOptions = live(queryKeys.modelUnload, () => commands.getModelUnload())
-
-const downloadsOptions = live(queryKeys.downloads, async (): Promise<Downloads> => Object.fromEntries(
-  (await commands.getActiveDownloads()).map(({ id, status, progress, error }) => [id, { status, progress, error }]),
-))
+// Dev and release share the model files, and neither hears the other's
+// changes: what is on disk is read again whenever a view opens or the
+// window comes forward.
+const ON_DISK = { ...reads('models', 'settings'), refetchOnMount: 'always', refetchOnWindowFocus: 'always' } as const
 
 export function useCatalog() {
-  return useQuery(catalogOptions)
+  return useQuery({
+    queryKey: queryKeys.catalog,
+    queryFn: () => commands.getModelCatalog(),
+    ...ON_DISK,
+  })
+}
+
+/** The models on disk, with the size each takes. */
+export function useDownloadedModels() {
+  return useQuery({
+    queryKey: queryKeys.downloadedModels,
+    queryFn: () => commands.getDownloadedModels(),
+    ...ON_DISK,
+  })
 }
 
 /** The model Rust will load, as a catalog id once the catalog is known. */
@@ -45,23 +50,41 @@ export function useActiveModel() {
     }),
     [catalog],
   )
-  return useQuery({ ...activeModelOptions, select })
+  return useQuery({
+    queryKey: queryKeys.activeModel,
+    queryFn: () => commands.getModelInfo(),
+    select,
+    ...ON_DISK,
+  })
 }
 
+/** The active model's languages, with the saved one marked. */
 export function useLanguageOptions() {
-  return useQuery(languageOptions)
+  return useQuery({
+    queryKey: queryKeys.languageOptions,
+    queryFn: () => commands.getLanguageOptions(),
+    ...reads('settings'),
+  })
 }
 
 export function useModelUnload() {
-  return useQuery(modelUnloadOptions)
+  return useQuery({
+    queryKey: queryKeys.modelUnload,
+    queryFn: () => commands.getModelUnload(),
+    ...reads('settings'),
+  })
+}
+
+const downloadsOptions = {
+  queryKey: queryKeys.downloads,
+  queryFn: async (): Promise<Downloads> => Object.fromEntries(
+    (await commands.getActiveDownloads()).map(({ id, status, progress, error }) => [id, { status, progress, error }]),
+  ),
+  ...reads('downloads'),
 }
 
 export function useDownload(id: ModelId | null) {
   return useQuery({ ...downloadsOptions, select: (downloads: Downloads) => (id ? downloads[id] : undefined) })
-}
-
-export function usePendingDownloads() {
-  return useQuery({ ...downloadsOptions, select: (downloads: Downloads) => Object.keys(downloads).length })
 }
 
 /** The furthest-behind pending download's progress, or null when none is.
@@ -77,39 +100,21 @@ export function useDownloadSummary() {
   return useQuery({ ...downloadsOptions, select: summarizeDownloads })
 }
 
-export const refreshActiveModel = () => readFresh(activeModelOptions)
-
-/** The active model changed: re-read it and the languages it offers. */
-const rereadModel = () => Promise.allSettled([refreshActiveModel(), readFresh(languageOptions)])
-
-/** Make `id`, a model on disk, the one Rust loads. */
+/** Make `id`, a model on disk, the one Rust loads. Settles once the screen shows it. */
 export async function switchModel(id: ModelId) {
   await commands.setModelOverride(id)
-  await rereadModel()
+  await caughtUp('settings')
 }
 
-const setDownload = (id: string, patch: Partial<Download>) =>
-  patchLive(downloadsOptions, (downloads) => {
-    const current: Download = downloads[id] ?? { status: 'queued', progress: 0 }
-    return { ...downloads, [id]: { ...current, ...patch } }
-  })
-
-const dropDownload = (id: string) =>
-  patchLive(downloadsOptions, (downloads) => {
-    const rest = { ...downloads }
-    delete rest[id]
-    return rest
-  })
-
-/** Resolves false when the backend refused to start the download. With
- * `activate`, Rust makes the model the active one once it is on disk. */
+/** Resolves false when the backend refused to start the download, else once
+ * the screen shows it queued. With `activate`, Rust makes the model the
+ * active one once it is on disk. */
 export async function startDownload(id: ModelId, { activate = false } = {}): Promise<boolean> {
-  setDownload(id, { status: 'queued', progress: 0 })
   try {
     await commands.startModelDownload(id, activate)
+    await caughtUp('downloads')
     return true
   } catch {
-    dropDownload(id)
     return false
   }
 }
@@ -117,35 +122,11 @@ export async function startDownload(id: ModelId, { activate = false } = {}): Pro
 export async function cancelDownload(id: ModelId) {
   try {
     await commands.cancelModelDownload(id)
-  } catch { /* the cancelled event drops it */ }
+  } catch { /* the download list shows what Rust holds */ }
 }
 
-/** Keep the download registry current. Both windows follow it, keyed by model id. */
-export async function listenForDownloadEvents(): Promise<() => void> {
-  const unlisteners = await Promise.all([
-    events.modelDownloadStart.listen(e => setDownload(e.payload.id, { status: 'queued', progress: 0, error: null })),
-    events.modelDownloadRunning.listen(e => setDownload(e.payload.id, { status: 'running' })),
-    events.modelDownloadProgress.listen(e => setDownload(e.payload.id, { status: 'running', progress: e.payload.pct })),
-    events.modelDownloadComplete.listen(e => dropDownload(e.payload.id)),
-    events.modelDownloadError.listen(e => setDownload(e.payload.id, { status: 'error', error: e.payload.error || 'Download failed' })),
-    events.modelDownloadCancelled.listen(e => dropDownload(e.payload.id)),
-  ])
-  return () => unlisteners.forEach(fn => fn())
-}
-
-export async function listenForModelEvents(): Promise<() => void> {
-  const unlisteners = await Promise.all([
-    listenForDownloadEvents(),
-    // A finished download can be the active model's file.
-    events.modelDownloadComplete.listen(() => void rereadModel()),
-    // Deleting the active model unloads it, or switches to another on disk.
-    events.modelEvicted.listen(() => void rereadModel()),
-    // Also a download that asked to become the active model once on disk.
-    events.modelSwitched.listen(() => void rereadModel()),
-    events.languageReset.listen(() => {
-      readFresh(languageOptions).catch(() => {})
-      toast.info('This model does not support your dictation language. Switched to English.')
-    }),
-  ])
-  return () => unlisteners.forEach(fn => fn())
+export function listenForLanguageReset() {
+  return events.languageReset.listen(() => {
+    toast.info('This model does not support your dictation language. Switched to English.')
+  })
 }

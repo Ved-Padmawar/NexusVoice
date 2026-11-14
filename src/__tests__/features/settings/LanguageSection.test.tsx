@@ -49,14 +49,15 @@ async function pick(name: string) {
 }
 
 describe('LanguageSection', () => {
-  it('a late failure of an older pick never undoes a newer one that saved', async () => {
+  it('a failure of an older pick never undoes a newer one that saved', async () => {
     renderWithQuery(<LanguageSection />)
     await waitFor(() => expect(trigger()).toHaveTextContent('English (US)'))
 
     await pick('French (FR)')
     await pick('German')
-    await act(async () => { replies[1].resolve() })
     await act(async () => { replies[0].reject({ code: 'io', message: 'could not write settings.json' }) })
+    await waitFor(() => expect(replies).toHaveLength(2))
+    await act(async () => { replies[1].resolve() })
 
     await waitFor(() => expect(trigger()).toHaveTextContent('German'))
     expect(saved).toBe('de')

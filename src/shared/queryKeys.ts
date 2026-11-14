@@ -5,23 +5,22 @@ export type TranscriptFilters = {
 }
 
 export const queryKeys = {
-  transcriptsRoot: ['transcripts'] as const,
   transcripts: (filters: TranscriptFilters) => ['transcripts', 'feed', filters] as const,
-  transcriptSearchRoot: ['transcripts', 'search'] as const,
   transcriptSearch: (query: string, filters: TranscriptFilters) =>
     ['transcripts', 'search', query, filters] as const,
   stats: ['stats'] as const,
-  // Under `stats`, so whatever refreshes the totals refreshes this too.
   dailyWords: (days: number) => ['stats', 'daily', days] as const,
   dictionary: ['dictionary'] as const,
   catalog: ['catalog'] as const,
   activeModel: ['activeModel'] as const,
   downloads: ['downloads'] as const,
+  downloadedModels: ['downloadedModels'] as const,
   languageOptions: ['languageOptions'] as const,
+  languageOptionsFor: (model: string | null) => ['languageOptions', model] as const,
   modelUnload: ['modelUnload'] as const,
   pasteMode: ['pasteMode'] as const,
+  keepMicOpen: ['keepMicOpen'] as const,
   inputDevices: ['inputDevices'] as const,
-  recording: ['recording'] as const,
   hotkeys: ['hotkeys'] as const,
   boundHotkeys: ['boundHotkeys'] as const,
   pillSettings: ['pillSettings'] as const,
@@ -29,5 +28,4 @@ export const queryKeys = {
   cuda: ['cuda'] as const,
   savedAudio: ['savedAudio'] as const,
   jobs: ['jobs'] as const,
-  downloadedModels: ['downloadedModels'] as const,
 }

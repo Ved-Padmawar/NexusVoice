@@ -7,7 +7,8 @@ import { SUPER_KEY_LABEL } from '../../shared/platform'
 import type { HotkeyKind } from '../../shared/types'
 import { Button } from '../../shared/ui/Button'
 import { Kbd } from '../../shared/ui/Kbd'
-import { refreshBoundHotkeys, setCachedHotkey, useBoundHotkeys, useHotkeys } from './queries'
+import { useBoundHotkeys, useHotkeys } from './queries'
+import { caughtUp } from '../../app/sync'
 
 type HotkeyConfig = {
   kind: HotkeyKind
@@ -77,7 +78,7 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
     if (!suspendedRef.current) return
     suspendedRef.current = false
     // A shortcut another app took meanwhile shows as not active.
-    commands.resumeHotkeys().then(refreshBoundHotkeys).catch(() => {})
+    commands.resumeHotkeys().catch(() => {})
   }, [])
 
   // Closing the page mid-edit binds the shortcuts again.
@@ -149,8 +150,7 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
     setSaving(true)
     try {
       await commands.setHotkey(config.kind, shortcut)
-      setCachedHotkey(config.kind, shortcut)
-      void refreshBoundHotkeys()
+      await caughtUp('settings')
       toast.success(`${config.title} hotkey saved`)
     } catch (e: unknown) {
       // A failed save ends the edit, so the saved shortcuts come back now.
@@ -167,8 +167,7 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
   const handleRemoveHotkey = async () => {
     try {
       await commands.setHotkey(config.kind, null)
-      setCachedHotkey(config.kind, null)
-      void refreshBoundHotkeys()
+      await caughtUp('settings')
     } catch (e: unknown) {
       toast.error(extractErrorMessage(e, `Failed to remove the ${config.title.toLowerCase()} hotkey.`))
     }

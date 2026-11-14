@@ -424,7 +424,7 @@ impl Recorder {
             .or_else(|| timed_out.then(|| "microphone is not responding".to_string()))
         else {
             // The mic is delivering now, so the chime means "listening".
-            if app.state::<Settings>().pill().settings.start_sound {
+            if app.state::<Settings>().pill().start_sound {
                 self.chime.play();
             }
             return Ok(());
@@ -460,7 +460,7 @@ impl Recorder {
         self.capture.capturing.store(true, Ordering::SeqCst);
         // Arm first: it clears the previous error, which the open below may set.
         self.capture.mic.arm();
-        if app.state::<Settings>().pill().settings.start_sound {
+        if app.state::<Settings>().pill().start_sound {
             self.chime.warm();
         }
         self.capture

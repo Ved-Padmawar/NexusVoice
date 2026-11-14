@@ -2,7 +2,7 @@ import { memo } from 'react'
 import { Swatch } from '../../shared/ui/Swatch'
 import { PILL_THEMES, type PillThemeDef } from '../../pill/pillThemes'
 import type { PillTheme } from '../../shared/types'
-import { updatePill, usePillSettings } from './queries'
+import { usePillSetting } from './queries'
 
 function MiniPill({ theme }: { theme: PillThemeDef }) {
   return (
@@ -59,10 +59,10 @@ function PillStrip({ t }: { t: PillThemeDef }) {
 
 /** The pill floats over other apps, so it is themed separately. */
 export const PillTab = memo(function PillTab() {
-  const pillTheme = usePillSettings().theme
+  const [pillTheme, choosePillTheme] = usePillSetting('theme')
   const current = PILL_THEMES.find((t) => t.id === pillTheme) ?? PILL_THEMES[0]
 
-  const handleSelect = (id: PillTheme) => { void updatePill({ theme: id }) }
+  const handleSelect = (id: PillTheme) => { void choosePillTheme(id) }
 
   return (
     <section>

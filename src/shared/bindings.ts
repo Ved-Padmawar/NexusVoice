@@ -117,14 +117,11 @@ async suspendHotkeys() : Promise<null> {
 async resumeHotkeys() : Promise<null> {
     return await TAURI_INVOKE("resume_hotkeys");
 },
-async getPillSettings() : Promise<PillSettingsSnapshot> {
+async getPillSettings() : Promise<PillSettings> {
     return await TAURI_INVOKE("get_pill_settings");
 },
-/**
- * Save the pill's preferences and tell both windows.
- */
-async setPillSettings(pill: PillSettings) : Promise<PillSettingsSnapshot> {
-    return await TAURI_INVOKE("set_pill_settings", { pill });
+async setPillSetting(change: PillSetting) : Promise<null> {
+    return await TAURI_INVOKE("set_pill_setting", { change });
 },
 async getModelInfo() : Promise<ModelInfoResponse> {
     return await TAURI_INVOKE("get_model_info");
@@ -144,7 +141,7 @@ async getActiveDownloads() : Promise<ActiveDownload[]> {
 },
 /**
  * A cancel pressed in the last moments of a transfer arrives after the file
- * is published; the download then stands, reported by its complete event.
+ * is published; the download then stands.
  */
 async cancelModelDownload(id: string) : Promise<void> {
     await TAURI_INVOKE("cancel_model_download", { id });
@@ -278,16 +275,17 @@ async getSavedAudio() : Promise<SavedAudioView> {
 },
 /**
  * Save the policy and apply it now: audio past the new limit, or all of it
- * when switched off, is deleted before this returns.
+ * when switched off, is deleted before this returns. An error means the
+ * policy was not saved.
  */
-async setSavedAudio(enabled: boolean, keep: number) : Promise<SavedAudioView> {
+async setSavedAudio(enabled: boolean, keep: number) : Promise<null> {
     return await TAURI_INVOKE("set_saved_audio", { enabled, keep });
 },
 /**
  * Delete every unpinned entry's audio. The entries and their text stay.
  * Refused while files wait to be transcribed: they still need theirs.
  */
-async clearSavedAudio() : Promise<SavedAudioView> {
+async clearSavedAudio() : Promise<ClearedAudio> {
     return await TAURI_INVOKE("clear_saved_audio");
 },
 /**
@@ -301,7 +299,7 @@ async setTranscriptPinned(id: number, pinned: boolean) : Promise<null> {
  * `revision` is the entry's after that re-transcription: once it moved on, a
  * later change happened and this undo no longer applies.
  */
-async restoreTranscript(id: number, previous: Previous, revision: number) : Promise<TranscriptResponse> {
+async restoreTranscript(id: number, previous: Previous, revision: number) : Promise<null> {
     return await TAURI_INVOKE("restore_transcript", { id, previous, revision });
 },
 /**
@@ -327,7 +325,7 @@ async retranscribeTranscript(id: number, model: string) : Promise<null> {
 },
 /**
  * Add an audio file to History and queue its transcription. Nothing is
- * pasted. The entry arrives as `TranscriptSaved`.
+ * pasted.
  */
 async importAudioFile(path: string, model: string, language: string | null) : Promise<null> {
     return await TAURI_INVOKE("import_audio_file", { path, model, language });
@@ -338,54 +336,28 @@ async importAudioFile(path: string, model: string, language: string | null) : Pr
 
 
 export const events = __makeEvents__<{
-cudaDownloadCancelled: CudaDownloadCancelled,
+changed: Changed,
 cudaDownloadComplete: CudaDownloadComplete,
 cudaDownloadError: CudaDownloadError,
-cudaDownloadProgress: CudaDownloadProgress,
-cudaDownloadVerifying: CudaDownloadVerifying,
 jobFinished: JobFinished,
-jobUpdated: JobUpdated,
 languageReset: LanguageReset,
 modelDownloadCancelled: ModelDownloadCancelled,
-modelDownloadComplete: ModelDownloadComplete,
-modelDownloadError: ModelDownloadError,
-modelDownloadProgress: ModelDownloadProgress,
-modelDownloadRunning: ModelDownloadRunning,
-modelDownloadStart: ModelDownloadStart,
-modelEvicted: ModelEvicted,
-modelSwitched: ModelSwitched,
-pillSettingsChanged: PillSettingsChanged,
 pillWaveform: PillWaveform,
 recordingStateChanged: RecordingStateChanged,
-savedAudioChanged: SavedAudioChanged,
-transcriptSaved: TranscriptSaved,
 transcriptionComplete: TranscriptionComplete,
 transcriptionError: TranscriptionError,
 transcriptionPartial: TranscriptionPartial,
 transcriptionPartialEnd: TranscriptionPartialEnd,
 transcriptionWarning: TranscriptionWarning
 }>({
-cudaDownloadCancelled: "cuda-download-cancelled",
+changed: "changed",
 cudaDownloadComplete: "cuda-download-complete",
 cudaDownloadError: "cuda-download-error",
-cudaDownloadProgress: "cuda-download-progress",
-cudaDownloadVerifying: "cuda-download-verifying",
 jobFinished: "job-finished",
-jobUpdated: "job-updated",
 languageReset: "language-reset",
 modelDownloadCancelled: "model-download-cancelled",
-modelDownloadComplete: "model-download-complete",
-modelDownloadError: "model-download-error",
-modelDownloadProgress: "model-download-progress",
-modelDownloadRunning: "model-download-running",
-modelDownloadStart: "model-download-start",
-modelEvicted: "model-evicted",
-modelSwitched: "model-switched",
-pillSettingsChanged: "pill-settings-changed",
 pillWaveform: "pill-waveform",
 recordingStateChanged: "recording-state-changed",
-savedAudioChanged: "saved-audio-changed",
-transcriptSaved: "transcript-saved",
 transcriptionComplete: "transcription-complete",
 transcriptionError: "transcription-error",
 transcriptionPartial: "transcription-partial",
@@ -411,14 +383,16 @@ export type CatalogModel = { id: string; displayName: string; family: string;
  * Every decode path this model supports.
  */
 pipelines: Pipeline[]; defaultPipeline: Pipeline; sizeBytes: number; multilingual: boolean; description: string; detail: string; downloaded: boolean; isActive: boolean }
-export type CudaDownloadCancelled = null
+/**
+ * An owner's data changed; read it again.
+ */
+export type Changed = Topic
+/**
+ * What clearing the saved audio did; what is left is pinned.
+ */
+export type ClearedAudio = { deleted: number; kept: number }
 export type CudaDownloadComplete = null
 export type CudaDownloadError = string
-export type CudaDownloadProgress = number
-/**
- * Every file is downloaded; the pack is being unpacked and checked.
- */
-export type CudaDownloadVerifying = null
 export type CudaStatus = { 
 /**
  * An NVIDIA GPU on a platform the pack is built for; CUDA is hidden otherwise.
@@ -440,10 +414,6 @@ day: string; words: number }
 export type DictionaryResponse = { id: number; term: string; replacement: string; hits: number; createdAt: string }
 export type DownloadStatus = "queued" | "running" | "error"
 export type DownloadedModel = { variant: string; displayName: string; sizeBytes: number; isActive: boolean }
-/**
- * Where an entry's saved audio is now; `None` once it was deleted.
- */
-export type EntryAudio = { id: number; audioPath: string | null }
 /**
  * A change from the settings screen.
  */
@@ -536,10 +506,6 @@ progress: number;
  * Waiting for a recording to finish.
  */
 paused: boolean }
-/**
- * A transcription job was queued, started, moved on, paused or resumed.
- */
-export type JobUpdated = JobSnapshot
 export type LanguageOption = { 
 /**
  * ISO code, or `auto` for the detect-per-decode sentinel.
@@ -558,24 +524,11 @@ supported: boolean;
  * Empty when `supported` is false.
  */
 options: LanguageOption[] }
+/**
+ * A model download was cancelled, from any window.
+ */
 export type ModelDownloadCancelled = { id: string }
-export type ModelDownloadComplete = { id: string }
-export type ModelDownloadError = { id: string; error: string }
-export type ModelDownloadProgress = { id: string; pct: number }
-/**
- * A queued download got a transfer slot.
- */
-export type ModelDownloadRunning = { id: string }
-export type ModelDownloadStart = { id: string }
-/**
- * The active model was deleted and no other is on disk.
- */
-export type ModelEvicted = null
 export type ModelInfoResponse = { downloaded: boolean; modelName: string }
-/**
- * The active model was deleted and another on disk took its place.
- */
-export type ModelSwitched = null
 /**
  * When an idle model is unloaded.
  */
@@ -623,6 +576,11 @@ export type PasteMode =
  */
 export type PillHitbox = { x: number; y: number; width: number; height: number }
 /**
+ * One pill preference, changed on its own, so two quick edits of different
+ * ones can't overwrite each other.
+ */
+export type PillSetting = { kind: "theme"; value: PillTheme } | { kind: "waveformStyle"; value: WaveformStyle } | { kind: "liveTranscript"; value: boolean } | { kind: "startSound"; value: boolean }
+/**
  * Preferences both windows read: the settings screen edits them, the pill
  * draws with them.
  */
@@ -635,16 +593,6 @@ liveTranscript: boolean;
  * Chime once the microphone is live, in either recording mode.
  */
 startSound: boolean }
-/**
- * The pill's preferences changed. Carries the revision so a window can drop
- * an update older than the snapshot it already holds.
- */
-export type PillSettingsChanged = PillSettingsSnapshot
-/**
- * `PillSettings` as of a revision. Revisions only grow, so a window can drop
- * an event older than the snapshot it already holds.
- */
-export type PillSettingsSnapshot = { revision: number; settings: PillSettings }
 export type PillTheme = "steel" | "midnight" | "aurora" | "canvas" | "dawn" | "glass"
 /**
  * Capture levels for the pill waveform, one per band, 0–1.
@@ -675,17 +623,57 @@ export type RecordingSnapshot = { revision: number; status: RecordingStatus;
  * Saved changes the recording in progress does not use.
  */
 deferred: RecordingInput[] }
+/**
+ * Every transition of the recording, each with its revision, so a window
+ * drops one older than the snapshot it holds.
+ */
 export type RecordingStateChanged = RecordingSnapshot
 export type RecordingStatus = "idle" | "recording" | "dictation" | "dictation-paused" | "processing"
-/**
- * History entries gained or lost their saved audio.
- */
-export type SavedAudioChanged = EntryAudio[]
 export type SavedAudioView = { enabled: boolean; keep: number; 
 /**
  * Disk the saved audio takes.
  */
 bytes: number }
+/**
+ * Whose data changed. The windows read again every query that reads it.
+ */
+export type Topic = 
+/**
+ * `settings.json`: every preference, the active model among them.
+ */
+"settings" | 
+/**
+ * The shortcuts the OS granted.
+ */
+"hotkeys" | 
+/**
+ * Which model files are on disk.
+ */
+"models" | 
+/**
+ * Model downloads queued, running or failed.
+ */
+"downloads" | 
+/**
+ * The CUDA pack and its download.
+ */
+"cuda" | 
+/**
+ * Dictionary entries and their use counts.
+ */
+"dictionary" | 
+/**
+ * The transcripts table: History, search and the totals.
+ */
+"history" | 
+/**
+ * The saved audio files.
+ */
+"savedAudio" | 
+/**
+ * The transcription job queue.
+ */
+"jobs"
 export type TranscriptResponse = { id: number; content: string; wordCount: number; durationSeconds: number | null; 
 /**
  * App the transcript was dictated into; `None` when it wasn't determined.
@@ -715,7 +703,6 @@ pending: boolean;
  * Changes with every rewrite of the text; Undo names the one it undoes.
  */
 revision: number }
-export type TranscriptSaved = TranscriptResponse
 /**
  * A recording finished. Saving and pasting are reported separately: a failed
  * paste leaves the transcript in history, a failed save still pastes.

@@ -5,14 +5,12 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Toaster } from 'sonner'
 
 import { useAppStore } from './store/useAppStore'
-import { addTranscript } from '../features/history/queries'
-import { listenForAudioEvents } from '../features/history/jobs'
-import { refreshDictionaryUses } from '../features/dictionary/queries'
-import { listenForModelEvents } from '../features/models/queries'
-import { listenForCudaEvents, useCuda } from '../features/models/cuda'
-import { followPillSettings, listenForRecordingState } from '../features/settings/queries'
+import { listenForJobsFinishing } from '../features/history/jobs'
+import { listenForLanguageReset } from '../features/models/queries'
+import { listenForCudaNotices, useCuda } from '../features/models/cuda'
+import { migrateLegacyPill } from '../features/settings/queries'
 import { ROUTES } from './routes'
-import { useEventListener, useDelayedFlag } from '../shared/hooks'
+import { useDelayedFlag } from '../shared/hooks'
 import { Layout } from './Layout'
 import { ErrorBoundary } from './ErrorBoundary'
 import { Dashboard } from '../features/history/Dashboard'
@@ -88,7 +86,7 @@ function App() {
   }, [startup])
 
   useEffect(() => {
-    const cleanups = [listenForModelEvents(), listenForCudaEvents(), listenForRecordingState(), listenForAudioEvents()]
+    const cleanups = [listenForLanguageReset(), listenForCudaNotices(), listenForJobsFinishing()]
     return () => { cleanups.forEach(cleanup => cleanup.then(fn => fn()).catch(() => {})) }
   }, [])
 
@@ -105,12 +103,7 @@ function App() {
     return () => clearTimeout(t)
   }, [])
 
-  useEventListener('transcriptSaved', (transcript) => {
-    void addTranscript(transcript)
-    void refreshDictionaryUses()
-  })
-
-  useEffect(followPillSettings, [])
+  useEffect(() => { void migrateLegacyPill() }, [])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme

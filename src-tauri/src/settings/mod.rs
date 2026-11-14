@@ -7,14 +7,13 @@ mod migrate;
 mod secrets;
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::models::idle::ModelUnload;
-use crate::sync::lock_recovering;
+use crate::sync::{announce, lock_recovering, Topic};
 use crate::text::llm::FormatConfig;
 
 use formatter::{FormatterSettings, FormatterUpdate, FormatterView};
@@ -94,12 +93,26 @@ pub struct PillSettings {
     pub start_sound: bool,
 }
 
-/// `PillSettings` as of a revision. Revisions only grow, so a window can drop
-/// an event older than the snapshot it already holds.
-#[derive(Debug, Clone, Copy, Serialize, Type)]
-pub struct PillSettingsSnapshot {
-    pub revision: u64,
-    pub settings: PillSettings,
+/// One pill preference, changed on its own, so two quick edits of different
+/// ones can't overwrite each other.
+#[derive(Debug, Clone, Copy, Deserialize, Type)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+pub enum PillSetting {
+    Theme(PillTheme),
+    WaveformStyle(WaveformStyle),
+    LiveTranscript(bool),
+    StartSound(bool),
+}
+
+impl PillSettings {
+    fn apply(&mut self, change: PillSetting) {
+        match change {
+            PillSetting::Theme(theme) => self.theme = theme,
+            PillSetting::WaveformStyle(style) => self.waveform_style = style,
+            PillSetting::LiveTranscript(on) => self.live_transcript = on,
+            PillSetting::StartSound(on) => self.start_sound = on,
+        }
+    }
 }
 
 /// The global shortcuts, by role. `None` leaves a role unbound.
@@ -133,7 +146,6 @@ struct SettingsFile {
 pub struct Settings {
     path: PathBuf,
     file: Mutex<SettingsFile>,
-    revision: AtomicU64,
     secrets: Secrets,
 }
 
@@ -158,19 +170,20 @@ impl Settings {
         Self {
             path,
             file: Mutex::new(file),
-            revision: AtomicU64::new(0),
             secrets,
         }
     }
 
-    /// Apply `change` and persist it; memory only changes once the file has.
-    fn update(&self, change: impl FnOnce(&mut SettingsFile)) -> std::io::Result<u64> {
+    /// The only write: apply `change`, persist it, then announce it. Memory
+    /// only changes once the file has.
+    fn update(&self, change: impl FnOnce(&mut SettingsFile)) -> std::io::Result<()> {
         let mut file = lock_recovering(&self.file);
         let mut next = file.clone();
         change(&mut next);
         write_atomic(&self.path, &next)?;
         *file = next;
-        Ok(self.revision.fetch_add(1, Ordering::SeqCst) + 1)
+        announce(Topic::Settings);
+        Ok(())
     }
 
     fn read<T>(&self, get: impl FnOnce(&SettingsFile) -> T) -> T {
@@ -182,7 +195,7 @@ impl Settings {
     }
 
     pub fn set_hotkeys(&self, hotkeys: HotkeyBindings) -> std::io::Result<()> {
-        self.update(|f| f.hotkeys = hotkeys).map(drop)
+        self.update(|f| f.hotkeys = hotkeys)
     }
 
     pub fn model(&self) -> Option<String> {
@@ -190,7 +203,7 @@ impl Settings {
     }
 
     pub fn set_model(&self, id: Option<String>) -> std::io::Result<()> {
-        self.update(|f| f.model = id).map(drop)
+        self.update(|f| f.model = id)
     }
 
     pub fn model_unload(&self) -> ModelUnload {
@@ -198,7 +211,7 @@ impl Settings {
     }
 
     pub fn set_model_unload(&self, policy: ModelUnload) -> std::io::Result<()> {
-        self.update(|f| f.model_unload = policy).map(drop)
+        self.update(|f| f.model_unload = policy)
     }
 
     pub fn language(&self) -> Option<String> {
@@ -206,7 +219,7 @@ impl Settings {
     }
 
     pub fn set_language(&self, code: Option<String>) -> std::io::Result<()> {
-        self.update(|f| f.language = code).map(drop)
+        self.update(|f| f.language = code)
     }
 
     pub fn input_device(&self) -> Option<String> {
@@ -214,7 +227,7 @@ impl Settings {
     }
 
     pub fn set_input_device(&self, id: Option<String>) -> std::io::Result<()> {
-        self.update(|f| f.input_device = id).map(drop)
+        self.update(|f| f.input_device = id)
     }
 
     pub fn keep_mic_open(&self) -> bool {
@@ -222,7 +235,7 @@ impl Settings {
     }
 
     pub fn set_keep_mic_open(&self, keep: bool) -> std::io::Result<()> {
-        self.update(|f| f.keep_mic_open = keep).map(drop)
+        self.update(|f| f.keep_mic_open = keep)
     }
 
     pub fn saved_audio(&self) -> SavedAudio {
@@ -230,7 +243,7 @@ impl Settings {
     }
 
     pub fn set_saved_audio(&self, saved_audio: SavedAudio) -> std::io::Result<()> {
-        self.update(|f| f.saved_audio = saved_audio).map(drop)
+        self.update(|f| f.saved_audio = saved_audio)
     }
 
     pub fn paste_mode(&self) -> PasteMode {
@@ -238,23 +251,15 @@ impl Settings {
     }
 
     pub fn set_paste_mode(&self, mode: PasteMode) -> std::io::Result<()> {
-        self.update(|f| f.paste_mode = mode).map(drop)
+        self.update(|f| f.paste_mode = mode)
     }
 
-    pub fn pill(&self) -> PillSettingsSnapshot {
-        let file = lock_recovering(&self.file);
-        PillSettingsSnapshot {
-            revision: self.revision.load(Ordering::SeqCst),
-            settings: file.pill,
-        }
+    pub fn pill(&self) -> PillSettings {
+        self.read(|f| f.pill)
     }
 
-    pub fn set_pill(&self, pill: PillSettings) -> std::io::Result<PillSettingsSnapshot> {
-        let revision = self.update(|f| f.pill = pill)?;
-        Ok(PillSettingsSnapshot {
-            revision,
-            settings: pill,
-        })
+    pub fn set_pill(&self, change: PillSetting) -> std::io::Result<()> {
+        self.update(|f| f.pill.apply(change))
     }
 
     pub fn formatter(&self) -> FormatterView {
@@ -265,7 +270,6 @@ impl Settings {
     pub fn set_formatter(&self, update: FormatterUpdate) -> Result<(), String> {
         update.store_keys(&self.secrets)?;
         self.update(|f| f.formatter = update.into_settings())
-            .map(drop)
             .map_err(|e| e.to_string())
     }
 

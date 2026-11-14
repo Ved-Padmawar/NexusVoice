@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 
 use crate::session::{recorder::Action, Recorder};
 use crate::settings::{HotkeyBindings, Settings};
-use crate::sync::lock_recovering;
+use crate::sync::{announce, lock_recovering, Topic};
 
 /// How long the key editor may hold the shortcuts released before they return.
 const CAPTURE_LEASE: Duration = Duration::from_secs(60);
@@ -88,7 +88,8 @@ pub fn conflicting_role(
 /// The shortcuts bound with the OS right now. A saved shortcut another
 /// application holds at startup stays saved but is missing here.
 /// The lock also spans each read-modify-save of the saved set (this is its
-/// only writer), so concurrent changes can't overwrite each other.
+/// only writer), so concurrent changes can't overwrite each other. Every
+/// change to what is bound is announced.
 #[derive(Default)]
 pub struct Hotkeys {
     bound: Mutex<HotkeyBindings>,
@@ -105,6 +106,7 @@ impl Hotkeys {
         }
         *self.bound.lock().await =
             bind_available(&settings.hotkeys(), |kind, hotkey| bind(app, hotkey, kind));
+        announce(Topic::Hotkeys);
     }
 
     /// Bind `hotkey` to `kind`, or unbind it with `None`. A rejected change
@@ -135,6 +137,7 @@ impl Hotkeys {
             return Err(e);
         }
         *bound = next;
+        announce(Topic::Hotkeys);
         self.end_lease();
         *kind.slot(&mut saved) = hotkey;
         settings

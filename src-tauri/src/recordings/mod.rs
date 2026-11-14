@@ -8,14 +8,15 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
-use tauri_specta::Event;
 
-use crate::bridge::events::{EntryAudio, SavedAudioChanged};
 use crate::data::repositories::transcript::TranscriptRepository;
 use crate::data::Database;
 use crate::models::preprocess::To16k;
 use crate::settings::Settings;
+use crate::sync::{announce, Topic};
 
+/// Every file written or deleted is announced: the disk they take moves.
+/// Whether an entry offers a player is its `has_audio` flag, a History write.
 pub struct Recordings {
     dir: PathBuf,
     /// Ids with a file when the app opened the folder, before any save could
@@ -46,16 +47,20 @@ impl Recordings {
         let path = self.path(id);
         let tmp = path.with_extension("wav.part");
         std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+        std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+        announce(Topic::SavedAudio);
+        Ok(())
     }
 
     /// Delete entry `id`'s audio. A file already gone counts as deleted.
     pub fn remove(&self, id: i64) -> Result<(), String> {
         match std::fs::remove_file(self.path(id)) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                Err(format!("could not delete the audio of entry {id}: {e}"))
+            Ok(()) => {
+                announce(Topic::SavedAudio);
+                Ok(())
             }
-            _ => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("could not delete the audio of entry {id}: {e}")),
         }
     }
 
@@ -149,27 +154,10 @@ pub async fn store(app: &AppHandle, id: i64, samples_16k: Vec<f32>) -> Result<()
             return Err(e);
         }
     }
-    let audio_path = app.state::<Recordings>().path(id);
-    let _ = SavedAudioChanged(vec![EntryAudio {
-        id,
-        audio_path: Some(audio_path.to_string_lossy().into_owned()),
-    }])
-    .emit(app);
     // Pruning older audio is its own outcome: this file is saved either way.
     if let Err(e) = apply_limit(app).await {
         log::warn!("could not apply the saved audio limit: {e}");
     }
-    Ok(())
-}
-
-/// Delete entry `id`'s audio and tell the window, whose disk usage moves.
-pub fn delete(app: &AppHandle, id: i64) -> Result<(), String> {
-    app.state::<Recordings>().remove(id)?;
-    let _ = SavedAudioChanged(vec![EntryAudio {
-        id,
-        audio_path: None,
-    }])
-    .emit(app);
     Ok(())
 }
 
@@ -185,12 +173,10 @@ pub async fn reconcile(app: &AppHandle) -> Result<(), String> {
         .into_iter()
         .collect();
     let recordings = app.state::<Recordings>();
-    let mut lost = Vec::new();
     for &id in &recordings.at_launch {
         if !claimed.contains(&id) {
-            match recordings.remove(id) {
-                Ok(()) => lost.push(id),
-                Err(e) => log::warn!("{e}"),
+            if let Err(e) = recordings.remove(id) {
+                log::warn!("{e}");
             }
         }
     }
@@ -199,19 +185,7 @@ pub async fn reconcile(app: &AppHandle) -> Result<(), String> {
             repo.set_has_audio(id, false)
                 .await
                 .map_err(|e| e.to_string())?;
-            lost.push(id);
         }
-    }
-    // A window already open may show these players, or the bytes they took.
-    if !lost.is_empty() {
-        let lost = lost
-            .into_iter()
-            .map(|id| EntryAudio {
-                id,
-                audio_path: None,
-            })
-            .collect();
-        let _ = SavedAudioChanged(lost).emit(app);
     }
     Ok(())
 }
@@ -220,12 +194,14 @@ pub async fn reconcile(app: &AppHandle) -> Result<(), String> {
 /// saving is off, else everything unpinned past the newest `keep`.
 pub async fn apply_limit(app: &AppHandle) -> Result<(), String> {
     let saved = app.state::<Settings>().saved_audio();
-    trim(app, saved.enabled.then_some(saved.keep)).await
+    trim(app, saved.enabled.then_some(saved.keep))
+        .await
+        .map(drop)
 }
 
 /// Delete unpinned audio past the newest `keep`; `None` deletes it all. The
-/// entries and their text stay.
-pub async fn trim(app: &AppHandle, keep: Option<u32>) -> Result<(), String> {
+/// entries and their text stay. Returns how many files went.
+pub async fn trim(app: &AppHandle, keep: Option<u32>) -> Result<usize, String> {
     let repo = TranscriptRepository::new(app.state::<Database>().pool().await.map_err(|e| e.0)?);
     // The flag goes first, so a player is never offered for a file being
     // deleted. A file that won't delete gets its flag back: it still plays,
@@ -235,14 +211,11 @@ pub async fn trim(app: &AppHandle, keep: Option<u32>) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
     let recordings = app.state::<Recordings>();
-    let mut lost = Vec::new();
+    let mut deleted = 0;
     let mut failure = None;
     for id in released {
         match recordings.remove(id) {
-            Ok(()) => lost.push(EntryAudio {
-                id,
-                audio_path: None,
-            }),
+            Ok(()) => deleted += 1,
             Err(e) => {
                 repo.set_has_audio(id, true)
                     .await
@@ -251,10 +224,7 @@ pub async fn trim(app: &AppHandle, keep: Option<u32>) -> Result<(), String> {
             }
         }
     }
-    if !lost.is_empty() {
-        let _ = SavedAudioChanged(lost).emit(app);
-    }
-    failure.map_or(Ok(()), Err)
+    failure.map_or(Ok(deleted), Err)
 }
 
 #[cfg(test)]

@@ -517,7 +517,7 @@ function JobsPanel() {
 
 const TranscriptRow = memo(function TranscriptRow({ item, onDelete }: { item: Transcript; onDelete: (id: number) => void }) {
   const { clock, meridiem } = splitClock(parseSqliteDate(item.createdAt))
-  // A pending import is busy before its job's first event arrives too.
+  // A pending import is busy before its job shows in the list too.
   const busy = useHasJob(item.id) || item.pending
   const parts = [
     item.sourceName
@@ -721,7 +721,8 @@ export function Dashboard() {
     observerRef.current?.disconnect()
     if (!node || !canFetchNext) return
     observerRef.current = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) void fetchNextPage() },
+      // Never cancels a reread in flight: the next page would join the old pages.
+      (entries) => { if (entries[0].isIntersecting) void fetchNextPage({ cancelRefetch: false }) },
       { threshold: 0.1 }
     )
     observerRef.current.observe(node)

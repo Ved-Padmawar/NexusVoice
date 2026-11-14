@@ -7,7 +7,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { ModelPickerModal } from '../../../features/models/ModelPickerModal'
-import { refreshActiveModel } from '../../../features/models/queries'
+import { followRust } from '../../../app/sync'
 import { useAppStore } from '../../../app/store/useAppStore'
 import { renderWithQuery } from '../../utils'
 
@@ -31,7 +31,7 @@ const model = (id: string, displayName: string) => ({
 let active: { modelName: string; downloaded: boolean }
 let handlers: Map<string, (e: { payload: unknown }) => void>
 
-beforeEach(() => {
+beforeEach(async () => {
   // A model on disk, but not the one onboarding will pick.
   active = { modelName: 'Parakeet', downloaded: false }
   handlers = new Map()
@@ -46,12 +46,12 @@ beforeEach(() => {
       case 'get_hardware_profile':
         return Promise.resolve({ gpuName: 'GPU', executionProvider: 'cpu', vramGb: 0, recommendedModel: 'Whisper Tiny' })
       case 'get_model_info': return Promise.resolve(active)
-      // The initial download list never arrives in these tests.
-      case 'get_active_downloads': return new Promise(() => {})
+      case 'get_active_downloads': return Promise.resolve([])
       default: return Promise.resolve(null)
     }
   })
   useAppStore.setState({ modelChosen: false })
+  await followRust()
 })
 
 async function confirmDownload() {
@@ -74,7 +74,8 @@ describe('ModelPickerModal', () => {
   it('stays open while another model is the one on disk', async () => {
     await confirmDownload()
     active = { modelName: 'Parakeet', downloaded: true }
-    await act(async () => { await refreshActiveModel() })
+    // Let the reread land before judging.
+    await act(async () => { handlers.get('changed')?.({ payload: 'settings' }); await new Promise(r => setTimeout(r, 20)) })
     expect(useAppStore.getState().modelChosen).toBe(false)
   })
 
@@ -108,19 +109,48 @@ describe('ModelPickerModal', () => {
       expect(mockInvoke).toHaveBeenCalledWith('start_model_download', { id: 'parakeet', activate: true }))
   })
 
-  it('returns to the list when the download is cancelled', async () => {
+  it('returns to the list when the download is cancelled, even while it is still starting', async () => {
+    // The start waits for the download list, which lands only after the cancel.
+    let listDownloads = () => {}
+    let started = false
+    const base = mockInvoke.getMockImplementation()!
+    mockInvoke.mockImplementation((cmd, args) => {
+      if (cmd === 'start_model_download') started = true
+      return cmd === 'get_active_downloads' && started
+        ? new Promise(resolve => { listDownloads = () => resolve([]) })
+        : base(cmd, args)
+    })
     await confirmDownload()
-    await waitFor(() => expect(handlers.has('model-download-cancelled')).toBe(true))
     await act(async () => { handlers.get('model-download-cancelled')?.({ payload: { id: 'whisper-tiny' } }) })
+    await act(async () => { listDownloads() })
 
     expect(await screen.findByRole('button', { name: /download & continue/i })).toBeEnabled()
     expect(useAppStore.getState().modelChosen).toBe(false)
   })
 
+  it('keeps the confirmed pick when another model is clicked while its download starts', async () => {
+    let listDownloads = () => {}
+    let started = false
+    const base = mockInvoke.getMockImplementation()!
+    mockInvoke.mockImplementation((cmd, args) => {
+      if (cmd === 'start_model_download') started = true
+      return cmd === 'get_active_downloads' && started
+        ? new Promise(resolve => { listDownloads = () => resolve([]) })
+        : base(cmd, args)
+    })
+    await confirmDownload()
+    fireEvent.click(screen.getByRole('button', { name: /parakeet/i }))
+    await act(async () => { listDownloads() })
+
+    active = { modelName: 'Whisper Tiny', downloaded: true }
+    act(() => handlers.get('changed')?.({ payload: 'settings' }))
+    await waitFor(() => expect(useAppStore.getState().modelChosen).toBe(true))
+  })
+
   it('closes once Rust reports the pick active and on disk', async () => {
     await confirmDownload()
     active = { modelName: 'Whisper Tiny', downloaded: true }
-    await act(async () => { await refreshActiveModel() })
+    act(() => handlers.get('changed')?.({ payload: 'settings' }))
     await waitFor(() => expect(useAppStore.getState().modelChosen).toBe(true))
   })
 })

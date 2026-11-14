@@ -117,6 +117,8 @@ describe('Dictionary — existing entries', () => {
   })
 
   it('hides a deleted entry at once and deletes it by id when the undo window closes', async () => {
+    // An id of its own: a committed delete stays hidden for the session.
+    mockBackend([{ ...sampleEntry, id: 9 }])
     render()
     await screen.findByText('teh')
     fireEvent.click(screen.getByRole('button', { name: /delete teh/i }))
@@ -124,7 +126,7 @@ describe('Dictionary — existing entries', () => {
     expect(mockInvoke).not.toHaveBeenCalledWith('delete_dictionary_entry', expect.anything())
     undoToasts.at(-1)?.onAutoClose?.()
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('delete_dictionary_entry', { id: 1 })
+      expect(mockInvoke).toHaveBeenCalledWith('delete_dictionary_entry', { id: 9 })
     })
   })
 

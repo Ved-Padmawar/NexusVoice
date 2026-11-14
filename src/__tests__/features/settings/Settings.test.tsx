@@ -14,9 +14,17 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 const mockInvoke = vi.mocked(invoke)
 
-/** What the General tab's sections load on mount, plus the saved hotkeys. */
-const respond = (hotkeys = { pushToTalk: null as string | null, dictation: null, dictationCommit: null }) =>
-  mockInvoke.mockImplementation((cmd) => Promise.resolve(({
+/** What the General tab's sections load on mount, plus the saved hotkeys,
+ *  which `set_hotkey` changes as Rust would. */
+const respond = (initial: HotkeyBindings = { pushToTalk: null, dictation: null, dictationCommit: null }) => {
+  let hotkeys = initial
+  mockInvoke.mockImplementation((cmd, args) => {
+    if (cmd === 'set_hotkey') {
+      const { kind, hotkey } = args as { kind: keyof HotkeyBindings; hotkey: string | null }
+      hotkeys = { ...hotkeys, [kind]: hotkey }
+      return Promise.resolve(null)
+    }
+    return Promise.resolve(({
     get_hotkeys: hotkeys,
     get_bound_hotkeys: hotkeys,
     get_model_catalog: [],
@@ -30,7 +38,10 @@ const respond = (hotkeys = { pushToTalk: null as string | null, dictation: null,
     get_paste_mode: 'auto',
     get_saved_audio: { enabled: true, keep: 10, bytes: 0 },
     get_jobs: [],
-  } as Record<string, unknown>)[cmd]))
+    get_pill_settings: { theme: 'steel', waveformStyle: 'bars', liveTranscript: false, startSound: false },
+  } as Record<string, unknown>)[cmd])
+  })
+}
 
 // The Recording (push-to-talk) row's recorder — uniquely identified by its aria-label.
 const recordingRecorder = () => screen.getByRole('button', { name: /click to record recording hotkey/i })
@@ -77,29 +88,6 @@ describe('FormattingToggle', () => {
     fireEvent.click(toggle)
 
     await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_format_config', expect.anything()))
-    await waitFor(() => expect(toggle).toBeChecked())
-  })
-
-  it('shows the previous setting when the save and the re-read both fail', async () => {
-    const saved = {
-      enabled: true,
-      provider: 'ollama',
-      profiles: { ollama: { baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5-3b-instruct', hasApiKey: false } },
-    }
-    const base = mockInvoke.getMockImplementation()!
-    let reads = 0
-    mockInvoke.mockImplementation((cmd, args) => {
-      if (cmd === 'get_format_config') return reads++ === 0 ? Promise.resolve(saved) : Promise.reject({ code: 'io', message: 'gone' })
-      if (cmd === 'set_format_config') return Promise.reject({ code: 'io', message: 'disk full' })
-      return base(cmd, args)
-    })
-    await renderSettings()
-    const toggle = await screen.findByRole('switch', { name: /smart formatting/i })
-    await waitFor(() => expect(toggle).toBeChecked())
-
-    fireEvent.click(toggle)
-
-    await waitFor(() => expect(reads).toBe(2))
     await waitFor(() => expect(toggle).toBeChecked())
   })
 })

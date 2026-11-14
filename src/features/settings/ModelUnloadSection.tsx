@@ -3,10 +3,11 @@ import { TimerIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
+import { queryKeys } from '../../shared/queryKeys'
 import { useLiveChoice } from '../../app/useLiveChoice'
 import { Select } from '../../shared/ui/Select'
 import { SettingRow } from './SettingRow'
-import { modelUnloadOptions, useModelUnload } from '../models/queries'
+import { useModelUnload } from '../models/queries'
 import type { ModelUnload } from '../../shared/types'
 
 const OPTIONS: { value: ModelUnload; label: string }[] = [
@@ -24,7 +25,7 @@ const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Could not
 /** When an idle model is unloaded to free memory. */
 export function ModelUnloadSection() {
   const { data, error } = useModelUnload()
-  const { pending, choose } = useLiveChoice(modelUnloadOptions, saveUnload, saveFailed)
+  const { pending, choose } = useLiveChoice(queryKeys.modelUnload, saveUnload, saveFailed)
 
   useEffect(() => {
     if (error) toast.error(extractErrorMessage(error, 'Could not load the unload setting'))

@@ -3,8 +3,9 @@ import { create } from 'zustand'
 
 const UNDO_WINDOW_MS = 5000
 
-/** Ids waiting out an Undo toast. The query cache keeps their rows: hiding
- *  them at read time means a refetch inside the window cannot bring them back. */
+/** Ids deleted behind an Undo toast, hidden at read time from the delete on.
+ *  Only Undo or a failed delete shows one again: ids are never reused, and a
+ *  list read before the delete, cached or in flight, may still hold it. */
 export function createPendingDeletes() {
   const store = create<{ ids: ReadonlySet<number> }>(() => ({ ids: new Set() }))
   const toggle = (id: number, pending: boolean) => store.setState(({ ids }) => {
@@ -28,8 +29,7 @@ type DeleteWithUndo = {
   message: string
   id: number
   pending: PendingDeletes
-  /** The real delete, run once the undo window closes. Resolves once the
-   *  cache no longer holds the row. */
+  /** The real delete, run once the undo window closes. */
   commit: () => Promise<unknown>
 }
 
@@ -66,7 +66,7 @@ export function deleteWithUndo({ message, id, pending, commit }: DeleteWithUndo)
   }
   const finish = () => {
     // A failed delete is reported by its mutation; showing the row puts it back.
-    if (settle()) commit().then(show, show)
+    if (settle()) commit().catch(show)
   }
   const restore = () => {
     if (settle()) show()
