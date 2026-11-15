@@ -62,7 +62,6 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::import_audio_file,
         ])
         .events(tauri_specta::collect_events![
-            events::Changed,
             events::TranscriptionPartial,
             events::TranscriptionPartialEnd,
             events::TranscriptionComplete,

@@ -56,11 +56,8 @@ function pick(choice: Choice, slice: SliceName, next: Pick) {
   if (!choice.saving) void saveQueued(choice, slice)
 }
 
-/**
- * Save a user's pick of a Rust value held in `slice`; `id` names that value.
- * The pick shows until the mirror holds the revision its save committed; a
- * refused pick shows the saved value again.
- */
+/** Save a user's pick of the Rust value `id` in `slice`. A refused pick shows
+ *  the saved value again. */
 export function useChoice<T>(
   slice: SliceName,
   id: string,

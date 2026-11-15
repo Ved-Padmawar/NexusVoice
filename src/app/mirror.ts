@@ -44,10 +44,14 @@ export function useSlice<S extends SliceName, R>(slice: S, select: (value: Slice
   return useSyncExternalStore(listen, () => select(latest(slice)))
 }
 
-/** The revision of `slice` this window holds. A read of Rust data that
- *  depends on the slice keys on it, so a change reads it afresh. */
+/** The revision of `slice` this window holds; -1 before Rust sent one. A read
+ *  that depends on the slice keys on it. */
+export function revisionOf(slice: SliceName): number {
+  return held.get(slice)?.rev ?? -1
+}
+
 export function useRevision(slice: SliceName): number {
-  return useSyncExternalStore(listen, () => held.get(slice)?.rev ?? -1)
+  return useSyncExternalStore(listen, () => revisionOf(slice))
 }
 
 /** Resolves once this window holds `slice` at `rev` or a newer revision. */

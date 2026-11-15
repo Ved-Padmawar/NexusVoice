@@ -48,7 +48,10 @@ fn window() -> (Channel<Patch>, Arc<Mutex<Vec<u64>>>) {
     let received = Arc::clone(&revs);
     let channel = Channel::new(move |body: InvokeResponseBody| {
         let patch: serde_json::Value = body.deserialize().unwrap();
-        received.lock().unwrap().push(patch["rev"].as_u64().unwrap());
+        received
+            .lock()
+            .unwrap()
+            .push(patch["rev"].as_u64().unwrap());
         Ok(())
     });
     (channel, revs)
@@ -62,8 +65,12 @@ fn a_window_gets_the_current_value_then_each_saved_change_in_order() {
     let snapshot = subscribe("main", channel);
     assert_eq!(snapshot, vec![Pill(PillSettings::default()).patch(0)]);
 
-    store.update(theme(PillTheme::Aurora), |_| std::io::Result::Ok(())).unwrap();
-    store.update(theme(PillTheme::Dawn), |_| std::io::Result::Ok(())).unwrap();
+    store
+        .update(theme(PillTheme::Aurora), |_| std::io::Result::Ok(()))
+        .unwrap();
+    store
+        .update(theme(PillTheme::Dawn), |_| std::io::Result::Ok(()))
+        .unwrap();
     // Changing nothing saves nothing and sends nothing; the caller still
     // learns the revision its mirror already holds.
     let unchanged = store
@@ -90,6 +97,8 @@ fn a_failed_save_leaves_the_value_and_the_windows_as_they_were() {
     assert_eq!(store.read(|pill| pill.0.theme), PillTheme::default());
     assert!(received.lock().unwrap().is_empty());
     // The next write takes the revision the failed one did not.
-    let next = store.update(theme(PillTheme::Dawn), |_| std::io::Result::Ok(())).unwrap();
+    let next = store
+        .update(theme(PillTheme::Dawn), |_| std::io::Result::Ok(()))
+        .unwrap();
     assert_eq!(next, Committed { rev: 1 });
 }

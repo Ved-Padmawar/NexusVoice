@@ -9,7 +9,6 @@ import { queryClient } from './queryClient'
 import { useAppStore } from './store/useAppStore'
 import { showMainWindow } from './showMainWindow'
 import { mirrorRust } from './mirror'
-import { followRust } from './sync'
 import { logger } from '../shared/logger'
 
 // Forward browser console to Tauri log file (no-op if plugin unavailable)
@@ -30,6 +29,6 @@ const render = () => createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-Promise.all([followRust(), mirrorRust()])
-  .catch((e: unknown) => logger.error('could not follow backend changes', e))
+mirrorRust()
+  .catch((e: unknown) => logger.error('could not mirror the backend state', e))
   .finally(render)

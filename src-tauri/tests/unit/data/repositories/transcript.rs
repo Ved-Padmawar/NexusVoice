@@ -1,7 +1,6 @@
 use super::{keyset_sql, Cursor, TranscriptRepository};
 use crate::data::connection::init_database;
 use crate::data::dto::transcript::CreateTranscript;
-use crate::sync::{take_announced, Topic};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Row, SqlitePool};
 
@@ -518,7 +517,7 @@ async fn an_undo_applies_only_to_the_rewrite_it_belongs_to() {
 }
 
 #[tokio::test]
-async fn every_write_that_changes_a_row_is_announced_and_reads_are_not() {
+async fn every_write_that_changes_a_row_takes_a_history_revision_and_reads_do_not() {
     // The windows only reread History when told: a silent write leaves them stale.
     let repo = TranscriptRepository::new(pool().await);
     let entry = repo
@@ -541,15 +540,17 @@ async fn every_write_that_changes_a_row_is_announced_and_reads_are_not() {
     repo.set_has_audio(entry.id, true)
         .await
         .expect("flag audio");
-    assert_eq!(take_announced(), [Topic::History; 4]);
+    let history = || crate::data::HISTORY.committed().rev;
+    let written = history();
+    assert_eq!(written, 4);
 
     repo.get_by_id(entry.id).await.expect("read");
     repo.get_stats().await.expect("stats");
     repo.delete_by_id(entry.id + 1)
         .await
         .expect("delete nothing");
-    assert_eq!(take_announced(), Vec::<Topic>::new());
+    assert_eq!(history(), written);
 
     repo.delete_by_id(entry.id).await.expect("delete");
-    assert_eq!(take_announced(), [Topic::History]);
+    assert_eq!(history(), written + 1);
 }

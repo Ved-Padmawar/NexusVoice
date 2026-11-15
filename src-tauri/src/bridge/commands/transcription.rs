@@ -3,10 +3,7 @@
 use tauri::{AppHandle, State};
 
 use crate::mirror::Committed;
-use crate::session::{
-    recorder::Action,
-    Recorder,
-};
+use crate::session::{recorder::Action, Recorder};
 use crate::settings::Settings;
 
 use super::error::ApiError;

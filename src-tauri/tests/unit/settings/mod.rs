@@ -147,18 +147,16 @@ fn a_saved_audio_change_keeps_the_other_choice() {
 }
 
 #[test]
-fn a_change_is_announced_only_once_it_is_saved() {
+fn a_change_takes_a_revision_only_once_it_is_saved() {
     let dir = tempfile::tempdir().unwrap();
     let settings = load(dir.path());
-    crate::sync::take_announced();
 
-    settings.set_language(Some("fr".into())).unwrap();
-    assert_eq!(crate::sync::take_announced(), [Topic::Settings]);
+    let saved = settings.set_language(Some("fr".into())).unwrap();
 
     // The folder is gone, so the next write fails and memory keeps "fr".
     dir.close().unwrap();
     assert!(settings.set_language(Some("de".into())).is_err());
-    assert_eq!(crate::sync::take_announced(), Vec::<Topic>::new());
+    assert_eq!(settings.saved.committed(), saved);
     assert_eq!(settings.language().as_deref(), Some("fr"));
 }
 

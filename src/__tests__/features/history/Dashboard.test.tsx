@@ -4,9 +4,8 @@ import { MemoryRouter } from 'react-router'
 import { Dashboard } from '../../../features/history/Dashboard'
 import { invoke } from '@tauri-apps/api/core'
 import { mirror, renderWithQuery } from '../../utils'
-import { listen, type EventCallback } from '@tauri-apps/api/event'
-import { followRust } from '../../../app/sync'
-import type { Topic } from '../../../shared/bindings'
+import { listen } from '@tauri-apps/api/event'
+import type { Patch } from '../../../shared/bindings'
 import type { Transcript, UsageStats } from '../../../shared/types'
 
 vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({ onDragDropEvent: () => Promise.resolve(() => {}) }) }))
@@ -70,18 +69,18 @@ function mockBackend({ transcripts = [], search = [], stats = null, pushToTalk =
 const renderDashboard = () =>
   renderWithQuery(<MemoryRouter><Dashboard /></MemoryRouter>)
 
-let announce: (topic: Topic) => void = () => {}
+let send: (patch: Patch) => Promise<void>
+let writes = 0
+/** A write to History committed in Rust. */
+const historyChanged = () => send({ slice: 'history', rev: ++writes, value: writes })
 
 beforeEach(async () => {
   mockInvoke.mockReset()
   observed.clear()
   mockBackend()
-  vi.mocked(listen).mockImplementation(async (event, handler) => {
-    if (event === 'changed') announce = topic => (handler as EventCallback<Topic>)({ event, id: 0, payload: topic })
-    return () => {}
-  })
-  await followRust()
-  await mirror()
+  vi.mocked(listen).mockResolvedValue(() => {})
+  writes = 0
+  send = await mirror()
 })
 
 describe('Dashboard — empty state', () => {
@@ -292,8 +291,9 @@ describe('Dashboard — infinite scroll sentinel', () => {
       return page.cursorId === null ? new Promise(resolve => { finishReread = resolve }) : Promise.resolve([])
     })
 
-    // Same tick: the sentinel is still observed when the reread begins.
-    act(() => { announce('history'); fireIntersect?.() })
+    // The sentinel is still observed when the reread begins.
+    await historyChanged()
+    act(() => fireIntersect?.())
     await act(async () => { finishReread([{ ...fullPage[0], id: 99, content: 'Fresh dictation' }, ...fullPage]) })
 
     expect(await screen.findByText('Fresh dictation')).toBeInTheDocument()
@@ -335,7 +335,7 @@ describe('Dashboard day groups', () => {
     const day = (await screen.findByText('Hello world')).closest('section')!
     const fresh: Transcript = { id: 3, content: 'Fresh dictation', wordCount: 2, durationSeconds: 1, targetApp: null, pinned: false, audioPath: null, sourceName: null, model: null, pending: false, revision: 0, createdAt: new Date().toISOString() }
     mockBackend({ transcripts: [fresh, ...sampleTranscripts] })
-    act(() => announce('history'))
+    await historyChanged()
     expect(await screen.findByText('Fresh dictation')).toBeInTheDocument()
     // Same node: the group was updated in place, not torn down and rebuilt.
     expect(screen.getByText('Hello world').closest('section')).toBe(day)

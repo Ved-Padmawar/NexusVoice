@@ -3,9 +3,7 @@
 mod bindings;
 
 use tauri::Manager;
-use tauri_specta::Event;
 
-use crate::bridge::events::Changed;
 use crate::data::Database;
 use crate::jobs::Jobs;
 use crate::models::{cache::EngineCache, cuda::CudaPack, library::ModelLibrary};
@@ -132,12 +130,6 @@ pub fn run() {
 
 /// Manage every owner and start the background work they need.
 fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    // First, so no owner's change goes unannounced.
-    let handle = app.handle().clone();
-    crate::sync::announce_to(move |topic| {
-        let _ = Changed(topic).emit(&handle);
-    });
-
     let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
     std::fs::create_dir_all(&app_data_dir)?;
     let cuda_damaged = crate::models::cuda::install_staged(&app_data_dir);

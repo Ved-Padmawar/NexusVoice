@@ -2,22 +2,16 @@
 //! `command_bindings()`, so `bindings.ts` carries its name and payload and the
 //! frontend never spells either by hand.
 //!
-//! Saved data reaches the windows one way: its owner announces `Changed`, and
-//! every query that reads it reads again. The other events are streams (the
-//! recording, the live transcript, the waveform) and notices of something that
-//! happened, for a toast or a one-off reaction. Neither carries state a window
-//! caches.
+//! State reaches the windows one way: through its owner's `Store`, pushed by
+//! the `mirror`. These events are streams (the live transcript, the waveform)
+//! and notices of something that happened, for a toast or a one-off reaction.
+//! Neither carries state a window keeps.
 
 use serde::Serialize;
 use specta::Type;
 use tauri_specta::Event;
 
 use crate::audio::waveform::BANDS;
-use crate::sync::Topic;
-
-/// An owner's data changed; read it again.
-#[derive(Debug, Clone, Copy, Serialize, Type, Event)]
-pub struct Changed(pub Topic);
 
 /// Live transcript while recording. Both decode paths produce the same split,
 /// so the pill never needs to know which one ran.

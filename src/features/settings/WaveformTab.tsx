@@ -130,8 +130,7 @@ function PreviewPill({ style, levelsRef, theme }: {
       style={{
         width: 80,
         flexShrink: 0,
-        background: theme.bg,
-        backgroundOrigin: 'border-box',
+        background: `${theme.bg} border-box`,
         borderColor: theme.border,
       }}
     >

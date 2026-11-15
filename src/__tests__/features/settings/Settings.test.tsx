@@ -31,7 +31,6 @@ async function respond(initial = NO_HOTKEYS, granted = initial) {
     return Promise.resolve(({
       get_model_catalog: [],
       list_input_devices: [],
-      get_recording_state: { revision: 0, status: 'idle', deferred: [] },
       get_jobs: [],
     } as Record<string, unknown>)[cmd])
   })

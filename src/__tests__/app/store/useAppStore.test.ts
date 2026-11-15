@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../../../app/store/useAppStore'
 import { queryClient } from '../../../app/queryClient'
 import { queryKeys } from '../../../shared/queryKeys'
+import { revisionOf } from '../../../app/mirror'
 import { NO_FILTERS } from '../../../features/history/queries'
 import type { Transcript } from '../../../shared/types'
 
@@ -23,7 +24,8 @@ const page = (start: number, count: number) =>
   }))
 
 const feedRows = () =>
-  queryClient.getQueryData<{ pages: { rows: Transcript[] }[] }>(queryKeys.transcripts(NO_FILTERS))?.pages.flatMap(page => page.rows) ?? []
+  queryClient.getQueryData<{ pages: { rows: Transcript[] }[] }>([...queryKeys.transcripts(NO_FILTERS), revisionOf('history')])
+    ?.pages.flatMap(page => page.rows) ?? []
 
 beforeEach(() => {
   mockInvoke.mockReset()

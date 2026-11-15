@@ -11,7 +11,7 @@ import { commands, type PageQuery } from '../../shared/bindings'
 import { createPendingDeletes, deleteWithUndo } from '../../shared/deleteWithUndo'
 import { extractErrorMessage } from '../../shared/errors'
 import { queryClient } from '../../app/queryClient'
-import { reads } from '../../app/sync'
+import { revisionOf, useRevision } from '../../app/mirror'
 import { queryKeys, type TranscriptFilters } from '../../shared/queryKeys'
 import type { Transcript } from '../../shared/types'
 
@@ -46,19 +46,43 @@ const pageArg = (filters: TranscriptFilters, cursor: Cursor, limit = PAGE_SIZE):
 
 const EXPORT_PAGE_SIZE = 200
 
-const feedOptions = (filters: TranscriptFilters) => ({
-  queryKey: queryKeys.transcripts(filters),
+/** A read of History at a revision is current for good. A failed one is
+ *  retried, soon, so the change it was for still shows. */
+const AT_REVISION = { staleTime: Infinity, retry: 2, retryDelay: (failures: number) => 100 * 2 ** failures } as const
+
+/** The newest pages an earlier revision of `list` read. */
+function earlierPages(list: readonly unknown[]): TranscriptPages | undefined {
+  let newest: { rev: number; pages: TranscriptPages } | undefined
+  for (const [key, pages] of queryClient.getQueriesData<TranscriptPages>({ queryKey: list })) {
+    const rev = key[list.length] as number
+    if (pages && (!newest || rev > newest.rev)) newest = { rev, pages }
+  }
+  return newest?.pages
+}
+
+/** `list` at History revision `rev`. A new revision starts from the pages an
+ *  earlier one read, marked stale, so each is read again and the list keeps
+ *  its length and scroll position. */
+const pagesAt = (list: readonly unknown[], rev: number) => ({
+  ...AT_REVISION,
+  queryKey: [...list, rev],
+  initialData: () => earlierPages(list),
+  initialDataUpdatedAt: 0,
+  staleTime: ({ state }: { state: { dataUpdatedAt: number } }) => (state.dataUpdatedAt === 0 ? 0 : Infinity),
+})
+
+const feedOptions = (filters: TranscriptFilters, rev: number) => ({
+  ...pagesAt(queryKeys.transcripts(filters), rev),
   queryFn: ({ pageParam }: { pageParam: Cursor }) => commands.getTranscripts(pageArg(filters, pageParam)).then(toPage),
   initialPageParam: NO_CURSOR,
   getNextPageParam,
-  ...reads('history'),
 })
 
-const statsOptions = {
-  queryKey: queryKeys.stats,
+const statsOptions = (rev: number) => ({
+  ...AT_REVISION,
+  queryKey: queryKeys.stats(rev),
   queryFn: () => commands.getUsageStats(),
-  ...reads('history'),
-}
+})
 
 const pendingDeletes = createPendingDeletes()
 
@@ -96,25 +120,26 @@ function useHidePendingDeletes() {
 // A new filter or term keeps the old rows up instead of flashing the skeleton.
 export function useTranscripts(filters: TranscriptFilters, enabled = true) {
   const select = useHidePendingDeletes()
-  return useInfiniteQuery({ ...feedOptions(filters), enabled, placeholderData: keepPreviousData, select })
+  const rev = useRevision('history')
+  return useInfiniteQuery({ ...feedOptions(filters, rev), enabled, placeholderData: keepPreviousData, select })
 }
 
 export function useTranscriptSearch(query: string, filters: TranscriptFilters) {
   const select = useHidePendingDeletes()
+  const rev = useRevision('history')
   return useInfiniteQuery({
-    queryKey: queryKeys.transcriptSearch(query, filters),
-    queryFn: ({ pageParam }) => commands.searchTranscripts(query, pageArg(filters, pageParam)).then(toPage),
+    ...pagesAt(queryKeys.transcriptSearch(query, filters), rev),
+    queryFn: ({ pageParam }: { pageParam: Cursor }) => commands.searchTranscripts(query, pageArg(filters, pageParam)).then(toPage),
     initialPageParam: NO_CURSOR,
     getNextPageParam,
     enabled: query.length > 0,
     placeholderData: keepPreviousData,
     select,
-    ...reads('history'),
   })
 }
 
 export function useStats() {
-  return useQuery(statsOptions)
+  return useQuery({ ...statsOptions(useRevision('history')), placeholderData: keepPreviousData })
 }
 
 export type DayWords = { day: Date; words: number }
@@ -123,7 +148,9 @@ export type DayWords = { day: Date; words: number }
  *  dictation (which the backend omits) count zero. */
 export function useDailyWords(days: number) {
   return useQuery({
-    queryKey: queryKeys.dailyWords(days),
+    ...AT_REVISION,
+    queryKey: queryKeys.dailyWords(days, useRevision('history')),
+    placeholderData: keepPreviousData,
     queryFn: () => commands.getDailyWords(days, -new Date().getTimezoneOffset()),
     select: (rows): DayWords[] => {
       const byDay = new Map(rows.map(r => [r.day, r.words]))
@@ -134,7 +161,6 @@ export function useDailyWords(days: number) {
         return { day, words: byDay.get(key) ?? 0 }
       })
     },
-    ...reads('history'),
   })
 }
 
@@ -155,6 +181,6 @@ export function useDeleteTranscript() {
 export const setPinned = (id: number, pinned: boolean) => commands.setTranscriptPinned(id, pinned)
 
 // Startup waits on these; a failed read shows in the screen that uses it.
-export const prefetchTranscripts = () => queryClient.infiniteQuery(feedOptions(NO_FILTERS)).catch(() => {})
+export const prefetchTranscripts = () => queryClient.infiniteQuery(feedOptions(NO_FILTERS, revisionOf('history'))).catch(() => {})
 
-export const prefetchStats = () => queryClient.query(statsOptions).catch(() => {})
+export const prefetchStats = () => queryClient.query(statsOptions(revisionOf('history'))).catch(() => {})

@@ -136,7 +136,8 @@ impl Downloads {
     }
 
     pub fn activates(&self, id: &str) -> bool {
-        self.entries.read(|e| e.0.get(id).is_some_and(|e| e.activate))
+        self.entries
+            .read(|e| e.0.get(id).is_some_and(|e| e.activate))
     }
 
     pub fn set_running(&self, id: &str) {

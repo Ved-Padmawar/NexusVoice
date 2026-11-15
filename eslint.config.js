@@ -21,13 +21,13 @@ export default defineConfig([
     },
   },
   {
-    // Cached Rust data changes only in sync.ts, on Rust's announcement.
+    // Rust pushes its state; nothing in a window edits or re-reads it by hand.
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/app/sync.ts', 'src/__tests__/**'],
+    ignores: ['src/__tests__/**'],
     rules: {
       'no-restricted-syntax': ['error', {
         selector: 'CallExpression[callee.property.name=/^(setQueryData|setQueriesData|invalidateQueries|refetchQueries|cancelQueries|resetQueries|removeQueries)$/]',
-        message: 'Only src/app/sync.ts changes cached Rust data. Read with useQuery and reads(...); wait on caughtUp(topic) after a save.',
+        message: "Read Rust state with useSlice; key a History read on useRevision('history'); after a save, await mirrored(slice, rev).",
       }],
     },
   },

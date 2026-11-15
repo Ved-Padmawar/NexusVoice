@@ -6,7 +6,6 @@ import { queryClient } from '../../app/queryClient'
 import { listen, type EventCallback } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { PillApp } from '../../pill/PillApp'
-import { followRust } from '../../app/sync'
 import type { Download, Patch, PillSettings, RecordingStatus } from '../../shared/bindings'
 import { mirror, pillAt } from '../utils'
 
@@ -59,7 +58,6 @@ beforeEach(async () => {
     return () => { callbacks.delete(handler as EventCallback<unknown>) }
   })
   // As pill-main does before the first render.
-  await followRust()
   sendPatch = await mirror()
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
@@ -290,8 +288,7 @@ it('has one subscription per event after StrictMode remounts and cleans them all
   view.unmount()
   // Each subscription resolves to its unlisten; let those run.
   await act(async () => {})
-  // The window's change listener outlives the component, as in pill-main.
-  for (const [event, callbacks] of listeners) if (event !== 'changed') expect(callbacks.size).toBe(0)
+  for (const callbacks of listeners.values()) expect(callbacks.size).toBe(0)
 })
 
 it('unsubscribes registrations that resolve after unmount', async () => {

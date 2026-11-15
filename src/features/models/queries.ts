@@ -24,7 +24,7 @@ export function useModelsOnDisk() {
 
 /** Dev and release share the model files and neither hears the other, so a
  *  list of them asks Rust to look again as it opens. */
-export const rescanModels = () => { void commands.rescanModels() }
+export const rescanModels = () => { commands.rescanModels().catch(() => {}) }
 
 /** The models on disk, looked at again as the view opens. */
 export function useDownloadedModels() {
@@ -37,7 +37,6 @@ export function useActiveModelId() {
   return useSlice('settings', settings => settings.activeModel)
 }
 
-/** Whether the active model is on disk. */
 export function useActiveModelDownloaded() {
   const id = useActiveModelId()
   return useSlice('models', models => models.some(model => model.variant === id))

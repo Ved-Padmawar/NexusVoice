@@ -90,11 +90,7 @@ pub fn options(model: &ModelEntry, saved: Option<&str>) -> LanguageSettings {
         .iter()
         .map(|code| {
             let base = primary_of(code);
-            let regioned = advertised
-                .iter()
-                .filter(|c| primary_of(c) == base)
-                .count()
-                > 1;
+            let regioned = advertised.iter().filter(|c| primary_of(c) == base).count() > 1;
             (code.clone(), display_name(code, regioned))
         })
         .collect();

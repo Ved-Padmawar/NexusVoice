@@ -1,14 +1,14 @@
 use sqlx::SqlitePool;
 
 use crate::data::dto::transcript::CreateTranscript;
+use crate::data::history_changed;
 use crate::data::rows::transcript::{PendingImport, Transcript};
-use crate::sync::{announce, Topic};
 
 /// Every write to the transcripts table ends here: each is one statement, so
-/// by now it has committed and a read the announcement triggers sees it.
-fn announce_if(changed: bool) -> bool {
+/// by now it has committed and a read the new revision triggers sees it.
+fn changed_if(changed: bool) -> bool {
     if changed {
-        announce(Topic::History);
+        history_changed();
     }
     changed
 }
@@ -92,7 +92,7 @@ impl TranscriptRepository {
         .bind(input.language)
         .fetch_one(&self.pool)
         .await?;
-        announce_if(true);
+        changed_if(true);
         Ok(created)
     }
 
@@ -162,7 +162,7 @@ impl TranscriptRepository {
             .bind(id)
             .execute(&self.pool)
             .await?;
-        Ok(announce_if(result.rows_affected() > 0))
+        Ok(changed_if(result.rows_affected() > 0))
     }
 
     /// Replace a transcript's text and the model it now comes from; clears
@@ -180,7 +180,7 @@ impl TranscriptRepository {
         .bind(id)
         .execute(&self.pool)
         .await?;
-        Ok(announce_if(result.rows_affected() > 0))
+        Ok(changed_if(result.rows_affected() > 0))
     }
 
     /// Put back a transcript's earlier text and model, only while it is still
@@ -205,7 +205,7 @@ impl TranscriptRepository {
         .bind(revision)
         .execute(&self.pool)
         .await?;
-        Ok(announce_if(result.rows_affected() > 0))
+        Ok(changed_if(result.rows_affected() > 0))
     }
 
     pub async fn set_pinned(&self, id: i64, pinned: bool) -> Result<bool, sqlx::Error> {
@@ -214,7 +214,7 @@ impl TranscriptRepository {
             .bind(id)
             .execute(&self.pool)
             .await?;
-        Ok(announce_if(result.rows_affected() > 0))
+        Ok(changed_if(result.rows_affected() > 0))
     }
 
     /// Record that `id`'s audio file exists, or no longer does.
@@ -224,7 +224,7 @@ impl TranscriptRepository {
             .bind(id)
             .execute(&self.pool)
             .await?;
-        Ok(announce_if(result.rows_affected() > 0))
+        Ok(changed_if(result.rows_affected() > 0))
     }
 
     pub async fn pending(&self) -> Result<Vec<PendingImport>, sqlx::Error> {
@@ -256,7 +256,7 @@ impl TranscriptRepository {
         .bind(keep.map_or(0, i64::from))
         .fetch_all(&self.pool)
         .await?;
-        announce_if(!rows.is_empty());
+        changed_if(!rows.is_empty());
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 

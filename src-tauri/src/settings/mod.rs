@@ -16,7 +16,6 @@ use crate::mirror::{Committed, Patch, Slice, Store};
 use crate::models::idle::ModelUnload;
 use crate::models::language::{self, LanguageSettings};
 use crate::models::library::ModelLibrary;
-use crate::sync::{announce, Topic};
 use crate::text::llm::FormatConfig;
 
 use formatter::{FormatterDraft, FormatterSettings, FormatterView};
@@ -254,11 +253,8 @@ impl Settings {
     /// The only write: apply `change` and write the file; memory and the
     /// windows change only once the file has.
     fn update(&self, change: impl FnOnce(&mut Saved)) -> std::io::Result<Committed> {
-        let committed = self
-            .saved
-            .update(change, |next| write_atomic(&self.path, &next.file))?;
-        announce(Topic::Settings);
-        Ok(committed)
+        self.saved
+            .update(change, |next| write_atomic(&self.path, &next.file))
     }
 
     fn read<T>(&self, get: impl FnOnce(&SettingsFile) -> T) -> T {

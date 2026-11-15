@@ -9,9 +9,7 @@ use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
 use crate::audio::{chime::Chime, error::friendly_capture_error, MicStream, WaveformMeter};
-use crate::bridge::events::{
-    TranscriptionComplete, TranscriptionError, TranscriptionWarning,
-};
+use crate::bridge::events::{TranscriptionComplete, TranscriptionError, TranscriptionWarning};
 use crate::jobs::Jobs;
 use crate::mirror::{Patch, Slice, Store};
 use crate::models::cache::{EngineCache, EngineLease};

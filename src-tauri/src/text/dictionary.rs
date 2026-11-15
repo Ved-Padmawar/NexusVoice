@@ -127,7 +127,9 @@ impl Dictionary {
         DictionaryRepository::new(pool.clone())
             .delete_by_id(id)
             .await?;
-        Ok(self.entries.set(|entries| entries.0.retain(|_, e| e.id != id)))
+        Ok(self
+            .entries
+            .set(|entries| entries.0.retain(|_, e| e.id != id)))
     }
 
     /// Apply every correction to `text`, counting a hit for each term used.

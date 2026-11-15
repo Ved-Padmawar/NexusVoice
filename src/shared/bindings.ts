@@ -291,7 +291,6 @@ async importAudioFile(path: string, model: string, language: string | null) : Pr
 
 
 export const events = __makeEvents__<{
-changed: Changed,
 cudaDownloadComplete: CudaDownloadComplete,
 cudaDownloadError: CudaDownloadError,
 jobFinished: JobFinished,
@@ -304,7 +303,6 @@ transcriptionPartial: TranscriptionPartial,
 transcriptionPartialEnd: TranscriptionPartialEnd,
 transcriptionWarning: TranscriptionWarning
 }>({
-changed: "changed",
 cudaDownloadComplete: "cuda-download-complete",
 cudaDownloadError: "cuda-download-error",
 jobFinished: "job-finished",
@@ -335,10 +333,6 @@ export type CatalogModel = { id: string; displayName: string; family: string;
  * Every decode path this model supports.
  */
 pipelines: Pipeline[]; defaultPipeline: Pipeline; sizeBytes: number; multilingual: boolean; description: string; detail: string }
-/**
- * An owner's data changed; read it again.
- */
-export type Changed = Topic
 /**
  * What clearing the saved audio did; what is left is pinned.
  */
@@ -574,7 +568,11 @@ export type Patch = { slice: "settings"; rev: number; value: SettingsView } |
 /**
  * Bytes the saved audio takes, pinned entries' included.
  */
-{ slice: "savedAudio"; rev: number; value: number }
+{ slice: "savedAudio"; rev: number; value: number } | 
+/**
+ * Writes to History since launch; a window reads History again at each.
+ */
+{ slice: "history"; rev: number; value: number }
 /**
  * The pill's box in CSS pixels, relative to the window's client area.
  */
@@ -658,18 +656,6 @@ language: LanguageSettings; modelUnload: ModelUnload;
  * Input device id; `None` follows the OS default.
  */
 inputDevice: string | null; keepMicOpen: boolean; savedAudio: SavedAudio; pasteMode: PasteMode; formatter: FormatterView; pill: PillSettings }
-/**
- * Whose data changed. The windows read again every query that reads it.
- */
-export type Topic = 
-/**
- * `settings.json`: every preference, the active model among them.
- */
-"settings" | 
-/**
- * The transcripts table: History, search and the totals.
- */
-"history"
 export type TranscriptResponse = { id: number; content: string; wordCount: number; durationSeconds: number | null; 
 /**
  * App the transcript was dictated into; `None` when it wasn't determined.

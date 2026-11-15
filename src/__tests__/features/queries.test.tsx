@@ -5,11 +5,12 @@ import type { ReactNode } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { queryClient } from '../../app/queryClient'
 import { queryKeys } from '../../shared/queryKeys'
-import { fetchAllTranscripts, NO_FILTERS, useDeleteTranscript, useTranscripts, useTranscriptSearch } from '../../features/history/queries'
+import { fetchAllTranscripts, NO_FILTERS, PAGE_SIZE, useDeleteTranscript, useTranscripts, useTranscriptSearch } from '../../features/history/queries'
 import { useDeleteDictionaryEntry, useDictionary, useUpdateDictionary } from '../../features/dictionary/queries'
-import type { DictionaryResponse } from '../../shared/bindings'
+import type { DictionaryResponse, Patch } from '../../shared/bindings'
 import type { Transcript } from '../../shared/types'
 import { mirror } from '../utils'
+import { revisionOf } from '../../app/mirror'
 
 type ToastOptions = { onAutoClose?: () => void; onDismiss?: () => void; action?: { onClick: () => void } }
 const toasts = vi.hoisted(() => [] as ToastOptions[])
@@ -20,8 +21,14 @@ const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider 
 const row = (id: number): Transcript => ({ id, content: `Transcript ${id}`, createdAt: `2026-09-02T12:00:${String(id % 60).padStart(2, '0')}Z`, wordCount: 2, durationSeconds: 1, targetApp: null, pinned: false, audioPath: null, sourceName: null, model: null, pending: false, revision: 0 })
 const pages = (rows: Transcript[]) => ({ pages: [{ rows }], pageParams: [{ cursorCreatedAt: null, cursorId: null }] })
 const ids = (data?: { pages: { rows: Transcript[] }[] }) => data?.pages.flatMap(p => p.rows).map(t => t.id)
-const feedKey = queryKeys.transcripts(NO_FILTERS)
-beforeEach(() => { queryClient.clear(); toasts.length = 0; vi.mocked(invoke).mockReset().mockResolvedValue([]) })
+/** The feed as it reads at the History revision this window holds. */
+const feedKey = () => [...queryKeys.transcripts(NO_FILTERS), revisionOf('history')]
+beforeEach(async () => {
+  queryClient.clear()
+  toasts.length = 0
+  await mirror()
+  vi.mocked(invoke).mockReset().mockResolvedValue([])
+})
 afterEach(() => { cleanup(); queryClient.clear(); onlineManager.setOnline(true) })
 
 describe('local Query cache', () => {
@@ -51,9 +58,68 @@ describe('local Query cache', () => {
   })
 })
 
+describe('History revisions', () => {
+  let send: (patch: Patch) => Promise<void>
+  /** Rust committed a write to History at `rev`. */
+  const historyAt = (rev: number) => send({ slice: 'history', rev, value: rev })
+  /** Answers each feed read in turn; one left undefined stays in flight. */
+  const reads = (answers: (Transcript[] | Error | undefined)[]) => {
+    let pending: (rows: Transcript[]) => void = () => {}
+    vi.mocked(invoke).mockImplementation(() => {
+      const answer = answers.shift()
+      if (answer === undefined) return new Promise(resolve => { pending = resolve })
+      return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer)
+    })
+    return (rows: Transcript[]) => act(async () => { pending(rows) })
+  }
+  const fullPage = Array.from({ length: PAGE_SIZE }, (_, i) => row(200 - i))
+
+  beforeEach(async () => { send = await mirror() })
+
+  it('reads every page it had loaded again at a new revision', async () => {
+    reads([fullPage, [row(1)], [row(201), ...fullPage.slice(0, -1)], [fullPage.at(-1)!, row(1)]])
+    // Read during render, as the feed does.
+    const { result } = renderHook(() => {
+      const { data, fetchNextPage } = useTranscripts(NO_FILTERS)
+      return { pages: data?.pages.length, ids: ids(data), fetchNextPage }
+    }, { wrapper })
+    await waitFor(() => expect(result.current.pages).toBe(1))
+    await act(async () => { await result.current.fetchNextPage() })
+
+    await historyAt(1)
+
+    await waitFor(() => expect(result.current.ids?.[0]).toBe(201))
+    expect(result.current.pages).toBe(2)
+    expect(result.current.ids?.at(-1)).toBe(1)
+  })
+
+  it('never shows a read that began before a newer revision', async () => {
+    const finishOlder = reads([[row(1)], undefined, [row(3)]])
+    const { result } = renderHook(() => useTranscripts(NO_FILTERS), { wrapper })
+    await waitFor(() => expect(ids(result.current.data)).toEqual([1]))
+
+    await historyAt(1)
+    await historyAt(2)
+    await waitFor(() => expect(ids(result.current.data)).toEqual([3]))
+    await finishOlder([row(2)])
+
+    expect(ids(result.current.data)).toEqual([3])
+  })
+
+  it('tries a failed read again, so the change it was for still shows', async () => {
+    reads([[row(1)], new Error('database is locked'), [row(2)]])
+    const { result } = renderHook(() => useTranscripts(NO_FILTERS), { wrapper })
+    await waitFor(() => expect(ids(result.current.data)).toEqual([1]))
+
+    await historyAt(1)
+
+    await waitFor(() => expect(ids(result.current.data)).toEqual([2]))
+  })
+})
+
 describe('deleting behind Undo', () => {
   it('puts a deleted transcript back and never deletes it when Undo is clicked', async () => {
-    queryClient.setQueryData(feedKey, pages([row(2), row(1)]))
+    queryClient.setQueryData(feedKey(), pages([row(2), row(1)]))
     const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
     act(() => result.current.del(2))
     expect(ids(result.current.feed.data)).toEqual([1])
@@ -64,7 +130,7 @@ describe('deleting behind Undo', () => {
   })
 
   it('puts the newest deleted transcript back on Ctrl+Z and never deletes it', async () => {
-    queryClient.setQueryData(feedKey, pages([row(2), row(1)]))
+    queryClient.setQueryData(feedKey(), pages([row(2), row(1)]))
     const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
     act(() => result.current.del(2))
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true })) })
@@ -75,7 +141,7 @@ describe('deleting behind Undo', () => {
 
   it('leaves Ctrl+Z to a focused text field and keeps the delete pending', async () => {
     // Ids of its own: a committed delete stays hidden for the session.
-    queryClient.setQueryData(feedKey, pages([row(6), row(5)]))
+    queryClient.setQueryData(feedKey(), pages([row(6), row(5)]))
     const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
     act(() => result.current.del(6))
     const input = document.body.appendChild(document.createElement('input'))
@@ -87,7 +153,7 @@ describe('deleting behind Undo', () => {
   })
 
   it('keeps a pending delete hidden when a refetch or export returns it, and gone once it commits; export skips an untranscribed import', async () => {
-    queryClient.setQueryData(feedKey, pages([row(3), row(2), row(1)]))
+    queryClient.setQueryData(feedKey(), pages([row(3), row(2), row(1)]))
     // The database still holds both rows until their undo windows close.
     vi.mocked(invoke).mockImplementation((cmd) => Promise.resolve(cmd === 'delete_transcript' ? undefined : [row(3), row(2), row(1)]))
     const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
@@ -108,7 +174,7 @@ describe('deleting behind Undo', () => {
   })
 
   it('keeps a deleted transcript hidden when History reopens on the list cached before the delete', async () => {
-    queryClient.setQueryData(feedKey, pages([row(8), row(7)]))
+    queryClient.setQueryData(feedKey(), pages([row(8), row(7)]))
     const { result } = renderHook(() => useDeleteTranscript(), { wrapper })
     const feed = renderHook(() => useTranscripts(NO_FILTERS), { wrapper })
     act(() => result.current(8))

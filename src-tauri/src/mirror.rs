@@ -24,23 +24,55 @@ use crate::sync::lock_recovering;
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 #[serde(tag = "slice", rename_all = "camelCase")]
 pub enum Patch {
-    Settings { rev: u64, value: SettingsView },
+    Settings {
+        rev: u64,
+        value: SettingsView,
+    },
     /// The shortcuts the OS granted, which can be fewer than the saved ones.
-    Hotkeys { rev: u64, value: HotkeyBindings },
+    Hotkeys {
+        rev: u64,
+        value: HotkeyBindings,
+    },
     /// The models on disk.
-    Models { rev: u64, value: Vec<DownloadedModel> },
+    Models {
+        rev: u64,
+        value: Vec<DownloadedModel>,
+    },
     /// Model downloads queued, running or failed.
-    Downloads { rev: u64, value: Vec<Download> },
+    Downloads {
+        rev: u64,
+        value: Vec<Download>,
+    },
     /// The CUDA pack; `None` until the GPU has been probed.
-    Cuda { rev: u64, value: Option<CudaStatus> },
+    Cuda {
+        rev: u64,
+        value: Option<CudaStatus>,
+    },
     /// The recording, and the saved changes it does not use.
-    Recording { rev: u64, value: RecordingSnapshot },
+    Recording {
+        rev: u64,
+        value: RecordingSnapshot,
+    },
     /// The running transcription job, then the queued ones.
-    Jobs { rev: u64, value: Vec<JobSnapshot> },
+    Jobs {
+        rev: u64,
+        value: Vec<JobSnapshot>,
+    },
     /// Dictionary entries and their use counts, sorted by term.
-    Dictionary { rev: u64, value: Vec<DictionaryResponse> },
+    Dictionary {
+        rev: u64,
+        value: Vec<DictionaryResponse>,
+    },
     /// Bytes the saved audio takes, pinned entries' included.
-    SavedAudio { rev: u64, value: u64 },
+    SavedAudio {
+        rev: u64,
+        value: u64,
+    },
+    /// Writes to History since launch; a window reads History again at each.
+    History {
+        rev: u64,
+        value: u64,
+    },
 }
 
 /// The revision a write left its store at, so the window that made it knows
@@ -85,9 +117,9 @@ impl<T: Slice> Store<T> {
         }
     }
 
-    /// The only write. Apply `change`; if it changed anything, `persist` the
-    /// result, and only once that succeeds take the next revision and send it.
-    /// All under the store's lock, so the windows receive revisions in order.
+    /// Apply `change`; if it changed anything, `persist` the result, and only
+    /// once that succeeds take the next revision and send it. All under the
+    /// store's lock, so the windows receive revisions in order.
     pub fn update<E>(
         &self,
         change: impl FnOnce(&mut T),
@@ -124,13 +156,14 @@ static HUB: LazyLock<Mutex<Hub>> = LazyLock::new(Mutex::default);
 
 fn publish(patch: Patch) {
     let mut hub = lock_recovering(&HUB);
-    hub.windows.retain(|window, channel| match channel.send(patch.clone()) {
-        Ok(()) => true,
-        Err(e) => {
-            log::warn!("stopped sending state to the {window} window: {e}");
-            false
-        }
-    });
+    hub.windows
+        .retain(|window, channel| match channel.send(patch.clone()) {
+            Ok(()) => true,
+            Err(e) => {
+                log::warn!("stopped sending state to the {window} window: {e}");
+                false
+            }
+        });
     hub.latest.insert(discriminant(&patch), patch);
 }
 

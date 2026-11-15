@@ -25,9 +25,8 @@ impl Slice for Size {
     }
 }
 
-/// Every file written or deleted measures the folder again: the disk they
-/// take moves. Whether an entry offers a player is its `has_audio` flag, a
-/// History write.
+/// Every file written or deleted measures the folder again. Whether an entry
+/// offers a player is its `has_audio` flag, a History write.
 pub struct Recordings {
     dir: PathBuf,
     /// Ids with a file when the app opened the folder, before any save could

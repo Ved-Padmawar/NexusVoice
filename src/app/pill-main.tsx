@@ -7,7 +7,6 @@ import { logger } from "../shared/logger";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { queryClient } from "./queryClient";
 import { mirrorRust } from "./mirror";
-import { followRust } from "./sync";
 
 const render = () => createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -19,6 +18,6 @@ const render = () => createRoot(document.getElementById("root")!).render(
   </StrictMode>,
 );
 
-Promise.all([followRust(), mirrorRust()])
-  .catch((e: unknown) => logger.error("could not follow backend changes", e))
+mirrorRust()
+  .catch((e: unknown) => logger.error("could not mirror the backend state", e))
   .finally(render);
