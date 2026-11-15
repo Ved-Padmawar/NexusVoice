@@ -44,7 +44,7 @@ const FRESH: Patch[] = [
   { slice: 'recording', rev: 0, value: { status: 'idle', deferred: [] } },
   { slice: 'jobs', rev: 0, value: [] },
   { slice: 'dictionary', rev: 0, value: [] },
-  { slice: 'savedAudio', rev: 0, value: 0 },
+  { slice: 'savedAudio', rev: 0, value: { bytes: 0, cleanupFailed: false } },
   { slice: 'history', rev: 0, value: 0 },
 ]
 

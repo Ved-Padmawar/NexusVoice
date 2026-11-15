@@ -65,12 +65,16 @@ pub struct ModelDownloadCancelled {
 pub struct LanguageReset;
 
 #[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct CudaDownloadComplete;
+pub struct CudaDownloadComplete {
+    pub attempt: u64,
+    pub after: crate::mirror::Committed,
+}
 
 /// The CUDA download failed; `after` is the status revision that shows it
 /// ended, so the offer reopens on a status without the download.
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct CudaDownloadError {
+    pub attempt: u64,
     pub message: String,
     pub after: crate::mirror::Committed,
 }

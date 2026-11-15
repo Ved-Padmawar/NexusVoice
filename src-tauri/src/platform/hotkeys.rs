@@ -158,12 +158,15 @@ impl Hotkeys {
             let _ = bind_all(app, &bound);
             return Err(e);
         }
+        *kind.slot(&mut saved) = hotkey;
+        // A shortcut that wasn't saved must not stay live for the session.
+        let committed = settings.set_hotkeys(saved).map_err(|e| {
+            let _ = bind_all(app, &bound);
+            HotkeyError::Save(e.to_string())
+        })?;
         self.bound.set(|b| b.0 = next);
         self.end_lease();
-        *kind.slot(&mut saved) = hotkey;
-        settings
-            .set_hotkeys(saved)
-            .map_err(|e| HotkeyError::Save(e.to_string()))
+        Ok(committed)
     }
 
     /// Release every shortcut with the OS until `resume`, a `set`, or the lease expires.

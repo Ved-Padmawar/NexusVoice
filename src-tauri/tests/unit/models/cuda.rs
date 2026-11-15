@@ -67,13 +67,19 @@ fn a_missing_or_partial_archive_is_fetched() {
 fn only_one_download_can_claim_the_pack() {
     let data = tempfile::tempdir().unwrap();
     let pack = CudaPack::new(data.path().to_path_buf(), false);
-    pack.check_pack();
-
-    assert!(pack.claim().is_some());
+    let (first, _) = pack.claim().unwrap();
     assert!(pack.claim().is_none());
     let status = pack.status.read(|s| s.0.clone()).unwrap();
     assert_eq!(status.download_progress, Some(0));
     assert!(!status.verifying);
+
+    let after = pack.complete();
+    let completed = pack.status.read(|s| s.0.clone()).unwrap();
+    assert_eq!(completed.attempt, first);
+    assert_eq!(completed.download_progress, None);
+    let (second, _) = pack.claim().unwrap();
+    assert!(second > first);
+    assert!(pack.status.committed().rev > after.rev);
 }
 
 #[test]

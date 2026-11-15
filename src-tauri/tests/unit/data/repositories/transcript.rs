@@ -1,6 +1,10 @@
+use std::sync::Arc;
+
 use super::{keyset_sql, Cursor, TranscriptRepository};
 use crate::data::connection::init_database;
 use crate::data::dto::transcript::CreateTranscript;
+use crate::data::Writes;
+use crate::mirror::Store;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Row, SqlitePool};
 
@@ -27,25 +31,20 @@ async fn insert(pool: &SqlitePool, content: &str, created_at: &str) -> i64 {
     .expect("insert")
 }
 
-/// Insert `words` words at `now` shifted by an SQLite modifier like `'-3 days'`.
-async fn insert_ago(pool: &SqlitePool, words: i64, ago: &str) {
-    sqlx::query("INSERT INTO transcripts (content, word_count, created_at) VALUES ('t', ?, datetime('now', ?))")
-        .bind(words)
-        .bind(ago)
-        .execute(pool)
-        .await
-        .expect("insert");
-}
-
 #[tokio::test]
 async fn daily_words_sums_each_day_in_the_window_oldest_first() {
     let pool = pool().await;
-    insert_ago(&pool, 5, "-0 minutes").await;
-    insert_ago(&pool, 7, "-0 minutes").await;
-    insert_ago(&pool, 3, "-2 days").await;
-    insert_ago(&pool, 100, "-40 days").await; // outside a 30-day window
+    sqlx::query(
+        "INSERT INTO transcripts (content, word_count, created_at) VALUES
+         ('t', 5, '2026-03-10 10:00:00'), ('t', 7, '2026-03-10 10:01:00'),
+         ('t', 3, '2026-03-08 10:00:00'), ('t', 100, '2026-01-25 10:00:00'),
+         ('t', 100, '2026-03-11 00:00:00')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let rows = TranscriptRepository::new(pool)
-        .daily_words(30, 0)
+        .daily_words(30, 0, "2026-03-10")
         .await
         .expect("query");
     let words: Vec<i64> = rows.iter().map(|(_, w)| *w).collect();
@@ -56,17 +55,13 @@ async fn daily_words_sums_each_day_in_the_window_oldest_first() {
 #[tokio::test]
 async fn daily_words_counts_by_the_callers_local_day() {
     let pool = pool().await;
-    insert_ago(&pool, 4, "-0 minutes").await;
-    // UTC+14: for most of the UTC day this instant is already tomorrow there.
-    let ahead = TranscriptRepository::new(pool.clone())
-        .daily_words(1, 14 * 60)
+    insert(&pool, "today", "2026-03-09 10:00:00").await;
+    insert(&pool, "yesterday", "2026-03-09 09:59:59").await;
+    let ahead = TranscriptRepository::new(pool)
+        .daily_words(1, 14 * 60, "2026-03-10")
         .await
         .expect("query");
-    let local_today: String = sqlx::query_scalar("SELECT date('now', '+840 minutes')")
-        .fetch_one(&pool)
-        .await
-        .expect("date");
-    assert_eq!(ahead, [(local_today, 4)]);
+    assert_eq!(ahead, [(String::from("2026-03-10"), 1)]);
 }
 
 #[tokio::test]
@@ -498,28 +493,46 @@ async fn an_undo_applies_only_to_the_rewrite_it_belongs_to() {
     let pool = pool().await;
     let id = insert(&pool, "original", "2024-01-01 10:00:00").await;
     let repo = TranscriptRepository::new(pool);
-    repo.set_text(id, "same words", "model-a").await.unwrap();
-    let first = repo.get_by_id(id).await.unwrap().unwrap().revision;
+    let (original, original_model, first) = repo
+        .set_text(id, "same words", "model-a")
+        .await
+        .unwrap()
+        .unwrap();
     // A newer retry with another model that happens to produce the same words.
-    repo.set_text(id, "same words", "model-b").await.unwrap();
-    let second = repo.get_by_id(id).await.unwrap().unwrap().revision;
+    let (replaced, replaced_model, second) = repo
+        .set_text(id, "same words", "model-b")
+        .await
+        .unwrap()
+        .unwrap();
 
     assert!(!repo
-        .restore_text(id, first, "original", None)
+        .restore_text(id, first.revision, &original, original_model.as_deref())
         .await
         .unwrap());
     assert!(repo
-        .restore_text(id, second, "same words", Some("model-a"))
+        .restore_text(id, second.revision, &replaced, replaced_model.as_deref())
         .await
         .unwrap());
     let entry = repo.get_by_id(id).await.unwrap().unwrap();
     assert_eq!(entry.model.as_deref(), Some("model-a"));
+    let (replaced, replaced_model, _) = repo
+        .set_text(id, "new words", "model-c")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (replaced.as_str(), replaced_model.as_deref()),
+        ("same words", Some("model-a"))
+    );
 }
 
 #[tokio::test]
 async fn every_write_that_changes_a_row_takes_a_history_revision_and_reads_do_not() {
     // The windows only reread History when told: a silent write leaves them stale.
-    let repo = TranscriptRepository::new(pool().await);
+    let repo = TranscriptRepository {
+        pool: pool().await,
+        history: Arc::new(Store::isolated(Writes(0))),
+    };
     let entry = repo
         .create(CreateTranscript {
             content: "one two".into(),
@@ -540,7 +553,7 @@ async fn every_write_that_changes_a_row_takes_a_history_revision_and_reads_do_no
     repo.set_has_audio(entry.id, true)
         .await
         .expect("flag audio");
-    let history = || crate::data::HISTORY.committed().rev;
+    let history = || repo.history.committed().rev;
     let written = history();
     assert_eq!(written, 4);
 

@@ -125,10 +125,6 @@ impl TranscriptionEngine {
     }
 
     /// Codes this model advertises. Empty means it accepts any hint.
-    pub fn languages(&self) -> &[String] {
-        &self.languages
-    }
-
     /// The transcript's known language: the decode hint, else the model's only
     /// one. `None` when it auto-detects among several.
     pub fn output_language(&self, language: Option<&str>) -> Option<String> {

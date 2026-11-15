@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { queryClient } from '../../app/queryClient'
 import { queryKeys } from '../../shared/queryKeys'
-import { fetchAllTranscripts, NO_FILTERS, PAGE_SIZE, useDeleteTranscript, useTranscripts, useTranscriptSearch } from '../../features/history/queries'
+import { fetchAllTranscripts, NO_FILTERS, PAGE_SIZE, useDeleteTranscript, useHistoryFeed } from '../../features/history/queries'
 import { useDeleteDictionaryEntry, useDictionary, useUpdateDictionary } from '../../features/dictionary/queries'
 import type { DictionaryResponse, Patch } from '../../shared/bindings'
 import type { Transcript } from '../../shared/types'
@@ -32,11 +32,8 @@ beforeEach(async () => {
 afterEach(() => { cleanup(); queryClient.clear(); onlineManager.setOnline(true) })
 
 describe('local Query cache', () => {
-  it('fetches only the search when the underlying feed is disabled', async () => {
-    const { result } = renderHook(() => {
-      useTranscripts(NO_FILTERS, false)
-      return { ...useTranscriptSearch('hello', NO_FILTERS) }
-    }, { wrapper })
+  it('only fetches search results when there is a search term', async () => {
+    const { result } = renderHook(() => ({ ...useHistoryFeed('hello', NO_FILTERS) }), { wrapper })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(invoke).toHaveBeenCalledTimes(1)
     expect(vi.mocked(invoke).mock.calls[0][0]).toBe('search_transcripts')
@@ -44,7 +41,7 @@ describe('local Query cache', () => {
 
   it('loads local transcripts while the network is offline', async () => {
     onlineManager.setOnline(false)
-    const { result } = renderHook(() => ({ ...useTranscripts(NO_FILTERS) }), { wrapper })
+    const { result } = renderHook(() => ({ ...useHistoryFeed('', NO_FILTERS) }), { wrapper })
     await waitFor(() => expect(result.current.isSuccess).toBe(true), { timeout: 200 })
     expect(invoke).toHaveBeenCalledTimes(1)
   })
@@ -80,7 +77,7 @@ describe('History revisions', () => {
     reads([fullPage, [row(1)], [row(201), ...fullPage.slice(0, -1)], [fullPage.at(-1)!, row(1)]])
     // Read during render, as the feed does.
     const { result } = renderHook(() => {
-      const { data, fetchNextPage } = useTranscripts(NO_FILTERS)
+      const { data, fetchNextPage } = useHistoryFeed('', NO_FILTERS)
       return { pages: data?.pages.length, ids: ids(data), fetchNextPage }
     }, { wrapper })
     await waitFor(() => expect(result.current.pages).toBe(1))
@@ -95,7 +92,7 @@ describe('History revisions', () => {
 
   it('never shows a read that began before a newer revision', async () => {
     const finishOlder = reads([[row(1)], undefined, [row(3)]])
-    const { result } = renderHook(() => useTranscripts(NO_FILTERS), { wrapper })
+    const { result } = renderHook(() => useHistoryFeed('', NO_FILTERS), { wrapper })
     await waitFor(() => expect(ids(result.current.data)).toEqual([1]))
 
     await historyAt(1)
@@ -108,7 +105,7 @@ describe('History revisions', () => {
 
   it('tries a failed read again, so the change it was for still shows', async () => {
     reads([[row(1)], new Error('database is locked'), [row(2)]])
-    const { result } = renderHook(() => useTranscripts(NO_FILTERS), { wrapper })
+    const { result } = renderHook(() => useHistoryFeed('', NO_FILTERS), { wrapper })
     await waitFor(() => expect(ids(result.current.data)).toEqual([1]))
 
     await historyAt(1)
@@ -120,7 +117,7 @@ describe('History revisions', () => {
 describe('deleting behind Undo', () => {
   it('puts a deleted transcript back and never deletes it when Undo is clicked', async () => {
     queryClient.setQueryData(feedKey(), pages([row(2), row(1)]))
-    const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
+    const { result } = renderHook(() => ({ feed: useHistoryFeed('', NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
     act(() => result.current.del(2))
     expect(ids(result.current.feed.data)).toEqual([1])
     // Sonner dismisses the toast after its action runs; that must not delete.
@@ -131,7 +128,7 @@ describe('deleting behind Undo', () => {
 
   it('puts the newest deleted transcript back on Ctrl+Z and never deletes it', async () => {
     queryClient.setQueryData(feedKey(), pages([row(2), row(1)]))
-    const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
+    const { result } = renderHook(() => ({ feed: useHistoryFeed('', NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
     act(() => result.current.del(2))
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true })) })
     act(() => toasts.at(-1)?.onDismiss?.())
@@ -142,7 +139,7 @@ describe('deleting behind Undo', () => {
   it('leaves Ctrl+Z to a focused text field and keeps the delete pending', async () => {
     // Ids of its own: a committed delete stays hidden for the session.
     queryClient.setQueryData(feedKey(), pages([row(6), row(5)]))
-    const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
+    const { result } = renderHook(() => ({ feed: useHistoryFeed('', NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
     act(() => result.current.del(6))
     const input = document.body.appendChild(document.createElement('input'))
     act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true })) })
@@ -156,7 +153,7 @@ describe('deleting behind Undo', () => {
     queryClient.setQueryData(feedKey(), pages([row(3), row(2), row(1)]))
     // The database still holds both rows until their undo windows close.
     vi.mocked(invoke).mockImplementation((cmd) => Promise.resolve(cmd === 'delete_transcript' ? undefined : [row(3), row(2), row(1)]))
-    const { result } = renderHook(() => ({ feed: useTranscripts(NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
+    const { result } = renderHook(() => ({ feed: useHistoryFeed('', NO_FILTERS), del: useDeleteTranscript() }), { wrapper })
     act(() => { result.current.del(2); result.current.del(1) })
     const [deleteTwo, deleteOne] = [...toasts]
     act(() => deleteOne.action?.onClick())
@@ -176,13 +173,13 @@ describe('deleting behind Undo', () => {
   it('keeps a deleted transcript hidden when History reopens on the list cached before the delete', async () => {
     queryClient.setQueryData(feedKey(), pages([row(8), row(7)]))
     const { result } = renderHook(() => useDeleteTranscript(), { wrapper })
-    const feed = renderHook(() => useTranscripts(NO_FILTERS), { wrapper })
+    const feed = renderHook(() => useHistoryFeed('', NO_FILTERS), { wrapper })
     act(() => result.current(8))
     feed.unmount()
     await closeUndoToast()
     expect(vi.mocked(invoke).mock.calls.some(([cmd]) => cmd === 'delete_transcript')).toBe(true)
 
-    const reopened = renderHook(() => useTranscripts(NO_FILTERS), { wrapper })
+    const reopened = renderHook(() => useHistoryFeed('', NO_FILTERS), { wrapper })
     expect(ids(reopened.result.current.data)).toEqual([7])
   })
 

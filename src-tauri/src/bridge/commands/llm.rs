@@ -1,6 +1,6 @@
 //! Smart-formatting commands: the provider settings, and a connection test.
 
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::mirror::Committed;
 use crate::settings::formatter::FormatterDraft;
@@ -21,27 +21,31 @@ pub fn set_format_enabled(
 /// Save the provider modal's endpoint as the active one, and turn formatting on.
 #[tauri::command]
 #[specta::specta]
-pub fn save_format_endpoint(
-    settings: State<'_, Settings>,
+pub async fn save_format_endpoint(
+    app: AppHandle,
     draft: FormatterDraft,
 ) -> Result<Committed, ApiError> {
     draft
         .validate()
         .map_err(|message| ApiError::new("invalid_input", message))?;
-    settings
-        .save_formatter_endpoint(&draft)
-        .map_err(|e| ApiError::new("settings_error", e))
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Settings>().save_formatter_endpoint(&draft)
+    })
+    .await
+    .map_err(|e| ApiError::new("settings_error", e.to_string()))?
+    .map_err(|e| ApiError::new("settings_error", e))
 }
 
 /// Send one trivial request with a draft from the provider modal. Saves
 /// nothing.
 #[tauri::command]
 #[specta::specta]
-pub async fn test_format_connection(
-    settings: State<'_, Settings>,
-    draft: FormatterDraft,
-) -> Result<(), ApiError> {
-    let config = settings.format_config_for(&draft);
+pub async fn test_format_connection(app: AppHandle, draft: FormatterDraft) -> Result<(), ApiError> {
+    let config = tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Settings>().format_config_for(&draft)
+    })
+    .await
+    .map_err(|e| ApiError::new("settings_error", e.to_string()))?;
     let active = config.active();
     if config.provider != "anthropic" {
         check_base_url(&active.base_url)

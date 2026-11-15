@@ -5,7 +5,7 @@
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -13,7 +13,7 @@ use tauri_specta::Event;
 use tokio_util::sync::CancellationToken;
 
 use crate::bridge::events::{CudaDownloadComplete, CudaDownloadError};
-use crate::mirror::{Patch, Slice, Store};
+use crate::mirror::{Committed, Patch, Slice, Store};
 use crate::models::downloader::{describe_io, describe_request_error, download_file, CANCELLED};
 use crate::sync::lock_recovering;
 
@@ -298,6 +298,8 @@ pub struct CudaStatus {
     pub download_progress: Option<u8>,
     /// The running download is unpacking and checking the pack.
     pub verifying: bool,
+    /// The latest download attempt, including after it finishes.
+    pub attempt: u64,
 }
 
 /// `None` until the GPU and the pack on disk have been checked.
@@ -332,10 +334,6 @@ impl CudaPack {
         }
     }
 
-    fn lock(&self) -> MutexGuard<'_, Option<CancellationToken>> {
-        lock_recovering(&self.cancel)
-    }
-
     pub fn state(&self) -> PackState {
         match pack_state(&self.app_data_dir) {
             PackState::Installed if self.damaged => PackState::Damaged,
@@ -346,15 +344,18 @@ impl CudaPack {
     /// Cancel any download, then delete the pack; one in use goes at the next
     /// start. Blocks on the disk.
     pub fn remove(&self) -> std::io::Result<()> {
-        self.cancel();
+        let slot = lock_recovering(&self.cancel);
+        if let Some(token) = slot.as_ref() {
+            token.cancel();
+        }
         remove(&self.app_data_dir)?;
-        self.check_pack();
+        self.publish_pack(false);
         Ok(())
     }
 
     /// Check the GPU and the pack on disk again. Blocks on the driver and the
     /// disk, so it runs off the main thread.
-    fn check_pack(&self) {
+    fn publish_pack(&self, clear_progress: bool) -> Committed {
         let (supported, pack) = (supported(), self.state());
         self.status.set(|status| {
             let status = status.0.get_or_insert(CudaStatus {
@@ -362,10 +363,20 @@ impl CudaPack {
                 pack,
                 download_progress: None,
                 verifying: false,
+                attempt: 0,
             });
             status.supported = supported;
             status.pack = pack;
-        });
+            if clear_progress {
+                status.download_progress = None;
+                status.verifying = false;
+            }
+        })
+    }
+
+    fn check_pack(&self) {
+        let _slot = lock_recovering(&self.cancel);
+        self.publish_pack(false);
     }
 
     fn edit_download(&self, change: impl FnOnce(&mut CudaStatus)) {
@@ -377,41 +388,41 @@ impl CudaPack {
     }
 
     pub fn cancel(&self) {
-        if let Some(token) = self.lock().as_ref() {
+        if let Some(token) = lock_recovering(&self.cancel).as_ref() {
             token.cancel();
         }
     }
 
     /// Fetch the pack into staging in the background. Its end is also a
-    /// notice, for the toast. A running download is left alone.
+    /// notice, for the toast. A running download is left alone. Blocks on the
+    /// driver for a first claim, so call it off the runtime.
     pub fn start_download(app: &AppHandle) {
         // Claimed before returning, so the status shows it at once.
-        let Some(cancel) = app.state::<Self>().claim() else {
+        let Some((attempt, cancel)) = app.state::<Self>().claim() else {
             return;
         };
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             let pack = app.state::<Self>();
             let result = pack.fetch(&cancel).await;
-            *pack.lock() = None;
-            pack.edit_download(|status| {
-                status.download_progress = None;
-                status.verifying = false;
-            });
             let checked = app.clone();
-            let _ = tauri::async_runtime::spawn_blocking(move || {
-                checked.state::<Self>().check_pack();
-            })
-            .await;
+            let after =
+                tauri::async_runtime::spawn_blocking(move || checked.state::<Self>().complete())
+                    .await
+                    .expect("CUDA pack refresh panicked");
             match result {
                 Ok(()) => {
-                    let _ = CudaDownloadComplete.emit(&app);
+                    let _ = CudaDownloadComplete { attempt, after }.emit(&app);
                 }
                 Err(e) if e == CANCELLED => {}
                 Err(message) => {
                     log::warn!("CUDA pack download failed: {message}");
-                    let after = pack.status.committed();
-                    let _ = CudaDownloadError { message, after }.emit(&app);
+                    let _ = CudaDownloadError {
+                        attempt,
+                        message,
+                        after,
+                    }
+                    .emit(&app);
                 }
             }
         });
@@ -432,16 +443,29 @@ impl CudaPack {
         });
     }
 
-    fn claim(&self) -> Option<CancellationToken> {
-        let mut slot = self.lock();
+    fn claim(&self) -> Option<(u64, CancellationToken)> {
+        let mut slot = lock_recovering(&self.cancel);
         if slot.is_some() {
             return None;
         }
+        if self.status.read(|status| status.0.is_none()) {
+            self.publish_pack(false);
+        }
+        let mut attempt = 0;
         self.edit_download(|status| {
+            status.attempt += 1;
+            attempt = status.attempt;
             status.download_progress = Some(0);
             status.verifying = false;
         });
-        Some(slot.insert(CancellationToken::new()).clone())
+        Some((attempt, slot.insert(CancellationToken::new()).clone()))
+    }
+
+    fn complete(&self) -> Committed {
+        let mut slot = lock_recovering(&self.cancel);
+        let committed = self.publish_pack(true);
+        *slot = None;
+        committed
     }
 
     async fn fetch(&self, cancel: &CancellationToken) -> Result<(), String> {

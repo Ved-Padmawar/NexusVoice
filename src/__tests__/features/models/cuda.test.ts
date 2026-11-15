@@ -16,7 +16,7 @@ import { mirror, settingsAt } from '../../utils'
 const mockInvoke = vi.mocked(invoke)
 const mockListen = vi.mocked(listen)
 
-const absent: CudaStatus = { supported: true, pack: 'absent', downloadProgress: null, verifying: false }
+const absent: CudaStatus = { supported: true, pack: 'absent', downloadProgress: null, verifying: false, attempt: 0 }
 const state = () => useAppStore.getState()
 
 /** Rust's CUDA status, sent to this window. */
@@ -112,7 +112,7 @@ describe('cuda pack', () => {
 
     // The error notice names the status revision that shows the download ended.
     vi.useFakeTimers()
-    handlers.get('cuda-download-error')?.({ payload: { message: 'offline', after: { rev: rev + 1 } } })
+    handlers.get('cuda-download-error')?.({ payload: { attempt: 0, message: 'offline', after: { rev: rev + 1 } } })
     await setCuda(unverified)
     await act(() => vi.runAllTimersAsync())
 

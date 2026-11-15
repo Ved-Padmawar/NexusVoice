@@ -7,6 +7,8 @@ pub mod wav;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+use specta::Type;
 use tauri::{AppHandle, Manager};
 
 use crate::data::repositories::transcript::TranscriptRepository;
@@ -15,13 +17,19 @@ use crate::mirror::{Patch, Slice, Store};
 use crate::models::preprocess::To16k;
 use crate::settings::Settings;
 
-/// Bytes the saved audio takes.
-#[derive(Clone, PartialEq)]
-struct Size(u64);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedAudioStatus {
+    pub bytes: u64,
+    pub cleanup_failed: bool,
+}
 
-impl Slice for Size {
+impl Slice for SavedAudioStatus {
     fn patch(&self, rev: u64) -> Patch {
-        Patch::SavedAudio { rev, value: self.0 }
+        Patch::SavedAudio {
+            rev,
+            value: self.clone(),
+        }
     }
 }
 
@@ -32,23 +40,27 @@ pub struct Recordings {
     /// Ids with a file when the app opened the folder, before any save could
     /// start: [`reconcile`] judges only these.
     at_launch: Vec<i64>,
-    size: Store<Size>,
+    status: Store<SavedAudioStatus>,
+    trimming: tokio::sync::Mutex<()>,
 }
 
 impl Recordings {
     pub fn open(dir: PathBuf) -> Self {
         let at_launch = scan(&dir);
-        let size = Store::new(Size(measure(&dir)));
+        let status = Store::new(SavedAudioStatus {
+            bytes: measure(&dir),
+            cleanup_failed: false,
+        });
         Self {
             dir,
             at_launch,
-            size,
+            status,
+            trimming: tokio::sync::Mutex::default(),
         }
     }
 
     fn measure(&self) {
-        let bytes = measure(&self.dir);
-        self.size.set(|size| size.0 = bytes);
+        self.status.set(|status| status.bytes = measure(&self.dir));
     }
 
     pub fn path(&self, id: i64) -> PathBuf {
@@ -74,27 +86,39 @@ impl Recordings {
     }
 
     /// Delete entry `id`'s audio. A file already gone counts as deleted.
-    pub fn remove(&self, id: i64) -> Result<(), String> {
-        match std::fs::remove_file(self.path(id)) {
-            Ok(()) => {
-                self.measure();
-                Ok(())
+    fn remove(&self, id: i64) -> Result<(), String> {
+        if let Err(e) = std::fs::remove_file(self.path(id)) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(format!("could not delete the audio of entry {id}: {e}"));
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(format!("could not delete the audio of entry {id}: {e}")),
         }
+        self.measure();
+        Ok(())
     }
 }
 
-/// Bytes the files in `dir` take.
+pub async fn remove(app: &AppHandle, id: i64) -> Result<(), String> {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || app.state::<Recordings>().remove(id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Bytes in the committed WAVs, excluding temporary files.
 fn measure(dir: &Path) -> u64 {
     std::fs::read_dir(dir).map_or(0, |entries| {
         entries
             .filter_map(Result::ok)
+            .filter(|entry| wav_id(&entry.file_name().to_string_lossy()).is_some())
             .filter_map(|e| e.metadata().ok())
+            .filter(std::fs::Metadata::is_file)
             .map(|m| m.len())
             .sum()
     })
+}
+
+fn wav_id(name: &str) -> Option<i64> {
+    name.strip_suffix(".wav")?.parse().ok()
 }
 
 /// Ids of the WAVs in `dir`; temp files of interrupted writes are deleted.
@@ -110,7 +134,7 @@ fn scan(dir: &Path) -> Vec<i64> {
             if let Err(e) = std::fs::remove_file(entry.path()) {
                 log::warn!("could not delete the leftover {name}: {e}");
             }
-        } else if let Some(id) = name.strip_suffix(".wav").and_then(|id| id.parse().ok()) {
+        } else if let Some(id) = wav_id(&name) {
             ids.push(id);
         }
     }
@@ -167,9 +191,9 @@ pub async fn store(app: &AppHandle, id: i64, samples_16k: Vec<f32>) -> Result<()
     // while the audio encoded, or the flag couldn't be written.
     match flagged.await {
         Ok(true) => {}
-        Ok(false) => return app.state::<Recordings>().remove(id),
+        Ok(false) => return remove(app, id).await,
         Err(e) => {
-            if let Err(e) = app.state::<Recordings>().remove(id) {
+            if let Err(e) = remove(app, id).await {
                 log::warn!("{e}");
             }
             return Err(e);
@@ -193,20 +217,27 @@ pub async fn reconcile(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .into_iter()
         .collect();
-    let recordings = app.state::<Recordings>();
-    for &id in &recordings.at_launch {
-        if !claimed.contains(&id) {
-            if let Err(e) = recordings.remove(id) {
-                log::warn!("{e}");
+    let app = app.clone();
+    let missing = tauri::async_runtime::spawn_blocking(move || {
+        let recordings = app.state::<Recordings>();
+        for &id in &recordings.at_launch {
+            if !claimed.contains(&id) {
+                if let Err(e) = recordings.remove(id) {
+                    log::warn!("{e}");
+                }
             }
         }
-    }
-    for id in claimed {
-        if !recordings.path(id).exists() {
-            repo.set_has_audio(id, false)
-                .await
-                .map_err(|e| e.to_string())?;
-        }
+        claimed
+            .into_iter()
+            .filter(|&id| !recordings.path(id).exists())
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    for id in missing {
+        repo.set_has_audio(id, false)
+            .await
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -214,15 +245,27 @@ pub async fn reconcile(app: &AppHandle) -> Result<(), String> {
 /// Delete the audio the saved limit no longer covers: all unpinned audio when
 /// saving is off, else everything unpinned past the newest `keep`.
 pub async fn apply_limit(app: &AppHandle) -> Result<(), String> {
+    let recordings = app.state::<Recordings>();
+    let _trimming = recordings.trimming.lock().await;
     let saved = app.state::<Settings>().saved_audio();
-    trim(app, saved.enabled.then_some(saved.keep))
+    let result = trim_inner(app, saved.enabled.then_some(saved.keep))
         .await
-        .map(drop)
+        .map(drop);
+    recordings
+        .status
+        .set(|status| status.cleanup_failed = result.is_err());
+    result
 }
 
 /// Delete unpinned audio past the newest `keep`; `None` deletes it all. The
 /// entries and their text stay. Returns how many files went.
 pub async fn trim(app: &AppHandle, keep: Option<u32>) -> Result<usize, String> {
+    let recordings = app.state::<Recordings>();
+    let _trimming = recordings.trimming.lock().await;
+    trim_inner(app, keep).await
+}
+
+async fn trim_inner(app: &AppHandle, keep: Option<u32>) -> Result<usize, String> {
     let repo = TranscriptRepository::new(app.state::<Database>().pool().await.map_err(|e| e.0)?);
     // The flag goes first, so a player is never offered for a file being
     // deleted. A file that won't delete gets its flag back: it still plays,
@@ -231,17 +274,18 @@ pub async fn trim(app: &AppHandle, keep: Option<u32>) -> Result<usize, String> {
         .release_audio_beyond(keep)
         .await
         .map_err(|e| e.to_string())?;
-    let recordings = app.state::<Recordings>();
     let mut deleted = 0;
     let mut failure = None;
     for id in released {
-        match recordings.remove(id) {
+        match remove(app, id).await {
             Ok(()) => deleted += 1,
             Err(e) => {
-                repo.set_has_audio(id, true)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                failure = Some(e);
+                let message = match repo.set_has_audio(id, true).await {
+                    Ok(_) => e,
+                    Err(restore) => format!("{e}; could not restore its audio flag: {restore}"),
+                };
+                log::warn!("{message}");
+                failure = Some(message);
             }
         }
     }

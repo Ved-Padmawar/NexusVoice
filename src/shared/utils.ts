@@ -20,6 +20,11 @@ const transcriptDateFormat = new Intl.DateTimeFormat(undefined, {
 
 const SQLITE_UTC = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
 
+export function localDateKey(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
 /** SQLite's CURRENT_TIMESTAMP is UTC with no zone, which `new Date` reads as
  *  local time. Fixed here, not in Rust: the raw string is also the pagination cursor. */
 /** Playback time: `1:05`, or `1:02:03` past an hour. */

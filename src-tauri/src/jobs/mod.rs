@@ -388,7 +388,7 @@ pub async fn resume(app: &AppHandle) -> Result<(), String> {
             .model
             .as_deref()
             .and_then(catalog::find)
-            .unwrap_or_else(|| ModelLibrary::active(&app.state::<Settings>()));
+            .unwrap_or_else(|| app.state::<Settings>().active_model());
         Jobs::enqueue(
             app,
             Job {
@@ -483,7 +483,7 @@ async fn discard(app: &AppHandle, transcript_id: i64) {
         repo.delete_by_id(transcript_id)
             .await
             .map_err(|e| e.to_string())?;
-        app.state::<Recordings>().remove(transcript_id)
+        crate::recordings::remove(app, transcript_id).await
     };
     if let Err(e) = deleted.await {
         log::warn!("could not discard the import of entry {transcript_id}: {e}");
@@ -531,28 +531,26 @@ async fn save(app: &AppHandle, job: &Job, text: &str, model_id: &str) -> Result<
     let text = app.state::<Dictionary>().correct(&pool, text).await;
     let repo = TranscriptRepository::new(pool);
     let deleted = || Failure("That entry was deleted.".to_string());
-    let before = repo
-        .get_by_id(job.transcript_id)
+    let (old_text, old_model, mut entry) = repo
+        .set_text(job.transcript_id, &text, model_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(deleted)?;
-    repo.set_text(job.transcript_id, &text, model_id)
-        .await
-        .map_err(|e| e.to_string())?;
     // No longer pending, an import's audio counts toward the limit now.
     // Trimmed before the entry is read, so it never offers a deleted file.
     if let Err(e) = crate::recordings::apply_limit(app).await {
         log::warn!("could not apply the saved audio limit: {e}");
     }
-    let entry = repo
+    entry.has_audio = repo
         .get_by_id(job.transcript_id)
         .await
         .map_err(|e| e.to_string())?
-        .ok_or_else(deleted)?;
+        .ok_or_else(deleted)?
+        .has_audio;
     Ok(Done {
         previous: (job.kind == JobKind::Retranscribe).then_some(Previous {
-            text: before.content,
-            model: before.model,
+            text: old_text,
+            model: old_model,
         }),
         entry: TranscriptResponse::new(entry, &app.state::<Recordings>()),
     })

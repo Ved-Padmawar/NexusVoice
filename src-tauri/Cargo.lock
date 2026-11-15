@@ -522,9 +522,9 @@ dependencies = [
 
 [[package]]
 name = "brotli"
-version = "9.1.1"
+version = "9.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "627b7cfb0578f0eafce087a90fcd40add1231900b69e4d4de2d456260a4f5d81"
+checksum = "05e0144f854f7cfbc157229554c4a9580b8a653448e2bab608022ee0398a07dc"
 dependencies = [
  "alloc-no-stdlib",
  "alloc-stdlib",
@@ -3181,9 +3181,9 @@ dependencies = [
 
 [[package]]
 name = "nix"
-version = "0.31.3"
+version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
+checksum = "77730ed34f01f4990cb2ea67fec715ecebc6fab9a6396cf83c5529b13f581bdc"
 dependencies = [
  "bitflags 2.13.2",
  "cfg-if",
@@ -7800,9 +7800,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.5.1"
+version = "9.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3476fd497ac8af5b1ec7b51acab7bef380f7e8dd8e0487595bafd839417a302"
+checksum = "80cc68510ea7553c30a69c732de5278e94183f68765af6c642dbccefd6ec777e"
 dependencies = [
  "constant_time_eq",
  "crc32fast",

@@ -15,6 +15,24 @@ interface State {
   hasError: boolean
 }
 
+export function ErrorScreen({ title, message, retry }: { title: string; message: string; retry: () => void }) {
+  return (
+    <div role="alert" className="flex h-full w-full flex-col items-center justify-center gap-4 p-6 text-center">
+      <span className="grid size-14 place-items-center rounded-2xl bg-danger-soft text-danger">
+        <WarningIcon size={24} weight="duotone" />
+      </span>
+      <div className="flex flex-col gap-1">
+        <p className="text-md font-semibold text-fg">{title}</p>
+        <p className="max-w-70 text-sm text-balance text-muted">{message}</p>
+      </div>
+      <Button onClick={retry}>
+        <ArrowCounterClockwiseIcon size={13} weight="bold" />
+        Try again
+      </Button>
+    </div>
+  )
+}
+
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { hasError: false }
 
@@ -37,24 +55,7 @@ export class ErrorBoundary extends Component<Props, State> {
       if (typeof fallback === 'function') return fallback(this.reset)
       if (fallback !== undefined) return fallback
       return (
-        <div
-          role="alert"
-          className="flex h-full w-full flex-col items-center justify-center gap-4 p-6 text-center"
-        >
-          <span className="grid size-14 place-items-center rounded-2xl bg-danger-soft text-danger">
-            <WarningIcon size={24} weight="duotone" />
-          </span>
-          <div className="flex flex-col gap-1">
-            <p className="text-md font-semibold text-fg">Something went wrong</p>
-            <p className="max-w-70 text-sm text-balance text-muted">
-              This section ran into an unexpected error. You can try loading it again.
-            </p>
-          </div>
-          <Button onClick={this.reset}>
-            <ArrowCounterClockwiseIcon size={13} weight="bold" />
-            Try again
-          </Button>
-        </div>
+        <ErrorScreen title="Something went wrong" message="This section ran into an unexpected error. You can try loading it again." retry={this.reset} />
       )
     }
     return this.props.children

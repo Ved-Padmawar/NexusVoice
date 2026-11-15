@@ -1,17 +1,11 @@
+use std::sync::Arc;
+
 use sqlx::SqlitePool;
 
 use crate::data::dto::transcript::CreateTranscript;
-use crate::data::history_changed;
 use crate::data::rows::transcript::{PendingImport, Transcript};
-
-/// Every write to the transcripts table ends here: each is one statement, so
-/// by now it has committed and a read the new revision triggers sees it.
-fn changed_if(changed: bool) -> bool {
-    if changed {
-        history_changed();
-    }
-    changed
-}
+use crate::data::{Writes, HISTORY};
+use crate::mirror::{Committed, Store};
 
 /// Last row of a page — identifies a row, not an index.
 ///
@@ -68,11 +62,24 @@ fn keyset_sql(sort_desc: bool, has_cursor: bool) -> &'static str {
 #[derive(Clone)]
 pub struct TranscriptRepository {
     pool: SqlitePool,
+    history: Arc<Store<Writes>>,
 }
 
 impl TranscriptRepository {
-    pub const fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+    pub fn new(pool: SqlitePool) -> Self {
+        Self {
+            pool,
+            history: Arc::clone(&HISTORY),
+        }
+    }
+
+    /// Publish after the commit, so a read at this revision sees the write.
+    fn committed(&self, changed: bool) -> Committed {
+        if changed {
+            self.history.set(|writes| writes.0 += 1)
+        } else {
+            self.history.committed()
+        }
     }
 
     pub async fn create(&self, input: CreateTranscript) -> Result<Transcript, sqlx::Error> {
@@ -92,7 +99,7 @@ impl TranscriptRepository {
         .bind(input.language)
         .fetch_one(&self.pool)
         .await?;
-        changed_if(true);
+        self.committed(true);
         Ok(created)
     }
 
@@ -120,17 +127,21 @@ impl TranscriptRepository {
         &self,
         days: i64,
         utc_offset_minutes: i64,
+        local_date: &str,
     ) -> Result<Vec<(String, i64)>, sqlx::Error> {
         sqlx::query_as(
             "SELECT date(created_at, ?1) AS day, SUM(word_count)
              FROM transcripts
-             WHERE created_at >= datetime('now', ?1, 'start of day', ?2, ?3)
+             WHERE pending = 0
+               AND created_at >= datetime(?4, ?2, ?3)
+               AND created_at < datetime(?4, '+1 day', ?3)
              GROUP BY day
              ORDER BY day",
         )
         .bind(format!("{utc_offset_minutes:+} minutes"))
         .bind(format!("{} days", 1 - days))
         .bind(format!("{:+} minutes", -utc_offset_minutes))
+        .bind(local_date)
         .fetch_all(&self.pool)
         .await
     }
@@ -162,25 +173,45 @@ impl TranscriptRepository {
             .bind(id)
             .execute(&self.pool)
             .await?;
-        Ok(changed_if(result.rows_affected() > 0))
+        let changed = result.rows_affected() > 0;
+        self.committed(changed);
+        Ok(changed)
     }
 
-    /// Replace a transcript's text and the model it now comes from; clears
-    /// `pending`.
-    pub async fn set_text(&self, id: i64, content: &str, model: &str) -> Result<bool, sqlx::Error> {
+    /// Replace the text and model and clear `pending`, in one transaction:
+    /// returns the replaced text and model, and the row as written, for Undo.
+    pub async fn set_text(
+        &self,
+        id: i64,
+        content: &str,
+        model: &str,
+    ) -> Result<Option<(String, Option<String>, Transcript)>, sqlx::Error> {
+        let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
+        let before: Option<(String, Option<String>)> =
+            sqlx::query_as("SELECT content, model FROM transcripts WHERE id = ?")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let Some((old_content, old_model)) = before else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
         let word_count = i64::try_from(content.split_whitespace().count()).unwrap_or(i64::MAX);
-        let result = sqlx::query(
+        let after = sqlx::query_as(
             "UPDATE transcripts
              SET content = ?, word_count = ?, model = ?, pending = 0, revision = revision + 1
-             WHERE id = ?",
+             WHERE id = ?
+             RETURNING id, content, word_count, duration_seconds, target_app, pinned, has_audio, source_name, model, pending, revision, created_at",
         )
         .bind(content)
         .bind(word_count)
         .bind(model)
         .bind(id)
-        .execute(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
-        Ok(changed_if(result.rows_affected() > 0))
+        tx.commit().await?;
+        self.committed(true);
+        Ok(Some((old_content, old_model, after)))
     }
 
     /// Put back a transcript's earlier text and model, only while it is still
@@ -205,7 +236,9 @@ impl TranscriptRepository {
         .bind(revision)
         .execute(&self.pool)
         .await?;
-        Ok(changed_if(result.rows_affected() > 0))
+        let changed = result.rows_affected() > 0;
+        self.committed(changed);
+        Ok(changed)
     }
 
     pub async fn set_pinned(&self, id: i64, pinned: bool) -> Result<bool, sqlx::Error> {
@@ -214,7 +247,9 @@ impl TranscriptRepository {
             .bind(id)
             .execute(&self.pool)
             .await?;
-        Ok(changed_if(result.rows_affected() > 0))
+        let changed = result.rows_affected() > 0;
+        self.committed(changed);
+        Ok(changed)
     }
 
     /// Record that `id`'s audio file exists, or no longer does.
@@ -224,7 +259,9 @@ impl TranscriptRepository {
             .bind(id)
             .execute(&self.pool)
             .await?;
-        Ok(changed_if(result.rows_affected() > 0))
+        let changed = result.rows_affected() > 0;
+        self.committed(changed);
+        Ok(changed)
     }
 
     pub async fn pending(&self) -> Result<Vec<PendingImport>, sqlx::Error> {
@@ -256,7 +293,7 @@ impl TranscriptRepository {
         .bind(keep.map_or(0, i64::from))
         .fetch_all(&self.pool)
         .await?;
-        changed_if(!rows.is_empty());
+        self.committed(!rows.is_empty());
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 

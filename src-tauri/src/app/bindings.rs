@@ -53,6 +53,7 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::cancel_restart,
             commands::relaunch_app,
             commands::set_saved_audio,
+            commands::retry_saved_audio_cleanup,
             commands::clear_saved_audio,
             commands::set_transcript_pinned,
             commands::restore_transcript,
@@ -79,13 +80,19 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
 /// Write `src/shared/bindings.ts`; debug launches and the test suite both regenerate it.
 #[cfg(any(debug_assertions, test))]
 pub fn export_bindings(builder: &tauri_specta::Builder<tauri::Wry>) {
-    builder
-        .export(
+    let generated = builder
+        .export_str(
             specta_typescript::Typescript::default()
                 .bigint(specta_typescript::BigIntExportBehavior::Number),
-            "../src/shared/bindings.ts",
         )
         .expect("failed to export typescript bindings");
+    let mut normalized = String::with_capacity(generated.len());
+    for line in generated.lines() {
+        normalized.push_str(line.trim_end());
+        normalized.push('\n');
+    }
+    std::fs::write("../src/shared/bindings.ts", normalized)
+        .expect("failed to write typescript bindings");
 }
 
 #[cfg(test)]

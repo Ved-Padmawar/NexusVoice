@@ -9,14 +9,15 @@ use super::error::ApiError;
 #[tauri::command]
 #[specta::specta]
 pub async fn start_cuda_download(app: AppHandle) -> Result<(), ApiError> {
-    let supported = tauri::async_runtime::spawn_blocking(cuda::supported)
-        .await
-        .expect("CUDA support probe panicked");
-    if !supported {
-        return Err(ApiError::new("unsupported", "CUDA needs an NVIDIA GPU"));
-    }
-    CudaPack::start_download(&app);
-    Ok(())
+    tauri::async_runtime::spawn_blocking(move || {
+        if !cuda::supported() {
+            return Err(ApiError::new("unsupported", "CUDA needs an NVIDIA GPU"));
+        }
+        CudaPack::start_download(&app);
+        Ok(())
+    })
+    .await
+    .map_err(|e| ApiError::new("io_error", e.to_string()))?
 }
 
 #[tauri::command]

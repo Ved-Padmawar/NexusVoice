@@ -66,7 +66,11 @@ impl FormatterSettings {
             .get(&self.provider)
             .cloned()
             .unwrap_or_default();
-        let api_key = secrets.api_key(&self.provider).unwrap_or_default();
+        let api_key = if self.enabled {
+            secrets.api_key(&self.provider).unwrap_or_default()
+        } else {
+            String::new()
+        };
         active_config(self.enabled, &self.provider, endpoint, api_key)
     }
 }
@@ -114,23 +118,6 @@ impl FormatterDraft {
             return Ok(());
         }
         check_base_url(&self.profile.base_url)
-    }
-
-    /// Whether the provider has a key once `store_key` ran; `None` leaves it
-    /// as it was.
-    pub fn has_key(&self) -> Option<bool> {
-        self.profile
-            .api_key
-            .as_deref()
-            .map(|key| !key.trim().is_empty())
-    }
-
-    pub fn store_key(&self, secrets: &Secrets) -> Result<(), String> {
-        match self.profile.api_key.as_deref().map(str::trim) {
-            None => Ok(()),
-            Some("") => secrets.delete_api_key(&self.provider),
-            Some(key) => secrets.set_api_key(&self.provider, key),
-        }
     }
 
     fn endpoint(&self) -> Endpoint {

@@ -24,7 +24,7 @@ const Spinner = () => (
 
 /** Full-screen startup loader. Spinner appears only after a short delay so a fast
  * database open doesn't flash it; the themed background shows immediately. */
-function StartupLoader() {
+export function StartupLoader() {
   const showSpinner = useDelayedFlag(true, 250)
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-3.5 bg-bg" role="status" aria-live="polite" data-tauri-drag-region>

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { MinusIcon, PlusIcon, TrashIcon, WaveformIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
@@ -6,7 +7,8 @@ import { cn } from '../../shared/utils'
 import { useSlice } from '../../app/mirror'
 import { useChoice } from '../../app/useChoice'
 import { Switch } from '../../shared/ui/Switch'
-import { useImporting, useSavedAudioBytes } from '../history/jobs'
+import { Button } from '../../shared/ui/Button'
+import { useImporting } from '../history/jobs'
 import { SettingRow, SettingsCard } from './SettingRow'
 
 const MIN_KEEP = 1
@@ -33,8 +35,19 @@ export function SavedAudioSection() {
     enabled: enabledPick.pending?.value ?? saved.enabled,
     keep: keepPick.pending?.value ?? saved.keep,
   }
-  // Pinned audio, or what a failed cleanup left, stays on disk with saving off.
-  const remaining = useSavedAudioBytes()
+  const { bytes: remaining, cleanupFailed } = useSlice('savedAudio', status => status)
+  const [retrying, setRetrying] = useState(false)
+
+  const retry = async () => {
+    setRetrying(true)
+    try {
+      await commands.retrySavedAudioCleanup()
+    } catch (e) {
+      toast.error(extractErrorMessage(e, 'Could not finish the saved audio cleanup'))
+    } finally {
+      setRetrying(false)
+    }
+  }
 
   const clear = () => {
     commands.clearSavedAudio()
@@ -56,6 +69,12 @@ export function SavedAudioSection() {
             {shown.enabled ? `Last ${shown.keep} entries · ${fmtBytes(remaining)}` : remaining ? `Off · ${fmtBytes(remaining)} still saved` : 'Off'}
           </p>
         }
+        below={cleanupFailed && (
+          <div role="status" className="flex items-center justify-between gap-2 text-xs text-muted">
+            <p>Your audio setting is saved. Some recordings couldn't be removed.</p>
+            <Button size="sm" variant="outline" disabled={retrying} onClick={() => void retry()}>Retry cleanup</Button>
+          </div>
+        )}
       >
         <span
           className={cn('inline-flex shrink-0 items-center rounded-lg bg-field ring-1 ring-line-soft transition-opacity ring-inset', !shown.enabled && 'pointer-events-none opacity-40')}

@@ -9,7 +9,7 @@ use crate::models::cache::EngineCache;
 use crate::models::catalog::{self, ModelEntry, Pipeline};
 use crate::models::cuda::{CudaPack, PackState};
 use crate::models::idle::ModelUnload;
-use crate::models::language::{self, LanguageSettings, AUTO};
+use crate::models::language::{self, LanguageSettings};
 use crate::models::library::ModelLibrary;
 use crate::models::provider::canonical_override;
 use crate::settings::Settings;
@@ -64,47 +64,49 @@ pub fn get_model_catalog() -> Vec<CatalogModel> {
 /// Look at the model files again, for a view that lists them as it opens.
 #[tauri::command]
 #[specta::specta]
-pub fn rescan_models(library: State<'_, ModelLibrary>) -> Committed {
-    library.rescan()
+pub async fn rescan_models(app: AppHandle) -> Result<Committed, ApiError> {
+    tauri::async_runtime::spawn_blocking(move || app.state::<ModelLibrary>().rescan())
+        .await
+        .map_err(|e| ApiError::new("io_error", e.to_string()))
 }
 
 /// Delete a downloaded model, the active one included.
 #[tauri::command]
 #[specta::specta]
-pub fn delete_model(
-    app: AppHandle,
-    library: State<'_, ModelLibrary>,
-    variant: String,
-) -> Result<Committed, ApiError> {
+pub async fn delete_model(app: AppHandle, variant: String) -> Result<Committed, ApiError> {
     let entry = catalog_entry(&variant)?;
-    if !library.is_downloaded(entry) {
-        return Err(ApiError::new("not_found", "That model isn't downloaded."));
-    }
-    library.delete(&app, entry).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::ResourceBusy {
-            ApiError::new(
-                "io_error",
-                "That model is in use by a recording. Try again when it finishes.",
-            )
-        } else {
-            e.into()
+    tauri::async_runtime::spawn_blocking(move || {
+        let library = app.state::<ModelLibrary>();
+        if !library.is_downloaded(entry) {
+            return Err(ApiError::new("not_found", "That model isn't downloaded."));
         }
+        library.delete(&app, entry).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::ResourceBusy {
+                ApiError::new(
+                    "io_error",
+                    "That model is in use by a recording. Try again when it finishes.",
+                )
+            } else {
+                e.into()
+            }
+        })
     })
+    .await
+    .map_err(|e| ApiError::new("io_error", e.to_string()))?
 }
 
 /// Make a model on disk the active one.
 #[tauri::command]
 #[specta::specta]
-pub fn set_model_override(
-    app: AppHandle,
-    library: State<'_, ModelLibrary>,
-    variant: String,
-) -> Result<Committed, ApiError> {
+pub async fn set_model_override(app: AppHandle, variant: String) -> Result<Committed, ApiError> {
     let entry = catalog_entry(&variant)?;
-    if !library.is_downloaded(entry) {
-        return Err(ApiError::new("not_found", "Download this model first."));
-    }
-    Ok(ModelLibrary::select(&app, entry)?)
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<ModelLibrary>()
+            .select(&app, entry)?
+            .ok_or_else(|| ApiError::new("not_found", "Download this model first."))
+    })
+    .await
+    .map_err(|e| ApiError::new("io_error", e.to_string()))?
 }
 
 /// The language list for any model, as the import dialog's model picker needs.
@@ -126,16 +128,12 @@ pub fn set_language(
     engine: State<'_, EngineCache>,
     code: Option<String>,
 ) -> Result<Committed, ApiError> {
-    let model = ModelLibrary::active(&settings);
-    if let Some(c) = code.as_deref() {
-        if c != AUTO && !model.languages.iter().any(|l| l == c) {
-            return Err(ApiError::new(
-                "invalid_language",
-                "This model doesn't support that language.",
-            ));
-        }
-    }
-    let committed = settings.set_language(code)?;
+    let committed = settings.set_supported_language(code)?.ok_or_else(|| {
+        ApiError::new(
+            "invalid_language",
+            "This model doesn't support that language.",
+        )
+    })?;
     engine.apply_language(&settings);
     Ok(committed)
 }
@@ -203,15 +201,19 @@ fn hardware_profile(
 /// With `activate`, the model becomes the active one once it is on disk.
 #[tauri::command]
 #[specta::specta]
-pub fn start_model_download(
+pub async fn start_model_download(
     app: AppHandle,
-    library: State<'_, ModelLibrary>,
     id: String,
     activate: bool,
 ) -> Result<Committed, ApiError> {
     let entry = catalog::find(&id)
         .ok_or_else(|| ApiError::new("unknown_model", "That model isn't available."))?;
-    Ok(library.start_download(&app, entry, activate))
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<ModelLibrary>()
+            .start_download(&app, entry, activate)
+    })
+    .await
+    .map_err(|e| ApiError::new("io_error", e.to_string()))
 }
 
 /// A cancel pressed in the last moments of a transfer arrives after the file

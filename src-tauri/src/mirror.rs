@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::mem::{discriminant, Discriminant};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use serde::Serialize;
 use specta::Type;
@@ -16,6 +16,7 @@ use crate::bridge::commands::dto::DictionaryResponse;
 use crate::jobs::JobSnapshot;
 use crate::models::cuda::CudaStatus;
 use crate::models::library::{Download, DownloadedModel};
+use crate::recordings::SavedAudioStatus;
 use crate::session::recorder::RecordingSnapshot;
 use crate::settings::{HotkeyBindings, SettingsView};
 use crate::sync::lock_recovering;
@@ -63,10 +64,10 @@ pub enum Patch {
         rev: u64,
         value: Vec<DictionaryResponse>,
     },
-    /// Bytes the saved audio takes, pinned entries' included.
+    /// Bytes the saved audio takes and whether retention needs a retry.
     SavedAudio {
         rev: u64,
-        value: u64,
+        value: SavedAudioStatus,
     },
     /// Writes to History since launch; a window reads History again at each.
     History {
@@ -95,14 +96,26 @@ struct Versioned<T> {
 
 pub struct Store<T> {
     current: Mutex<Versioned<T>>,
+    hub: Arc<Mutex<Hub>>,
 }
 
 impl<T: Slice> Store<T> {
     /// Start at revision 0 and offer that value to every window from now on.
     pub fn new(value: T) -> Self {
-        publish(value.patch(0));
+        Self::with_hub(value, Arc::clone(&HUB))
+    }
+
+    #[cfg(test)]
+    pub fn isolated(value: T) -> Self {
+        Self::with_hub(value, Arc::default())
+    }
+
+    fn with_hub(value: T, hub: Arc<Mutex<Hub>>) -> Self {
+        let patch = value.patch(0);
+        lock_recovering(&hub).publish(patch);
         Self {
             current: Mutex::new(Versioned { rev: 0, value }),
+            hub,
         }
     }
 
@@ -132,7 +145,8 @@ impl<T: Slice> Store<T> {
             persist(&next)?;
             current.rev += 1;
             current.value = next;
-            publish(current.value.patch(current.rev));
+            let patch = current.value.patch(current.rev);
+            lock_recovering(&self.hub).publish(patch);
         }
         Ok(Committed { rev: current.rev })
     }
@@ -152,28 +166,32 @@ struct Hub {
     windows: HashMap<String, Channel<Patch>>,
 }
 
-static HUB: LazyLock<Mutex<Hub>> = LazyLock::new(Mutex::default);
+static HUB: LazyLock<Arc<Mutex<Hub>>> = LazyLock::new(Arc::default);
 
-fn publish(patch: Patch) {
-    let mut hub = lock_recovering(&HUB);
-    hub.windows
-        .retain(|window, channel| match channel.send(patch.clone()) {
-            Ok(()) => true,
-            Err(e) => {
-                log::warn!("stopped sending state to the {window} window: {e}");
-                false
-            }
-        });
-    hub.latest.insert(discriminant(&patch), patch);
+impl Hub {
+    fn publish(&mut self, patch: Patch) {
+        self.windows
+            .retain(|window, channel| match channel.send(patch.clone()) {
+                Ok(()) => true,
+                Err(e) => {
+                    log::warn!("stopped sending state to the {window} window: {e}");
+                    false
+                }
+            });
+        self.latest.insert(discriminant(&patch), patch);
+    }
+
+    fn subscribe(&mut self, window: &str, channel: Channel<Patch>) -> Vec<Patch> {
+        self.windows.insert(window.to_owned(), channel);
+        self.latest.values().cloned().collect()
+    }
 }
 
 /// Send `window` every change from now on, and return the newest patch of each
 /// slice. Both happen under one lock, so no change falls between them. A
 /// window that subscribes again, after a reload, replaces its old channel.
 pub fn subscribe(window: &str, channel: Channel<Patch>) -> Vec<Patch> {
-    let mut hub = lock_recovering(&HUB);
-    hub.windows.insert(window.to_owned(), channel);
-    hub.latest.values().cloned().collect()
+    lock_recovering(&HUB).subscribe(window, channel)
 }
 
 #[cfg(test)]

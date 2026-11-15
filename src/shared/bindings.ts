@@ -42,8 +42,8 @@ async getUsageStats() : Promise<UsageStatsResponse> {
 /**
  * Words per day for the dashboard's waveform, in the caller's time zone.
  */
-async getDailyWords(days: number, utcOffsetMinutes: number) : Promise<DailyWordsResponse[]> {
-    return await TAURI_INVOKE("get_daily_words", { days, utcOffsetMinutes });
+async getDailyWords(days: number, utcOffsetMinutes: number, localDate: string) : Promise<DailyWordsResponse[]> {
+    return await TAURI_INVOKE("get_daily_words", { days, utcOffsetMinutes, localDate });
 },
 async getTranscripts(page: PageQuery) : Promise<TranscriptResponse[]> {
     return await TAURI_INVOKE("get_transcripts", { page });
@@ -236,11 +236,14 @@ async relaunchApp() : Promise<null> {
 },
 /**
  * Save one part of the policy and apply it now: audio past the new limit, or
- * all of it when switched off, is deleted before this returns. An error means
- * the change was not saved.
+ * all of it when switched off. A failed cleanup shows in the saved-audio
+ * slice; the preference is still saved.
  */
 async setSavedAudio(change: SavedAudioSetting) : Promise<Committed> {
     return await TAURI_INVOKE("set_saved_audio", { change });
+},
+async retrySavedAudioCleanup() : Promise<null> {
+    return await TAURI_INVOKE("retry_saved_audio_cleanup");
 },
 /**
  * Delete every unpinned entry's audio. The entries and their text stay.
@@ -323,12 +326,12 @@ transcriptionWarning: "transcription-warning"
 /** user-defined types **/
 
 export type ApiError = { code: string; message: string }
-export type AudioFileInfo = { name: string; sizeBytes: number; 
+export type AudioFileInfo = { name: string; sizeBytes: number;
 /**
  * `None` when the file doesn't say how long it plays.
  */
 durationSeconds: number | null }
-export type CatalogModel = { id: string; displayName: string; family: string; 
+export type CatalogModel = { id: string; displayName: string; family: string;
 /**
  * Every decode path this model supports.
  */
@@ -343,26 +346,30 @@ export type ClearedAudio = { deleted: number; kept: number }
  * current revision.
  */
 export type Committed = { rev: number }
-export type CudaDownloadComplete = null
+export type CudaDownloadComplete = { attempt: number; after: Committed }
 /**
  * The CUDA download failed; `after` is the status revision that shows it
  * ended, so the offer reopens on a status without the download.
  */
-export type CudaDownloadError = { message: string; after: Committed }
-export type CudaStatus = { 
+export type CudaDownloadError = { attempt: number; message: string; after: Committed }
+export type CudaStatus = {
 /**
  * An NVIDIA GPU on a platform the pack is built for; CUDA is hidden otherwise.
  */
-supported: boolean; pack: PackState; 
+supported: boolean; pack: PackState;
 /**
  * Percent of the running download; `None` when idle.
  */
-downloadProgress: number | null; 
+downloadProgress: number | null;
 /**
  * The running download is unpacking and checking the pack.
  */
-verifying: boolean }
-export type DailyWordsResponse = { 
+verifying: boolean;
+/**
+ * The latest download attempt, including after it finishes.
+ */
+attempt: number }
+export type DailyWordsResponse = {
 /**
  * Local calendar day, `YYYY-MM-DD`.
  */
@@ -386,7 +393,7 @@ export type FormatterDraft = { provider: string; profile: ProfileUpdate }
  * The settings screen's view: whether a key is saved, never the key.
  */
 export type FormatterView = { enabled: boolean; provider: string; profiles: Partial<{ [key in string]: ProfileView }> }
-export type HardwareProfileResponse = { gpuName: string; 
+export type HardwareProfileResponse = { gpuName: string;
 /**
  * Backend in use: the loaded model's, else the one it is expected to get.
  */
@@ -395,28 +402,28 @@ executionProvider: string; vramGb: number; ramGb: number; recommendedModel: stri
  * The global shortcuts, by role. `None` leaves a role unbound.
  */
 export type HotkeyBindings = { pushToTalk: string | null; dictation: string | null; dictationCommit: string | null }
-export type HotkeyKind = 
+export type HotkeyKind =
 /**
  * Records while held.
  */
-"pushToTalk" | 
+"pushToTalk" |
 /**
  * Starts, pauses and resumes hands-free dictation.
  */
-"dictation" | 
+"dictation" |
 /**
  * Finishes hands-free dictation.
  */
 "dictationCommit"
-export type InjectionStatus = { 
+export type InjectionStatus = {
 /**
  * `true` where injection needs external tools the user must install.
  */
-configurable: boolean; 
+configurable: boolean;
 /**
  * Human-readable session, e.g. "Wayland (GNOME)". Empty off Linux.
  */
-session: string; selected: string | null; 
+session: string; selected: string | null;
 /**
  * Best first.
  */
@@ -425,20 +432,20 @@ export type InjectionTool = { name: string; available: boolean; preferred: boole
 /**
  * A selectable microphone. `is_default` marks the OS default.
  */
-export type InputDeviceInfo = { 
+export type InputDeviceInfo = {
 /**
  * What to save: identical mics share a name.
  */
 id: string; name: string; isDefault: boolean }
-export type JobFinish = { transcriptId: number; kind: JobKind; outcome: JobOutcome; 
+export type JobFinish = { transcriptId: number; kind: JobKind; outcome: JobOutcome;
 /**
  * What a re-transcription replaced, which Undo restores.
  */
-previous: Previous | null; 
+previous: Previous | null;
 /**
  * The entry with its new text. An import that wasn't done is deleted.
  */
-entry: TranscriptResponse | null; 
+entry: TranscriptResponse | null;
 /**
  * Why the job failed, for the user.
  */
@@ -452,24 +459,24 @@ export type JobOutcome = "done" | "cancelled" | "failed"
 /**
  * A queued or running job.
  */
-export type JobSnapshot = { transcriptId: number; kind: JobKind; 
+export type JobSnapshot = { transcriptId: number; kind: JobKind;
 /**
  * What the job is about: the file's name, or the start of the entry's text.
  */
-label: string; model: string; 
+label: string; model: string;
 /**
  * Waiting for the jobs ahead of it.
  */
-queued: boolean; 
+queued: boolean;
 /**
  * 0 to 1.
  */
-progress: number; 
+progress: number;
 /**
  * Waiting for a recording to finish.
  */
 paused: boolean }
-export type LanguageOption = { 
+export type LanguageOption = {
 /**
  * ISO code, or `auto` for the detect-per-decode sentinel.
  */
@@ -478,11 +485,11 @@ code: string; name: string; isSelected: boolean }
  * The new model cannot speak the saved dictation language, so it was reset.
  */
 export type LanguageReset = null
-export type LanguageSettings = { 
+export type LanguageSettings = {
 /**
  * Whether the model handles anything but English.
  */
-supported: boolean; 
+supported: boolean;
 /**
  * Empty when `supported` is false.
  */
@@ -495,24 +502,24 @@ export type ModelDownloadCancelled = { id: string }
  * When an idle model is unloaded.
  */
 export type ModelUnload = "never" | "after2Minutes" | "after5Minutes" | "after10Minutes" | "after15Minutes" | "after1Hour"
-export type PackState = "absent" | 
+export type PackState = "absent" |
 /**
  * Unsigned, so never loaded: installed before verification existed.
  */
-"unverified" | 
+"unverified" |
 /**
  * Usable by this build; loaded unless the driver is missing or too old.
  */
-"installed" | 
+"installed" |
 /**
  * Signed and current, but a library failed its integrity check at start, so
  * it was not loaded. Downloading again repairs it.
  */
-"damaged" | 
+"damaged" |
 /**
  * Downloaded; applied at the next start.
  */
-"pendingInstall" | 
+"pendingInstall" |
 /**
  * Removed while loaded; deleted at the next start.
  */
@@ -524,11 +531,11 @@ export type PageQuery = { limit: number | null; cursorCreatedAt: string | null; 
 /**
  * How a finished transcript is pasted where the clipboard route applies.
  */
-export type PasteMode = 
+export type PasteMode =
 /**
  * Ctrl+Shift+V in a terminal, Ctrl+V anywhere else.
  */
-"auto" | "ctrlV" | "ctrlShiftV" | "shiftInsert" | 
+"auto" | "ctrlV" | "ctrlShiftV" | "shiftInsert" |
 /**
  * Leave the transcript on the clipboard and send no keys.
  */
@@ -536,39 +543,39 @@ export type PasteMode =
 /**
  * One slice's whole value at a revision.
  */
-export type Patch = { slice: "settings"; rev: number; value: SettingsView } | 
+export type Patch = { slice: "settings"; rev: number; value: SettingsView } |
 /**
  * The shortcuts the OS granted, which can be fewer than the saved ones.
  */
-{ slice: "hotkeys"; rev: number; value: HotkeyBindings } | 
+{ slice: "hotkeys"; rev: number; value: HotkeyBindings } |
 /**
  * The models on disk.
  */
-{ slice: "models"; rev: number; value: DownloadedModel[] } | 
+{ slice: "models"; rev: number; value: DownloadedModel[] } |
 /**
  * Model downloads queued, running or failed.
  */
-{ slice: "downloads"; rev: number; value: Download[] } | 
+{ slice: "downloads"; rev: number; value: Download[] } |
 /**
  * The CUDA pack; `None` until the GPU has been probed.
  */
-{ slice: "cuda"; rev: number; value: CudaStatus | null } | 
+{ slice: "cuda"; rev: number; value: CudaStatus | null } |
 /**
  * The recording, and the saved changes it does not use.
  */
-{ slice: "recording"; rev: number; value: RecordingSnapshot } | 
+{ slice: "recording"; rev: number; value: RecordingSnapshot } |
 /**
  * The running transcription job, then the queued ones.
  */
-{ slice: "jobs"; rev: number; value: JobSnapshot[] } | 
+{ slice: "jobs"; rev: number; value: JobSnapshot[] } |
 /**
  * Dictionary entries and their use counts, sorted by term.
  */
-{ slice: "dictionary"; rev: number; value: DictionaryResponse[] } | 
+{ slice: "dictionary"; rev: number; value: DictionaryResponse[] } |
 /**
- * Bytes the saved audio takes, pinned entries' included.
+ * Bytes the saved audio takes and whether retention needs a retry.
  */
-{ slice: "savedAudio"; rev: number; value: number } | 
+{ slice: "savedAudio"; rev: number; value: SavedAudioStatus } |
 /**
  * Writes to History since launch; a window reads History again at each.
  */
@@ -586,11 +593,11 @@ export type PillSetting = { kind: "theme"; value: PillTheme } | { kind: "wavefor
  * Preferences both windows read: the settings screen edits them, the pill
  * draws with them.
  */
-export type PillSettings = { theme: PillTheme; waveformStyle: WaveformStyle; 
+export type PillSettings = { theme: PillTheme; waveformStyle: WaveformStyle;
 /**
  * Expand the pill into a card that fills in while recording.
  */
-liveTranscript: boolean; 
+liveTranscript: boolean;
 /**
  * Chime once the microphone is live, in either recording mode.
  */
@@ -609,7 +616,7 @@ export type Pipeline = "single-shot" | "streaming"
  * An entry's text and model before a re-transcription.
  */
 export type Previous = { text: string; model: string | null }
-export type ProfileUpdate = { baseUrl: string; model: string; 
+export type ProfileUpdate = { baseUrl: string; model: string;
 /**
  * `None` keeps the saved key, an empty string removes it.
  */
@@ -620,7 +627,7 @@ export type ProfileView = { baseUrl: string; model: string; hasApiKey: boolean }
  * it started with.
  */
 export type RecordingInput = "model" | "microphone" | "language"
-export type RecordingSnapshot = { status: RecordingStatus; 
+export type RecordingSnapshot = { status: RecordingStatus;
 /**
  * Saved changes the recording in progress does not use.
  */
@@ -635,52 +642,53 @@ export type SavedAudio = { enabled: boolean; keep: number }
  * of the limit can't overwrite each other.
  */
 export type SavedAudioSetting = { kind: "enabled"; value: boolean } | { kind: "keep"; value: number }
+export type SavedAudioStatus = { bytes: number; cleanupFailed: boolean }
 /**
  * What the windows mirror of the saved preferences. Keys never belong here.
  */
-export type SettingsView = { 
+export type SettingsView = {
 /**
  * Catalog id of the model recordings use: the saved choice, else the
  * hardware pick.
  */
-activeModel: string; 
+activeModel: string;
 /**
  * The saved shortcuts; the OS may grant fewer (`Patch::Hotkeys`).
  */
-hotkeys: HotkeyBindings; 
+hotkeys: HotkeyBindings;
 /**
  * The active model's languages, with the saved one marked.
  */
-language: LanguageSettings; modelUnload: ModelUnload; 
+language: LanguageSettings; modelUnload: ModelUnload;
 /**
  * Input device id; `None` follows the OS default.
  */
 inputDevice: string | null; keepMicOpen: boolean; savedAudio: SavedAudio; pasteMode: PasteMode; formatter: FormatterView; pill: PillSettings }
-export type TranscriptResponse = { id: number; content: string; wordCount: number; durationSeconds: number | null; 
+export type TranscriptResponse = { id: number; content: string; wordCount: number; durationSeconds: number | null;
 /**
  * App the transcript was dictated into; `None` when it wasn't determined.
  */
-targetApp: string | null; createdAt: string; 
+targetApp: string | null; createdAt: string;
 /**
  * Kept past the saved-audio limit.
  */
-pinned: boolean; 
+pinned: boolean;
 /**
  * Where the saved audio is, when the entry has some.
  */
-audioPath: string | null; 
+audioPath: string | null;
 /**
  * File name of the imported audio, for entries that were not dictated.
  */
-sourceName: string | null; 
+sourceName: string | null;
 /**
  * Catalog id of the model that produced the text.
  */
-model: string | null; 
+model: string | null;
 /**
  * An import whose text is still being transcribed.
  */
-pending: boolean; 
+pending: boolean;
 /**
  * Changes with every rewrite of the text; Undo names the one it undoes.
  */
@@ -689,12 +697,12 @@ revision: number }
  * A recording finished. Saving and pasting are reported separately: a failed
  * paste leaves the transcript in history, a failed save still pastes.
  */
-export type TranscriptionComplete = { 
+export type TranscriptionComplete = {
 /**
  * Why the transcript could not be pasted; `None` when it was, or when
  * there was nothing to paste.
  */
-pasteError: string | null; 
+pasteError: string | null;
 /**
  * The transcript is in history. A failed paste may only point there
  * when this is set.

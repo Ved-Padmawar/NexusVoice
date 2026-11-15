@@ -8,14 +8,17 @@ mod secrets;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::mirror::{Committed, Patch, Slice, Store};
+use crate::models::catalog::{self, ModelEntry};
 use crate::models::idle::ModelUnload;
 use crate::models::language::{self, LanguageSettings};
-use crate::models::library::ModelLibrary;
+use crate::models::provider::{canonical_override, recommend_model};
+use crate::sync::lock_recovering;
 use crate::text::llm::FormatConfig;
 
 use formatter::{FormatterDraft, FormatterSettings, FormatterView};
@@ -167,6 +170,27 @@ struct SettingsFile {
 struct Saved {
     file: SettingsFile,
     keyed: BTreeSet<String>,
+    recommended: &'static str,
+}
+
+impl Saved {
+    fn active_model(&self) -> &'static ModelEntry {
+        let id = self
+            .file
+            .model
+            .as_deref()
+            .and_then(canonical_override)
+            .unwrap_or(self.recommended);
+        catalog::find(id).expect("selected model is in the catalog")
+    }
+
+    fn set_key_status(&mut self, provider: &str, has_key: bool) {
+        if has_key {
+            self.keyed.insert(provider.to_owned());
+        } else {
+            self.keyed.remove(provider);
+        }
+    }
 }
 
 /// What the windows mirror of the saved preferences. Keys never belong here.
@@ -193,7 +217,7 @@ pub struct SettingsView {
 impl Slice for Saved {
     fn patch(&self, rev: u64) -> Patch {
         let file = &self.file;
-        let model = ModelLibrary::active_for(file.model.as_deref());
+        let model = self.active_model();
         Patch::Settings {
             rev,
             value: SettingsView {
@@ -216,6 +240,7 @@ pub struct Settings {
     path: PathBuf,
     saved: Store<Saved>,
     secrets: Secrets,
+    changing_formatter: Mutex<()>,
 }
 
 impl Settings {
@@ -245,8 +270,13 @@ impl Settings {
             .collect();
         Self {
             path,
-            saved: Store::new(Saved { file, keyed }),
+            saved: Store::new(Saved {
+                file,
+                keyed,
+                recommended: &recommend_model().id,
+            }),
             secrets,
+            changing_formatter: Mutex::default(),
         }
     }
 
@@ -269,12 +299,37 @@ impl Settings {
         self.update(|s| s.file.hotkeys = hotkeys)
     }
 
-    pub fn model(&self) -> Option<String> {
+    #[cfg(test)]
+    fn model(&self) -> Option<String> {
         self.read(|f| f.model.clone())
     }
 
-    pub fn set_model(&self, id: Option<String>) -> std::io::Result<Committed> {
-        self.update(|s| s.file.model = id)
+    pub fn active_model(&self) -> &'static ModelEntry {
+        self.saved.read(Saved::active_model)
+    }
+
+    /// The language reset shares the model write, so a newer selection or
+    /// language change cannot land between the decision and its commit.
+    pub fn select_model(&self, entry: Option<&ModelEntry>) -> std::io::Result<(Committed, bool)> {
+        let mut reset = false;
+        let committed =
+            self.update(|saved| {
+                let changed = entry.is_some_and(|entry| saved.active_model().id != entry.id);
+                saved.file.model = entry.map(|entry| entry.id.clone());
+                if changed
+                    && saved.file.language.as_deref().is_some_and(|code| {
+                        code != language::AUTO
+                            && code != language::DEFAULT
+                            && !saved.active_model().languages.iter().any(|offered| {
+                                offered == code || language::primary_of(offered) == code
+                            })
+                    })
+                {
+                    saved.file.language = Some(language::DEFAULT.to_owned());
+                    reset = true;
+                }
+            })?;
+        Ok((committed, reset))
     }
 
     pub fn model_unload(&self) -> ModelUnload {
@@ -289,8 +344,30 @@ impl Settings {
         self.read(|f| f.language.clone())
     }
 
-    pub fn set_language(&self, code: Option<String>) -> std::io::Result<Committed> {
+    #[cfg(test)]
+    fn set_language(&self, code: Option<String>) -> std::io::Result<Committed> {
         self.update(|s| s.file.language = code)
+    }
+
+    pub fn set_supported_language(
+        &self,
+        code: Option<String>,
+    ) -> std::io::Result<Option<Committed>> {
+        let mut accepted = false;
+        let committed = self.update(|saved| {
+            accepted = code.as_deref().is_none_or(|code| {
+                code == language::AUTO
+                    || saved
+                        .active_model()
+                        .languages
+                        .iter()
+                        .any(|offered| offered == code)
+            });
+            if accepted {
+                saved.file.language = code;
+            }
+        })?;
+        Ok(accepted.then_some(committed))
     }
 
     pub fn input_device(&self) -> Option<String> {
@@ -339,30 +416,49 @@ impl Settings {
 
     /// The endpoint goes to the file, its key to the credential store.
     pub fn save_formatter_endpoint(&self, draft: &FormatterDraft) -> Result<Committed, String> {
-        draft.store_key(&self.secrets)?;
-        self.update(|s| {
+        let _changing = lock_recovering(&self.changing_formatter);
+        let Some(key) = draft.profile.api_key.as_deref().map(str::trim) else {
+            return self
+                .update(|s| draft.apply(&mut s.file.formatter))
+                .map_err(|e| e.to_string());
+        };
+        let provider = &draft.provider;
+        let before = self.secrets.read_api_key(provider)?;
+        let next = (!key.is_empty()).then_some(key);
+        self.secrets.replace_api_key(provider, next)?;
+        match self.update(|s| {
             draft.apply(&mut s.file.formatter);
-            match draft.has_key() {
-                Some(true) => {
-                    s.keyed.insert(draft.provider.clone());
+            s.set_key_status(provider, next.is_some());
+        }) {
+            Ok(committed) => Ok(committed),
+            Err(e) => {
+                if let Err(restore) = self.secrets.replace_api_key(provider, before.as_deref()) {
+                    log::error!("saving the formatter endpoint failed: {e}; restoring its API key failed: {restore}");
+                    let has_key = self.secrets.read_api_key(provider).map_or_else(
+                        |e| {
+                            log::warn!("{e}");
+                            next.is_some()
+                        },
+                        |key| key.is_some(),
+                    );
+                    self.saved.set(|s| s.set_key_status(provider, has_key));
+                    return Err("The formatter endpoint wasn’t saved, and the previous API key couldn’t be restored.".into());
                 }
-                Some(false) => {
-                    s.keyed.remove(&draft.provider);
-                }
-                None => {}
+                Err(e.to_string())
             }
-        })
-        .map_err(|e| e.to_string())
+        }
     }
 
     /// The formatter as the finalize step calls it, with its key.
     pub fn format_config(&self) -> FormatConfig {
-        self.read(|f| f.formatter.resolve(&self.secrets))
+        let _changing = lock_recovering(&self.changing_formatter);
+        self.read(|f| f.formatter.clone()).resolve(&self.secrets)
     }
 
     /// An unsaved draft from the settings screen, completed with the saved
     /// key where the draft leaves it unchanged.
     pub fn format_config_for(&self, draft: &FormatterDraft) -> FormatConfig {
+        let _changing = lock_recovering(&self.changing_formatter);
         draft.resolve(&self.secrets)
     }
 }

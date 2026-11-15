@@ -5,7 +5,7 @@ import {
   useQuery,
   type InfiniteData,
 } from '@tanstack/react-query'
-import { useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { commands, type PageQuery } from '../../shared/bindings'
 import { createPendingDeletes, deleteWithUndo } from '../../shared/deleteWithUndo'
@@ -14,6 +14,7 @@ import { queryClient } from '../../app/queryClient'
 import { revisionOf, useRevision } from '../../app/mirror'
 import { queryKeys, type TranscriptFilters } from '../../shared/queryKeys'
 import type { Transcript } from '../../shared/types'
+import { localDateKey } from '../../shared/utils'
 
 export const PAGE_SIZE = 50
 
@@ -71,9 +72,11 @@ const pagesAt = (list: readonly unknown[], rev: number) => ({
   staleTime: ({ state }: { state: { dataUpdatedAt: number } }) => (state.dataUpdatedAt === 0 ? 0 : Infinity),
 })
 
-const feedOptions = (filters: TranscriptFilters, rev: number) => ({
-  ...pagesAt(queryKeys.transcripts(filters), rev),
-  queryFn: ({ pageParam }: { pageParam: Cursor }) => commands.getTranscripts(pageArg(filters, pageParam)).then(toPage),
+const readPage = (query: string, page: PageQuery) => query ? commands.searchTranscripts(query, page) : commands.getTranscripts(page)
+
+const feedOptions = (query: string, filters: TranscriptFilters, rev: number) => ({
+  ...pagesAt(query ? queryKeys.transcriptSearch(query, filters) : queryKeys.transcripts(filters), rev),
+  queryFn: ({ pageParam }: { pageParam: Cursor }) => readPage(query, pageArg(filters, pageParam)).then(toPage),
   initialPageParam: NO_CURSOR,
   getNextPageParam,
 })
@@ -97,8 +100,7 @@ export async function fetchAllTranscripts(query: string, filters: TranscriptFilt
   let cursor = NO_CURSOR
   for (;;) {
     noteHidden()
-    const page = pageArg(filters, cursor, EXPORT_PAGE_SIZE)
-    const rows = await (query ? commands.searchTranscripts(query, page) : commands.getTranscripts(page))
+    const rows = await readPage(query, pageArg(filters, cursor, EXPORT_PAGE_SIZE))
     all.push(...rows)
     const last = rows.at(-1)
     if (!last || rows.length < EXPORT_PAGE_SIZE) {
@@ -112,30 +114,12 @@ export async function fetchAllTranscripts(query: string, filters: TranscriptFilt
 const withoutRows = (data: TranscriptPages, ids: ReadonlySet<number>): TranscriptPages =>
   ({ ...data, pages: data.pages.map(page => ({ ...page, rows: page.rows.filter(row => !ids.has(row.id)) })) })
 
-function useHidePendingDeletes() {
-  const ids = pendingDeletes.useIds()
-  return useCallback((data: TranscriptPages) => (ids.size ? withoutRows(data, ids) : data), [ids])
-}
-
 // A new filter or term keeps the old rows up instead of flashing the skeleton.
-export function useTranscripts(filters: TranscriptFilters, enabled = true) {
-  const select = useHidePendingDeletes()
+export function useHistoryFeed(query: string, filters: TranscriptFilters) {
+  const ids = pendingDeletes.useIds()
+  const select = useCallback((data: TranscriptPages) => (ids.size ? withoutRows(data, ids) : data), [ids])
   const rev = useRevision('history')
-  return useInfiniteQuery({ ...feedOptions(filters, rev), enabled, placeholderData: keepPreviousData, select })
-}
-
-export function useTranscriptSearch(query: string, filters: TranscriptFilters) {
-  const select = useHidePendingDeletes()
-  const rev = useRevision('history')
-  return useInfiniteQuery({
-    ...pagesAt(queryKeys.transcriptSearch(query, filters), rev),
-    queryFn: ({ pageParam }: { pageParam: Cursor }) => commands.searchTranscripts(query, pageArg(filters, pageParam)).then(toPage),
-    initialPageParam: NO_CURSOR,
-    getNextPageParam,
-    enabled: query.length > 0,
-    placeholderData: keepPreviousData,
-    select,
-  })
+  return useInfiniteQuery({ ...feedOptions(query, filters, rev), placeholderData: keepPreviousData, select })
 }
 
 export function useStats() {
@@ -144,21 +128,46 @@ export function useStats() {
 
 export type DayWords = { day: Date; words: number }
 
+const localDay = (now = new Date()) => ({ date: localDateKey(now), utcOffset: -now.getTimezoneOffset() })
+
+/** Today's date and UTC offset, refreshed at local midnight and when the
+ *  window regains focus (a tray window can stay open across days). */
+function useLocalDay() {
+  const [day, setDay] = useState(localDay)
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>
+    const refresh = () => {
+      clearTimeout(timer)
+      const now = new Date()
+      const next = localDay(now)
+      setDay(current => current.date === next.date && current.utcOffset === next.utcOffset ? current : next)
+      timer = setTimeout(refresh, +new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) - +now)
+    }
+    refresh()
+    window.addEventListener('focus', refresh)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [])
+  return day
+}
+
 /** Words per local day, oldest first, one entry per day: days with no
  *  dictation (which the backend omits) count zero. */
 export function useDailyWords(days: number) {
+  const { date, utcOffset } = useLocalDay()
   return useQuery({
     ...AT_REVISION,
-    queryKey: queryKeys.dailyWords(days, useRevision('history')),
+    queryKey: queryKeys.dailyWords(days, date, utcOffset, useRevision('history')),
     placeholderData: keepPreviousData,
-    queryFn: () => commands.getDailyWords(days, -new Date().getTimezoneOffset()),
+    queryFn: () => commands.getDailyWords(days, utcOffset, date),
     select: (rows): DayWords[] => {
       const byDay = new Map(rows.map(r => [r.day, r.words]))
-      const today = new Date()
+      const [year, month, today] = date.split('-').map(Number)
       return Array.from({ length: days }, (_, i) => {
-        const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1 - i))
-        const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`
-        return { day, words: byDay.get(key) ?? 0 }
+        const day = new Date(year, month - 1, today - (days - 1 - i))
+        return { day, words: byDay.get(localDateKey(day)) ?? 0 }
       })
     },
   })
@@ -181,6 +190,6 @@ export function useDeleteTranscript() {
 export const setPinned = (id: number, pinned: boolean) => commands.setTranscriptPinned(id, pinned)
 
 // Startup waits on these; a failed read shows in the screen that uses it.
-export const prefetchTranscripts = () => queryClient.infiniteQuery(feedOptions(NO_FILTERS, revisionOf('history'))).catch(() => {})
+export const prefetchTranscripts = () => queryClient.infiniteQuery(feedOptions('', NO_FILTERS, revisionOf('history'))).catch(() => {})
 
 export const prefetchStats = () => queryClient.query(statsOptions(revisionOf('history'))).catch(() => {})

@@ -17,8 +17,8 @@ use crate::settings::{SavedAudio, SavedAudioSetting, Settings};
 use super::error::ApiError;
 
 /// Save one part of the policy and apply it now: audio past the new limit, or
-/// all of it when switched off, is deleted before this returns. An error means
-/// the change was not saved.
+/// all of it when switched off. A failed cleanup shows in the saved-audio
+/// slice; the preference is still saved.
 #[tauri::command]
 #[specta::specta]
 pub async fn set_saved_audio(
@@ -35,11 +35,19 @@ pub async fn set_saved_audio(
         }
     }
     let committed = settings.set_saved_audio(change)?;
-    // Pruning is its own outcome, like after a save: the next one tries again.
     if let Err(e) = crate::recordings::apply_limit(&app).await {
         log::warn!("could not apply the saved audio limit: {e}");
     }
     Ok(committed)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn retry_saved_audio_cleanup(app: AppHandle) -> Result<(), ApiError> {
+    crate::recordings::apply_limit(&app).await.map_err(|e| {
+        log::warn!("could not apply the saved audio limit: {e}");
+        ApiError::new("io_error", "Couldn't finish the saved audio cleanup.")
+    })
 }
 
 /// Delete every unpinned entry's audio. The entries and their text stay.
@@ -209,6 +217,15 @@ pub async fn import_audio_file(
     language: Option<String>,
 ) -> Result<(), ApiError> {
     let model = installed_model(&library, &model)?;
+    if language.as_deref().is_some_and(|code| {
+        code != crate::models::language::AUTO
+            && !model.languages.iter().any(|offered| offered == code)
+    }) {
+        return Err(ApiError::new(
+            "invalid_language",
+            "This model doesn't support that language.",
+        ));
+    }
     crate::jobs::import(&app, &PathBuf::from(path), model, language)
         .await
         .map_err(|message| ApiError::new("invalid_input", message))

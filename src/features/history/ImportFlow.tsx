@@ -131,9 +131,10 @@ function ImportModal({ file, reading, onReading, onClose }: ImportModalProps) {
   const options = useDownloadedModels()
   const activeId = useActiveModelId()
   const [picked, setPicked] = useState<string | null>(null)
-  const [language, setLanguage] = useState<string | null>(null)
+  const [language, setLanguage] = useState<{ model: string | null; code: string } | null>(null)
 
-  const model = picked ?? options.find(m => m.variant === activeId)?.variant ?? options[0]?.variant ?? null
+  const model = options.find(m => m.variant === picked)?.variant
+    ?? options.find(m => m.variant === activeId)?.variant ?? options[0]?.variant ?? null
   const settingsRev = useRevision('settings')
   const languages = useQuery({
     queryKey: queryKeys.languageOptionsFor(model, settingsRev),
@@ -143,10 +144,12 @@ function ImportModal({ file, reading, onReading, onClose }: ImportModalProps) {
     placeholderData: keepPreviousData,
   })
   const codes = languages.data?.supported ? languages.data.options : []
-  const chosen = language ?? codes.find(o => o.isSelected)?.code ?? null
+  const ready = languages.isSuccess && !languages.isPlaceholderData
+  const chosen = codes.find(o => language?.model === model && o.code === language?.code)?.code
+    ?? codes.find(o => o.isSelected)?.code ?? null
 
   const start = async () => {
-    if (!file || !model) return
+    if (!file || !model || !ready || reading) return
     onReading(true)
     try {
       await commands.importAudioFile(file.path, model, chosen)
@@ -185,13 +188,19 @@ function ImportModal({ file, reading, onReading, onClose }: ImportModalProps) {
             aria-label="Model"
             options={options.map(m => ({ value: m.variant, label: m.variant === activeId ? `${m.displayName} (active)` : m.displayName }))}
             onChange={(value) => { setPicked(value); setLanguage(null) }}
-            disabled={options.length === 0}
+            disabled={reading || options.length === 0}
           />
         </div>
         {codes.length > 0 && (
           <div className="flex flex-col gap-1.5">
             <span className={label}>Language</span>
-            <Select value={chosen} aria-label="Language" options={codes.map(o => ({ value: o.code, label: o.name, dividerAfter: o.code === 'auto' }))} onChange={setLanguage} />
+            <Select value={chosen} aria-label="Language" options={codes.map(o => ({ value: o.code, label: o.name, dividerAfter: o.code === 'auto' }))} onChange={code => setLanguage({ model, code })} disabled={reading || !ready} />
+          </div>
+        )}
+        {languages.isError && (
+          <div role="alert" className="flex items-center justify-between gap-2 text-xs text-danger">
+            <p>{extractErrorMessage(languages.error, 'Could not load languages for this model.')}</p>
+            <Button size="sm" variant="outline" disabled={languages.isFetching} onClick={() => void languages.refetch()}>Retry</Button>
           </div>
         )}
         <p className="text-xs text-pretty text-muted">
@@ -200,7 +209,7 @@ function ImportModal({ file, reading, onReading, onClose }: ImportModalProps) {
         <div className="flex justify-end gap-2">
           <Button variant="ghost" disabled={reading} onClick={close}>Cancel</Button>
           {/* Until the languages load, the saved one isn't known to preselect. */}
-          <Button variant="primary" disabled={!model || languages.isPending || reading} onClick={() => void start()}>
+          <Button variant="primary" disabled={!model || !ready || reading} onClick={() => void start()}>
             <WaveformIcon size={13} weight="bold" />{reading ? 'Reading file…' : 'Transcribe'}
           </Button>
         </div>

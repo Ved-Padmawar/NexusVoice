@@ -3,7 +3,7 @@ pub mod dto;
 pub mod repositories;
 pub mod rows;
 
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use sqlx::SqlitePool;
 use tokio::sync::SetOnce;
@@ -13,7 +13,7 @@ use crate::mirror::{Patch, Slice, Store};
 /// Writes to the transcripts table since launch. History is too big to send,
 /// so a window reads it again at each revision.
 #[derive(Clone, PartialEq)]
-struct Writes(u64);
+pub(super) struct Writes(pub(super) u64);
 
 impl Slice for Writes {
     fn patch(&self, rev: u64) -> Patch {
@@ -21,20 +21,23 @@ impl Slice for Writes {
     }
 }
 
-static HISTORY: LazyLock<Store<Writes>> = LazyLock::new(|| Store::new(Writes(0)));
-
-/// A write to the transcripts table committed.
-pub fn history_changed() {
-    HISTORY.set(|writes| writes.0 += 1);
-}
+static HISTORY: LazyLock<Arc<Store<Writes>>> = LazyLock::new(|| Arc::new(Store::new(Writes(0))));
 
 /// Database init failed. Commands surface this instead of waiting forever.
 pub struct DbUnavailable(pub String);
 
 /// The pool, opened in the background at startup. Callers wait for it.
-#[derive(Default)]
 pub struct Database {
     pool: SetOnce<Result<SqlitePool, String>>,
+}
+
+impl Default for Database {
+    fn default() -> Self {
+        LazyLock::force(&HISTORY);
+        Self {
+            pool: SetOnce::new(),
+        }
+    }
 }
 
 impl Database {

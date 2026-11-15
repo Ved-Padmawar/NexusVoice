@@ -3,11 +3,6 @@ import { commands, events, type JobFinish, type Previous } from '../../shared/bi
 import { extractErrorMessage } from '../../shared/errors'
 import { useSlice } from '../../app/mirror'
 
-/** Disk the saved audio takes, pinned entries' included. */
-export function useSavedAudioBytes() {
-  return useSlice('savedAudio', bytes => bytes)
-}
-
 /** The running transcription job, then the queued ones. */
 export function useJobs() {
   return useSlice('jobs', jobs => jobs)

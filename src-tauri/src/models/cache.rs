@@ -6,17 +6,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
-use tauri_specta::Event;
 use tokio::sync::watch;
 
-use crate::bridge::events::LanguageReset;
 use crate::engine::Canceller;
 use crate::settings::Settings;
 use crate::sync::lock_recovering;
 
-use super::language::{primary_of, AUTO, DEFAULT};
 use super::library::best_on_disk;
-use super::provider::{detect_backend, select_model};
 use super::TranscriptionEngine;
 
 pub type SharedEngine = Arc<TranscriptionEngine>;
@@ -263,12 +259,10 @@ impl EngineCache {
                 Err(generation) => generation,
             };
             let engine = Arc::new(self.build(settings).await?);
-            let languages = engine.languages().to_vec();
             if !self.edit(|slot| slot.install(Arc::clone(&engine), generation)) {
                 log::info!("model changed while loading; loading the new selection");
                 continue;
             }
-            reset_unsupported_language(settings, &languages, settings.language().as_deref());
             return Ok(engine);
         }
     }
@@ -281,33 +275,25 @@ impl EngineCache {
 
     /// Build the selected model's engine off the runtime.
     async fn build(&self, settings: &Settings) -> Result<TranscriptionEngine, String> {
-        let mut model = settings.model();
-        let entry = select_model(detect_backend(), model.as_deref());
-        // The selected model may still be downloading. Load whatever is present
-        // so recording keeps working, but never rewrite the choice; that would
-        // silently cancel the user's pick mid-download.
-        if !self.models_dir.join(&entry.filename).exists() {
-            let fallback = best_on_disk(&self.models_dir, None)
-                .ok_or_else(|| "model not downloaded yet".to_string())?;
-            log::warn!(
-                "selected model not on disk; loading {} for now",
-                fallback.id
-            );
-            model = Some(fallback.id.clone());
-        }
-
+        let selected = settings.active_model();
         let models_dir = self.models_dir.clone();
         let app_data_dir = self.app_data_dir.clone();
         tauri::async_runtime::spawn_blocking(move || {
+            // A fallback never rewrites the saved model or language.
+            let model = if models_dir.join(&selected.filename).exists() {
+                selected
+            } else {
+                let fallback = best_on_disk(&models_dir, None)
+                    .ok_or_else(|| "model not downloaded yet".to_string())?;
+                log::warn!(
+                    "selected model not on disk; loading {} for now",
+                    fallback.id
+                );
+                fallback
+            };
             let canceller = Canceller::default();
             let mark = canceller.mark();
-            TranscriptionEngine::new(
-                &models_dir,
-                &app_data_dir,
-                model.as_deref(),
-                canceller,
-                mark,
-            )
+            TranscriptionEngine::new(&models_dir, &app_data_dir, Some(&model.id), canceller, mark)
         })
         .await
         .map_err(|e| {
@@ -325,14 +311,8 @@ impl EngineCache {
             let cache = app.state::<Self>();
             cache.superseded_released().await;
             let settings = app.state::<Settings>();
-            let before = settings.language();
             if let Err(e) = cache.get_or_load(&settings).await {
                 log::info!("engine warmup skipped: {e}");
-                return;
-            }
-            // The load resets a language the new model can't speak.
-            if before.is_some() && settings.language() != before {
-                let _ = LanguageReset.emit(&app);
             }
         });
     }
@@ -370,20 +350,6 @@ impl EngineCache {
     /// Backend the loaded model runs on now; `None` while none is loaded.
     pub fn backend(&self) -> Option<String> {
         self.loaded().map(|engine| engine.backend())
-    }
-}
-
-/// Otherwise every decode silently falls back to English and the picker still
-/// shows a language the model cannot speak.
-fn reset_unsupported_language(settings: &Settings, languages: &[String], saved: Option<&str>) {
-    let Some(code) = saved.filter(|c| *c != AUTO && *c != DEFAULT) else {
-        return;
-    };
-    if languages.is_empty() || languages.iter().any(|l| l == code || primary_of(l) == code) {
-        return;
-    }
-    if let Err(e) = settings.set_language(Some(DEFAULT.to_string())) {
-        log::warn!("could not reset unsupported language {code}: {e}");
     }
 }
 

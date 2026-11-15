@@ -59,10 +59,10 @@ fn window() -> (Channel<Patch>, Arc<Mutex<Vec<u64>>>) {
 
 #[test]
 fn a_window_gets_the_current_value_then_each_saved_change_in_order() {
-    let store = Store::new(Pill(PillSettings::default()));
+    let store = Store::isolated(Pill(PillSettings::default()));
     let (channel, received) = window();
 
-    let snapshot = subscribe("main", channel);
+    let snapshot = lock_recovering(&store.hub).subscribe("main", channel);
     assert_eq!(snapshot, vec![Pill(PillSettings::default()).patch(0)]);
 
     store
@@ -85,9 +85,9 @@ fn a_window_gets_the_current_value_then_each_saved_change_in_order() {
 
 #[test]
 fn a_failed_save_leaves_the_value_and_the_windows_as_they_were() {
-    let store = Store::new(Pill(PillSettings::default()));
+    let store = Store::isolated(Pill(PillSettings::default()));
     let (channel, received) = window();
-    subscribe("main", channel);
+    lock_recovering(&store.hub).subscribe("main", channel);
 
     let failed = store.update(theme(PillTheme::Aurora), |_| {
         Err(std::io::Error::other("disk full"))

@@ -68,6 +68,7 @@ pub async fn get_daily_words(
     db: State<'_, Database>,
     days: u32,
     utc_offset_minutes: i32,
+    local_date: String,
 ) -> Result<Vec<DailyWordsResponse>, ApiError> {
     if !UTC_OFFSET_RANGE.contains(&utc_offset_minutes) {
         return Err(ApiError::new(
@@ -75,10 +76,13 @@ pub async fn get_daily_words(
             "Couldn't work out your time zone.",
         ));
     }
+    let day = NaiveDate::parse_from_str(&local_date, "%Y-%m-%d")
+        .map_err(|_| ApiError::new("invalid_input", "Couldn't work out today's date."))?;
     let rows = TranscriptRepository::new(db.pool().await?)
         .daily_words(
             i64::from(days.clamp(1, MAX_DAYS)),
             i64::from(utc_offset_minutes),
+            &day.to_string(),
         )
         .await?;
     Ok(rows
@@ -264,7 +268,7 @@ pub async fn delete_transcript(
     TranscriptRepository::new(db.pool().await?)
         .delete_by_id(id)
         .await?;
-    if let Err(e) = app.state::<Recordings>().remove(id) {
+    if let Err(e) = crate::recordings::remove(&app, id).await {
         log::warn!("{e}");
     }
     Ok(())

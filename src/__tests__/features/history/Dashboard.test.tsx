@@ -5,6 +5,7 @@ import { Dashboard } from '../../../features/history/Dashboard'
 import { invoke } from '@tauri-apps/api/core'
 import { mirror, renderWithQuery } from '../../utils'
 import { listen } from '@tauri-apps/api/event'
+import { open } from '@tauri-apps/plugin-dialog'
 import type { Patch } from '../../../shared/bindings'
 import type { Transcript, UsageStats } from '../../../shared/types'
 
@@ -81,6 +82,42 @@ beforeEach(async () => {
   vi.mocked(listen).mockResolvedValue(() => {})
   writes = 0
   send = await mirror()
+})
+
+it('waits for the chosen import model’s languages and retries a failed lookup', async () => {
+  vi.mocked(open).mockResolvedValueOnce('sample.wav')
+  const english = { supported: true, options: [{ code: 'en', name: 'English', isSelected: true }] }
+  const french = { supported: true, options: [{ code: 'fr', name: 'French', isSelected: true }] }
+  let failLookup: (e: Error) => void = () => {}
+  let attempt = 0
+  const backend = mockInvoke.getMockImplementation()!
+  mockInvoke.mockImplementation((cmd, args) => {
+    if (cmd === 'inspect_audio_file') return Promise.resolve({ name: 'sample.wav', sizeBytes: 1024, durationSeconds: 2 })
+    if (cmd === 'get_language_options_for') {
+      if ((args as { model: string }).model === 'whisper-tiny') return Promise.resolve(english)
+      if (attempt++ === 0) return new Promise((_, reject) => { failLookup = reject })
+      return Promise.resolve(french)
+    }
+    return backend(cmd, args)
+  })
+  await send({ slice: 'models', rev: 1, value: [
+    { variant: 'whisper-tiny', displayName: 'Tiny', sizeBytes: 100 },
+    { variant: 'whisper-small', displayName: 'Small', sizeBytes: 200 },
+  ] })
+  renderDashboard()
+  fireEvent.click(screen.getByRole('button', { name: 'Import audio' }))
+  const start = await screen.findByRole('button', { name: 'Transcribe' })
+  await waitFor(() => expect(start).toBeEnabled())
+
+  fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+  fireEvent.click(screen.getByRole('option', { name: 'Small' }))
+  expect(screen.getByRole('button', { name: 'Language' })).toBeDisabled()
+  expect(start).toBeDisabled()
+  await act(async () => { failLookup(new Error('lookup failed')) })
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry' }))
+  await waitFor(() => expect(start).toBeEnabled())
+  fireEvent.click(start)
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('import_audio_file', { path: 'sample.wav', model: 'whisper-small', language: 'fr' }))
 })
 
 describe('Dashboard — empty state', () => {

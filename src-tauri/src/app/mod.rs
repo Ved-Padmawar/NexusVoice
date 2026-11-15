@@ -211,6 +211,9 @@ fn spawn_open_database(app: tauri::AppHandle, db_path: std::path::PathBuf) {
         if let Err(e) = crate::recordings::reconcile(&app).await {
             log::warn!("could not reconcile the saved audio: {e}");
         }
+        if let Err(e) = crate::recordings::apply_limit(&app).await {
+            log::warn!("could not apply the saved audio limit on startup: {e}");
+        }
         if let Err(e) = crate::jobs::resume(&app).await {
             log::warn!("could not resume the interrupted imports: {e}");
         }

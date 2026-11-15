@@ -392,8 +392,7 @@ impl Recorder {
             }
             let library = handle.state::<crate::models::library::ModelLibrary>();
             let settings = handle.state::<Settings>();
-            library.is_downloaded(crate::models::library::ModelLibrary::active(&settings))
-                || library.best_on_disk(None).is_some()
+            library.is_downloaded(settings.active_model()) || library.best_on_disk(None).is_some()
         })
         .await
         .unwrap_or(false);

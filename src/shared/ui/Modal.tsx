@@ -1,6 +1,7 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useEffectEvent, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/shared/utils'
+import { registerLayer } from './dismissLayers'
 
 type Props = {
   open: boolean
@@ -16,16 +17,17 @@ type Props = {
  *  mounted: CSS animates both ways, holding `display` until the exit ends. */
 export function Modal({ open, onClose, 'aria-labelledby': labelledBy, className, children }: Props) {
   const panelRef = useRef<HTMLDivElement>(null)
+  const close = useEffectEvent(() => onClose?.())
 
+  // Not a layout effect: React restores the pre-commit focus after those.
   useEffect(() => {
-    if (!open) return
+    const panel = panelRef.current
+    if (!open || !panel) return
     const previous = document.activeElement as HTMLElement | null
-    panelRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && onClose) onClose()
-      if (e.key !== 'Tab' || !panelRef.current) return
+    panel.focus()
+    const tab = (e: KeyboardEvent) => {
       // Keep Tab inside the dialog: wrap at either end.
-      const items = panelRef.current.querySelectorAll<HTMLElement>(
+      const items = panel.querySelectorAll<HTMLElement>(
         'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
       )
       const first = items[0]
@@ -33,20 +35,20 @@ export function Modal({ open, onClose, 'aria-labelledby': labelledBy, className,
       const active = document.activeElement
       if (!first || !last) {
         e.preventDefault()
-      } else if (e.shiftKey && (active === first || active === panelRef.current)) {
+      } else if (e.shiftKey && (active === first || active === panel || !panel.contains(active))) {
         e.preventDefault()
         last.focus()
-      } else if (!e.shiftKey && active === last) {
+      } else if (!e.shiftKey && (active === last || !panel.contains(active))) {
         e.preventDefault()
         first.focus()
       }
     }
-    document.addEventListener('keydown', onKey)
+    const unregister = registerLayer({ escape: () => close(), tab })
     return () => {
-      document.removeEventListener('keydown', onKey)
+      unregister()
       previous?.focus()
     }
-  }, [open, onClose])
+  }, [open])
 
   return createPortal(
     <div

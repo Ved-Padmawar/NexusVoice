@@ -32,12 +32,20 @@ pub async fn init_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
     reconcile_ledger(pool).await?;
 
-    sqlx::migrate!("src/data/migrations")
+    let migrator = sqlx::migrate!("src/data/migrations");
+    if column_names(pool, "transcripts").await?.is_empty() {
+        // 0003's triggers read late columns the original schema lacks.
+        migrator
+            .run_to(2, pool)
+            .await
+            .map_err(|err| sqlx::Error::Migrate(Box::new(err)))?;
+        add_missing_columns(pool).await?;
+    }
+
+    migrator
         .run(pool)
         .await
-        .map_err(|err| sqlx::Error::Migrate(Box::new(err)))?;
-    // A fresh database was just created without the late columns.
-    add_missing_columns(pool).await
+        .map_err(|err| sqlx::Error::Migrate(Box::new(err)))
 }
 
 /// Columns a database may lack, with their definitions: ones that predate the
@@ -104,15 +112,20 @@ async fn reconcile_ledger(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
     let migrator = sqlx::migrate!("src/data/migrations");
     let applied: Vec<(i64, Vec<u8>, bool)> =
-        sqlx::query_as("SELECT version, checksum, success FROM _sqlx_migrations")
+        sqlx::query_as("SELECT version, checksum, success FROM _sqlx_migrations ORDER BY version")
             .fetch_all(pool)
             .await?;
-    let in_step = applied.iter().all(|(version, checksum, success)| {
-        *success
-            && migrator
-                .iter()
-                .any(|m| m.version == *version && m.checksum.as_ref() == checksum.as_slice())
-    });
+    // In order: a gap replays everything after it, or 0002 would overwrite
+    // 0003's totals.
+    let in_step = applied.len() <= migrator.iter().count()
+        && applied
+            .iter()
+            .zip(migrator.iter())
+            .all(|((version, checksum, success), migration)| {
+                *success
+                    && migration.version == *version
+                    && migration.checksum.as_ref() == checksum.as_slice()
+            });
     if in_step {
         return Ok(());
     }
@@ -165,6 +178,7 @@ mod tests {
         for sql in [
             include_str!("migrations/0001_init.sql"),
             include_str!("migrations/0002_transcript_stats.sql"),
+            include_str!("migrations/0003_completed_transcript_stats.sql"),
         ] {
             assert!(!sql.contains('\r'));
         }
@@ -412,8 +426,13 @@ mod tests {
 
     #[tokio::test]
     async fn the_stats_migration_totals_the_existing_transcripts() {
-        let pool = legacy_database().await;
-        sqlx::query("INSERT INTO transcripts (content, word_count, duration_seconds) VALUES ('a', 3, 1.5), ('b', 2, NULL)")
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("src/data/migrations")
+            .run_to(2, &pool)
+            .await
+            .unwrap();
+        add_missing_columns(&pool).await.unwrap();
+        sqlx::query("INSERT INTO transcripts (content, word_count, duration_seconds, pending) VALUES ('a', 3, 1.5, 0), ('b', 2, NULL, 0), ('', 0, 3600, 1)")
             .execute(&pool)
             .await
             .unwrap();
@@ -433,7 +452,7 @@ mod tests {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         init_database(&pool).await.expect("init succeeds");
 
-        sqlx::query("INSERT INTO transcripts (content, word_count, duration_seconds) VALUES ('a', 3, 2.0), ('b', 4, 1.0)")
+        sqlx::query("INSERT INTO transcripts (content, word_count, duration_seconds, pending) VALUES ('a', 3, 2.0, 0), ('b', 4, 1.0, 0), ('', 0, 3600, 1), ('cancelled', 0, 600, 1)")
             .execute(&pool)
             .await
             .unwrap();
@@ -445,6 +464,10 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        sqlx::query("DELETE FROM transcripts WHERE content = 'cancelled'")
+            .execute(&pool)
+            .await
+            .unwrap();
 
         let totals: (i64, i64, f64) =
             sqlx::query_as("SELECT sessions, words, duration_seconds FROM transcript_stats")
@@ -452,6 +475,17 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(totals, (1, 10, 2.0));
+
+        sqlx::query("UPDATE transcripts SET pending = 0, content = 'file text', word_count = 2 WHERE pending = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let completed: (i64, i64, f64) =
+            sqlx::query_as("SELECT sessions, words, duration_seconds FROM transcript_stats")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(completed, (2, 12, 3602.0));
     }
 
     #[tokio::test]
@@ -620,9 +654,14 @@ mod tests {
     async fn every_migration_can_run_twice() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         for _ in 0..2 {
+            sqlx::raw_sql(include_str!("migrations/0001_init.sql"))
+                .execute(&pool)
+                .await
+                .unwrap();
+            add_missing_columns(&pool).await.unwrap();
             for sql in [
-                include_str!("migrations/0001_init.sql"),
                 include_str!("migrations/0002_transcript_stats.sql"),
+                include_str!("migrations/0003_completed_transcript_stats.sql"),
             ] {
                 sqlx::raw_sql(sql).execute(&pool).await.unwrap();
             }

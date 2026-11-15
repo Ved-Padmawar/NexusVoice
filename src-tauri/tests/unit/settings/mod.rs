@@ -4,7 +4,7 @@
 use super::*;
 
 fn load(dir: &Path) -> Settings {
-    Settings::load(dir, Secrets::new("nexusvoice-tests"))
+    Settings::load(dir, Secrets::mock())
 }
 
 #[test]
@@ -39,7 +39,9 @@ fn changes_survive_a_restart() {
     let dir = tempfile::tempdir().unwrap();
     {
         let settings = load(dir.path());
-        settings.set_model(Some("whisper-small".into())).unwrap();
+        settings
+            .select_model(catalog::find("whisper-small"))
+            .unwrap();
         settings.set_language(Some("fr".into())).unwrap();
         settings
             .set_model_unload(ModelUnload::After5Minutes)
@@ -230,4 +232,55 @@ fn a_write_leaves_no_temp_file_behind() {
         .map(|e| e.unwrap().file_name().into_string().unwrap())
         .collect();
     assert_eq!(names, [FILE_NAME]);
+}
+
+#[test]
+fn a_failed_formatter_save_preserves_a_replaced_or_removed_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let settings = load(dir.path());
+    let mut draft = FormatterDraft {
+        provider: "openai".into(),
+        profile: formatter::ProfileUpdate {
+            base_url: "https://example.com/v1".into(),
+            model: "original-model".into(),
+            api_key: Some("original-key".into()),
+        },
+    };
+    let saved = settings.save_formatter_endpoint(&draft).unwrap();
+    dir.close().unwrap();
+    draft.profile.model = "different-model".into();
+
+    for key in ["new-key", ""] {
+        draft.profile.api_key = Some(key.into());
+        assert!(settings.save_formatter_endpoint(&draft).is_err());
+        assert_eq!(settings.saved.committed(), saved);
+        let config = settings.format_config();
+        assert_eq!(config.active().api_key, "original-key");
+        assert_eq!(config.active().model, "original-model");
+    }
+}
+
+#[test]
+fn only_an_explicit_model_change_resets_an_incompatible_language() {
+    let dir = tempfile::tempdir().unwrap();
+    let settings = load(dir.path());
+    settings
+        .select_model(catalog::find("whisper-small"))
+        .unwrap();
+    settings
+        .set_supported_language(Some("ja".into()))
+        .unwrap()
+        .unwrap();
+    let english_only = catalog::find("parakeet-tdt-0.6b-v2").unwrap();
+    let (_, reset) = settings.select_model(Some(english_only)).unwrap();
+    assert!(reset);
+    assert_eq!(settings.language().as_deref(), Some(language::DEFAULT));
+    assert!(settings
+        .set_supported_language(Some("ja".into()))
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        load(dir.path()).language().as_deref(),
+        Some(language::DEFAULT)
+    );
 }
