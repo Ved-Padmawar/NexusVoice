@@ -18,6 +18,11 @@ export function useHasJob(id: number) {
   return useSlice('jobs', jobs => jobs.some(job => job.transcriptId === id))
 }
 
+/** Entry `id`'s job, if it has one. */
+export function useJob(id: number) {
+  return useSlice('jobs', jobs => jobs.find(job => job.transcriptId === id))
+}
+
 async function undoRetranscribe(id: number, previous: Previous, revision: number) {
   try {
     await commands.restoreTranscript(id, previous, revision)

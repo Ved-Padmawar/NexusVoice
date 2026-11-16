@@ -28,7 +28,7 @@ import { SectionState } from '../../shared/ui/SectionState'
 import { AudioPlayer } from './AudioPlayer'
 import { ImportControls } from './ImportFlow'
 import { FilterChip, FilterDropdown, ToolbarButton } from './HistoryFilters'
-import { cancelJob, useHasJob, useJobs } from './jobs'
+import { cancelJob, useHasJob, useJob, useJobs } from './jobs'
 import { ACTION_BUTTON, PinButton, RetranscribeButton } from './RowActions'
 import type { Transcript } from '../../shared/types'
 
@@ -224,35 +224,78 @@ function AudioBoundary({ keep, onChange }: { keep: number; onChange: () => void 
 
 const ROW = "group relative grid grid-cols-[84px_minmax(0,1fr)_124px] gap-x-5 py-4 not-first:before:absolute not-first:before:top-0 not-first:before:right-0 not-first:before:left-26 not-first:before:h-px not-first:before:bg-line-soft not-first:before:content-['']"
 
+const NONE_SHOWN: ReadonlySet<number> = new Set()
+
 const jobStatus = (job: JobSnapshot) => {
   if (job.queued) return `Waiting · ${job.model}`
   if (job.paused) return 'Paused · dictation goes first'
   return `${job.model} · ${Math.floor(job.progress * 100)}%`
 }
 
-/** Every queued and running transcription, above the feed so no search,
- *  filter or feed error can hide its Cancel. */
-function JobsPanel() {
-  const jobs = useJobs()
-  if (jobs.length === 0) return null
+/** A job's progress, status and Cancel, one line tall. */
+function JobControls({ job, className }: { job: JobSnapshot; className?: string }) {
   return (
-    <ul className="mt-1 mb-2 rounded-xl bg-surface ring-1 ring-line-soft ring-inset">
-      {jobs.map(job => (
-        <li key={job.transcriptId} className="flex items-center gap-3 px-3.5 py-2.5 text-xs text-muted tabular-nums not-first:border-t not-first:border-line-soft">
-          {job.kind === 'import'
-            ? <FileAudioIcon size={14} weight="duotone" className="shrink-0 text-fg-2" />
-            : <ArrowsClockwiseIcon size={14} className="shrink-0 text-fg-2" />}
-          <span className="min-w-0 flex-1 truncate font-semibold text-fg-2">{job.label}</span>
-          <span className="relative h-1 w-28 shrink-0 overflow-hidden rounded-full bg-line-soft">
-            <span className="absolute inset-y-0 left-0 rounded-full bg-accent" style={{ width: `${job.progress * 100}%` }} />
-          </span>
-          <span className="w-44 shrink-0 truncate">{jobStatus(job)}</span>
-          <button type="button" onClick={() => void cancelJob(job.transcriptId)} className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 font-semibold text-fg-2 hover:bg-surface-hover hover:text-fg">
-            <XIcon size={11} weight="bold" />Cancel
-          </button>
-        </li>
-      ))}
-    </ul>
+    <span className={cn('flex min-w-0 items-center gap-2.5 text-xs text-muted tabular-nums', className)}>
+      <span className="relative h-1 min-w-12 max-w-48 flex-1 overflow-hidden rounded-full bg-line-soft">
+        <span className="absolute inset-y-0 left-0 rounded-full bg-accent" style={{ width: `${job.progress * 100}%` }} />
+      </span>
+      <span className="min-w-0 truncate">{jobStatus(job)}</span>
+      <button type="button" onClick={() => void cancelJob(job.transcriptId)} className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 font-semibold text-fg-2 hover:bg-surface-hover hover:text-fg">
+        <XIcon size={11} weight="bold" />Cancel
+      </button>
+    </span>
+  )
+}
+
+/** A row's own job. Its own component, so only it wakes for progress. */
+function RowJob({ id }: { id: number }) {
+  const job = useJob(id)
+  if (!job) return null
+  return (
+    <>
+      <span className="h-3.5 w-px shrink-0 bg-line-soft" />
+      <JobControls job={job} className="flex-1" />
+    </>
+  )
+}
+
+/** Jobs whose rows a search, filter or feed error hides, so their Cancel is
+ *  never out of reach. Shows nothing while every job's row is in the feed. */
+function HiddenJobs({ shown }: { shown: ReadonlySet<number> }) {
+  const jobs = useJobs()
+  const hidden = jobs.filter(job => !shown.has(job.transcriptId))
+  return hidden.length > 0 ? <HiddenJobsChip jobs={hidden} /> : null
+}
+
+function HiddenJobsChip({ jobs }: { jobs: JobSnapshot[] }) {
+  const anchorRef = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+        className="flex h-6.5 cursor-pointer items-center gap-1.5 rounded-full bg-panel px-2.5 text-xs font-semibold text-fg-2 ring-1 ring-inset ring-line-soft transition-shadow hover:ring-line aria-expanded:ring-line"
+      >
+        <ArrowsClockwiseIcon size={12} weight="bold" />
+        {plural(jobs.length, 'transcription')} running
+      </button>
+      <Popover open={open} onOpenChange={setOpen} anchorRef={anchorRef} placement="bottom-start" className="w-[28rem]">
+        <ul className="py-1">
+          {jobs.map(job => (
+            <li key={job.transcriptId} className="flex h-10 items-center gap-3 pr-2 pl-3.5">
+              {job.kind === 'import'
+                ? <FileAudioIcon size={14} weight="duotone" className="shrink-0 text-fg-2" />
+                : <ArrowsClockwiseIcon size={14} className="shrink-0 text-fg-2" />}
+              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-fg-2">{job.label}</span>
+              <JobControls job={job} className="w-72 shrink-0" />
+            </li>
+          ))}
+        </ul>
+      </Popover>
+    </>
   )
 }
 
@@ -298,12 +341,14 @@ const TranscriptRow = memo(function TranscriptRow({ item, onDelete }: { item: Tr
           <span className="flex min-w-0 items-center gap-1.5">
             {parts.map((part, i) => <Fragment key={i}>{i > 0 && <span className="text-line">·</span>}{part}</Fragment>)}
           </span>
-          {item.audioPath && (
-            <>
-              <span className="h-3.5 w-px bg-line-soft" />
-              <AudioPlayer id={item.id} path={item.audioPath} seconds={item.durationSeconds} />
-            </>
-          )}
+          {busy
+            ? <RowJob id={item.id} />
+            : item.audioPath && (
+              <>
+                <span className="h-3.5 w-px bg-line-soft" />
+                <AudioPlayer id={item.id} path={item.audioPath} seconds={item.durationSeconds} />
+              </>
+            )}
         </div>
       </div>
       <div className="-mt-1 -mr-2 flex justify-self-end gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 has-aria-expanded:opacity-100">
@@ -418,12 +463,14 @@ export function Dashboard() {
   const keep = useSlice('settings', settings => (settings.savedAudio.enabled ? settings.savedAudio.keep : 0))
   // Only an unfiltered feed shows where the audio limit falls.
   const wholeFeed = !isSearchMode && !isFiltered(filters)
-  const { groups, boundaryId } = useMemo(() => {
+  const { groups, boundaryId, seen } = useMemo(() => {
     const rows = active.data?.pages.flatMap(page => page.rows) ?? []
     const seen = new Set<number>()
     const unique = rows.filter(row => !seen.has(row.id) && seen.add(row.id))
-    return { groups: groupByDay(unique), boundaryId: wholeFeed ? audioBoundary(unique, keep, hasNextPage) : null }
+    return { groups: groupByDay(unique), boundaryId: wholeFeed ? audioBoundary(unique, keep, hasNextPage) : null, seen }
   }, [active.data, keep, wholeFeed, hasNextPage])
+  // A feed error shows its message instead of the rows.
+  const shown = active.status === 'success' ? seen : NONE_SHOWN
   const canFetchNext = hasNextPage && !isFetching
   const sentinelRef = useCallback((node: HTMLDivElement | null) => {
     observerRef.current?.disconnect()
@@ -519,6 +566,7 @@ export function Dashboard() {
         <div className="sticky top-0 z-10 -mx-2 flex items-center gap-2.5 bg-bg px-2 py-2.5">
           <h2 className="text-md font-semibold tracking-tight text-fg">Recent dictations</h2>
           {isFiltered(filters) && <FilterChip filters={filters} onClear={() => setFilters(NO_FILTERS)} />}
+          <HiddenJobs shown={shown} />
           <div className="ml-auto flex items-center gap-1.5">
             <SearchBox onSearch={setSearchTerm} typedRef={typedRef} />
             <FilterDropdown filters={filters} onChange={setFilters} />
@@ -527,7 +575,6 @@ export function Dashboard() {
           </div>
         </div>
 
-        <JobsPanel />
         <SectionState
           status={active.status}
           error={active.error?.message}
