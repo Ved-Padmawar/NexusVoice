@@ -17,6 +17,13 @@ import { Dashboard } from '../features/history/Dashboard'
 import { SettingsPage as Settings, DictionaryPage as Dictionary, preloadRoute } from './routeModules'
 import { showMainWindow } from './showMainWindow'
 import { setWindowVisible } from '../shared/frameClock'
+import { setWindowShown } from './mirror'
+
+/** Hidden to the tray, the window stops its animations and its History reads. */
+function setShown(shown: boolean) {
+  setWindowVisible(shown)
+  setWindowShown(shown)
+}
 
 const Spinner = () => (
   <div className="size-7 animate-spin rounded-full border-2 border-line border-t-accent" />
@@ -112,7 +119,7 @@ function App() {
   useEffect(() => {
     const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
       event.preventDefault()
-      setWindowVisible(false)
+      setShown(false)
       await getCurrentWindow().hide()
     })
     return () => { unlisten.then(fn => fn()) }
@@ -121,7 +128,7 @@ function App() {
   // Every path that shows the window from the tray or a shortcut also focuses it.
   useEffect(() => {
     const unlisten = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      if (focused) setWindowVisible(true)
+      if (focused) setShown(true)
     })
     return () => { unlisten.then(fn => fn()) }
   }, [])

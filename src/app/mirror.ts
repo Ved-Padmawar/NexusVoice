@@ -17,6 +17,8 @@ const held = new Map<SliceName, { rev: number; value: unknown }>()
 const listeners = new Set<() => void>()
 /** The newest revision this window received. */
 let windowRev = -1
+/** Each slice's revision when the window was hidden; null while it is shown. */
+let revsWhenHidden: Map<SliceName, number> | null = null
 
 /** Keep each patch of `change` this window doesn't already hold newer, then
  *  tell every listener once, so a commit that changed several slices shows
@@ -57,14 +59,23 @@ export function useSlice<S extends SliceName, R>(slice: S, select: (value: Slice
   return useSyncExternalStore(listen, () => select(latest(slice)))
 }
 
-/** The revision `slice` last changed at; -1 before Rust sent it. A read that
- *  depends on the slice keys on it. */
+/** The revision `slice` last changed at; -1 before Rust sent it. */
 export function revisionOf(slice: SliceName): number {
   return held.get(slice)?.rev ?? -1
 }
 
+/** The revision a read of `slice` keys on. A window hidden to the tray keeps
+ *  the one it had, so it reads nothing until it is shown again. */
 export function useRevision(slice: SliceName): number {
-  return useSyncExternalStore(listen, () => revisionOf(slice))
+  return useSyncExternalStore(listen, () => revsWhenHidden?.get(slice) ?? revisionOf(slice))
+}
+
+/** Hiding to the tray leaves `document.visibilityState` at `visible`, so the
+ *  window says when it is shown. */
+export function setWindowShown(shown: boolean) {
+  if (shown === !revsWhenHidden) return
+  revsWhenHidden = shown ? null : new Map([...held].map(([slice, { rev }]) => [slice, rev]))
+  for (const listener of listeners) listener()
 }
 
 /** Resolves once this window holds revision `rev`: every window receives

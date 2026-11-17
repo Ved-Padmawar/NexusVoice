@@ -10,7 +10,7 @@ import { useDeleteDictionaryEntry, useDictionary, useUpdateDictionary } from '..
 import type { DictionaryResponse } from '../../shared/bindings'
 import type { Transcript } from '../../shared/types'
 import { mirror, type Send } from '../utils'
-import { revisionOf } from '../../app/mirror'
+import { revisionOf, setWindowShown } from '../../app/mirror'
 
 type ToastOptions = { onAutoClose?: () => void; onDismiss?: () => void; action?: { onClick: () => void } }
 const toasts = vi.hoisted(() => [] as ToastOptions[])
@@ -69,9 +69,11 @@ describe('History revisions', () => {
     })
     return (rows: Transcript[]) => act(async () => { pending(rows) })
   }
+  const feedReads = () => vi.mocked(invoke).mock.calls.filter(([cmd]) => cmd === 'get_transcripts').length
   const fullPage = Array.from({ length: PAGE_SIZE }, (_, i) => row(200 - i))
 
   beforeEach(async () => { send = await mirror() })
+  afterEach(() => { setWindowShown(true) })
 
   it('reads every page it had loaded again at a new revision', async () => {
     reads([fullPage, [row(1)], [row(201), ...fullPage.slice(0, -1)], [fullPage.at(-1)!, row(1)]])
@@ -101,6 +103,33 @@ describe('History revisions', () => {
     await finishOlder([row(2)])
 
     expect(ids(result.current.data)).toEqual([3])
+  })
+
+  it('reads nothing at new revisions while hidden to the tray', async () => {
+    reads([[row(1)]])
+    const { result } = renderHook(() => useHistoryFeed('', NO_FILTERS), { wrapper })
+    await waitFor(() => expect(ids(result.current.data)).toEqual([1]))
+    setWindowShown(false)
+
+    await historyAt(1)
+    await historyAt(2)
+
+    expect(feedReads()).toBe(1)
+    expect(ids(result.current.data)).toEqual([1])
+  })
+
+  it('reads once at the newest revision when shown again', async () => {
+    reads([[row(1)], [row(3)]])
+    const { result } = renderHook(() => useHistoryFeed('', NO_FILTERS), { wrapper })
+    await waitFor(() => expect(ids(result.current.data)).toEqual([1]))
+    setWindowShown(false)
+    await historyAt(1)
+    await historyAt(2)
+
+    act(() => setWindowShown(true))
+
+    await waitFor(() => expect(ids(result.current.data)).toEqual([3]))
+    expect(feedReads()).toBe(2)
   })
 
   it('tries a failed read again, so the change it was for still shows', async () => {
