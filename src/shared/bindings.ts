@@ -6,10 +6,11 @@
 
 export const commands = {
 /**
- * The newest patch of every slice, then each change on `patches`, in order.
+ * The newest value of each of `slices`, then every commit on `changes`, in
+ * order.
  */
-async subscribe(patches: TAURI_CHANNEL<Patch>) : Promise<Patch[]> {
-    return await TAURI_INVOKE("subscribe", { patches });
+async subscribe(slices: SliceName[], changes: TAURI_CHANNEL<Change>) : Promise<Change> {
+    return await TAURI_INVOKE("subscribe", { slices, changes });
 },
 /**
  * Usable input devices, excluding loopback and virtual endpoints. The UI
@@ -64,11 +65,11 @@ async deleteDictionaryEntry(id: number) : Promise<Committed> {
     return await TAURI_INVOKE("delete_dictionary_entry", { id });
 },
 /**
- * Write an export into the user's Downloads folder and return where it went.
- * An existing file is never overwritten: the name gets " (2)", " (3)", ….
+ * Export what History shows into the user's Downloads folder, never over an
+ * existing file. `None` when nothing matches.
  */
-async saveExport(fileName: string, content: string) : Promise<string> {
-    return await TAURI_INVOKE("save_export", { fileName, content });
+async exportTranscripts(request: ExportRequest) : Promise<Exported | null> {
+    return await TAURI_INVOKE("export_transcripts", { request });
 },
 /**
  * Open the file manager with `path` selected.
@@ -122,12 +123,6 @@ async cancelModelDownload(id: string) : Promise<void> {
  */
 async setModelOverride(variant: string) : Promise<Committed> {
     return await TAURI_INVOKE("set_model_override", { variant });
-},
-/**
- * The language list for any model, as the import dialog's model picker needs.
- */
-async getLanguageOptionsFor(model: string) : Promise<LanguageSettings> {
-    return await TAURI_INVOKE("get_language_options_for", { model });
 },
 async setLanguage(code: string | null) : Promise<Committed> {
     return await TAURI_INVOKE("set_language", { code });
@@ -276,17 +271,17 @@ async cancelJob(transcriptId: number) : Promise<null> {
     return await TAURI_INVOKE("cancel_job", { transcriptId });
 },
 /**
- * Queue an entry's saved audio to be transcribed again with `model`.
+ * Queue an entry's saved audio to be transcribed again with the active model.
  */
-async retranscribeTranscript(id: number, model: string) : Promise<null> {
-    return await TAURI_INVOKE("retranscribe_transcript", { id, model });
+async retranscribeTranscript(id: number) : Promise<null> {
+    return await TAURI_INVOKE("retranscribe_transcript", { id });
 },
 /**
- * Add an audio file to History and queue its transcription. Nothing is
- * pasted.
+ * Add an audio file to History and queue its transcription with the active
+ * model. Nothing is pasted.
  */
-async importAudioFile(path: string, model: string, language: string | null) : Promise<null> {
-    return await TAURI_INVOKE("import_audio_file", { path, model, language });
+async importAudioFile(path: string, language: string | null) : Promise<null> {
+    return await TAURI_INVOKE("import_audio_file", { path, language });
 }
 }
 
@@ -337,13 +332,19 @@ export type CatalogModel = { id: string; displayName: string; family: string;
  */
 pipelines: Pipeline[]; defaultPipeline: Pipeline; sizeBytes: number; multilingual: boolean; description: string; detail: string }
 /**
+ * What a window receives: the slices one commit changed, at its revision.
+ * A window gets every revision, with no patches when none of its slices
+ * changed, so it can always tell when it holds a write.
+ */
+export type Change = { rev: number; patches: Patch[] }
+/**
  * What clearing the saved audio did; what is left is pinned.
  */
 export type ClearedAudio = { deleted: number; kept: number }
 /**
  * The revision a write left its store at, so the window that made it knows
  * when its mirror holds the result. A write that changed nothing returns the
- * current revision.
+ * revision the store last changed at.
  */
 export type Committed = { rev: number }
 export type CudaDownloadComplete = { attempt: number; after: Committed }
@@ -384,6 +385,13 @@ export type DownloadStatus = "queued" | "running" | "error"
  * A model on disk.
  */
 export type DownloadedModel = { variant: string; displayName: string; sizeBytes: number }
+export type ExportFormat = "txt" | "json"
+/**
+ * What History shows, to export: its search, filters and the rows it hides
+ * behind an Undo.
+ */
+export type ExportRequest = { query: string; from: string | null; to: string | null; sortAsc: boolean; exclude: number[]; format: ExportFormat }
+export type Exported = { path: string; count: number }
 /**
  * One provider's endpoint from the provider modal. Saving it touches only that
  * endpoint, so a toggle landing mid-save can't bring back an older one.
@@ -541,45 +549,49 @@ export type PasteMode =
  */
 "copyOnly"
 /**
- * One slice's whole value at a revision.
+ * One slice's whole value.
  */
-export type Patch = { slice: "settings"; rev: number; value: SettingsView } |
+export type Patch = { slice: "settings"; value: SettingsView } |
 /**
  * The shortcuts the OS granted, which can be fewer than the saved ones.
  */
-{ slice: "hotkeys"; rev: number; value: HotkeyBindings } |
+{ slice: "hotkeys"; value: HotkeyBindings } |
 /**
  * The models on disk.
  */
-{ slice: "models"; rev: number; value: DownloadedModel[] } |
+{ slice: "models"; value: DownloadedModel[] } |
 /**
  * Model downloads queued, running or failed.
  */
-{ slice: "downloads"; rev: number; value: Download[] } |
+{ slice: "downloads"; value: Download[] } |
 /**
  * The CUDA pack; `None` until the GPU has been probed.
  */
-{ slice: "cuda"; rev: number; value: CudaStatus | null } |
+{ slice: "cuda"; value: CudaStatus | null } |
 /**
  * The recording, and the saved changes it does not use.
  */
-{ slice: "recording"; rev: number; value: RecordingSnapshot } |
+{ slice: "recording"; value: RecordingSnapshot } |
 /**
  * The running transcription job, then the queued ones.
  */
-{ slice: "jobs"; rev: number; value: JobSnapshot[] } |
+{ slice: "jobs"; value: JobSnapshot[] } |
 /**
  * Dictionary entries and their use counts, sorted by term.
  */
-{ slice: "dictionary"; rev: number; value: DictionaryResponse[] } |
+{ slice: "dictionary"; value: DictionaryResponse[] } |
 /**
  * Bytes the saved audio takes and whether retention needs a retry.
  */
-{ slice: "savedAudio"; rev: number; value: SavedAudioStatus } |
+{ slice: "savedAudio"; value: SavedAudioStatus } |
 /**
- * Writes to History since launch; a window reads History again at each.
+ * Writes to History rows; a window reads the rows it shows again at each.
  */
-{ slice: "history"; rev: number; value: number }
+{ slice: "history"; value: number } |
+/**
+ * Writes that change History's totals and daily words.
+ */
+{ slice: "historyTotals"; value: number }
 /**
  * The pill's box in CSS pixels, relative to the window's client area.
  */
@@ -664,6 +676,10 @@ language: LanguageSettings; modelUnload: ModelUnload;
  * Input device id; `None` follows the OS default.
  */
 inputDevice: string | null; keepMicOpen: boolean; savedAudio: SavedAudio; pasteMode: PasteMode; formatter: FormatterView; pill: PillSettings }
+/**
+ * The name of a slice, for a window to say which ones it mirrors.
+ */
+export type SliceName = "settings" | "hotkeys" | "models" | "downloads" | "cuda" | "recording" | "jobs" | "dictionary" | "savedAudio" | "history" | "historyTotals"
 export type TranscriptResponse = { id: number; content: string; wordCount: number; durationSeconds: number | null;
 /**
  * App the transcript was dictated into; `None` when it wasn't determined.

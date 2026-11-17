@@ -4,8 +4,8 @@ import { act, render } from '@testing-library/react'
 import { invoke, type Channel } from '@tauri-apps/api/core'
 import { vi } from 'vitest'
 import { queryClient } from '../app/queryClient'
-import { mirrorRust } from '../app/mirror'
-import type { Patch, PillSettings, SettingsView } from '../shared/bindings'
+import { ALL_SLICES, mirrorRust } from '../app/mirror'
+import type { Change, Patch, PillSettings, SettingsView } from '../shared/bindings'
 
 /** Render against the app's own client, which event handlers also write to. */
 export function renderWithQuery(ui: ReactElement) {
@@ -26,16 +26,19 @@ const DEFAULT_SETTINGS: SettingsView = {
   pill: { theme: 'steel', waveformStyle: 'bars', liveTranscript: false, startSound: false },
 }
 
+/** A slice's value as a commit at `rev` sent it. */
+export type PatchAt = Patch & { rev: number }
+
 /** The settings slice at `rev`, changed from the defaults by `change`. */
-export const settingsAt = (rev: number, change: Partial<SettingsView> = {}): Patch =>
+export const settingsAt = (rev: number, change: Partial<SettingsView> = {}): PatchAt =>
   ({ slice: 'settings', rev, value: { ...DEFAULT_SETTINGS, ...change } })
 
 /** The settings slice at `rev`, with `pill` changed from the defaults. */
-export const pillAt = (rev: number, pill: Partial<PillSettings>): Patch =>
+export const pillAt = (rev: number, pill: Partial<PillSettings>): PatchAt =>
   settingsAt(rev, { pill: { ...DEFAULT_SETTINGS.pill, ...pill } })
 
 /** Every slice as a fresh install starts. */
-const FRESH: Patch[] = [
+const FRESH: PatchAt[] = [
   settingsAt(0),
   { slice: 'hotkeys', rev: 0, value: DEFAULT_SETTINGS.hotkeys },
   { slice: 'models', rev: 0, value: [] },
@@ -46,18 +49,25 @@ const FRESH: Patch[] = [
   { slice: 'dictionary', rev: 0, value: [] },
   { slice: 'savedAudio', rev: 0, value: { bytes: 0, cleanupFailed: false } },
   { slice: 'history', rev: 0, value: 0 },
+  { slice: 'historyTotals', rev: 0, value: 0 },
 ]
+
+/** How a test sends a window one slice's commit. */
+export type Send = (patch: PatchAt) => Promise<void>
+
+const changeOf = ({ rev, ...patch }: PatchAt): Change => ({ rev, patches: [patch as Patch] })
 
 /** Mirror Rust's state, as each window does before its first render: `given`,
  *  and a fresh install's value of every other slice. Returns how Rust sends
- *  this window a later patch. */
-export async function mirror(given: Patch[] = []) {
-  const snapshot = [...given, ...FRESH.filter(patch => !given.some(g => g.slice === patch.slice))]
-  let channel: Channel<Patch> | undefined
+ *  this window a later commit of one slice. */
+export async function mirror(given: PatchAt[] = []): Promise<Send> {
+  const all = [...given, ...FRESH.filter(patch => !given.some(g => g.slice === patch.slice))]
+  const snapshot: Change = { rev: Math.max(...all.map(p => p.rev)), patches: all.map(p => changeOf(p).patches[0]) }
+  let channel: Channel<Change> | undefined
   vi.mocked(invoke).mockImplementationOnce((_cmd, args) => {
-    channel = (args as { patches: Channel<Patch> }).patches
+    channel = (args as { changes: Channel<Change> }).changes
     return Promise.resolve(snapshot)
   })
-  await mirrorRust()
-  return async (patch: Patch) => { await act(async () => { channel!.onmessage(patch) }) }
+  await mirrorRust(ALL_SLICES)
+  return async (patch: PatchAt) => { await act(async () => { channel!.onmessage(changeOf(patch)) }) }
 }

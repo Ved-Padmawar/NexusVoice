@@ -307,11 +307,8 @@ pub struct CudaStatus {
 struct Status(Option<CudaStatus>);
 
 impl Slice for Status {
-    fn patch(&self, rev: u64) -> Patch {
-        Patch::Cuda {
-            rev,
-            value: self.0.clone(),
-        }
+    fn patch(&self) -> Patch {
+        Patch::Cuda(self.0.clone())
     }
 }
 

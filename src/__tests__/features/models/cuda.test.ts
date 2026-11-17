@@ -9,9 +9,8 @@ import { listen } from '@tauri-apps/api/event'
 import { act, renderHook } from '@testing-library/react'
 import { useAppStore } from '../../../app/store/useAppStore'
 import { downloadCuda, listenForCudaNotices, useCuda } from '../../../features/models/cuda'
-import type { Patch } from '../../../shared/bindings'
 import type { CudaStatus } from '../../../shared/types'
-import { mirror, settingsAt } from '../../utils'
+import { mirror, settingsAt, type Send } from '../../utils'
 
 const mockInvoke = vi.mocked(invoke)
 const mockListen = vi.mocked(listen)
@@ -21,7 +20,7 @@ const state = () => useAppStore.getState()
 
 /** Rust's CUDA status, sent to this window. */
 let rev = 0
-let send: (patch: Patch) => Promise<void>
+let send: Send
 const setCuda = (status: CudaStatus) => send({ slice: 'cuda', rev: ++rev, value: status })
 
 beforeEach(async () => {

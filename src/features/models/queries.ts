@@ -37,6 +37,12 @@ export function useActiveModelId() {
   return useSlice('settings', settings => settings.activeModel)
 }
 
+/** The active model's name; `undefined` while it isn't on disk. */
+export function useActiveModelName() {
+  const id = useActiveModelId()
+  return useSlice('models', models => models.find(model => model.variant === id)?.displayName)
+}
+
 export function useActiveModelDownloaded() {
   const id = useActiveModelId()
   return useSlice('models', models => models.some(model => model.variant === id))
@@ -62,7 +68,7 @@ export function useDownloadSummary() {
 /** Make `id`, a model on disk, the one Rust loads. Settles once the screen shows it. */
 export async function switchModel(id: ModelId) {
   const { rev } = await commands.setModelOverride(id)
-  await mirrored('settings', rev)
+  await mirrored(rev)
 }
 
 /** Resolves false when the backend refused to start the download, else once
@@ -71,7 +77,7 @@ export async function switchModel(id: ModelId) {
 export async function startDownload(id: ModelId, { activate = false } = {}): Promise<boolean> {
   try {
     const { rev } = await commands.startModelDownload(id, activate)
-    await mirrored('downloads', rev)
+    await mirrored(rev)
     return true
   } catch {
     return false

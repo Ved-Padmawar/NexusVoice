@@ -10,7 +10,7 @@ use tauri_specta::Event;
 use tokio_util::sync::CancellationToken;
 
 use crate::bridge::events::{LanguageReset, ModelDownloadCancelled};
-use crate::mirror::{Committed, Patch, Slice, Store};
+use crate::mirror::{self, Committed, Patch, Slice, Store};
 use crate::settings::Settings;
 use crate::sync::lock_recovering;
 
@@ -67,7 +67,7 @@ impl PartialEq for DownloadEntry {
 struct Entries(HashMap<String, DownloadEntry>);
 
 impl Slice for Entries {
-    fn patch(&self, rev: u64) -> Patch {
+    fn patch(&self) -> Patch {
         let value = self
             .0
             .iter()
@@ -78,7 +78,7 @@ impl Slice for Entries {
                 error: e.error.clone(),
             })
             .collect();
-        Patch::Downloads { rev, value }
+        Patch::Downloads(value)
     }
 }
 
@@ -207,11 +207,8 @@ impl OnDisk {
 }
 
 impl Slice for OnDisk {
-    fn patch(&self, rev: u64) -> Patch {
-        Patch::Models {
-            rev,
-            value: self.0.clone(),
-        }
+    fn patch(&self) -> Patch {
+        Patch::Models(self.0.clone())
     }
 }
 
@@ -280,52 +277,62 @@ impl ModelLibrary {
         if !self.is_downloaded(entry) {
             return Ok(None);
         }
-        Self::apply_selection(app, entry).map(Some)
+        let (committed, reset) = app.state::<Settings>().select_model(Some(entry))?;
+        Self::load_selected(app, reset);
+        Ok(Some(committed))
     }
 
-    fn apply_selection(app: &AppHandle, entry: &ModelEntry) -> std::io::Result<Committed> {
-        let settings = app.state::<Settings>();
-        let (committed, reset) = settings.select_model(Some(entry))?;
+    /// Swap the engine for the model just selected. `reset`: the selection
+    /// also reset the language, which the new model doesn't offer.
+    fn load_selected(app: &AppHandle, reset: bool) {
         let cache = app.state::<EngineCache>();
         cache.unload();
         if reset {
-            cache.apply_language(&settings);
+            cache.apply_language(&app.state::<Settings>());
             let _ = LanguageReset.emit(app);
         }
         EngineCache::warm(app);
-        Ok(committed)
     }
 
-    /// Publish a model now on disk. Switches to it first when its download
-    /// asked to, so the download ends with the model already active.
+    /// Publish a model now on disk in one commit with the end of its download
+    /// and the switch it asked for, so no window sees one without the others.
     fn complete(app: &AppHandle, downloads: &Downloads, entry: &ModelEntry) {
         let library = app.state::<Self>();
+        let settings = app.state::<Settings>();
         let _changing = lock_recovering(&library.changing);
-        library.rescan();
         let id = entry.id.as_str();
-        if !library.is_downloaded(entry) {
-            downloads.set_error(
-                id,
-                "The downloaded file is no longer available.".to_string(),
-            );
-            return;
-        }
-        if downloads.activates(id) {
-            if let Err(e) = Self::apply_selection(app, entry) {
-                downloads.set_error(id, format!("Downloaded, but could not switch to it: {e}"));
-                return;
+        let activate = downloads.activates(id);
+        let completed = mirror::atomic(|| {
+            library.rescan();
+            if !library.is_downloaded(entry) {
+                return Err("The downloaded file is no longer available.".to_string());
             }
-        } else if app.state::<Settings>().active_model().id == id {
-            // A temporary fallback may be loaded, or still loading.
-            app.state::<EngineCache>().unload();
-            EngineCache::warm(app);
+            let reset = if activate {
+                let (_, reset) = settings
+                    .select_model(Some(entry))
+                    .map_err(|e| format!("Downloaded, but could not switch to it: {e}"))?;
+                Some(reset)
+            } else {
+                None
+            };
+            downloads.remove(id);
+            Ok(reset)
+        });
+        match completed {
+            Ok(Some(reset)) => Self::load_selected(app, reset),
+            Ok(None) if settings.active_model().id == id => {
+                // A temporary fallback may be loaded, or still loading.
+                app.state::<EngineCache>().unload();
+                EngineCache::warm(app);
+            }
+            Ok(None) => {}
+            Err(message) => downloads.set_error(id, message),
         }
-        downloads.remove(id);
     }
 
     /// Delete a downloaded model. Deleting the active one switches to the best
-    /// model left on disk, or to none. Fails with `ResourceBusy` while a
-    /// recording is using the active model.
+    /// model left on disk, or to none, in the same commit as the model list.
+    /// Fails with `ResourceBusy` while a recording is using the active model.
     pub fn delete(&self, app: &AppHandle, entry: &ModelEntry) -> std::io::Result<Committed> {
         let _changing = lock_recovering(&self.changing);
         let settings = app.state::<Settings>();
@@ -339,16 +346,17 @@ impl ModelLibrary {
             ));
         }
         std::fs::remove_file(self.path(entry))?;
-        let committed = self.rescan();
-        if active {
-            match self.best_on_disk(Some(&entry.id)) {
-                Some(next) => {
-                    Self::apply_selection(app, next)?;
-                }
-                None => {
-                    settings.select_model(None)?;
-                }
+        let (committed, reset) = mirror::atomic(|| {
+            let committed = self.rescan();
+            if !active {
+                return Ok((committed, None));
             }
+            let next = self.best_on_disk(Some(&entry.id));
+            let (_, reset) = settings.select_model(next)?;
+            Ok::<_, std::io::Error>((committed, next.map(|_| reset)))
+        })?;
+        if let Some(reset) = reset {
+            Self::load_selected(app, reset);
         }
         Ok(committed)
     }

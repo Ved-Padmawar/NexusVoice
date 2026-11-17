@@ -8,8 +8,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { ModelPickerModal } from '../../../features/models/ModelPickerModal'
 import { useAppStore } from '../../../app/store/useAppStore'
-import type { Patch } from '../../../shared/bindings'
-import { mirror, renderWithQuery, settingsAt } from '../../utils'
+import { mirror, renderWithQuery, settingsAt, type Send } from '../../utils'
 
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }))
 
@@ -27,7 +26,7 @@ const model = (id: string, displayName: string) => ({
 })
 
 let handlers: Map<string, (e: { payload: unknown }) => void>
-let send: (patch: Patch) => Promise<void>
+let send: Send
 let rev = 0
 
 /** Rust's download list landed with the pick queued, so its start settles. */

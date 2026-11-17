@@ -3,11 +3,16 @@
 use tauri::ipc::Channel;
 use tauri::WebviewWindow;
 
-use crate::mirror::{self, Patch};
+use crate::mirror::{self, Change, SliceName};
 
-/// The newest patch of every slice, then each change on `patches`, in order.
+/// The newest value of each of `slices`, then every commit on `changes`, in
+/// order.
 #[tauri::command]
 #[specta::specta]
-pub fn subscribe(window: WebviewWindow, patches: Channel<Patch>) -> Vec<Patch> {
-    mirror::subscribe(window.label(), patches)
+pub fn subscribe(
+    window: WebviewWindow,
+    slices: Vec<SliceName>,
+    changes: Channel<Change>,
+) -> Change {
+    mirror::subscribe(window.label(), slices, changes)
 }

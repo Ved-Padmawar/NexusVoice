@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { invoke } from '@tauri-apps/api/core'
 import { useSlice } from '../../app/mirror'
 import { useChoice } from '../../app/useChoice'
-import type { Committed, Patch, PillTheme } from '../../shared/bindings'
-import { mirror, pillAt, settingsAt } from '../utils'
+import type { Committed, PillTheme } from '../../shared/bindings'
+import { mirror, pillAt, settingsAt, type Send } from '../utils'
 
 const useTheme = () => useSlice('settings', settings => settings.pill.theme)
 
@@ -24,7 +24,7 @@ describe('mirror', () => {
 describe('useChoice', () => {
   /** Saves Rust answers by hand, in the order they were made. */
   const writes: { value: PillTheme; commit: (rev: number) => Promise<void>; refuse: () => Promise<void> }[] = []
-  let send: (patch: Patch) => Promise<void>
+  let send: Send
   const save = (value: PillTheme) => new Promise<Committed>((resolve, reject) => {
     writes.push({
       value,

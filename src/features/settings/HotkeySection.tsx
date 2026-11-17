@@ -149,7 +149,7 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
     setSaving(true)
     try {
       const { rev } = await commands.setHotkey(config.kind, shortcut)
-      await mirrored('settings', rev)
+      await mirrored(rev)
       toast.success(`${config.title} hotkey saved`)
     } catch (e: unknown) {
       // A failed save ends the edit, so the saved shortcuts come back now.
@@ -166,7 +166,7 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
   const handleRemoveHotkey = async () => {
     try {
       const { rev } = await commands.setHotkey(config.kind, null)
-      await mirrored('settings', rev)
+      await mirrored(rev)
     } catch (e: unknown) {
       toast.error(extractErrorMessage(e, `Failed to remove the ${config.title.toLowerCase()} hotkey.`))
     }

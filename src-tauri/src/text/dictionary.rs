@@ -56,10 +56,10 @@ struct Entries(HashMap<String, DictionaryEntry>);
 
 impl Slice for Entries {
     /// Sorted by term, so rows hold still across edits.
-    fn patch(&self, rev: u64) -> Patch {
+    fn patch(&self) -> Patch {
         let mut value: Vec<DictionaryResponse> = self.0.values().cloned().map(Into::into).collect();
         value.sort_unstable_by(|a, b| a.term.cmp(&b.term));
-        Patch::Dictionary { rev, value }
+        Patch::Dictionary(value)
     }
 }
 

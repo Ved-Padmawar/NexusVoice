@@ -31,7 +31,7 @@ export function ModelManagerModal({ open, onClose }: Props) {
     try {
       const { rev } = await commands.deleteModel(variant)
       // Marked deleting until the list no longer shows it.
-      await mirrored('models', rev)
+      await mirrored(rev)
       toast.success(`${displayName} deleted`)
     } catch (e) {
       toast.error(extractErrorMessage(e, 'Failed to delete model'))

@@ -1,7 +1,8 @@
 //! Background transcription of a History entry's audio: an imported file, or
 //! a re-transcription. Jobs queue and run one at a time, in chunks, on an
-//! engine of their own. Dictation goes first: a recording that starts cuts the
-//! job's work, which is redone once the recording is done.
+//! engine of their own, which stays loaded while the queue has jobs for its
+//! model. Dictation goes first: a recording that starts cuts the job's work,
+//! which is redone once the recording is done.
 
 mod chunks;
 
@@ -157,7 +158,7 @@ impl Stop {
 struct Running {
     snapshot: JobSnapshot,
     stop: Arc<Stop>,
-    /// Reaches the job's engine from before its model loads.
+    /// Reaches the jobs' engine from before its model loads.
     canceller: Canceller,
 }
 
@@ -184,11 +185,8 @@ impl State {
 struct JobList(Vec<JobSnapshot>);
 
 impl Slice for JobList {
-    fn patch(&self, rev: u64) -> Patch {
-        Patch::Jobs {
-            rev,
-            value: self.0.clone(),
-        }
+    fn patch(&self) -> Patch {
+        Patch::Jobs(self.0.clone())
     }
 }
 
@@ -272,10 +270,10 @@ impl Jobs {
         true
     }
 
-    /// Start the next job. `None` once the queue is empty.
-    fn next(app: &AppHandle) -> Option<(Job, Arc<Stop>, Canceller)> {
+    /// Start the next job on the engine `canceller` reaches. `None` once the
+    /// queue is empty.
+    fn next(app: &AppHandle, canceller: &Canceller) -> Option<(Job, Arc<Stop>)> {
         let stop = Arc::new(Stop::default());
-        let canceller = Canceller::default();
         app.state::<Self>().edit(|state| {
             let Some(job) = state.queue.pop_front() else {
                 state.working = false;
@@ -290,7 +288,7 @@ impl Jobs {
                 stop: Arc::clone(&stop),
                 canceller: canceller.clone(),
             });
-            Some((job, stop, canceller))
+            Some((job, stop))
         })
     }
 
@@ -341,16 +339,15 @@ pub async fn import(
         })
         .await
         .map_err(|e| e.to_string())?;
-    if let Err(e) = crate::recordings::store(app, entry.id, samples).await {
-        log::warn!("could not keep the audio of entry {}: {e}", entry.id);
-        let _ = repo.delete_by_id(entry.id).await;
-        return Err("Couldn't save that file's audio.".to_string());
+    match crate::recordings::store(app, entry.id, samples).await {
+        Ok(true) => {}
+        Ok(false) => return Err("The imported entry was deleted.".to_string()),
+        Err(e) => {
+            log::warn!("could not keep the audio of entry {}: {e}", entry.id);
+            let _ = repo.delete_by_id(entry.id).await;
+            return Err("Couldn't save that file's audio.".to_string());
+        }
     }
-    let entry = repo
-        .get_by_id(entry.id)
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or("The imported entry was deleted.")?;
     Jobs::enqueue(
         app,
         Job {
@@ -432,18 +429,24 @@ pub async fn cancel(app: &AppHandle, transcript_id: i64) {
     let _ = JobFinished(finish_of(&job, Ok(None))).emit(app);
 }
 
-/// Run queued jobs until there are none, on a blocking thread.
+/// Run queued jobs until there are none, on a blocking thread, keeping the
+/// engine loaded while the next job uses its model.
 fn work(app: &AppHandle) {
-    while let Some((job, stop, canceller)) = Jobs::next(app) {
-        // A panic fails this job only; the queue still has to move on.
-        let result =
-            std::panic::catch_unwind(AssertUnwindSafe(|| run(app, &job, &stop, &canceller)))
-                .unwrap_or_else(|_| {
-                    log::error!("transcription job {} panicked", job.transcript_id);
-                    Err(Failure(
-                        "The transcription stopped unexpectedly.".to_string(),
-                    ))
-                });
+    let canceller = Canceller::default();
+    let mut engine = None;
+    while let Some((job, stop)) = Jobs::next(app, &canceller) {
+        // A panic fails this job only; the queue still has to move on, on a
+        // fresh engine.
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            run(app, &job, &stop, &canceller, &mut engine)
+        }))
+        .unwrap_or_else(|_| {
+            log::error!("transcription job {} panicked", job.transcript_id);
+            engine = None;
+            Err(Failure(
+                "The transcription stopped unexpectedly.".to_string(),
+            ))
+        });
         let finish = finish_of(&job, result);
         if job.kind == JobKind::Import && finish.outcome != JobOutcome::Done {
             tauri::async_runtime::block_on(discard(app, job.transcript_id));
@@ -496,6 +499,7 @@ fn run(
     job: &Job,
     stop: &Stop,
     canceller: &Canceller,
+    engine: &mut Option<TranscriptionEngine>,
 ) -> Result<Option<Done>, Failure> {
     let samples = app
         .state::<Recordings>()
@@ -508,10 +512,19 @@ fn run(
             Failure("The saved audio couldn't be read.".to_string())
         })?;
     let language = job.language.as_deref();
-    let Some(engine) = load_engine(app, job.model, stop, canceller)? else {
-        return Ok(None);
-    };
-    let Some(text) = transcribe(app, &engine, &samples, language, stop, canceller)? else {
+    if engine
+        .as_ref()
+        .is_none_or(|loaded| loaded.entry.id != job.model.id)
+    {
+        // The previous model goes before the next one loads.
+        *engine = None;
+        let Some(loaded) = load_engine(app, job.model, stop, canceller)? else {
+            return Ok(None);
+        };
+        *engine = Some(loaded);
+    }
+    let engine = engine.as_ref().expect("loaded above");
+    let Some(text) = transcribe(app, engine, &samples, language, stop, canceller)? else {
         return Ok(None);
     };
     let output = engine.output_language(language);
@@ -556,7 +569,7 @@ async fn save(app: &AppHandle, job: &Job, text: &str, model_id: &str) -> Result<
     })
 }
 
-/// An engine of the job's own for `model`, so the job never holds dictation's.
+/// An engine of the jobs' own for `model`, so a job never holds dictation's.
 /// `None` when the job was cancelled.
 fn load_engine(
     app: &AppHandle,

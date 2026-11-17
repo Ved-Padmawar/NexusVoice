@@ -1,29 +1,42 @@
 import { useSyncExternalStore } from 'react'
 import { Channel } from '@tauri-apps/api/core'
-import { commands, type Patch } from '../shared/bindings'
+import { commands, type Change, type Patch, type SliceName } from '../shared/bindings'
 
 /** Each slice Rust pushes, by name. */
 export type Slices = { [P in Patch as P['slice']]: P['value'] }
-export type SliceName = keyof Slices
+export type { SliceName }
+
+/** Every slice, for a window that shows them all; the record type fails the
+ *  build when Rust adds a slice this misses. */
+export const ALL_SLICES = Object.keys({
+  settings: true, hotkeys: true, models: true, downloads: true, cuda: true, recording: true,
+  jobs: true, dictionary: true, savedAudio: true, history: true, historyTotals: true,
+} satisfies Record<SliceName, true>) as SliceName[]
 
 const held = new Map<SliceName, { rev: number; value: unknown }>()
 const listeners = new Set<() => void>()
+/** The newest revision this window received. */
+let windowRev = -1
 
-/** Keep `patch` unless this window already holds that revision or a newer one. */
-function apply(patch: Patch) {
-  const current = held.get(patch.slice)
-  if (current && current.rev >= patch.rev) return
-  held.set(patch.slice, { rev: patch.rev, value: patch.value })
+/** Keep each patch of `change` this window doesn't already hold newer, then
+ *  tell every listener once, so a commit that changed several slices shows
+ *  as one. */
+function apply(change: Change) {
+  for (const patch of change.patches) {
+    const current = held.get(patch.slice)
+    if (!current || current.rev < change.rev) held.set(patch.slice, { rev: change.rev, value: patch.value })
+  }
+  windowRev = Math.max(windowRev, change.rev)
   for (const listener of listeners) listener()
 }
 
-/** Mirror Rust's state in this window: the newest of every slice, then each
- *  change in order. Awaited before the first render, so every slice is here
- *  before a component reads it. */
-export async function mirrorRust() {
+/** Mirror `slices` of Rust's state in this window: their newest values, then
+ *  every commit in order. Awaited before the first render, so each slice is
+ *  here before a component reads it. */
+export async function mirrorRust(slices: SliceName[]) {
   held.clear()
-  const snapshot = await commands.subscribe(new Channel<Patch>(apply))
-  snapshot.forEach(apply)
+  windowRev = -1
+  apply(await commands.subscribe(slices, new Channel<Change>(apply)))
 }
 
 function listen(listener: () => void) {
@@ -34,7 +47,7 @@ function listen(listener: () => void) {
 /** `slice` as this window holds it now, for code outside a component. */
 export function latest<S extends SliceName>(slice: S): Slices[S] {
   const current = held.get(slice)
-  if (!current) throw new Error(`Rust has not sent the ${slice} state`)
+  if (!current) throw new Error(`this window does not mirror the ${slice} state`)
   return current.value as Slices[S]
 }
 
@@ -44,8 +57,8 @@ export function useSlice<S extends SliceName, R>(slice: S, select: (value: Slice
   return useSyncExternalStore(listen, () => select(latest(slice)))
 }
 
-/** The revision of `slice` this window holds; -1 before Rust sent one. A read
- *  that depends on the slice keys on it. */
+/** The revision `slice` last changed at; -1 before Rust sent it. A read that
+ *  depends on the slice keys on it. */
 export function revisionOf(slice: SliceName): number {
   return held.get(slice)?.rev ?? -1
 }
@@ -54,11 +67,12 @@ export function useRevision(slice: SliceName): number {
   return useSyncExternalStore(listen, () => revisionOf(slice))
 }
 
-/** Resolves once this window holds `slice` at `rev` or a newer revision. */
-export function mirrored(slice: SliceName, rev: number) {
+/** Resolves once this window holds revision `rev`: every window receives
+ *  every revision. */
+export function mirrored(rev: number) {
   return new Promise<void>((resolve) => {
     const check = () => {
-      if ((held.get(slice)?.rev ?? -1) < rev) return
+      if (windowRev < rev) return
       listeners.delete(check)
       resolve()
     }

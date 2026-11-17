@@ -2,8 +2,8 @@ use super::*;
 
 /// What the windows see of the downloads.
 fn snapshot(d: &Downloads) -> Vec<Download> {
-    match d.entries.read(|entries| entries.patch(0)) {
-        Patch::Downloads { value, .. } => value,
+    match d.entries.read(Slice::patch) {
+        Patch::Downloads(value) => value,
         other => panic!("downloads sent {other:?}"),
     }
 }

@@ -31,7 +31,7 @@ fn a_file_from_before_saved_audio_and_paste_modes_keeps_its_choices() {
     assert_eq!(settings.model().as_deref(), Some("whisper-small"));
     assert!(settings.keep_mic_open());
     assert_eq!(settings.saved_audio(), SavedAudio::default());
-    assert_eq!(settings.paste_mode(), PasteMode::Auto);
+    assert_eq!(settings.read(|f| f.paste_mode), PasteMode::Auto);
 }
 
 #[test]

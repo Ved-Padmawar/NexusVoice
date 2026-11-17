@@ -25,11 +25,8 @@ pub struct SavedAudioStatus {
 }
 
 impl Slice for SavedAudioStatus {
-    fn patch(&self, rev: u64) -> Patch {
-        Patch::SavedAudio {
-            rev,
-            value: self.clone(),
-        }
+    fn patch(&self) -> Patch {
+        Patch::SavedAudio(self.clone())
     }
 }
 
@@ -168,9 +165,10 @@ pub fn keep_native(app: &AppHandle, id: i64, samples: Vec<f32>, native_rate: u32
     });
 }
 
-/// Write entry `id`'s audio (16 kHz mono). Audio past the limit is deleted only
+/// Write entry `id`'s audio (16 kHz mono). False when the entry was deleted
+/// meanwhile, which deletes the file too. Audio past the limit is deleted only
 /// after the new file is down; a failure there doesn't fail this save.
-pub async fn store(app: &AppHandle, id: i64, samples_16k: Vec<f32>) -> Result<(), String> {
+pub async fn store(app: &AppHandle, id: i64, samples_16k: Vec<f32>) -> Result<bool, String> {
     let written = {
         let app = app.clone();
         tauri::async_runtime::spawn_blocking(move || {
@@ -191,7 +189,7 @@ pub async fn store(app: &AppHandle, id: i64, samples_16k: Vec<f32>) -> Result<()
     // while the audio encoded, or the flag couldn't be written.
     match flagged.await {
         Ok(true) => {}
-        Ok(false) => return remove(app, id).await,
+        Ok(false) => return remove(app, id).await.map(|()| false),
         Err(e) => {
             if let Err(e) = remove(app, id).await {
                 log::warn!("{e}");
@@ -203,7 +201,7 @@ pub async fn store(app: &AppHandle, id: i64, samples_16k: Vec<f32>) -> Result<()
     if let Err(e) = apply_limit(app).await {
         log::warn!("could not apply the saved audio limit: {e}");
     }
-    Ok(())
+    Ok(true)
 }
 
 /// Make the folder and the database agree after a launch: a file no entry

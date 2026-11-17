@@ -4,14 +4,15 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { extractErrorMessage } from '../shared/errors'
 import { logger } from '../shared/logger'
 import { ErrorBoundary, ErrorScreen } from './ErrorBoundary'
-import { mirrorRust } from './mirror'
+import { mirrorRust, type SliceName } from './mirror'
 import { queryClient } from './queryClient'
 
 type Fallback = (message: string, retry: () => void) => ReactNode
 
-/** Render a window once it mirrors Rust's state; a failed subscribe shows
- *  `fallback`, whose retry subscribes again. */
+/** Render a window once it mirrors the `slices` of Rust's state it shows; a
+ *  failed subscribe shows `fallback`, whose retry subscribes again. */
 export function bootstrapMirror(
+  slices: SliceName[],
   render: () => ReactNode,
   { loading = null, fallback = (message, retry) => <ErrorScreen title="Couldn't connect" message={message} retry={retry} /> }: {
     loading?: ReactNode
@@ -22,7 +23,7 @@ export function bootstrapMirror(
 
   const start = () => {
     root.render(loading)
-    mirrorRust().then(() => root.render(
+    mirrorRust(slices).then(() => root.render(
       <StrictMode>
         <ErrorBoundary>
           <QueryClientProvider client={queryClient}>{render()}</QueryClientProvider>

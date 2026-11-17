@@ -49,7 +49,7 @@ export async function removeCuda() {
 export async function listenForCudaNotices(): Promise<() => void> {
   // A notice from an earlier attempt must not touch a newer download.
   const stillLatest = async (attempt: number, rev: number) => {
-    await mirrored('cuda', rev)
+    await mirrored(rev)
     const cuda = latest('cuda')
     return cuda?.attempt === attempt && cuda.downloadProgress === null
   }

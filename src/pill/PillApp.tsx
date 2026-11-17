@@ -192,6 +192,9 @@ export function PillApp() {
   useEffect(() => {
     if (status !== 'recording' && status !== 'dictation' && status !== 'dictation-paused') setPartial(null)
   }, [status])
+  // Rust sends nothing while the preview is off, so what was shown is stale;
+  // it resends the current text once the preview is back on.
+  useEffect(() => { if (!liveTranscript) setPartial(null) }, [liveTranscript])
 
   useEventListener('transcriptionComplete', ({ pasteError, saved }) => {
     if (pasteError) showTooltip(saved ? "Couldn't paste - it's saved in your history" : "Couldn't paste or save this dictation")

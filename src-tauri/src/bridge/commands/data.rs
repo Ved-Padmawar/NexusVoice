@@ -2,10 +2,9 @@
 
 use chrono::{DateTime, Local, NaiveDate, NaiveTime, TimeDelta, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
-use std::io::Write;
-use std::path::{Component, Path, PathBuf};
 use tauri::{AppHandle, Manager, State};
 
+use crate::data::export::{export, ExportFormat, Selection};
 use crate::data::repositories::transcript::{Cursor, TranscriptRepository};
 use crate::data::Database;
 use crate::mirror::Committed;
@@ -304,32 +303,64 @@ pub async fn delete_dictionary_entry(
     Ok(dictionary.delete(&db.pool().await?, id).await?)
 }
 
-/// Write an export into the user's Downloads folder and return where it went.
-/// An existing file is never overwritten: the name gets " (2)", " (3)", ….
+/// What History shows, to export: its search, filters and the rows it hides
+/// behind an Undo.
+#[derive(Debug, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportRequest {
+    query: String,
+    from: Option<String>,
+    to: Option<String>,
+    sort_asc: bool,
+    exclude: Vec<i64>,
+    format: ExportFormat,
+}
+
+#[derive(Debug, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Exported {
+    pub path: String,
+    pub count: usize,
+}
+
+/// Export what History shows into the user's Downloads folder, never over an
+/// existing file. `None` when nothing matches.
 #[tauri::command]
 #[specta::specta]
-pub async fn save_export(
+pub async fn export_transcripts(
     app: AppHandle,
-    file_name: String,
-    content: String,
-) -> Result<String, ApiError> {
-    if !is_bare_file_name(&file_name) {
-        return Err(ApiError::new(
-            "invalid_input",
-            "Couldn't save the export to Downloads.",
-        ));
+    db: State<'_, Database>,
+    request: ExportRequest,
+) -> Result<Option<Exported>, ApiError> {
+    let range = PageQuery {
+        from: request.from,
+        to: request.to,
+        ..PageQuery::default()
     }
+    .created_at_range()?;
     let downloads = app.path().download_dir().map_err(|e| {
         log::warn!("downloads folder not found: {e}");
         ApiError::new("io_error", "Couldn't find your Downloads folder.")
     })?;
-    // Off the main thread: a large export or a slow folder would freeze every window.
-    let path = tauri::async_runtime::spawn_blocking(move || {
-        write_without_overwriting(&downloads, &file_name, &content)
-    })
-    .await
-    .expect("export write panicked")?;
-    Ok(path.to_string_lossy().into_owned())
+    let query = request.query.trim();
+    let selection = Selection {
+        search: (!query.is_empty()).then(|| TranscriptRepository::build_fts_query(query)),
+        from: range.start,
+        to: range.end,
+        sort_desc: !request.sort_asc,
+        exclude: request.exclude.into_iter().collect(),
+    };
+    let repo = TranscriptRepository::new(db.pool().await?);
+    let exported = export(&repo, selection, downloads, request.format)
+        .await
+        .map_err(|e| {
+            log::warn!("export failed: {e}");
+            ApiError::new("io_error", "Couldn't save the export to Downloads.")
+        })?;
+    Ok(exported.map(|(path, count)| Exported {
+        path: path.to_string_lossy().into_owned(),
+        count,
+    }))
 }
 
 /// Open the file manager with `path` selected.
@@ -340,58 +371,6 @@ pub fn reveal_in_folder(path: String) -> Result<(), ApiError> {
         log::warn!("reveal in folder failed: {e}");
         ApiError::new("open_error", "Couldn't open the folder.")
     })
-}
-
-/// A single file name: no directories, and none of the characters Windows
-/// refuses in one. Backslash is listed because Unix would accept it as a
-/// plain character.
-fn is_bare_file_name(name: &str) -> bool {
-    let mut components = Path::new(name).components();
-    matches!(
-        (components.next(), components.next()),
-        (Some(Component::Normal(_)), None)
-    ) && !name.contains(['\\', '<', '>', ':', '"', '|', '?', '*'])
-}
-
-/// Create `dir/file_name`, or the first free "name (n).ext", and fill it.
-/// Creation is exclusive, so a file that appears meanwhile is not clobbered.
-fn write_without_overwriting(
-    dir: &Path,
-    file_name: &str,
-    content: &str,
-) -> std::io::Result<PathBuf> {
-    let name = Path::new(file_name);
-    let stem = name.file_stem().unwrap_or_default().to_string_lossy();
-    let extension = name
-        .extension()
-        .map_or_default(|e| format!(".{}", e.to_string_lossy()));
-    for attempt in 1.. {
-        let candidate = if attempt == 1 {
-            dir.join(file_name)
-        } else {
-            dir.join(format!("{stem} ({attempt}){extension}"))
-        };
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-        {
-            Ok(mut file) => {
-                return match file.write_all(content.as_bytes()) {
-                    Ok(()) => Ok(candidate),
-                    // A partial export would look complete and take the name.
-                    Err(e) => {
-                        drop(file);
-                        let _ = std::fs::remove_file(&candidate);
-                        Err(e)
-                    }
-                };
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(e) => return Err(e),
-        }
-    }
-    unreachable!("the attempt counter is unbounded")
 }
 
 #[cfg(test)]

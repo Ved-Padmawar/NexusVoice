@@ -6,8 +6,8 @@ import { queryClient } from '../../app/queryClient'
 import { listen, type EventCallback } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { PillApp } from '../../pill/PillApp'
-import type { Download, Patch, PillSettings, RecordingStatus } from '../../shared/bindings'
-import { mirror, pillAt } from '../utils'
+import type { Download, PillSettings, RecordingStatus } from '../../shared/bindings'
+import { mirror, pillAt, type Send } from '../utils'
 
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({ setAlwaysOnTop: vi.fn().mockResolvedValue(undefined), startDragging: vi.fn().mockResolvedValue(undefined) }) }))
 vi.mock('../../shared/ui/WaveformCanvas', () => ({ WaveformCanvas: () => <canvas /> }))
@@ -28,7 +28,7 @@ const emit = async (event: string, payload: unknown = null) => {
 
 
 
-let sendPatch: (patch: Patch) => Promise<void>
+let sendPatch: Send
 let rev = 0
 /** Rust saved a change to the pill's preferences and sent it. */
 const setPill = (change: Partial<PillSettings>) => sendPatch(pillAt(++rev, change))

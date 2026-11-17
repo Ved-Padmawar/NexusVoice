@@ -1,11 +1,8 @@
-use std::sync::Arc;
-
 use sqlx::SqlitePool;
 
 use crate::data::dto::transcript::CreateTranscript;
 use crate::data::rows::transcript::{PendingImport, Transcript};
-use crate::data::{Writes, HISTORY};
-use crate::mirror::{Committed, Store};
+use crate::data::{history, History, HistoryWrite};
 
 /// Last row of a page — identifies a row, not an index.
 ///
@@ -59,30 +56,31 @@ fn keyset_sql(sort_desc: bool, has_cursor: bool) -> &'static str {
     }
 }
 
+/// The totals and daily words leave out pending imports.
+fn totals_unless_pending(pending: bool) -> HistoryWrite {
+    if pending {
+        HistoryWrite::Rows
+    } else {
+        HistoryWrite::RowsAndTotals
+    }
+}
+
 #[derive(Clone)]
 pub struct TranscriptRepository {
     pool: SqlitePool,
-    history: Arc<Store<Writes>>,
+    history: &'static History,
 }
 
 impl TranscriptRepository {
     pub fn new(pool: SqlitePool) -> Self {
         Self {
             pool,
-            history: Arc::clone(&HISTORY),
-        }
-    }
-
-    /// Publish after the commit, so a read at this revision sees the write.
-    fn committed(&self, changed: bool) -> Committed {
-        if changed {
-            self.history.set(|writes| writes.0 += 1)
-        } else {
-            self.history.committed()
+            history: history(),
         }
     }
 
     pub async fn create(&self, input: CreateTranscript) -> Result<Transcript, sqlx::Error> {
+        let write = totals_unless_pending(input.pending);
         let created = sqlx::query_as::<_, Transcript>(
             "INSERT INTO transcripts
                (content, word_count, duration_seconds, target_app, source_name, model, pending, language)
@@ -99,7 +97,7 @@ impl TranscriptRepository {
         .bind(input.language)
         .fetch_one(&self.pool)
         .await?;
-        self.committed(true);
+        self.history.wrote(write);
         Ok(created)
     }
 
@@ -169,13 +167,14 @@ impl TranscriptRepository {
     }
 
     pub async fn delete_by_id(&self, id: i64) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM transcripts WHERE id = ?")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
-        let changed = result.rows_affected() > 0;
-        self.committed(changed);
-        Ok(changed)
+        let pending: Option<bool> =
+            sqlx::query_scalar("DELETE FROM transcripts WHERE id = ? RETURNING pending")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?;
+        self.history
+            .wrote(pending.map_or(HistoryWrite::None, totals_unless_pending));
+        Ok(pending.is_some())
     }
 
     /// Replace the text and model and clear `pending`, in one transaction:
@@ -210,7 +209,7 @@ impl TranscriptRepository {
         .fetch_one(&mut *tx)
         .await?;
         tx.commit().await?;
-        self.committed(true);
+        self.history.wrote(HistoryWrite::RowsAndTotals);
         Ok(Some((old_content, old_model, after)))
     }
 
@@ -224,7 +223,7 @@ impl TranscriptRepository {
         model: Option<&str>,
     ) -> Result<bool, sqlx::Error> {
         let word_count = i64::try_from(content.split_whitespace().count()).unwrap_or(i64::MAX);
-        let result = sqlx::query(
+        let restored = sqlx::query(
             "UPDATE transcripts
              SET content = ?, word_count = ?, model = ?, revision = revision + 1
              WHERE id = ? AND revision = ?",
@@ -235,33 +234,36 @@ impl TranscriptRepository {
         .bind(id)
         .bind(revision)
         .execute(&self.pool)
-        .await?;
-        let changed = result.rows_affected() > 0;
-        self.committed(changed);
-        Ok(changed)
+        .await?
+        .rows_affected();
+        self.history
+            .wrote(HistoryWrite::RowsAndTotals.if_any(restored));
+        Ok(restored > 0)
     }
 
-    pub async fn set_pinned(&self, id: i64, pinned: bool) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("UPDATE transcripts SET pinned = ? WHERE id = ?")
-            .bind(pinned)
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
-        let changed = result.rows_affected() > 0;
-        self.committed(changed);
-        Ok(changed)
+    /// A pin already as asked writes nothing.
+    pub async fn set_pinned(&self, id: i64, pinned: bool) -> Result<(), sqlx::Error> {
+        let changed =
+            sqlx::query("UPDATE transcripts SET pinned = ?1 WHERE id = ?2 AND pinned IS NOT ?1")
+                .bind(pinned)
+                .bind(id)
+                .execute(&self.pool)
+                .await?
+                .rows_affected();
+        self.history.wrote(HistoryWrite::Rows.if_any(changed));
+        Ok(())
     }
 
     /// Record that `id`'s audio file exists, or no longer does.
     pub async fn set_has_audio(&self, id: i64, has_audio: bool) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("UPDATE transcripts SET has_audio = ? WHERE id = ?")
+        let flagged = sqlx::query("UPDATE transcripts SET has_audio = ? WHERE id = ?")
             .bind(has_audio)
             .bind(id)
             .execute(&self.pool)
-            .await?;
-        let changed = result.rows_affected() > 0;
-        self.committed(changed);
-        Ok(changed)
+            .await?
+            .rows_affected();
+        self.history.wrote(HistoryWrite::Rows.if_any(flagged));
+        Ok(flagged > 0)
     }
 
     pub async fn pending(&self) -> Result<Vec<PendingImport>, sqlx::Error> {
@@ -293,7 +295,8 @@ impl TranscriptRepository {
         .bind(keep.map_or(0, i64::from))
         .fetch_all(&self.pool)
         .await?;
-        self.committed(!rows.is_empty());
+        self.history
+            .wrote(HistoryWrite::Rows.if_any(rows.len() as u64));
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 

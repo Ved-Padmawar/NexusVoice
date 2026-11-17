@@ -9,7 +9,6 @@ use crate::models::cache::EngineCache;
 use crate::models::catalog::{self, ModelEntry, Pipeline};
 use crate::models::cuda::{CudaPack, PackState};
 use crate::models::idle::ModelUnload;
-use crate::models::language::{self, LanguageSettings};
 use crate::models::library::ModelLibrary;
 use crate::models::provider::canonical_override;
 use crate::settings::Settings;
@@ -107,18 +106,6 @@ pub async fn set_model_override(app: AppHandle, variant: String) -> Result<Commi
     })
     .await
     .map_err(|e| ApiError::new("io_error", e.to_string()))?
-}
-
-/// The language list for any model, as the import dialog's model picker needs.
-#[tauri::command]
-#[specta::specta]
-pub fn get_language_options_for(
-    settings: State<'_, Settings>,
-    model: String,
-) -> Result<LanguageSettings, ApiError> {
-    let entry = catalog::find(&model)
-        .ok_or_else(|| ApiError::new("invalid_model", "That model isn't in the catalog."))?;
-    Ok(language::options(entry, settings.language().as_deref()))
 }
 
 #[tauri::command]

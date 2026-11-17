@@ -75,7 +75,7 @@ export function FormattingToggle() {
 
   // Closes once the saved setup is on screen, so the switch never flickers off.
   const saved = ({ rev }: Committed) => {
-    void mirrored('settings', rev).then(() => setModalOpen(false))
+    void mirrored(rev).then(() => setModalOpen(false))
   }
 
   const preset = PRESETS.find((p) => p.id === config.provider)

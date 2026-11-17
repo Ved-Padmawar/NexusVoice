@@ -1,104 +1,115 @@
 //! A store's one write path, and what a subscribed window receives from it.
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use tauri::ipc::InvokeResponseBody;
 
 use super::*;
-use crate::models::language::LanguageSettings;
-use crate::settings::formatter::FormatterView;
-use crate::settings::{PillSettings, PillTheme, SavedAudio};
 
 #[derive(Clone, PartialEq)]
-struct Pill(PillSettings);
+struct Count(u64);
 
-impl Slice for Pill {
-    fn patch(&self, rev: u64) -> Patch {
-        let value = SettingsView {
-            active_model: "whisper-tiny".into(),
-            hotkeys: crate::settings::HotkeyBindings::default(),
-            language: LanguageSettings {
-                supported: false,
-                options: Vec::new(),
-            },
-            model_unload: crate::models::idle::ModelUnload::default(),
-            input_device: None,
-            keep_mic_open: false,
-            saved_audio: SavedAudio::default(),
-            paste_mode: crate::settings::PasteMode::default(),
-            formatter: FormatterView {
-                enabled: false,
-                provider: "ollama".into(),
-                profiles: HashMap::new(),
-            },
-            pill: self.0,
-        };
-        Patch::Settings { rev, value }
+impl Slice for Count {
+    fn patch(&self) -> Patch {
+        Patch::History(self.0)
     }
 }
 
-fn theme(theme: PillTheme) -> impl FnOnce(&mut Pill) {
-    move |pill| pill.0.theme = theme
+#[derive(Clone, PartialEq)]
+struct Totals(u64);
+
+impl Slice for Totals {
+    fn patch(&self) -> Patch {
+        Patch::HistoryTotals(self.0)
+    }
 }
 
-/// A window's channel, and the revisions it has received.
-fn window() -> (Channel<Patch>, Arc<Mutex<Vec<u64>>>) {
-    let revs = Arc::new(Mutex::new(Vec::new()));
-    let received = Arc::clone(&revs);
+/// Each revision a window received, with the slices that came with it.
+type Received = Arc<Mutex<Vec<(u64, Vec<String>)>>>;
+
+/// A window mirroring `slices`, and what it receives.
+fn window(label: &str, slices: &[SliceName]) -> Received {
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::clone(&received);
     let channel = Channel::new(move |body: InvokeResponseBody| {
-        let patch: serde_json::Value = body.deserialize().unwrap();
-        received
-            .lock()
+        let change: serde_json::Value = body.deserialize().unwrap();
+        let slices = change["patches"]
+            .as_array()
             .unwrap()
-            .push(patch["rev"].as_u64().unwrap());
+            .iter()
+            .map(|patch| patch["slice"].as_str().unwrap().to_owned())
+            .collect();
+        log.lock()
+            .unwrap()
+            .push((change["rev"].as_u64().unwrap(), slices));
         Ok(())
     });
-    (channel, revs)
+    subscribe(label, slices.to_vec(), channel);
+    received
 }
 
 #[test]
-fn a_window_gets_the_current_value_then_each_saved_change_in_order() {
-    let store = Store::isolated(Pill(PillSettings::default()));
-    let (channel, received) = window();
+fn a_window_gets_each_saved_change_in_order_and_nothing_for_a_write_that_changed_nothing() {
+    let store = Store::new(Count(0));
+    let received = window("main", &[SliceName::History]);
 
-    let snapshot = lock_recovering(&store.hub).subscribe("main", channel);
-    assert_eq!(snapshot, vec![Pill(PillSettings::default()).patch(0)]);
-
-    store
-        .update(theme(PillTheme::Aurora), |_| std::io::Result::Ok(()))
+    let first = store
+        .update(|c| c.0 = 1, |_| std::io::Result::Ok(()))
         .unwrap();
-    store
-        .update(theme(PillTheme::Dawn), |_| std::io::Result::Ok(()))
+    let second = store
+        .update(|c| c.0 = 2, |_| std::io::Result::Ok(()))
         .unwrap();
-    // Changing nothing saves nothing and sends nothing; the caller still
-    // learns the revision its mirror already holds.
+    // The caller still learns the revision its mirror already holds.
     let unchanged = store
-        .update(theme(PillTheme::Dawn), |_| -> std::io::Result<()> {
-            panic!("an unchanged value was saved")
-        })
+        .update(
+            |c| c.0 = 2,
+            |_| -> std::io::Result<()> { panic!("an unchanged value was saved") },
+        )
         .unwrap();
 
-    assert_eq!(unchanged, Committed { rev: 2 });
-    assert_eq!(*received.lock().unwrap(), vec![1, 2]);
+    assert_eq!(unchanged, second);
+    assert_eq!(
+        *received.lock().unwrap(),
+        vec![
+            (first.rev, vec!["history".to_owned()]),
+            (second.rev, vec!["history".to_owned()]),
+        ]
+    );
 }
 
 #[test]
 fn a_failed_save_leaves_the_value_and_the_windows_as_they_were() {
-    let store = Store::isolated(Pill(PillSettings::default()));
-    let (channel, received) = window();
-    lock_recovering(&store.hub).subscribe("main", channel);
+    let store = Store::new(Count(0));
+    let before = store.committed();
+    let received = window("main", &[SliceName::History]);
 
-    let failed = store.update(theme(PillTheme::Aurora), |_| {
-        Err(std::io::Error::other("disk full"))
-    });
+    let failed = store.update(|c| c.0 = 1, |_| Err(std::io::Error::other("disk full")));
 
     assert!(failed.is_err());
-    assert_eq!(store.read(|pill| pill.0.theme), PillTheme::default());
+    assert_eq!(store.read(|c| c.0), 0);
+    assert_eq!(store.committed(), before);
     assert!(received.lock().unwrap().is_empty());
-    // The next write takes the revision the failed one did not.
-    let next = store
-        .update(theme(PillTheme::Dawn), |_| std::io::Result::Ok(()))
-        .unwrap();
-    assert_eq!(next, Committed { rev: 1 });
+}
+
+#[test]
+fn stores_changed_together_reach_each_window_at_one_revision_and_only_its_slices() {
+    let (rows, totals) = (Store::new(Count(0)), Store::new(Totals(0)));
+    let main = window("main", &[SliceName::History, SliceName::HistoryTotals]);
+    let pill = window("pill", &[SliceName::Recording]);
+
+    let committed = atomic(|| {
+        totals.set(|t| t.0 += 1);
+        rows.set(|c| c.0 += 1)
+    });
+
+    assert_eq!(totals.committed(), committed);
+    assert_eq!(
+        *main.lock().unwrap(),
+        vec![(
+            committed.rev,
+            vec!["historyTotals".to_owned(), "history".to_owned()]
+        )]
+    );
+    // The pill mirrors neither, yet still learns the revision.
+    assert_eq!(*pill.lock().unwrap(), vec![(committed.rev, Vec::new())]);
 }

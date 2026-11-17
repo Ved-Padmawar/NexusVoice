@@ -5,11 +5,11 @@ import type { ReactNode } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { queryClient } from '../../app/queryClient'
 import { queryKeys } from '../../shared/queryKeys'
-import { fetchAllTranscripts, NO_FILTERS, PAGE_SIZE, useDeleteTranscript, useHistoryFeed } from '../../features/history/queries'
+import { NO_FILTERS, PAGE_SIZE, useDeleteTranscript, useHistoryFeed } from '../../features/history/queries'
 import { useDeleteDictionaryEntry, useDictionary, useUpdateDictionary } from '../../features/dictionary/queries'
-import type { DictionaryResponse, Patch } from '../../shared/bindings'
+import type { DictionaryResponse } from '../../shared/bindings'
 import type { Transcript } from '../../shared/types'
-import { mirror } from '../utils'
+import { mirror, type Send } from '../utils'
 import { revisionOf } from '../../app/mirror'
 
 type ToastOptions = { onAutoClose?: () => void; onDismiss?: () => void; action?: { onClick: () => void } }
@@ -56,7 +56,7 @@ describe('local Query cache', () => {
 })
 
 describe('History revisions', () => {
-  let send: (patch: Patch) => Promise<void>
+  let send: Send
   /** Rust committed a write to History at `rev`. */
   const historyAt = (rev: number) => send({ slice: 'history', rev, value: rev })
   /** Answers each feed read in turn; one left undefined stays in flight. */
@@ -149,7 +149,7 @@ describe('deleting behind Undo', () => {
     expect(vi.mocked(invoke).mock.calls.some(([cmd]) => cmd === 'delete_transcript')).toBe(true)
   })
 
-  it('keeps a pending delete hidden when a refetch or export returns it, and gone once it commits; export skips an untranscribed import', async () => {
+  it('keeps a pending delete hidden when a refetch returns it, and gone once it commits', async () => {
     queryClient.setQueryData(feedKey(), pages([row(3), row(2), row(1)]))
     // The database still holds both rows until their undo windows close.
     vi.mocked(invoke).mockImplementation((cmd) => Promise.resolve(cmd === 'delete_transcript' ? undefined : [row(3), row(2), row(1)]))
@@ -159,15 +159,10 @@ describe('deleting behind Undo', () => {
     act(() => deleteOne.action?.onClick())
     await act(async () => { await result.current.feed.refetch() })
     expect(ids(result.current.feed.data)).toEqual([3, 1])
-    let finishRead = () => {}
-    vi.mocked(invoke).mockImplementation(() => new Promise(resolve => { finishRead = () => resolve([{ ...row(4), pending: true }, row(3), row(2), row(1)]) }))
-    const exported = fetchAllTranscripts('', NO_FILTERS)
-    // Row 2's undo window closes while the export is still reading it.
+
     vi.mocked(invoke).mockImplementation((cmd) => Promise.resolve(cmd === 'delete_transcript' ? undefined : [row(3), row(1)]))
     await act(async () => { deleteTwo.onAutoClose?.() })
     await waitFor(() => expect(ids(result.current.feed.data)).toEqual([3, 1]))
-    finishRead()
-    expect((await exported).map(t => t.id)).toEqual([3, 1])
   })
 
   it('keeps a deleted transcript hidden when History reopens on the list cached before the delete', async () => {

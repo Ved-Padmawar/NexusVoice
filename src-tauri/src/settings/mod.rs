@@ -215,24 +215,21 @@ pub struct SettingsView {
 }
 
 impl Slice for Saved {
-    fn patch(&self, rev: u64) -> Patch {
+    fn patch(&self) -> Patch {
         let file = &self.file;
         let model = self.active_model();
-        Patch::Settings {
-            rev,
-            value: SettingsView {
-                active_model: model.id.clone(),
-                hotkeys: file.hotkeys.clone(),
-                language: language::options(model, file.language.as_deref()),
-                model_unload: file.model_unload,
-                input_device: file.input_device.clone(),
-                keep_mic_open: file.keep_mic_open,
-                saved_audio: file.saved_audio,
-                paste_mode: file.paste_mode,
-                formatter: file.formatter.view(&self.keyed),
-                pill: file.pill,
-            },
-        }
+        Patch::Settings(SettingsView {
+            active_model: model.id.clone(),
+            hotkeys: file.hotkeys.clone(),
+            language: language::options(model, file.language.as_deref()),
+            model_unload: file.model_unload,
+            input_device: file.input_device.clone(),
+            keep_mic_open: file.keep_mic_open,
+            saved_audio: file.saved_audio,
+            paste_mode: file.paste_mode,
+            formatter: file.formatter.view(&self.keyed),
+            pill: file.pill,
+        })
     }
 }
 
@@ -394,6 +391,8 @@ impl Settings {
         self.update(|s| s.file.saved_audio.apply(change))
     }
 
+    /// Only Windows pastes through the clipboard with a chosen shortcut.
+    #[cfg(windows)]
     pub fn paste_mode(&self) -> PasteMode {
         self.read(|f| f.paste_mode)
     }
@@ -404,6 +403,11 @@ impl Settings {
 
     pub fn pill(&self) -> PillSettings {
         self.read(|f| f.pill)
+    }
+
+    /// The pill settings, and the settings revision they were read at.
+    pub fn pill_at(&self) -> (PillSettings, u64) {
+        self.saved.read_at(|saved| saved.file.pill)
     }
 
     pub fn set_pill(&self, change: PillSetting) -> std::io::Result<Committed> {

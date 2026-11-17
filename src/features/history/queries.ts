@@ -39,13 +39,11 @@ const toPage = (rows: Transcript[]): TranscriptPage => {
 
 const getNextPageParam = (lastPage: TranscriptPage) => lastPage.next
 
-const pageArg = (filters: TranscriptFilters, cursor: Cursor, limit = PAGE_SIZE): PageQuery => ({
-  limit,
+const pageArg = (filters: TranscriptFilters, cursor: Cursor): PageQuery => ({
+  limit: PAGE_SIZE,
   ...cursor,
   ...filters,
 })
-
-const EXPORT_PAGE_SIZE = 200
 
 /** A read of History at a revision is current for good. A failed one is
  *  retried, soon, so the change it was for still shows. */
@@ -89,27 +87,8 @@ const statsOptions = (rev: number) => ({
 
 const pendingDeletes = createPendingDeletes()
 
-/** Every transcript the feed shows for this search and filters, a page at a
- *  time so no call holds the whole table. A row hidden for Undo at any point
- *  stays out, even once its delete commits, and so does an import with no
- *  text yet. */
-export async function fetchAllTranscripts(query: string, filters: TranscriptFilters): Promise<Transcript[]> {
-  const all: Transcript[] = []
-  const hidden = new Set<number>()
-  const noteHidden = () => pendingDeletes.current().forEach(id => hidden.add(id))
-  let cursor = NO_CURSOR
-  for (;;) {
-    noteHidden()
-    const rows = await readPage(query, pageArg(filters, cursor, EXPORT_PAGE_SIZE))
-    all.push(...rows)
-    const last = rows.at(-1)
-    if (!last || rows.length < EXPORT_PAGE_SIZE) {
-      noteHidden()
-      return all.filter(row => !row.pending && !hidden.has(row.id))
-    }
-    cursor = { cursorCreatedAt: last.createdAt, cursorId: last.id }
-  }
-}
+/** Rows deleted behind an Undo toast, which an export leaves out. */
+export const hiddenForUndo = () => [...pendingDeletes.current()]
 
 const withoutRows = (data: TranscriptPages, ids: ReadonlySet<number>): TranscriptPages =>
   ({ ...data, pages: data.pages.map(page => ({ ...page, rows: page.rows.filter(row => !ids.has(row.id)) })) })
@@ -123,7 +102,7 @@ export function useHistoryFeed(query: string, filters: TranscriptFilters) {
 }
 
 export function useStats() {
-  return useQuery({ ...statsOptions(useRevision('history')), placeholderData: keepPreviousData })
+  return useQuery({ ...statsOptions(useRevision('historyTotals')), placeholderData: keepPreviousData })
 }
 
 export type DayWords = { day: Date; words: number }
@@ -159,7 +138,7 @@ export function useDailyWords(days: number) {
   const { date, utcOffset } = useLocalDay()
   return useQuery({
     ...AT_REVISION,
-    queryKey: queryKeys.dailyWords(days, date, utcOffset, useRevision('history')),
+    queryKey: queryKeys.dailyWords(days, date, utcOffset, useRevision('historyTotals')),
     placeholderData: keepPreviousData,
     queryFn: () => commands.getDailyWords(days, utcOffset, date),
     select: (rows): DayWords[] => {
@@ -192,4 +171,4 @@ export const setPinned = (id: number, pinned: boolean) => commands.setTranscript
 // Startup waits on these; a failed read shows in the screen that uses it.
 export const prefetchTranscripts = () => queryClient.infiniteQuery(feedOptions('', NO_FILTERS, revisionOf('history'))).catch(() => {})
 
-export const prefetchStats = () => queryClient.query(statsOptions(revisionOf('history'))).catch(() => {})
+export const prefetchStats = () => queryClient.query(statsOptions(revisionOf('historyTotals'))).catch(() => {})

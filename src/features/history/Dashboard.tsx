@@ -6,20 +6,20 @@ import {
   PushPinIcon, TrashIcon, WarningCircleIcon, WaveformIcon, XIcon,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { commands, type JobSnapshot } from '../../shared/bindings'
+import { commands, type ExportFormat, type JobSnapshot } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import {
   useDailyWords,
   useHistoryFeed,
   useStats,
+  hiddenForUndo,
   useDeleteTranscript,
-  fetchAllTranscripts,
   NO_FILTERS,
 } from './queries'
 import { hasDates, isFiltered, type TranscriptFilters } from '../../shared/queryKeys'
 import { useSlice } from '../../app/mirror'
 import { ROUTES } from '../../app/routes'
-import { cn, fmtTime, fmtDate, parseSqliteDate } from '../../shared/utils'
+import { cn, fmtTime, parseSqliteDate } from '../../shared/utils'
 import { Button } from '@/shared/ui/Button'
 import { Kbd } from '@/shared/ui/Kbd'
 import { MenuItem, Popover } from '@/shared/ui/Popover'
@@ -54,12 +54,6 @@ function FeedSkeleton() {
   )
 }
 
-type ExportFormat = 'txt' | 'json'
-
-const serialize = (items: Transcript[], format: ExportFormat) => format === 'txt'
-  ? items.map(t => `[${fmtDate(t.createdAt)}]\n${t.content}`).join('\n\n---\n\n')
-  : JSON.stringify(items.map(t => ({ id: t.id, content: t.content, createdAt: t.createdAt, wordCount: t.wordCount, durationSeconds: t.durationSeconds })), null, 2)
-
 /** Exports what the search box and filters ask for, without waiting on the debounce. */
 function ExportButton({ typedRef, filters }: { typedRef: RefObject<string>; filters: TranscriptFilters }) {
   const [open, setOpen] = useState(false)
@@ -70,16 +64,16 @@ function ExportButton({ typedRef, filters }: { typedRef: RefObject<string>; filt
     setOpen(false)
     setExporting(true)
     try {
-      const items = await fetchAllTranscripts(typedRef.current.trim(), filters)
-      if (items.length === 0) {
+      const exported = await commands.exportTranscripts({
+        query: typedRef.current.trim(), ...filters, exclude: hiddenForUndo(), format,
+      })
+      if (!exported) {
         toast.info('Nothing to export')
         return
       }
-      const date = new Date().toISOString().slice(0, 10)
-      const path = await commands.saveExport(`nexusvoice-transcripts-${date}.${format}`, serialize(items, format))
-      toast.success(`Exported ${plural(items.length, 'dictation')}`, {
-        description: path,
-        action: { label: 'Show in folder', onClick: () => void commands.revealInFolder(path).catch(e => toast.error(extractErrorMessage(e, 'Could not open the folder'))) },
+      toast.success(`Exported ${plural(exported.count, 'dictation')}`, {
+        description: exported.path,
+        action: { label: 'Show in folder', onClick: () => void commands.revealInFolder(exported.path).catch(e => toast.error(extractErrorMessage(e, 'Could not open the folder'))) },
       })
     } catch (e) {
       toast.error(extractErrorMessage(e, 'Export failed'))
@@ -353,7 +347,7 @@ const TranscriptRow = memo(function TranscriptRow({ item, onDelete }: { item: Tr
       </div>
       <div className="-mt-1 -mr-2 flex justify-self-end gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 has-aria-expanded:opacity-100">
         {!busy && <CopyButton text={item.content} />}
-        {!busy && item.audioPath && <RetranscribeButton id={item.id} usedModel={item.model} />}
+        {!busy && item.audioPath && <RetranscribeButton id={item.id} />}
         {item.audioPath && <PinButton id={item.id} pinned={item.pinned} />}
         <button
           type="button"

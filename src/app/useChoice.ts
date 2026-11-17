@@ -32,7 +32,7 @@ function show(choice: Choice, shown: { value: unknown } | null) {
 
 /** Saves run one at a time, the newest pick next, so the last to land is the
  *  last Rust wrote. The pick shows until the mirror holds what it committed. */
-async function saveQueued(choice: Choice, slice: SliceName) {
+async function saveQueued(choice: Choice) {
   choice.saving = true
   let committed: Committed | null = null
   for (let pick: Pick | null = choice.queued; pick; pick = choice.queued) {
@@ -45,15 +45,15 @@ async function saveQueued(choice: Choice, slice: SliceName) {
   }
   choice.saving = false
   const picks = choice.picks
-  if (committed) await mirrored(slice, committed.rev)
+  if (committed) await mirrored(committed.rev)
   if (choice.picks === picks) show(choice, null)
 }
 
-function pick(choice: Choice, slice: SliceName, next: Pick) {
+function pick(choice: Choice, next: Pick) {
   choice.picks += 1
   choice.queued = next
   show(choice, { value: next.value })
-  if (!choice.saving) void saveQueued(choice, slice)
+  if (!choice.saving) void saveQueued(choice)
 }
 
 /** Save a user's pick of the Rust value `id` in `slice`. A refused pick shows
@@ -72,8 +72,8 @@ export function useChoice<T>(
   const pending = useSyncExternalStore(subscribe, () => choice.shown) as { value: T } | null
 
   const choose = useCallback(
-    (value: T) => pick(choice, slice, { value, save: save as Pick['save'], onError }),
-    [choice, slice, save, onError],
+    (value: T) => pick(choice, { value, save: save as Pick['save'], onError }),
+    [choice, save, onError],
   )
 
   return { pending, choose }

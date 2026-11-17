@@ -54,10 +54,10 @@ export function listenForJobsFinishing() {
   return events.jobFinished.listen(({ payload }) => announce(payload))
 }
 
-/** Queues the job; the job list follows it. */
-export async function startRetranscribe(id: number, model: string) {
+/** Queues the job on the active model; the job list follows it. */
+export async function startRetranscribe(id: number) {
   try {
-    await commands.retranscribeTranscript(id, model)
+    await commands.retranscribeTranscript(id)
   } catch (e) {
     toast.error(extractErrorMessage(e, 'Could not start the transcription'))
   }

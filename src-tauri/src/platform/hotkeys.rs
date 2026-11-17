@@ -92,11 +92,8 @@ pub fn conflicting_role(
 struct Bound(HotkeyBindings);
 
 impl Slice for Bound {
-    fn patch(&self, rev: u64) -> Patch {
-        Patch::Hotkeys {
-            rev,
-            value: self.0.clone(),
-        }
+    fn patch(&self) -> Patch {
+        Patch::Hotkeys(self.0.clone())
     }
 }
 

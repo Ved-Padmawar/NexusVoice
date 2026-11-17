@@ -27,7 +27,7 @@ export function useUpdateDictionary() {
   return useMutation({
     mutationFn: async ({ term, replacement, id }: UpdateDictionaryArgs) => {
       const { rev } = await commands.updateDictionary(term, replacement, id ?? null)
-      await mirrored('dictionary', rev)
+      await mirrored(rev)
     },
     onError: (e) => toast.error(extractErrorMessage(e, 'Failed to update dictionary')),
   })

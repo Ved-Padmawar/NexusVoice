@@ -87,11 +87,8 @@ pub struct RecordingSnapshot {
 }
 
 impl Slice for RecordingSnapshot {
-    fn patch(&self, rev: u64) -> Patch {
-        Patch::Recording {
-            rev,
-            value: self.clone(),
-        }
+    fn patch(&self) -> Patch {
+        Patch::Recording(self.clone())
     }
 }
 
@@ -146,8 +143,6 @@ pub struct Recorder {
     /// What the windows see; written only by `publish`.
     view: Store<RecordingSnapshot>,
     inputs: OnceLock<tokio::sync::mpsc::UnboundedSender<Request>>,
-    /// Shared with the capture callback: drops samples while set.
-    paused: Arc<AtomicBool>,
     /// Silence inserted at resumes: in the buffer, but not speaking time.
     pause_gap_samples: AtomicUsize,
     capture: Capture,
@@ -177,7 +172,6 @@ impl Recorder {
                 deferred: Vec::new(),
             }),
             inputs: OnceLock::new(),
-            paused,
             pause_gap_samples: AtomicUsize::new(0),
             capture: Capture {
                 generation: Generation::default(),
@@ -186,6 +180,7 @@ impl Recorder {
                 sample_rate,
                 waveform,
                 mic,
+                paused,
                 session: Arc::new(Mutex::new(None)),
                 language: Arc::new(Mutex::new(None)),
                 streamed: Arc::new(Mutex::new(None)),
@@ -441,7 +436,7 @@ impl Recorder {
     fn prepare(&self, app: &AppHandle, focus: Option<FocusTarget>) {
         // First, so leftover workers go stale before their buffers are replaced.
         let ticket = self.capture.generation.begin();
-        self.paused.store(false, Ordering::SeqCst);
+        self.capture.paused.store(false, Ordering::SeqCst);
         self.pause_gap_samples.store(0, Ordering::SeqCst);
         {
             let rate = *lock_recovering(&self.capture.sample_rate) as usize;
@@ -477,7 +472,7 @@ impl Recorder {
             Phase::Paused,
             RecordError::NotRecording,
         )?;
-        self.paused.store(true, Ordering::SeqCst);
+        self.capture.paused.store(true, Ordering::SeqCst);
         self.chime.cancel();
         Ok(())
     }
@@ -489,7 +484,7 @@ impl Recorder {
             RecordError::NotPaused,
         )?;
         self.mark_pause_in_audio();
-        self.paused.store(false, Ordering::SeqCst);
+        self.capture.paused.store(false, Ordering::SeqCst);
         Ok(())
     }
 
@@ -555,7 +550,7 @@ impl Recorder {
 
     async fn commit(&self, app: &AppHandle) -> Result<(), RecordError> {
         self.claim_finish(Mode::Dictation)?;
-        self.paused.store(false, Ordering::SeqCst);
+        self.capture.paused.store(false, Ordering::SeqCst);
         self.publish(app);
         self.finish(app).await;
         Ok(())
@@ -616,7 +611,7 @@ impl Recorder {
 
     fn reset(&self) {
         self.capture.capturing.store(false, Ordering::SeqCst);
-        self.paused.store(false, Ordering::SeqCst);
+        self.capture.paused.store(false, Ordering::SeqCst);
         lock_recovering(&self.focus).take();
         lock_recovering(&self.lease).take();
         let mut phase = lock_recovering(&self.phase);
@@ -760,12 +755,12 @@ mod tests {
             Err(RecordError::DictationRunning)
         ));
         recorder.pause().unwrap();
-        assert!(recorder.paused.load(Ordering::SeqCst));
+        assert!(recorder.capture.paused.load(Ordering::SeqCst));
         let paused = recorder.snapshot(&engine());
         assert_eq!(paused.status, RecordingStatus::DictationPaused);
         lock_recovering(&recorder.capture.audio).push(0.5);
         recorder.resume().unwrap();
-        assert!(!recorder.paused.load(Ordering::SeqCst));
+        assert!(!recorder.capture.paused.load(Ordering::SeqCst));
         assert!(
             lock_recovering(&recorder.capture.audio).len() > 1,
             "resuming leaves silence where the pause was"

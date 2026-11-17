@@ -15,6 +15,5 @@ export const queryKeys = {
   stats: (rev: number) => ['stats', rev] as const,
   dailyWords: (days: number, localDate: string, utcOffset: number, rev: number) => ['stats', 'daily', days, localDate, utcOffset, rev] as const,
   catalog: ['catalog'] as const,
-  languageOptionsFor: (model: string | null, settingsRev: number) => ['languageOptions', model, settingsRev] as const,
   inputDevices: ['inputDevices'] as const,
 }

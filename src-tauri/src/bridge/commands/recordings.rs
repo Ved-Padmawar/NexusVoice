@@ -10,7 +10,7 @@ use crate::data::repositories::transcript::TranscriptRepository;
 use crate::data::Database;
 use crate::jobs::Previous;
 use crate::mirror::Committed;
-use crate::models::catalog::{self, ModelEntry};
+use crate::models::catalog::ModelEntry;
 use crate::models::library::ModelLibrary;
 use crate::settings::{SavedAudio, SavedAudioSetting, Settings};
 
@@ -174,28 +174,33 @@ pub async fn cancel_job(app: AppHandle, transcript_id: i64) -> Result<(), ApiErr
     Ok(())
 }
 
-fn installed_model(library: &ModelLibrary, id: &str) -> Result<&'static ModelEntry, ApiError> {
-    catalog::find(id)
+/// The active model, refused while it isn't on disk.
+fn active_model(
+    settings: &Settings,
+    library: &ModelLibrary,
+) -> Result<&'static ModelEntry, ApiError> {
+    Some(settings.active_model())
         .filter(|entry| library.is_downloaded(entry))
-        .ok_or_else(|| ApiError::new("model_missing", "That model isn't downloaded."))
+        .ok_or_else(|| ApiError::new("model_missing", "Download a model first."))
 }
 
-/// Queue an entry's saved audio to be transcribed again with `model`.
+/// Queue an entry's saved audio to be transcribed again with the active model.
 #[tauri::command]
 #[specta::specta]
 pub async fn retranscribe_transcript(
     app: AppHandle,
     db: State<'_, Database>,
+    settings: State<'_, Settings>,
     library: State<'_, ModelLibrary>,
     id: i64,
-    model: String,
 ) -> Result<(), ApiError> {
-    let model = installed_model(&library, &model)?;
     let entry = TranscriptRepository::new(db.pool().await?)
         .get_by_id(id)
         .await?
         .filter(|t| t.has_audio)
         .ok_or_else(|| ApiError::new("audio_missing", "This entry's audio is no longer saved."))?;
+    // Checked as the job is queued, and the model checked is the one it runs.
+    let model = active_model(&settings, &library)?;
     if !crate::jobs::retranscribe(&app, &entry, model) {
         return Err(ApiError::new(
             "job_queued",
@@ -205,18 +210,18 @@ pub async fn retranscribe_transcript(
     Ok(())
 }
 
-/// Add an audio file to History and queue its transcription. Nothing is
-/// pasted.
+/// Add an audio file to History and queue its transcription with the active
+/// model. Nothing is pasted.
 #[tauri::command]
 #[specta::specta]
 pub async fn import_audio_file(
     app: AppHandle,
+    settings: State<'_, Settings>,
     library: State<'_, ModelLibrary>,
     path: String,
-    model: String,
     language: Option<String>,
 ) -> Result<(), ApiError> {
-    let model = installed_model(&library, &model)?;
+    let model = active_model(&settings, &library)?;
     if language.as_deref().is_some_and(|code| {
         code != crate::models::language::AUTO
             && !model.languages.iter().any(|offered| offered == code)

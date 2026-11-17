@@ -1,10 +1,6 @@
-use std::sync::Arc;
-
 use super::{keyset_sql, Cursor, TranscriptRepository};
 use crate::data::connection::init_database;
 use crate::data::dto::transcript::CreateTranscript;
-use crate::data::Writes;
-use crate::mirror::Store;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Row, SqlitePool};
 
@@ -526,44 +522,73 @@ async fn an_undo_applies_only_to_the_rewrite_it_belongs_to() {
     );
 }
 
-#[tokio::test]
-async fn every_write_that_changes_a_row_takes_a_history_revision_and_reads_do_not() {
-    // The windows only reread History when told: a silent write leaves them stale.
-    let repo = TranscriptRepository {
-        pool: pool().await,
-        history: Arc::new(Store::isolated(Writes(0))),
-    };
-    let entry = repo
-        .create(CreateTranscript {
-            content: "one two".into(),
-            word_count: 2,
-            duration_seconds: None,
-            target_app: None,
-            source_name: None,
-            model: None,
-            pending: false,
-            language: None,
-        })
-        .await
-        .expect("create");
-    repo.set_text(entry.id, "three", "whisper-small")
-        .await
-        .expect("set text");
-    repo.set_pinned(entry.id, true).await.expect("pin");
-    repo.set_has_audio(entry.id, true)
-        .await
-        .expect("flag audio");
-    let history = || repo.history.committed().rev;
-    let written = history();
-    assert_eq!(written, 4);
+fn created(content: &str) -> CreateTranscript {
+    CreateTranscript {
+        content: content.into(),
+        word_count: 2,
+        duration_seconds: None,
+        target_app: None,
+        source_name: None,
+        model: None,
+        pending: false,
+        language: None,
+    }
+}
 
+#[tokio::test]
+async fn a_write_takes_the_history_revisions_it_changes_and_reads_take_none() {
+    // The windows only reread History when told: a silent write leaves them
+    // stale, and a needless one rereads every page and the totals.
+    let repo = TranscriptRepository::new(pool().await);
+    let revs = || {
+        (
+            repo.history.rows.committed(),
+            repo.history.totals.committed(),
+        )
+    };
+    let entry = repo.create(created("one two")).await.expect("create");
+
+    let before = revs();
+    repo.set_pinned(entry.id, true).await.expect("pin");
+    let pinned = revs();
+    assert!(pinned.0.rev > before.0.rev);
+    assert_eq!(pinned.1, before.1);
+
+    repo.set_pinned(entry.id, true).await.expect("pin again");
     repo.get_by_id(entry.id).await.expect("read");
     repo.get_stats().await.expect("stats");
     repo.delete_by_id(entry.id + 1)
         .await
         .expect("delete nothing");
-    assert_eq!(history(), written);
+    assert_eq!(revs(), pinned);
 
-    repo.delete_by_id(entry.id).await.expect("delete");
-    assert_eq!(history(), written + 1);
+    repo.set_text(entry.id, "three", "whisper-small")
+        .await
+        .expect("set text");
+    let rewritten = revs();
+    assert!(rewritten.0.rev > pinned.0.rev);
+    assert_eq!(rewritten.0, rewritten.1);
+}
+
+#[tokio::test]
+async fn search_finds_a_rewritten_entry_by_its_new_text_only() {
+    let repo = TranscriptRepository::new(pool().await);
+    let entry = repo.create(created("walrus tusk")).await.expect("create");
+    repo.set_pinned(entry.id, true).await.expect("pin");
+    repo.set_text(entry.id, "narwhal horn", "whisper-small")
+        .await
+        .expect("set text");
+
+    let find = |word: &str| {
+        let query = TranscriptRepository::build_fts_query(word);
+        let repo = repo.clone();
+        async move {
+            repo.search(&query, 10, None, None, None, true)
+                .await
+                .expect("search")
+                .len()
+        }
+    };
+    assert_eq!(find("narwhal").await, 1);
+    assert_eq!(find("walrus").await, 0);
 }

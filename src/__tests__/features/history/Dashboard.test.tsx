@@ -3,10 +3,9 @@ import { screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { Dashboard } from '../../../features/history/Dashboard'
 import { invoke } from '@tauri-apps/api/core'
-import { mirror, renderWithQuery } from '../../utils'
+import { mirror, renderWithQuery, settingsAt, type Send } from '../../utils'
 import { listen } from '@tauri-apps/api/event'
 import { open } from '@tauri-apps/plugin-dialog'
-import type { Patch } from '../../../shared/bindings'
 import type { Transcript, UsageStats } from '../../../shared/types'
 
 vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({ onDragDropEvent: () => Promise.resolve(() => {}) }) }))
@@ -70,7 +69,7 @@ function mockBackend({ transcripts = [], search = [], stats = null, pushToTalk =
 const renderDashboard = () =>
   renderWithQuery(<MemoryRouter><Dashboard /></MemoryRouter>)
 
-let send: (patch: Patch) => Promise<void>
+let send: Send
 let writes = 0
 /** A write to History committed in Rust. */
 const historyChanged = () => send({ slice: 'history', rev: ++writes, value: writes })
@@ -84,40 +83,24 @@ beforeEach(async () => {
   send = await mirror()
 })
 
-it('waits for the chosen import model’s languages and retries a failed lookup', async () => {
+it('imports with the active model, in the language picked over the saved one', async () => {
   vi.mocked(open).mockResolvedValueOnce('sample.wav')
-  const english = { supported: true, options: [{ code: 'en', name: 'English', isSelected: true }] }
-  const french = { supported: true, options: [{ code: 'fr', name: 'French', isSelected: true }] }
-  let failLookup: (e: Error) => void = () => {}
-  let attempt = 0
   const backend = mockInvoke.getMockImplementation()!
-  mockInvoke.mockImplementation((cmd, args) => {
-    if (cmd === 'inspect_audio_file') return Promise.resolve({ name: 'sample.wav', sizeBytes: 1024, durationSeconds: 2 })
-    if (cmd === 'get_language_options_for') {
-      if ((args as { model: string }).model === 'whisper-tiny') return Promise.resolve(english)
-      if (attempt++ === 0) return new Promise((_, reject) => { failLookup = reject })
-      return Promise.resolve(french)
-    }
-    return backend(cmd, args)
-  })
-  await send({ slice: 'models', rev: 1, value: [
-    { variant: 'whisper-tiny', displayName: 'Tiny', sizeBytes: 100 },
-    { variant: 'whisper-small', displayName: 'Small', sizeBytes: 200 },
-  ] })
+  mockInvoke.mockImplementation((cmd, args) => cmd === 'inspect_audio_file'
+    ? Promise.resolve({ name: 'sample.wav', sizeBytes: 1024, durationSeconds: 2 })
+    : backend(cmd, args))
+  await send(settingsAt(1, { language: { supported: true, options: [
+    { code: 'en', name: 'English', isSelected: true },
+    { code: 'fr', name: 'French', isSelected: false },
+  ] } }))
   renderDashboard()
   fireEvent.click(screen.getByRole('button', { name: 'Import audio' }))
   const start = await screen.findByRole('button', { name: 'Transcribe' })
-  await waitFor(() => expect(start).toBeEnabled())
 
-  fireEvent.click(screen.getByRole('button', { name: 'Model' }))
-  fireEvent.click(screen.getByRole('option', { name: 'Small' }))
-  expect(screen.getByRole('button', { name: 'Language' })).toBeDisabled()
-  expect(start).toBeDisabled()
-  await act(async () => { failLookup(new Error('lookup failed')) })
-  fireEvent.click(await screen.findByRole('button', { name: 'Retry' }))
-  await waitFor(() => expect(start).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: 'Language' }))
+  fireEvent.click(screen.getByRole('option', { name: 'French' }))
   fireEvent.click(start)
-  await waitFor(() => expect(invoke).toHaveBeenCalledWith('import_audio_file', { path: 'sample.wav', model: 'whisper-small', language: 'fr' }))
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('import_audio_file', { path: 'sample.wav', language: 'fr' }))
 })
 
 describe('Dashboard — empty state', () => {
@@ -217,12 +200,10 @@ describe('Dashboard — export', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Export' }))
     fireEvent.click(screen.getByText(/plain text/i))
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('save_export', {
-        fileName: expect.stringMatching(/\.txt$/),
-        content: expect.not.stringContaining('Hello world'),
+      expect(mockInvoke).toHaveBeenCalledWith('export_transcripts', {
+        request: expect.objectContaining({ query: 'search', format: 'txt' }),
       })
     })
-    expect(mockInvoke).toHaveBeenCalledWith('search_transcripts', expect.objectContaining({ query: 'search' }))
   })
 })
 

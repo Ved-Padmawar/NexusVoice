@@ -15,6 +15,7 @@ use crate::bridge::events::{
 use crate::models::cache::EngineCache;
 use crate::models::decode::{Route, Streamed, StreamingSession};
 use crate::models::preprocess::To16k;
+use crate::settings::Settings;
 use crate::sync::lock_recovering;
 
 /// Poll cadence of the stream workers. Decode frequency is governed by the
@@ -62,6 +63,8 @@ pub struct Capture {
     pub sample_rate: Arc<Mutex<u32>>,
     pub waveform: Arc<WaveformMeter>,
     pub mic: Arc<MicStream>,
+    /// Shared with the capture callback: drops samples while set.
+    pub paused: Arc<AtomicBool>,
     /// Growing-window decode state; created at start, taken by finalize.
     pub session: Arc<Mutex<Option<StreamingSession>>>,
     /// The saved language when the recording started.
@@ -81,17 +84,40 @@ pub fn spawn_all(app: &AppHandle, capture: &Capture, ticket: &Ticket) {
     spawn_native_stream(app, capture.clone(), ticket.clone());
 }
 
-/// Push one live-transcript frame to the pill, skipping empty ones and any
-/// from a recording that has been replaced.
-fn emit_partial(app: &AppHandle, ticket: &Ticket, (committed, tentative): (String, String)) {
-    if !ticket.is_current() || (committed.is_empty() && tentative.is_empty()) {
-        return;
+/// The live preview a decode worker sends the pill, built only while shown.
+/// The pill drops its text when the preview turns off, so any settings
+/// change resends the current text, which a paused dictation won't change.
+#[derive(Default)]
+struct Preview {
+    /// The settings revision the last poll saw.
+    settings: Option<u64>,
+}
+
+impl Preview {
+    /// Send the text if it `changed` or the settings did, skipping empty
+    /// frames and any from a replaced recording.
+    fn send(
+        &mut self,
+        app: &AppHandle,
+        ticket: &Ticket,
+        changed: bool,
+        partial: impl FnOnce() -> (String, String),
+    ) {
+        let (pill, rev) = app.state::<Settings>().pill_at();
+        let resend = self.settings.replace(rev) != Some(rev);
+        if !pill.live_transcript || !(changed || resend) || !ticket.is_current() {
+            return;
+        }
+        let (committed, tentative) = partial();
+        if committed.is_empty() && tentative.is_empty() {
+            return;
+        }
+        let _ = TranscriptionPartial {
+            committed,
+            tentative,
+        }
+        .emit_to(app, "pill");
     }
-    let _ = TranscriptionPartial {
-        committed,
-        tentative,
-    }
-    .emit_to(app, "pill");
 }
 
 /// Signals on drop, so every early return unblocks finalize. A stale worker
@@ -156,6 +182,7 @@ fn spawn_native_stream(app: &AppHandle, capture: Capture, ticket: Ticket) {
 
         // Built on the first audio: the mic sets its rate when it opens.
         let mut converter: Option<To16k> = None;
+        let mut preview = Preview::default();
 
         // Capture outlives `capturing` by the post-roll. Flags are read before
         // the buffer, so the pass that sees both off has everything.
@@ -178,6 +205,7 @@ fn spawn_native_stream(app: &AppHandle, capture: Capture, ticket: Ticket) {
                     Err(e) => stream.drop_chunk(&e),
                 }
             }
+            let mut changed = false;
             if let Some(converter) = converter.as_mut() {
                 let prepared = if capturing {
                     converter.push(&chunk)
@@ -188,14 +216,11 @@ fn spawn_native_stream(app: &AppHandle, capture: Capture, ticket: Ticket) {
                     })
                 };
                 match prepared {
-                    Ok(prepared) => {
-                        if !prepared.is_empty() && stream.feed(&prepared) {
-                            emit_partial(&app, &ticket, stream.partial());
-                        }
-                    }
+                    Ok(prepared) => changed = !prepared.is_empty() && stream.feed(&prepared),
                     Err(e) => stream.drop_chunk(&e),
                 }
             }
+            preview.send(&app, &ticket, changed, || stream.partial());
             if !capturing {
                 break;
             }
@@ -215,19 +240,22 @@ fn spawn_native_stream(app: &AppHandle, capture: Capture, ticket: Ticket) {
 
 /// Feed the growing buffer to the `StreamingSession` so finalize only has the
 /// tail left to decode. Without a loaded engine, finalize decodes everything
-/// in one pass.
+/// in one pass. Ends the preview unless the native stream owns it.
 fn spawn_local_agreement(app: &AppHandle, capture: Capture, ticket: Ticket) {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let cache = app.state::<EngineCache>();
         let language = lock_recovering(&capture.language).clone();
         let mut route_logged = false;
+        let mut native = false;
+        let mut preview = Preview::default();
         while capture.capturing.load(Ordering::SeqCst) && ticket.is_current() {
             std::thread::sleep(STREAM_POLL);
             let Some(engine) = cache.loaded() else {
                 continue;
             };
             if Route::for_engine(&engine) == Route::Streaming {
+                native = true;
                 break;
             }
             // As in the native stream: marked before capture is re-checked.
@@ -251,6 +279,7 @@ fn spawn_local_agreement(app: &AppHandle, capture: Capture, ticket: Ticket) {
                     .would_decode(buf.len(), rate)
                     .then(|| buf[session.fed().min(buf.len())..].to_vec())
             }) else {
+                preview.send(&app, &ticket, false, || session.partial());
                 continue;
             };
 
@@ -260,24 +289,34 @@ fn spawn_local_agreement(app: &AppHandle, capture: Capture, ticket: Ticket) {
             }
 
             session.poll(&new_audio, rate, &engine, mark, language.as_deref());
-            emit_partial(&app, &ticket, session.partial());
+            preview.send(&app, &ticket, true, || session.partial());
         }
-        if ticket.is_current() {
+        if !native && ticket.is_current() {
             let _ = TranscriptionPartialEnd.emit(&app);
         }
     });
 }
 
-/// Emit waveform levels while recording. The same tick warns once if the mic
-/// dies, so the user stops talking into it.
+/// Emit waveform levels while recording, and flat ones once at a pause. The
+/// same tick warns once if the mic dies, so the user stops talking into it.
 fn spawn_waveform(app: &AppHandle, capture: Capture, ticket: Ticket) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let mut tick = tokio::time::interval(WAVEFORM_TICK);
         let mut warned = false;
+        let mut flat = false;
         while capture.capturing.load(Ordering::SeqCst) && ticket.is_current() {
             tick.tick().await;
-            let _ = PillWaveform(capture.waveform.levels()).emit_to(&app, "pill");
+            let paused = capture.paused.load(Ordering::SeqCst);
+            if !(paused && flat) {
+                let levels = if paused {
+                    [0.0; BANDS]
+                } else {
+                    capture.waveform.levels()
+                };
+                let _ = PillWaveform(levels).emit_to(&app, "pill");
+                flat = paused;
+            }
             if !warned && capture.mic.is_dead() {
                 warned = true;
                 let _ = TranscriptionWarning(

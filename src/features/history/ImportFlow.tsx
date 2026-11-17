@@ -1,18 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { FileAudioIcon, UploadSimpleIcon, WaveformIcon, XIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands, type AudioFileInfo } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { queryKeys } from '../../shared/queryKeys'
-import { useRevision } from '../../app/mirror'
+import { useSlice } from '../../app/mirror'
 import { fmtClock } from '../../shared/utils'
 import { Button } from '../../shared/ui/Button'
 import { Modal } from '../../shared/ui/Modal'
 import { Select } from '../../shared/ui/Select'
-import { useActiveModelId, useDownloadedModels } from '../models/queries'
+import { useActiveModelName } from '../models/queries'
 
 const EXTENSIONS = ['wav', 'mp3', 'm4a', 'aac', 'flac', 'ogg', 'opus']
 
@@ -128,31 +126,17 @@ type ImportModalProps = {
 }
 
 function ImportModal({ file, reading, onReading, onClose }: ImportModalProps) {
-  const options = useDownloadedModels()
-  const activeId = useActiveModelId()
+  const modelName = useActiveModelName()
+  const languages = useSlice('settings', settings => settings.language)
   const [picked, setPicked] = useState<string | null>(null)
-  const [language, setLanguage] = useState<{ model: string | null; code: string } | null>(null)
-
-  const model = options.find(m => m.variant === picked)?.variant
-    ?? options.find(m => m.variant === activeId)?.variant ?? options[0]?.variant ?? null
-  const settingsRev = useRevision('settings')
-  const languages = useQuery({
-    queryKey: queryKeys.languageOptionsFor(model, settingsRev),
-    queryFn: () => commands.getLanguageOptionsFor(model ?? ''),
-    enabled: file !== null && model !== null,
-    staleTime: Infinity,
-    placeholderData: keepPreviousData,
-  })
-  const codes = languages.data?.supported ? languages.data.options : []
-  const ready = languages.isSuccess && !languages.isPlaceholderData
-  const chosen = codes.find(o => language?.model === model && o.code === language?.code)?.code
-    ?? codes.find(o => o.isSelected)?.code ?? null
+  const codes = languages.supported ? languages.options : []
+  const chosen = codes.find(o => o.code === picked)?.code ?? codes.find(o => o.isSelected)?.code ?? null
 
   const start = async () => {
-    if (!file || !model || !ready || reading) return
+    if (!file || reading) return
     onReading(true)
     try {
-      await commands.importAudioFile(file.path, model, chosen)
+      await commands.importAudioFile(file.path, chosen)
       onClose()
     } catch (e) {
       toast.error(extractErrorMessage(e, 'Could not start the transcription'))
@@ -181,35 +165,18 @@ function ImportModal({ file, reading, onReading, onClose }: ImportModalProps) {
             </p>
           </div>
         </div>
-        <div className="flex flex-col gap-1.5">
-          <span className={label}>Model</span>
-          <Select
-            value={model}
-            aria-label="Model"
-            options={options.map(m => ({ value: m.variant, label: m.variant === activeId ? `${m.displayName} (active)` : m.displayName }))}
-            onChange={(value) => { setPicked(value); setLanguage(null) }}
-            disabled={reading || options.length === 0}
-          />
-        </div>
         {codes.length > 0 && (
           <div className="flex flex-col gap-1.5">
             <span className={label}>Language</span>
-            <Select value={chosen} aria-label="Language" options={codes.map(o => ({ value: o.code, label: o.name, dividerAfter: o.code === 'auto' }))} onChange={code => setLanguage({ model, code })} disabled={reading || !ready} />
-          </div>
-        )}
-        {languages.isError && (
-          <div role="alert" className="flex items-center justify-between gap-2 text-xs text-danger">
-            <p>{extractErrorMessage(languages.error, 'Could not load languages for this model.')}</p>
-            <Button size="sm" variant="outline" disabled={languages.isFetching} onClick={() => void languages.refetch()}>Retry</Button>
+            <Select value={chosen} aria-label="Language" options={codes.map(o => ({ value: o.code, label: o.name, dividerAfter: o.code === 'auto' }))} onChange={setPicked} disabled={reading} />
           </div>
         )}
         <p className="text-xs text-pretty text-muted">
-          Runs in the background, so you can keep dictating; dictation always goes first. The transcript lands in History. Nothing is pasted.
+          Transcribed with {modelName ?? 'the active model'} in the background, so you can keep dictating; dictation always goes first. The transcript lands in History. Nothing is pasted.
         </p>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" disabled={reading} onClick={close}>Cancel</Button>
-          {/* Until the languages load, the saved one isn't known to preselect. */}
-          <Button variant="primary" disabled={!model || !ready || reading} onClick={() => void start()}>
+          <Button variant="primary" disabled={reading} onClick={() => void start()}>
             <WaveformIcon size={13} weight="bold" />{reading ? 'Reading file…' : 'Transcribe'}
           </Button>
         </div>
