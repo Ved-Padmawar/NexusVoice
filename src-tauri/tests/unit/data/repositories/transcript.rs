@@ -95,25 +95,36 @@ async fn keyset_walks_every_row_without_repeats() {
 }
 
 #[tokio::test]
-async fn keyset_cursor_seeks_the_index_instead_of_scanning() {
+async fn keyset_pages_seek_the_index_instead_of_scanning() {
     let pool = pool().await;
-    for sort_desc in [true, false] {
-        let sql = format!("EXPLAIN QUERY PLAN {}", keyset_sql(sort_desc, true));
-        let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(None::<&str>)
-            .bind(None::<&str>)
-            .bind(None::<&str>)
-            .bind(None::<&str>)
-            .bind("2026-01-01 00:00:00")
-            .bind(1_i64)
-            .bind(50_i64)
-            .fetch_all(&pool)
-            .await
-            .expect("plan");
+    let cursor = Cursor {
+        created_at: "2026-01-01 00:00:00",
+        id: 1,
+    };
+    let (from, to) = ("2026-01-01 00:00:00", "2026-01-31 23:59:59");
+    // A cursor page, and a first page under a date filter.
+    for (sort_desc, cursor, from, to) in [
+        (true, Some(cursor), None, None),
+        (false, Some(cursor), None, None),
+        (true, None, Some(from), Some(to)),
+        (false, None, Some(from), Some(to)),
+    ] {
+        let sql = format!(
+            "EXPLAIN QUERY PLAN {}",
+            keyset_sql(sort_desc, cursor, from, to)
+        );
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
+        for bound in [from, to].into_iter().flatten() {
+            q = q.bind(bound);
+        }
+        if let Some(c) = cursor {
+            q = q.bind(c.created_at).bind(c.id);
+        }
+        let rows = q.bind(50_i64).fetch_all(&pool).await.expect("plan");
         let plan: Vec<String> = rows.iter().map(|r| r.get("detail")).collect();
         assert!(
             plan.iter().any(|d| d.starts_with("SEARCH")),
-            "cursor page must seek the keyset index, got {plan:?}"
+            "page must seek the keyset index, got {plan:?}"
         );
     }
 }

@@ -79,7 +79,9 @@ pub struct InjectionTool {
     pub name: String,
     pub available: bool,
     pub preferred: bool,
-    pub install_hint: String,
+    /// Terminal commands (or a link) to get it, each copied on its own.
+    pub install: Vec<String>,
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Serialize, specta::Type)]
@@ -123,14 +125,25 @@ impl InjectionStatus {
                 name: "desktop portal".to_string(),
                 available: portal,
                 preferred: portal,
-                install_hint: "built into your desktop - approve the permission prompt".to_string(),
+                install: Vec::new(),
+                note: Some(
+                    "Built into your desktop. Approve the permission prompt when it appears."
+                        .to_string(),
+                ),
             });
         }
-        tools.extend(linux::candidates(session).iter().map(|tool| InjectionTool {
-            name: tool.binary().to_string(),
-            available: tool.available(),
-            preferred: !portal && selected == Some(*tool),
-            install_hint: tool.install_hint().to_string(),
+        tools.extend(linux::candidates(session).iter().map(|tool| {
+            InjectionTool {
+                name: tool.binary().to_string(),
+                available: tool.available(),
+                preferred: !portal && selected == Some(*tool),
+                install: tool
+                    .install_commands()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+                note: tool.install_note().map(str::to_string),
+            }
         }));
 
         let active = if portal {

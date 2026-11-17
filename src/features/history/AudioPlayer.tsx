@@ -54,7 +54,7 @@ export function AudioPlayer({ id, path, seconds }: { id: number; path: string; s
         <span className="fill" />
         <span className="thumb" />
       </span>
-      <span className="w-[68px] text-xs text-muted tabular-nums">
+      <span className="w-17 text-xs text-muted tabular-nums">
         {mine && total ? `${mmss(position)} / ${mmss(total)}` : total ? mmss(total) : ''}
       </span>
     </span>

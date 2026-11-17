@@ -73,7 +73,7 @@ describe('History revisions', () => {
   const fullPage = Array.from({ length: PAGE_SIZE }, (_, i) => row(200 - i))
 
   beforeEach(async () => { send = await mirror() })
-  afterEach(() => { setWindowShown(true) })
+  afterEach(() => { act(() => setWindowShown(true)) })
 
   it('reads every page it had loaded again at a new revision', async () => {
     reads([fullPage, [row(1)], [row(201), ...fullPage.slice(0, -1)], [fullPage.at(-1)!, row(1)]])

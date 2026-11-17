@@ -1,8 +1,8 @@
 import { Fragment, memo, useState, useRef, useEffect, useCallback, useMemo, type CSSProperties, type RefObject } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  BracketsCurlyIcon, CheckIcon,
-  ArrowsClockwiseIcon, CopyIcon, ExportIcon, FileAudioIcon, FileTextIcon, KeyboardIcon, MagnifyingGlassIcon, MicrophoneIcon,
+  BracketsCurlyIcon,
+  ArrowsClockwiseIcon, ExportIcon, FileAudioIcon, FileTextIcon, KeyboardIcon, MagnifyingGlassIcon, MicrophoneIcon,
   PushPinIcon, TrashIcon, WarningCircleIcon, WaveformIcon, XIcon,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
@@ -23,6 +23,7 @@ import { cn, fmtTime, parseSqliteDate } from '../../shared/utils'
 import { Button } from '@/shared/ui/Button'
 import { Kbd } from '@/shared/ui/Kbd'
 import { MenuItem, Popover } from '@/shared/ui/Popover'
+import { CopyButton } from '@/shared/ui/CopyButton'
 import { TextInput } from '@/shared/ui/TextInput'
 import { SectionState } from '../../shared/ui/SectionState'
 import { AudioPlayer } from './AudioPlayer'
@@ -106,23 +107,6 @@ function ExportButton({ typedRef, filters }: { typedRef: RefObject<string>; filt
         </MenuItem>
       </Popover>
     </>
-  )
-}
-
-function CopyButton({ text }: { text: string }) {
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text).catch(() => toast.error('Could not copy to the clipboard'))
-  }
-  return (
-    <button
-      type="button"
-      aria-label="Copy"
-      onClick={handleCopy}
-      className={cn('copy-btn', ACTION_BUTTON)}
-    >
-      <CopyIcon size={15} className="c-idle" />
-      <CheckIcon size={15} weight="bold" className="c-done" />
-    </button>
   )
 }
 
@@ -276,7 +260,7 @@ function HiddenJobsChip({ jobs }: { jobs: JobSnapshot[] }) {
         <ArrowsClockwiseIcon size={12} weight="bold" />
         {plural(jobs.length, 'transcription')} running
       </button>
-      <Popover open={open} onOpenChange={setOpen} anchorRef={anchorRef} placement="bottom-start" className="w-[28rem]">
+      <Popover open={open} onOpenChange={setOpen} anchorRef={anchorRef} placement="bottom-start" className="w-md">
         <ul className="py-1">
           {jobs.map(job => (
             <li key={job.transcriptId} className="flex h-10 items-center gap-3 pr-2 pl-3.5">

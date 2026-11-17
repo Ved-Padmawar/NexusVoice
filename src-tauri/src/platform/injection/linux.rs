@@ -44,16 +44,33 @@ impl Tool {
         }
     }
 
+    /// Ready to paste into a terminal, one per package manager.
     #[must_use]
-    pub fn install_hint(self) -> &'static str {
+    pub fn install_commands(self) -> &'static [&'static str] {
         match self {
-            Self::Wtype => "apt install wtype | pacman -S wtype | dnf install wtype",
-            Self::Kwtype => "available for KDE Plasma via your distribution",
-            Self::Dotool => "https://sr.ht/~geb/dotool/ (needs access to /dev/uinput)",
-            Self::Ydotool => {
-                "apt install ydotool | pacman -S ydotool (1.x also needs ydotoold running)"
-            }
-            Self::Xdotool => "apt install xdotool | pacman -S xdotool | dnf install xdotool",
+            Self::Wtype => &[
+                "sudo apt install wtype",
+                "sudo pacman -S wtype",
+                "sudo dnf install wtype",
+            ],
+            Self::Kwtype => &[],
+            Self::Dotool => &["https://sr.ht/~geb/dotool/"],
+            Self::Ydotool => &["sudo apt install ydotool", "sudo pacman -S ydotool"],
+            Self::Xdotool => &[
+                "sudo apt install xdotool",
+                "sudo pacman -S xdotool",
+                "sudo dnf install xdotool",
+            ],
+        }
+    }
+
+    #[must_use]
+    pub fn install_note(self) -> Option<&'static str> {
+        match self {
+            Self::Wtype | Self::Xdotool => None,
+            Self::Kwtype => Some("Available for KDE Plasma from your distribution."),
+            Self::Dotool => Some("Needs access to /dev/uinput."),
+            Self::Ydotool => Some("Version 1.x also needs ydotoold running."),
         }
     }
 

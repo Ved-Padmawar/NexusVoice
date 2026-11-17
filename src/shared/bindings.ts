@@ -436,7 +436,11 @@ session: string; selected: string | null;
  * Best first.
  */
 tools: InjectionTool[] }
-export type InjectionTool = { name: string; available: boolean; preferred: boolean; installHint: string }
+export type InjectionTool = { name: string; available: boolean; preferred: boolean;
+/**
+ * Terminal commands (or a link) to get it, each copied on its own.
+ */
+install: string[]; note: string | null }
 /**
  * A selectable microphone. `is_default` marks the OS default.
  */

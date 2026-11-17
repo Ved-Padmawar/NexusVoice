@@ -15,45 +15,42 @@ pub struct Cursor<'a> {
     pub id: i64,
 }
 
-/// A row value, not the spelled-out `a < ? OR (a = ? AND b < ?)`: SQLite seeks
-/// the keyset index on a row value but scans it on the OR form.
-fn keyset_sql(sort_desc: bool, has_cursor: bool) -> &'static str {
-    match (sort_desc, has_cursor) {
-        (true, true) => {
-            "SELECT id, content, word_count, duration_seconds, target_app, pinned, has_audio, source_name, model, pending, revision, created_at
-             FROM transcripts
-             WHERE (? IS NULL OR created_at >= ?)
-               AND (? IS NULL OR created_at <= ?)
-               AND (created_at, id) < (?, ?)
-             ORDER BY created_at DESC, id DESC
-             LIMIT ?"
-        }
-        (false, true) => {
-            "SELECT id, content, word_count, duration_seconds, target_app, pinned, has_audio, source_name, model, pending, revision, created_at
-             FROM transcripts
-             WHERE (? IS NULL OR created_at >= ?)
-               AND (? IS NULL OR created_at <= ?)
-               AND (created_at, id) > (?, ?)
-             ORDER BY created_at ASC, id ASC
-             LIMIT ?"
-        }
-        (true, false) => {
-            "SELECT id, content, word_count, duration_seconds, target_app, pinned, has_audio, source_name, model, pending, revision, created_at
-             FROM transcripts
-             WHERE (? IS NULL OR created_at >= ?)
-               AND (? IS NULL OR created_at <= ?)
-             ORDER BY created_at DESC, id DESC
-             LIMIT ?"
-        }
-        (false, false) => {
-            "SELECT id, content, word_count, duration_seconds, target_app, pinned, has_audio, source_name, model, pending, revision, created_at
-             FROM transcripts
-             WHERE (? IS NULL OR created_at >= ?)
-               AND (? IS NULL OR created_at <= ?)
-             ORDER BY created_at ASC, id ASC
-             LIMIT ?"
-        }
-    }
+/// Only the bounds that are set: `(? IS NULL OR created_at >= ?)` hides the
+/// range from the planner, so a date filter would scan down from the newest
+/// row. The cursor is a row value, not the spelled-out
+/// `a < ? OR (a = ? AND b < ?)`: SQLite seeks the index on a row value but
+/// scans it on the OR form.
+fn keyset_sql(
+    sort_desc: bool,
+    cursor: Option<Cursor<'_>>,
+    from: Option<&str>,
+    to: Option<&str>,
+) -> String {
+    let (after, order) = if sort_desc {
+        ("(created_at, id) < (?, ?)", "DESC")
+    } else {
+        ("(created_at, id) > (?, ?)", "ASC")
+    };
+    let conditions: Vec<&str> = [
+        (from.is_some(), "created_at >= ?"),
+        (to.is_some(), "created_at <= ?"),
+        (cursor.is_some(), after),
+    ]
+    .into_iter()
+    .filter_map(|(set, condition)| set.then_some(condition))
+    .collect();
+    let filter = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
+    };
+    format!(
+        "SELECT id, content, word_count, duration_seconds, target_app, pinned, has_audio, source_name, model, pending, revision, created_at
+         FROM transcripts
+         {filter}
+         ORDER BY created_at {order}, id {order}
+         LIMIT ?"
+    )
 }
 
 /// The totals and daily words leave out pending imports.
@@ -155,11 +152,15 @@ impl TranscriptRepository {
         to: Option<&str>,
         sort_desc: bool,
     ) -> Result<Vec<Transcript>, sqlx::Error> {
-        let mut q = sqlx::query_as::<_, Transcript>(keyset_sql(sort_desc, cursor.is_some()))
-            .bind(from)
-            .bind(from)
-            .bind(to)
-            .bind(to);
+        // Only fixed fragments are interpolated; every value is bound below.
+        let sql = keyset_sql(sort_desc, cursor, from, to);
+        let mut q = sqlx::query_as::<_, Transcript>(sqlx::AssertSqlSafe(sql));
+        if let Some(from) = from {
+            q = q.bind(from);
+        }
+        if let Some(to) = to {
+            q = q.bind(to);
+        }
         if let Some(c) = cursor {
             q = q.bind(c.created_at).bind(c.id);
         }

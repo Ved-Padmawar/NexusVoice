@@ -148,7 +148,7 @@ function ImportModal({ file, reading, onReading, onClose }: ImportModalProps) {
   const close = () => { if (!reading) onClose() }
 
   return (
-    <Modal open={file !== null} onClose={close} aria-labelledby="import-title" className="w-[420px]">
+    <Modal open={file !== null} onClose={close} aria-labelledby="import-title" className="w-105">
       <div className="flex items-center justify-between px-5 pt-4.5">
         <h2 id="import-title" className="text-md font-semibold tracking-tight text-fg">Transcribe a file</h2>
         <button type="button" aria-label="Close" disabled={reading} onClick={close} className="grid size-7 cursor-pointer place-items-center rounded-lg text-muted hover:bg-surface-hover hover:text-fg disabled:pointer-events-none disabled:opacity-40">
