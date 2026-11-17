@@ -1,6 +1,8 @@
-type Layer = {
+export type Layer = {
   escape: () => void
   tab?: (event: KeyboardEvent) => void
+  /** Whether `node` is inside this layer's own element. */
+  contains?: (node: Node) => boolean
 }
 
 const layers: Layer[] = []
@@ -27,4 +29,10 @@ export function registerLayer(layer: Layer) {
     layers.splice(layers.indexOf(layer), 1)
     if (!layers.length) document.removeEventListener('keydown', onKey)
   }
+}
+
+/** Whether `node` is inside a layer opened after `layer`: one opened from it,
+ *  such as a select's list in a popover, though portaled outside it. */
+export function insideNewerLayer(layer: Layer, node: Node) {
+  return layers.slice(layers.indexOf(layer) + 1).some(newer => newer.contains?.(node))
 }

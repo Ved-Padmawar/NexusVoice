@@ -59,6 +59,7 @@ function mockBackend({ transcripts = [], search = [], stats = null, pushToTalk =
     if (cmd === 'search_transcripts') return Promise.resolve(search)
     if (cmd === 'get_usage_stats') return Promise.resolve(stats)
     if (cmd === 'get_daily_words') return Promise.resolve([])
+    if (cmd === 'get_history_apps') return Promise.resolve(['Slack', 'Notes'])
     if (cmd === 'get_jobs') return Promise.resolve([])
     if (cmd === 'get_downloaded_models') return Promise.resolve([])
     if (cmd === 'get_hotkeys') return Promise.resolve({ pushToTalk, dictation: null, dictationCommit: null })
@@ -250,20 +251,31 @@ describe('Dashboard — filter', () => {
     expect(screen.getAllByRole('button', { name: /pick a date/i })).toHaveLength(2)
   })
 
-  it('refetches with the applied sort order', async () => {
+  it('refetches with the applied preset, app and sort order', async () => {
+    // Early in a month, so the last 7 days reach into the previous one.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 2, 5, 12))
     mockBackend({ transcripts: sampleTranscripts })
     renderDashboard()
     await screen.findByText('Hello world')
 
     fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
+    fireEvent.click(screen.getByRole('button', { name: '7 days' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'App' }))
+    // The list is portaled outside the filter panel; picking from it keeps the panel open.
+    const slack = screen.getByRole('option', { name: 'Slack' })
+    fireEvent.pointerDown(slack)
+    fireEvent.click(slack)
+    expect(screen.getByRole('button', { name: 'Filter' })).toHaveAttribute('aria-expanded', 'true')
     fireEvent.click(screen.getByText(/oldest first/i))
     fireEvent.click(screen.getByText(/^apply$/i))
 
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('get_transcripts', {
-        page: expect.objectContaining({ sortAsc: true }),
+        page: expect.objectContaining({ from: '2026-02-27', to: '2026-03-05', app: 'Slack', sortAsc: true }),
       })
     })
+    vi.useRealTimers()
   })
 })
 

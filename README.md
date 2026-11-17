@@ -11,7 +11,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 <br/>
 
 ![Tauri](https://img.shields.io/badge/Tauri_2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white)
-![Rust](https://img.shields.io/badge/Rust_1.99-CE422B?style=for-the-badge&logo=rust&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust_1.100-CE422B?style=for-the-badge&logo=rust&logoColor=white)
 ![React](https://img.shields.io/badge/React_19-61DAFB?style=for-the-badge&logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![Tailwind](https://img.shields.io/badge/Tailwind_v4-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white)
@@ -51,12 +51,12 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **Paste shortcut that fits the app (Windows)** — pastes with Ctrl+Shift+V in terminals and Ctrl+V everywhere else; or choose Ctrl+V, Ctrl+Shift+V, Shift+Insert or copy only (Settings → General)
 - **Your clipboard kept (Windows)** — whatever you had copied is put back after the paste, and the transcript stays out of clipboard history
 - **Unload when idle (optional)** — free the model's memory after 2, 5, 10, 15 or 60 minutes without dictation (Settings → General); the next dictation reloads it
-- **Smart formatting (optional)** — clean up punctuation and turn spoken lists into real lists using any OpenAI-compatible LLM. Off by default; works fully local with Ollama or LM Studio, or with a cloud provider (OpenAI, OpenRouter) if you prefer
+- **Smart formatting (optional)** — clean up punctuation and turn spoken lists into real lists using any OpenAI-compatible LLM. Off by default; works fully local with Ollama or LM Studio, or with a cloud provider (OpenAI, OpenRouter, Anthropic) if you prefer
 - **8 themes** — Steel, Midnight, Mocha, Crimson (dark) + Canvas, Dawn, Breeze, Blossom (light)
 - **Compact pill overlay** — draggable recording indicator that stays on top while you work
-- **Dashboard** — transcription history, word count, session stats
-- **Transcribe audio files** — import a WAV, MP3, M4A, FLAC or OGG file (up to an hour): it lands in History at once and transcribes in the background, with progress and Cancel in the jobs panel above History. Files and re-transcriptions queue, and a dictation always goes first
-- **Saved dictation audio** — your last few entries keep their audio, stored locally, so you can replay one or transcribe it again with another model (and undo). Choose how many, or switch it off, in Settings; pinned entries keep theirs
+- **Dashboard** — transcription history, word count and session stats; search it, filter by date or by the app you dictated into (with one-click 7-day, 30-day and this-month ranges), and export what it shows
+- **Transcribe audio files** — import a WAV, MP3, M4A, FLAC or OGG file (up to an hour): it lands in History at once and transcribes in the background, with progress and Cancel in its own row. Files and re-transcriptions queue, and a dictation always goes first
+- **Saved dictation audio** — your last few entries keep their audio, stored locally, so you can replay one or transcribe it again with your active model (and undo). Choose how many, or switch it off, in Settings; pinned entries keep theirs
 - **System tray** — runs silently in the background
 
 ---

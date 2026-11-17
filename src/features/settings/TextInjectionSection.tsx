@@ -93,8 +93,8 @@ export function TextInjectionSection() {
   )
 }
 
-/** The ⓘ on a missing tool: a click opens how to get it, each command with
- *  its own copy button. A click, not hover, so the box stays put while copying. */
+/** The ⓘ on a missing tool. Opens on click, not hover, so the box stays put
+ *  while a command is copied. */
 function InstallInfo({ tool }: { tool: InjectionTool }) {
   const [open, setOpen] = useState(false)
   const anchorRef = useRef<HTMLButtonElement>(null)

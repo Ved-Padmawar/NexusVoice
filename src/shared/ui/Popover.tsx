@@ -4,7 +4,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@/shared/utils'
-import { registerLayer } from './dismissLayers'
+import { insideNewerLayer, registerLayer, type Layer } from './dismissLayers'
 
 /** `side` opens beside the anchor (left, or right without room), top-aligned. */
 type Placement = 'bottom-start' | 'bottom-end' | 'bottom' | 'side'
@@ -20,8 +20,6 @@ type Props = {
   matchWidth?: boolean
   /** Gap between anchor and panel. */
   offset?: number
-  /** Clicks here don't count as outside (another popover opened from this one). */
-  insideRefs?: RefObject<HTMLElement | null>[]
   role?: string
   'aria-label'?: string
   className?: string
@@ -34,12 +32,15 @@ const MARGIN = 8
 
 /** A panel anchored to its trigger, in a portal so no scroller clips it. It
  *  flips above the trigger when there is no room below, and closes on Escape
- *  or a click elsewhere. */
+ *  or a click outside it and any popover opened from it. */
 export function Popover({
   open, onOpenChange, anchorRef, focusRef = anchorRef, placement = 'bottom-start', matchWidth = false, offset = 6,
-  insideRefs, role, 'aria-label': label, className, children,
+  role, 'aria-label': label, className, children,
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null)
+  const layerRef = useRef<Layer | null>(null)
+  /** Picked on opening and kept, so a resize never flips the panel. */
+  const aboveRef = useRef<boolean | null>(null)
   const [pos, setPos] = useState<Position | null>(null)
   const dismiss = useEffectEvent(() => {
     onOpenChange(false)
@@ -47,7 +48,8 @@ export function Popover({
   })
   const onPointer = useEffectEvent((e: PointerEvent) => {
     const target = e.target as Node
-    const inside = [panelRef, anchorRef, ...(insideRefs ?? [])].some(r => r.current?.contains(target))
+    const inside = [panelRef, anchorRef].some(r => r.current?.contains(target))
+      || (layerRef.current !== null && insideNewerLayer(layerRef.current, target))
     if (!inside) onOpenChange(false)
   })
 
@@ -65,19 +67,28 @@ export function Popover({
       return
     }
     const room = window.innerHeight - a.bottom - offset - MARGIN
-    const above = h > room && a.top - offset - MARGIN > room
-    const top = above ? a.top - offset - h : a.bottom + offset
+    const above = aboveRef.current ??= h > room && a.top - offset - MARGIN > room
+    const top = Math.max(MARGIN, Math.min(above ? a.top - offset - h : a.bottom + offset, window.innerHeight - h - MARGIN))
     let left = placement === 'bottom-end' ? a.right - w : placement === 'bottom' ? a.left + (a.width - w) / 2 : a.left
     left = Math.min(Math.max(MARGIN, left), window.innerWidth - w - MARGIN)
     setPos({ top, left, width: matchWidth ? a.width : undefined, above })
   }, [anchorRef, matchWidth, offset, placement])
 
   useLayoutEffect(() => {
-    if (open) place()
+    if (!open) return
+    aboveRef.current = null
+    place()
   }, [open, place])
 
   useLayoutEffect(() => {
-    if (open) return registerLayer({ escape: () => dismiss() })
+    if (!open) return
+    const layer: Layer = { escape: () => dismiss(), contains: node => !!panelRef.current?.contains(node) }
+    layerRef.current = layer
+    const unregister = registerLayer(layer)
+    return () => {
+      layerRef.current = null
+      unregister()
+    }
   }, [open])
 
   useEffect(() => {

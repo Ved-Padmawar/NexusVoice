@@ -20,7 +20,7 @@ export function LiveTranscriptToggle() {
         description={<p className="text-xs text-pretty text-muted">The pill opens into a card that fills in as you speak.</p>}
         below={
           <div aria-hidden="true" className={`grid min-h-28 flex-1 place-items-center overflow-hidden rounded-lg bg-[light-dark(var(--surface),var(--field))] transition-opacity ${liveTranscript ? '' : 'opacity-50'}`}>
-            <div className="origin-center scale-[.6]">
+            <div className="origin-center scale-75">
               <div
                 className="live-transcript-preview"
                 data-pill-theme={pillTheme}

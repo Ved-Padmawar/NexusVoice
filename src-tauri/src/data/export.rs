@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use chrono::{Local, TimeZone};
 use serde::{Deserialize, Serialize};
 
-use super::repositories::transcript::TranscriptRepository;
+use super::repositories::transcript::{Filter, TranscriptRepository};
 use super::rows::transcript::Transcript;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, specta::Type)]
@@ -34,6 +34,7 @@ pub struct Selection {
     /// UTC `created_at` bounds.
     pub from: Option<String>,
     pub to: Option<String>,
+    pub app: Option<String>,
     pub sort_desc: bool,
     /// Rows deleted behind an Undo the window still shows.
     pub exclude: HashSet<i64>,
@@ -58,14 +59,18 @@ async fn read(
 ) -> Result<Vec<Transcript>, sqlx::Error> {
     // SQLite reads a negative LIMIT as none.
     const ALL: i64 = -1;
-    let (from, to) = (selection.from.as_deref(), selection.to.as_deref());
+    let filter = Filter {
+        from: selection.from.as_deref(),
+        to: selection.to.as_deref(),
+        app: selection.app.as_deref(),
+    };
     let mut rows = match &selection.search {
         Some(query) => {
-            repo.search(query, ALL, None, from, to, selection.sort_desc)
+            repo.search(query, ALL, None, &filter, selection.sort_desc)
                 .await?
         }
         None => {
-            repo.list_keyset(ALL, None, from, to, selection.sort_desc)
+            repo.list_keyset(ALL, None, &filter, selection.sort_desc)
                 .await?
         }
     };

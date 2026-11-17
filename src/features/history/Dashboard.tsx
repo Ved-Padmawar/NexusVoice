@@ -16,7 +16,7 @@ import {
   useDeleteTranscript,
   NO_FILTERS,
 } from './queries'
-import { hasDates, isFiltered, type TranscriptFilters } from '../../shared/queryKeys'
+import { isFiltered, isNarrowed, type TranscriptFilters } from '../../shared/queryKeys'
 import { useSlice } from '../../app/mirror'
 import { ROUTES } from '../../app/routes'
 import { cn, fmtTime, parseSqliteDate } from '../../shared/utils'
@@ -390,26 +390,25 @@ const DayWave = memo(function DayWave() {
   )
 })
 
-type EmptyFeedProps = { searching: boolean; dated: boolean; hotkey: string | null; onClearFilters: () => void }
+type EmptyFeedProps = { searching: boolean; narrowed: boolean; hotkey: string | null; onClearFilters: () => void }
 
-/** The empty feed says why it is empty: a search, a date range, or no dictations yet. */
-function EmptyFeed({ searching, dated, hotkey, onClearFilters }: EmptyFeedProps) {
-  const narrowed = searching || dated
+/** The empty feed says why it is empty: a search, a filter, or no dictations yet. */
+function EmptyFeed({ searching, narrowed, hotkey, onClearFilters }: EmptyFeedProps) {
   const hint = searching
-    ? dated ? 'Try different keywords or a wider date range.' : 'Try different keywords or check your spelling.'
-    : 'Try a wider date range.'
+    ? narrowed ? 'Try different keywords or wider filters.' : 'Try different keywords or check your spelling.'
+    : 'Try a wider date range or another app.'
   return (
     <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
       <span className="grid size-14 place-items-center rounded-full bg-accent-soft text-accent-ink">
-        {narrowed ? <MagnifyingGlassIcon size={24} /> : <MicrophoneIcon size={24} weight="duotone" />}
+        {searching || narrowed ? <MagnifyingGlassIcon size={24} /> : <MicrophoneIcon size={24} weight="duotone" />}
       </span>
       <p className="text-md font-semibold text-fg">
-        {searching ? 'No results found' : dated ? 'Nothing in this date range' : 'Your first dictation lands here'}
+        {searching ? 'No results found' : narrowed ? 'Nothing matches these filters' : 'Your first dictation lands here'}
       </p>
       <p className="max-w-64 text-sm text-muted text-balance">
-        {narrowed ? hint : <>Hold {hotkey ? <HotkeyKeys hotkey={hotkey} /> : 'your hotkey'} in any text box, speak, and let go.</>}
+        {searching || narrowed ? hint : <>Hold {hotkey ? <HotkeyKeys hotkey={hotkey} /> : 'your hotkey'} in any text box, speak, and let go.</>}
       </p>
-      {dated && <Button size="sm" variant="outline" onClick={onClearFilters}>Clear date filter</Button>}
+      {narrowed && <Button size="sm" variant="outline" onClick={onClearFilters}>Clear filters</Button>}
     </div>
   )
 }
@@ -560,7 +559,7 @@ export function Dashboard() {
           skeleton={<FeedSkeleton />}
         >
           {groups.length === 0 ? (
-            <EmptyFeed searching={isSearchMode} dated={hasDates(filters)} hotkey={keys} onClearFilters={() => setFilters(NO_FILTERS)} />
+            <EmptyFeed searching={isSearchMode} narrowed={isNarrowed(filters)} hotkey={keys} onClearFilters={() => setFilters(NO_FILTERS)} />
           ) : (
             <div className="flex flex-col">
               {groups.map(group => (

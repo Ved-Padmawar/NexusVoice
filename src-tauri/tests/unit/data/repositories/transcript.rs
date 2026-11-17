@@ -1,4 +1,4 @@
-use super::{keyset_sql, Cursor, TranscriptRepository};
+use super::{keyset_sql, Cursor, Filter, TranscriptRepository};
 use crate::data::connection::init_database;
 use crate::data::dto::transcript::CreateTranscript;
 use sqlx::sqlite::SqlitePoolOptions;
@@ -25,6 +25,24 @@ async fn insert(pool: &SqlitePool, content: &str, created_at: &str) -> i64 {
     .fetch_one(pool)
     .await
     .expect("insert")
+}
+
+/// Entries 1 to 6, one a day from 2026-01-01, alternating Slack and Notes.
+async fn entries_in_two_apps(pool: &SqlitePool) {
+    for i in 1..=6 {
+        let id = insert(
+            pool,
+            &format!("notes {i}"),
+            &format!("2026-01-0{i} 00:00:00"),
+        )
+        .await;
+        sqlx::query("UPDATE transcripts SET target_app = ? WHERE id = ?")
+            .bind(if i % 2 == 1 { "Slack" } else { "Notes" })
+            .bind(id)
+            .execute(pool)
+            .await
+            .expect("app");
+    }
 }
 
 #[tokio::test]
@@ -76,7 +94,7 @@ async fn keyset_walks_every_row_without_repeats() {
             id: *id,
         });
         let rows = repo
-            .list_keyset(3, c, None, None, true)
+            .list_keyset(3, c, &Filter::default(), true)
             .await
             .expect("page");
         if rows.is_empty() {
@@ -101,21 +119,31 @@ async fn keyset_pages_seek_the_index_instead_of_scanning() {
         created_at: "2026-01-01 00:00:00",
         id: 1,
     };
-    let (from, to) = ("2026-01-01 00:00:00", "2026-01-31 23:59:59");
-    // A cursor page, and a first page under a date filter.
-    for (sort_desc, cursor, from, to) in [
-        (true, Some(cursor), None, None),
-        (false, Some(cursor), None, None),
-        (true, None, Some(from), Some(to)),
-        (false, None, Some(from), Some(to)),
+    let dates = Filter {
+        from: Some("2026-01-01 00:00:00"),
+        to: Some("2026-01-31 23:59:59"),
+        app: None,
+    };
+    let app = Filter {
+        app: Some("Slack"),
+        ..dates
+    };
+    // A cursor page, a first page under a date filter, and both under an app.
+    for (sort_desc, cursor, filter) in [
+        (true, Some(cursor), Filter::default()),
+        (false, Some(cursor), Filter::default()),
+        (true, None, dates),
+        (false, None, dates),
+        (true, Some(cursor), app),
+        (false, None, app),
     ] {
         let sql = format!(
             "EXPLAIN QUERY PLAN {}",
-            keyset_sql(sort_desc, cursor, from, to)
+            keyset_sql(sort_desc, cursor, &filter)
         );
         let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
-        for bound in [from, to].into_iter().flatten() {
-            q = q.bind(bound);
+        for value in [filter.app, filter.from, filter.to].into_iter().flatten() {
+            q = q.bind(value);
         }
         if let Some(c) = cursor {
             q = q.bind(c.created_at).bind(c.id);
@@ -140,7 +168,7 @@ async fn keyset_breaks_ties_on_id_within_one_second() {
     let repo = TranscriptRepository::new(pool);
 
     let first = repo
-        .list_keyset(2, None, None, None, true)
+        .list_keyset(2, None, &Filter::default(), true)
         .await
         .expect("p1");
     assert_eq!(first.iter().map(|r| r.id).collect::<Vec<_>>(), vec![4, 3]);
@@ -154,8 +182,7 @@ async fn keyset_breaks_ties_on_id_within_one_second() {
                 created_at: &last_ts,
                 id: last.id,
             }),
-            None,
-            None,
+            &Filter::default(),
             true,
         )
         .await
@@ -172,7 +199,7 @@ async fn keyset_is_stable_when_a_row_is_inserted_mid_scroll() {
     let repo = TranscriptRepository::new(pool.clone());
 
     let first = repo
-        .list_keyset(3, None, None, None, true)
+        .list_keyset(3, None, &Filter::default(), true)
         .await
         .expect("p1");
     assert_eq!(
@@ -193,8 +220,7 @@ async fn keyset_is_stable_when_a_row_is_inserted_mid_scroll() {
                 created_at: &last_ts,
                 id: last.id,
             }),
-            None,
-            None,
+            &Filter::default(),
             true,
         )
         .await
@@ -215,7 +241,7 @@ async fn keyset_ascending_walks_forward() {
     let repo = TranscriptRepository::new(pool);
 
     let first = repo
-        .list_keyset(2, None, None, None, false)
+        .list_keyset(2, None, &Filter::default(), false)
         .await
         .expect("p1");
     assert_eq!(first.iter().map(|r| r.id).collect::<Vec<_>>(), vec![1, 2]);
@@ -229,8 +255,7 @@ async fn keyset_ascending_walks_forward() {
                 created_at: &last_ts,
                 id: last.id,
             }),
-            None,
-            None,
+            &Filter::default(),
             false,
         )
         .await
@@ -253,8 +278,11 @@ async fn keyset_respects_date_range_with_cursor() {
                 created_at: "2026-01-05 00:00:00",
                 id: 5,
             }),
-            Some("2026-01-02 00:00:00"),
-            Some("2026-01-05 00:00:00"),
+            &Filter {
+                from: Some("2026-01-02 00:00:00"),
+                to: Some("2026-01-05 00:00:00"),
+                app: None,
+            },
             true,
         )
         .await
@@ -276,7 +304,7 @@ async fn search_pages_newest_first_without_repeats() {
     let repo = TranscriptRepository::new(pool);
 
     let page1 = repo
-        .search("\"meeting\"", 3, None, None, None, true)
+        .search("\"meeting\"", 3, None, &Filter::default(), true)
         .await
         .expect("page 1");
     assert_eq!(
@@ -294,8 +322,7 @@ async fn search_pages_newest_first_without_repeats() {
                 created_at: "",
                 id: last.id,
             }),
-            None,
-            None,
+            &Filter::default(),
             true,
         )
         .await
@@ -320,7 +347,7 @@ async fn search_ascending_walks_forward() {
     let repo = TranscriptRepository::new(pool);
 
     let rows = repo
-        .search("\"report\"", 2, None, None, None, false)
+        .search("\"report\"", 2, None, &Filter::default(), false)
         .await
         .expect("page");
     assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![1, 2]);
@@ -345,13 +372,64 @@ async fn search_respects_the_date_range() {
             "\"invoice\"",
             10,
             None,
-            Some("2026-01-02 00:00:00"),
-            Some("2026-01-04 23:59:59"),
+            &Filter {
+                from: Some("2026-01-02 00:00:00"),
+                to: Some("2026-01-04 23:59:59"),
+                app: None,
+            },
             true,
         )
         .await
         .expect("page");
     assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![4, 3, 2]);
+}
+
+#[tokio::test]
+async fn keyset_keeps_to_one_app_across_dates_and_cursor() {
+    let pool = pool().await;
+    entries_in_two_apps(&pool).await;
+    let repo = TranscriptRepository::new(pool);
+
+    let rows = repo
+        .list_keyset(
+            10,
+            Some(Cursor {
+                created_at: "2026-01-05 00:00:00",
+                id: 5,
+            }),
+            &Filter {
+                from: Some("2026-01-02 00:00:00"),
+                to: None,
+                app: Some("Slack"),
+            },
+            true,
+        )
+        .await
+        .expect("page");
+    assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![3]);
+}
+
+#[tokio::test]
+async fn search_keeps_to_one_app_within_the_dates() {
+    let pool = pool().await;
+    entries_in_two_apps(&pool).await;
+    let repo = TranscriptRepository::new(pool);
+
+    let rows = repo
+        .search(
+            "\"notes\"",
+            10,
+            None,
+            &Filter {
+                from: Some("2026-01-02 00:00:00"),
+                to: Some("2026-01-05 23:59:59"),
+                app: Some("Notes"),
+            },
+            true,
+        )
+        .await
+        .expect("page");
+    assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![4, 2]);
 }
 
 /// A bare `YYYY-MM-DD` upper bound compares lexicographically against
@@ -364,7 +442,16 @@ async fn a_bare_end_date_would_exclude_its_own_day() {
     let repo = TranscriptRepository::new(pool);
 
     let narrow = repo
-        .list_keyset(10, None, Some("2026-01-15"), Some("2026-01-15"), true)
+        .list_keyset(
+            10,
+            None,
+            &Filter {
+                from: Some("2026-01-15"),
+                to: Some("2026-01-15"),
+                app: None,
+            },
+            true,
+        )
         .await
         .expect("narrow");
     assert!(narrow.is_empty(), "bare bound drops the whole day");
@@ -373,8 +460,11 @@ async fn a_bare_end_date_would_exclude_its_own_day() {
         .list_keyset(
             10,
             None,
-            Some("2026-01-15"),
-            Some("2026-01-15 23:59:59"),
+            &Filter {
+                from: Some("2026-01-15"),
+                to: Some("2026-01-15 23:59:59"),
+                app: None,
+            },
             true,
         )
         .await
@@ -448,7 +538,7 @@ async fn raw_user_input_produces_a_query_sqlite_accepts() {
         if fts.trim().is_empty() {
             continue;
         }
-        repo.search(&fts, 10, None, None, None, true)
+        repo.search(&fts, 10, None, &Filter::default(), true)
             .await
             .unwrap_or_else(|e| panic!("user input {raw:?} produced invalid FTS {fts:?}: {e}"));
     }
@@ -462,7 +552,7 @@ async fn a_prefix_search_finds_a_partially_typed_word() {
 
     let fts = TranscriptRepository::build_fts_query("project");
     let rows = repo
-        .search(&fts, 10, None, None, None, true)
+        .search(&fts, 10, None, &Filter::default(), true)
         .await
         .expect("search");
     assert_eq!(rows.len(), 1, "prefix match should find 'projections'");
@@ -594,7 +684,7 @@ async fn search_finds_a_rewritten_entry_by_its_new_text_only() {
         let query = TranscriptRepository::build_fts_query(word);
         let repo = repo.clone();
         async move {
-            repo.search(&query, 10, None, None, None, true)
+            repo.search(&query, 10, None, &Filter::default(), true)
                 .await
                 .expect("search")
                 .len()

@@ -15,25 +15,28 @@ pub struct Cursor<'a> {
     pub id: i64,
 }
 
-/// Only the bounds that are set: `(? IS NULL OR created_at >= ?)` hides the
-/// range from the planner, so a date filter would scan down from the newest
-/// row. The cursor is a row value, not the spelled-out
-/// `a < ? OR (a = ? AND b < ?)`: SQLite seeks the index on a row value but
-/// scans it on the OR form.
-fn keyset_sql(
-    sort_desc: bool,
-    cursor: Option<Cursor<'_>>,
-    from: Option<&str>,
-    to: Option<&str>,
-) -> String {
+/// What History is narrowed to. `from` and `to` are inclusive UTC bounds in
+/// `created_at`'s text form; `app` is a `target_app` exactly.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Filter<'a> {
+    pub from: Option<&'a str>,
+    pub to: Option<&'a str>,
+    pub app: Option<&'a str>,
+}
+
+/// Only the conditions that are set: `(? IS NULL OR x >= ?)` hides a bound
+/// from the planner, which then scans from the newest row. The cursor is a row
+/// value, which SQLite seeks; it scans `a < ? OR (a = ? AND b < ?)`.
+fn keyset_sql(sort_desc: bool, cursor: Option<Cursor<'_>>, filter: &Filter<'_>) -> String {
     let (after, order) = if sort_desc {
         ("(created_at, id) < (?, ?)", "DESC")
     } else {
         ("(created_at, id) > (?, ?)", "ASC")
     };
     let conditions: Vec<&str> = [
-        (from.is_some(), "created_at >= ?"),
-        (to.is_some(), "created_at <= ?"),
+        (filter.app.is_some(), "target_app = ?"),
+        (filter.from.is_some(), "created_at >= ?"),
+        (filter.to.is_some(), "created_at <= ?"),
         (cursor.is_some(), after),
     ]
     .into_iter()
@@ -114,6 +117,18 @@ impl TranscriptRepository {
             .await
     }
 
+    /// Every app dictated into, most used first.
+    pub async fn apps(&self) -> Result<Vec<String>, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT target_app FROM transcripts
+             WHERE target_app IS NOT NULL
+             GROUP BY target_app
+             ORDER BY COUNT(*) DESC, target_app",
+        )
+        .fetch_all(&self.pool)
+        .await
+    }
+
     /// Words dictated per local day over the last `days` days (today included),
     /// oldest first; days with no dictation are absent. `created_at` is UTC, so
     /// `utc_offset_minutes` shifts it into the user's day, and the lower bound is
@@ -148,18 +163,14 @@ impl TranscriptRepository {
         &self,
         limit: i64,
         cursor: Option<Cursor<'_>>,
-        from: Option<&str>,
-        to: Option<&str>,
+        filter: &Filter<'_>,
         sort_desc: bool,
     ) -> Result<Vec<Transcript>, sqlx::Error> {
-        // Only fixed fragments are interpolated; every value is bound below.
-        let sql = keyset_sql(sort_desc, cursor, from, to);
+        // Only fixed fragments are interpolated; values bind in `keyset_sql`'s order.
+        let sql = keyset_sql(sort_desc, cursor, filter);
         let mut q = sqlx::query_as::<_, Transcript>(sqlx::AssertSqlSafe(sql));
-        if let Some(from) = from {
-            q = q.bind(from);
-        }
-        if let Some(to) = to {
-            q = q.bind(to);
+        for value in [filter.app, filter.from, filter.to].into_iter().flatten() {
+            q = q.bind(value);
         }
         if let Some(c) = cursor {
             q = q.bind(c.created_at).bind(c.id);
@@ -336,7 +347,8 @@ impl TranscriptRepository {
         fts_terms.join(" OR ")
     }
 
-    /// FTS5 search with optional date range and sort order.
+    /// FTS5 search with an optional filter and sort order. The full-text index
+    /// drives the walk; the filter only drops matches as they pass.
     ///
     /// Ordered by `rowid` (= `transcripts.id`), not by `created_at`. Ordering by
     /// `created_at` forces SQLite to materialize *every* match into a temp B-tree
@@ -354,8 +366,7 @@ impl TranscriptRepository {
         query: &str,
         limit: i64,
         cursor: Option<Cursor<'_>>,
-        from: Option<&str>,
-        to: Option<&str>,
+        filter: &Filter<'_>,
         sort_desc: bool,
     ) -> Result<Vec<Transcript>, sqlx::Error> {
         let sql = match (sort_desc, cursor.is_some()) {
@@ -366,6 +377,7 @@ impl TranscriptRepository {
                  WHERE transcripts_fts MATCH ?
                    AND (? IS NULL OR t.created_at >= ?)
                    AND (? IS NULL OR t.created_at <= ?)
+                   AND (? IS NULL OR t.target_app = ?)
                    AND transcripts_fts.rowid < ?
                  ORDER BY transcripts_fts.rowid DESC
                  LIMIT ?"
@@ -377,6 +389,7 @@ impl TranscriptRepository {
                  WHERE transcripts_fts MATCH ?
                    AND (? IS NULL OR t.created_at >= ?)
                    AND (? IS NULL OR t.created_at <= ?)
+                   AND (? IS NULL OR t.target_app = ?)
                    AND transcripts_fts.rowid > ?
                  ORDER BY transcripts_fts.rowid ASC
                  LIMIT ?"
@@ -388,6 +401,7 @@ impl TranscriptRepository {
                  WHERE transcripts_fts MATCH ?
                    AND (? IS NULL OR t.created_at >= ?)
                    AND (? IS NULL OR t.created_at <= ?)
+                   AND (? IS NULL OR t.target_app = ?)
                  ORDER BY transcripts_fts.rowid DESC
                  LIMIT ?"
             }
@@ -398,6 +412,7 @@ impl TranscriptRepository {
                  WHERE transcripts_fts MATCH ?
                    AND (? IS NULL OR t.created_at >= ?)
                    AND (? IS NULL OR t.created_at <= ?)
+                   AND (? IS NULL OR t.target_app = ?)
                  ORDER BY transcripts_fts.rowid ASC
                  LIMIT ?"
             }
@@ -405,10 +420,12 @@ impl TranscriptRepository {
 
         let mut q = sqlx::query_as::<_, Transcript>(sql)
             .bind(query)
-            .bind(from)
-            .bind(from)
-            .bind(to)
-            .bind(to);
+            .bind(filter.from)
+            .bind(filter.from)
+            .bind(filter.to)
+            .bind(filter.to)
+            .bind(filter.app)
+            .bind(filter.app);
         if let Some(c) = cursor {
             q = q.bind(c.id);
         }

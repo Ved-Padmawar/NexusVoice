@@ -18,7 +18,7 @@ import { localDateKey } from '../../shared/utils'
 
 export const PAGE_SIZE = 50
 
-export const NO_FILTERS: TranscriptFilters = { from: null, to: null, sortAsc: false }
+export const NO_FILTERS: TranscriptFilters = { from: null, to: null, app: null, sortAsc: false }
 
 type Cursor = { cursorCreatedAt: string | null; cursorId: number | null }
 
@@ -103,6 +103,17 @@ export function useHistoryFeed(query: string, filters: TranscriptFilters) {
 
 export function useStats() {
   return useQuery({ ...statsOptions(useRevision('historyTotals')), placeholderData: keepPreviousData })
+}
+
+/** The apps the feed can be filtered to. Only dictations name an app, and
+ *  each one moves the totals. */
+export function useHistoryApps() {
+  return useQuery({
+    ...AT_REVISION,
+    queryKey: queryKeys.historyApps(useRevision('historyTotals')),
+    queryFn: () => commands.getHistoryApps(),
+    placeholderData: keepPreviousData,
+  })
 }
 
 export type DayWords = { day: Date; words: number }

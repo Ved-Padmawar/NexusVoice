@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
 use crate::data::export::{export, ExportFormat, Selection};
-use crate::data::repositories::transcript::{Cursor, TranscriptRepository};
+use crate::data::repositories::transcript::{Cursor, Filter, TranscriptRepository};
 use crate::data::Database;
 use crate::mirror::Committed;
 use crate::recordings::Recordings;
@@ -60,6 +60,13 @@ const MAX_DAYS: u32 = 366;
 /// UTC−12 to UTC+14, the range real time zones span.
 const UTC_OFFSET_RANGE: std::ops::RangeInclusive<i32> = -12 * 60..=14 * 60;
 
+/// The apps History can be filtered to, most used first.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_history_apps(db: State<'_, Database>) -> Result<Vec<String>, ApiError> {
+    Ok(TranscriptRepository::new(db.pool().await?).apps().await?)
+}
+
 /// Words per day for the dashboard's waveform, in the caller's time zone.
 #[tauri::command]
 #[specta::specta]
@@ -102,6 +109,8 @@ pub struct PageQuery {
     cursor_id: Option<i64>,
     from: Option<String>,
     to: Option<String>,
+    /// Only entries dictated into this app.
+    app: Option<String>,
     sort_asc: Option<bool>,
 }
 
@@ -159,6 +168,16 @@ struct CreatedAtRange {
     end: Option<String>,
 }
 
+impl CreatedAtRange {
+    fn filter<'a>(&'a self, app: Option<&'a str>) -> Filter<'a> {
+        Filter {
+            from: self.start.as_deref(),
+            to: self.end.as_deref(),
+            app,
+        }
+    }
+}
+
 /// Dates come from the calendar, never typed, so this is our fault, not the user's.
 fn bad_date_filter() -> ApiError {
     ApiError::new(
@@ -203,8 +222,7 @@ pub async fn get_transcripts(
         .list_keyset(
             page.limit(),
             page.cursor(),
-            range.start.as_deref(),
-            range.end.as_deref(),
+            &range.filter(page.app.as_deref()),
             page.sort_desc(),
         )
         .await?;
@@ -242,8 +260,7 @@ pub async fn search_transcripts(
             &fts_query,
             page.limit(),
             page.cursor(),
-            range.start.as_deref(),
-            range.end.as_deref(),
+            &range.filter(page.app.as_deref()),
             page.sort_desc(),
         )
         .await?;
@@ -311,6 +328,7 @@ pub struct ExportRequest {
     query: String,
     from: Option<String>,
     to: Option<String>,
+    app: Option<String>,
     sort_asc: bool,
     exclude: Vec<i64>,
     format: ExportFormat,
@@ -347,6 +365,7 @@ pub async fn export_transcripts(
         search: (!query.is_empty()).then(|| TranscriptRepository::build_fts_query(query)),
         from: range.start,
         to: range.end,
+        app: request.app,
         sort_desc: !request.sort_asc,
         exclude: request.exclude.into_iter().collect(),
     };

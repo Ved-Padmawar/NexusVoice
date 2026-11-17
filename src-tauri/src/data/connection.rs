@@ -6,6 +6,9 @@ use sqlx::{
     SqlitePool,
 };
 
+/// SQLite's suggested cap on the rows `PRAGMA optimize` samples per index.
+const ANALYSIS_LIMIT: u32 = 400;
+
 pub async fn create_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     let options = SqliteConnectOptions::new()
         .filename(database_url.trim_start_matches("sqlite://"))
@@ -13,7 +16,9 @@ pub async fn create_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> 
         .busy_timeout(Duration::from_secs(5))
         // Per-connection pragma: run once through the pool it reaches one
         // connection. sqlx already enables foreign_keys on each.
-        .synchronous(SqliteSynchronous::Normal);
+        .synchronous(SqliteSynchronous::Normal)
+        // A tray app rarely closes cleanly, so `init_database` also optimizes.
+        .optimize_on_close(true, ANALYSIS_LIMIT);
 
     SqlitePoolOptions::new()
         .max_connections(5)
@@ -45,7 +50,15 @@ pub async fn init_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     migrator
         .run(pool)
         .await
-        .map_err(|err| sqlx::Error::Migrate(Box::new(err)))
+        .map_err(|err| sqlx::Error::Migrate(Box::new(err)))?;
+
+    // 0x10002: also analyze tables never analyzed, as on a first launch.
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "PRAGMA analysis_limit = {ANALYSIS_LIMIT}; PRAGMA optimize = 0x10002;"
+    )))
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 /// Columns a database may lack, with their definitions: ones that predate the
@@ -175,12 +188,12 @@ mod tests {
 
     #[test]
     fn migrations_are_checked_out_with_lf_endings() {
-        for sql in [
-            include_str!("migrations/0001_init.sql"),
-            include_str!("migrations/0002_transcript_stats.sql"),
-            include_str!("migrations/0003_completed_transcript_stats.sql"),
-        ] {
-            assert!(!sql.contains('\r'));
+        for migration in sqlx::migrate!("src/data/migrations").iter() {
+            assert!(
+                !migration.sql.as_str().contains('\r'),
+                "{} has CRLF endings",
+                migration.description
+            );
         }
     }
 

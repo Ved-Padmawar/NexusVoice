@@ -49,6 +49,7 @@ async fn an_export_holds_every_finished_row_it_was_asked_for() {
         search: None,
         from: None,
         to: None,
+        app: None,
         sort_desc: true,
         exclude,
     };

@@ -129,8 +129,8 @@ export function Dictionary() {
       <td className={cn(cell, 'text-right text-xs text-muted tabular-nums')}>{hits}</td>
       <td className={cell}>
         <div className="flex justify-end gap-2">
-          <Button size="sm" variant="outline" onClick={cancelEdit}>Cancel</Button>
-          <Button size="sm" variant="primary" disabled={!canSave} onClick={() => void commitEdit()}>{id === NEW ? 'Add' : 'Save'}</Button>
+          <Button size="sm" variant="secondary" onClick={cancelEdit}>Cancel</Button>
+          <Button size="sm" variant="tinted" disabled={!canSave} onClick={() => void commitEdit()}>{id === NEW ? 'Add' : 'Save'}</Button>
         </div>
       </td>
     </tr>

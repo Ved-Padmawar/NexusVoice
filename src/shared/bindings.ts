@@ -46,6 +46,12 @@ async getUsageStats() : Promise<UsageStatsResponse> {
 async getDailyWords(days: number, utcOffsetMinutes: number, localDate: string) : Promise<DailyWordsResponse[]> {
     return await TAURI_INVOKE("get_daily_words", { days, utcOffsetMinutes, localDate });
 },
+/**
+ * The apps History can be filtered to, most used first.
+ */
+async getHistoryApps() : Promise<string[]> {
+    return await TAURI_INVOKE("get_history_apps");
+},
 async getTranscripts(page: PageQuery) : Promise<TranscriptResponse[]> {
     return await TAURI_INVOKE("get_transcripts", { page });
 },
@@ -390,7 +396,7 @@ export type ExportFormat = "txt" | "json"
  * What History shows, to export: its search, filters and the rows it hides
  * behind an Undo.
  */
-export type ExportRequest = { query: string; from: string | null; to: string | null; sortAsc: boolean; exclude: number[]; format: ExportFormat }
+export type ExportRequest = { query: string; from: string | null; to: string | null; app: string | null; sortAsc: boolean; exclude: number[]; format: ExportFormat }
 export type Exported = { path: string; count: number }
 /**
  * One provider's endpoint from the provider modal. Saving it touches only that
@@ -539,7 +545,11 @@ export type PackState = "absent" |
 /**
  * Pagination, cursor and filter args shared by the transcript list and search.
  */
-export type PageQuery = { limit: number | null; cursorCreatedAt: string | null; cursorId: number | null; from: string | null; to: string | null; sortAsc: boolean | null }
+export type PageQuery = { limit: number | null; cursorCreatedAt: string | null; cursorId: number | null; from: string | null; to: string | null;
+/**
+ * Only entries dictated into this app.
+ */
+app: string | null; sortAsc: boolean | null }
 /**
  * How a finished transcript is pasted where the clipboard route applies.
  */

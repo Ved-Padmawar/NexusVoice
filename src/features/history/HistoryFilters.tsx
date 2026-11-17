@@ -1,11 +1,12 @@
-import { useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useRef, useState, type MouseEvent } from 'react'
 import { ArrowCounterClockwiseIcon, CalendarBlankIcon, CaretLeftIcon, CaretRightIcon, FunnelSimpleIcon, XIcon } from '@phosphor-icons/react'
 import { Button } from '@/shared/ui/Button'
 import { Popover } from '@/shared/ui/Popover'
 import { Segmented } from '@/shared/ui/Segmented'
+import { Select } from '@/shared/ui/Select'
 import { cn, localDateKey as toIso } from '../../shared/utils'
 import { isFiltered, type TranscriptFilters } from '../../shared/queryKeys'
-import { NO_FILTERS } from './queries'
+import { NO_FILTERS, useHistoryApps } from './queries'
 
 export function ToolbarButton({ className, ...props }: React.ComponentProps<'button'>) {
   return (
@@ -113,6 +114,15 @@ function DateFieldButton({ value, expanded, onClick }: {
 
 const fieldLabel = 'text-xs font-semibold text-fg-2'
 
+type Range = { from: string; to: string }
+
+/** Ranges ending today, in local days. */
+const PRESETS: { label: string; range: (today: Date) => Range }[] = [
+  { label: '7 days', range: today => ({ from: toIso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6)), to: toIso(today) }) },
+  { label: '30 days', range: today => ({ from: toIso(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 29)), to: toIso(today) }) },
+  { label: 'This month', range: today => ({ from: toIso(new Date(today.getFullYear(), today.getMonth(), 1)), to: toIso(today) }) },
+]
+
 /** The editor's state for applied filters: a range whose ends match is one day. */
 function datesOf({ from, to }: TranscriptFilters): { mode: DateMode; dates: Dates } {
   if (from && from === to) return { mode: 'on', dates: { from: '', to: '', on: from } }
@@ -125,26 +135,27 @@ type FilterDropdownProps = {
 }
 
 export function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
-  const { sortAsc: filterSortAsc } = filters
+  const { app: filterApp, sortAsc: filterSortAsc } = filters
   const [open, setOpen] = useState(false)
   const [dateMode, setDateMode] = useState(() => datesOf(filters).mode)
   const [dates, setDates] = useState(() => datesOf(filters).dates)
+  const [app, setApp] = useState(filterApp)
   const [sortAsc, setSortAsc] = useState(filterSortAsc)
   const [calField, setCalField] = useState<DateKey | null>(null)
   const [calView, setCalView] = useState(() => new Date())
   const hasActive = isFiltered(filters)
+  const apps = useHistoryApps().data ?? []
 
   const anchorRef = useRef<HTMLButtonElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
-  const calRef = useRef<HTMLDivElement>(null)
   const calTrigger = useRef<HTMLButtonElement>(null)
-  const calInside = useMemo(() => [calRef], [])
 
   const handleOpenChange = (next: boolean) => {
     if (next) {
       const applied = datesOf(filters)
       setDateMode(applied.mode)
       setDates(applied.dates)
+      setApp(filterApp)
       setSortAsc(filterSortAsc)
     }
     setCalField(null)
@@ -172,15 +183,13 @@ export function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
 
   const apply = () => {
     // Only the visible mode counts, so a cleared day can't fall back to a hidden range.
-    if (dateMode === 'on') {
-      onChange({ from: dates.on || null, to: dates.on || null, sortAsc })
-    } else {
-      onChange({ from: dates.from || null, to: dates.to || null, sortAsc })
-    }
+    const [from, to] = dateMode === 'on' ? [dates.on, dates.on] : [dates.from, dates.to]
+    onChange({ from: from || null, to: to || null, app, sortAsc })
     handleOpenChange(false)
   }
   const reset = () => {
     setDates({ from: '', to: '', on: '' })
+    setApp(null)
     setSortAsc(false)
     onChange(NO_FILTERS)
     handleOpenChange(false)
@@ -208,7 +217,7 @@ export function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
       >
         <FunnelSimpleIcon size={14} weight="bold" />
       </ToolbarButton>
-      <Popover open={open} onOpenChange={handleOpenChange} anchorRef={anchorRef} placement="bottom-end" insideRefs={calInside} className="w-72 rounded-2xl p-4">
+      <Popover open={open} onOpenChange={handleOpenChange} anchorRef={anchorRef} placement="bottom-end" className="w-72 rounded-2xl p-4">
         <div ref={bodyRef} className="flex flex-col gap-3.5">
           <div className="flex flex-col gap-1.5">
             <span className={fieldLabel}>Date</span>
@@ -223,9 +232,44 @@ export function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
           {dateMode === 'on' ? (
             <div className="flex flex-col gap-1.5"><span className={fieldLabel}>On</span>{field('on')}</div>
           ) : (
-            <div className="flex gap-2">
-              <div className="flex min-w-0 flex-1 flex-col gap-1.5"><span className={fieldLabel}>From</span>{field('from')}</div>
-              <div className="flex min-w-0 flex-1 flex-col gap-1.5"><span className={fieldLabel}>To</span>{field('to')}</div>
+            <>
+              <div className="grid grid-cols-3 gap-1.5">
+                {PRESETS.map(({ label, range }) => {
+                  const { from, to } = range(new Date())
+                  const picked = dates.from === from && dates.to === to
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      aria-pressed={picked}
+                      onClick={() => setDates({ ...dates, from, to })}
+                      className={cn(
+                        'h-7 cursor-pointer rounded-lg bg-field text-xs font-semibold text-fg-2 ring-1 ring-inset ring-line-soft transition-shadow hover:text-fg hover:ring-line',
+                        picked && 'bg-accent-soft text-accent-ink ring-accent-line hover:text-accent-ink hover:ring-accent',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="flex gap-2">
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5"><span className={fieldLabel}>From</span>{field('from')}</div>
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5"><span className={fieldLabel}>To</span>{field('to')}</div>
+              </div>
+            </>
+          )}
+          {apps.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <span className={fieldLabel}>App</span>
+              <Select
+                aria-label="App"
+                value={app ?? ''}
+                onChange={value => setApp(value || null)}
+                options={[{ value: '', label: 'All apps', dividerAfter: true }, ...apps.map(name => ({ value: name, label: name }))]}
+                searchPlaceholder="Search apps"
+                className="h-8 px-2.5 text-xs"
+              />
             </div>
           )}
           <div className="flex flex-col gap-1.5">
@@ -238,6 +282,8 @@ export function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
               options={[{ value: 'desc', label: 'Newest first' }, { value: 'asc', label: 'Oldest first' }]}
             />
           </div>
+          {/* Holds the presets row's place, so switching modes never changes the panel's height. */}
+          {dateMode === 'on' && <div aria-hidden="true" className="h-7" />}
           <div className="flex items-center gap-2 border-t border-line-soft pt-3">
             <Button size="sm" variant="ghost" onClick={reset}><ArrowCounterClockwiseIcon size={12} weight="bold" />Reset</Button>
             <Button size="sm" variant="tinted" onClick={apply} className="ml-auto px-4">Apply</Button>
@@ -254,7 +300,7 @@ export function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
         offset={22}
         className="w-64"
       >
-        <div ref={calRef} className="p-3">
+        <div className="p-3">
           <Calendar
             view={calView}
             onView={setCalView}
@@ -270,13 +316,13 @@ export function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
 
 const chipDateFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' })
 
-/** "3 Nov – 9 Nov · Oldest first": what the feed is narrowed to, in words. */
-function describeFilters({ from, to, sortAsc }: TranscriptFilters) {
+/** "3 Nov – 9 Nov · Slack · Oldest first": what the feed is narrowed to, in words. */
+function describeFilters({ from, to, app, sortAsc }: TranscriptFilters) {
   const day = (iso: string) => chipDateFmt.format(fromIso(iso))
   const dates = from && to
     ? from === to ? `On ${day(from)}` : `${day(from)} – ${day(to)}`
     : from ? `Since ${day(from)}` : to ? `Until ${day(to)}` : null
-  return [dates, sortAsc && 'Oldest first'].filter(Boolean).join(' · ')
+  return [dates, app, sortAsc && 'Oldest first'].filter(Boolean).join(' · ')
 }
 
 /** Shows that the feed is filtered, and clears it in one click. */
