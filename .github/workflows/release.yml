@@ -361,8 +361,9 @@ jobs:
               raise SystemExit(f"{stem} not found under {lib_dirs}")
 
           module_name = "ggml-cuda.dll" if windows else "libggml-cuda.so"
+          # Cargo 1.100 nests build-script output as <crate>/<hash>/out; older Cargo used <crate>-<hash>/out.
           modules = sorted(
-              glob.glob(f"cuda-build/target/release/build/transcribe-cpp-sys-*/out/**/{module_name}", recursive=True),
+              glob.glob(f"cuda-build/target/release/build/transcribe-cpp-sys*/**/{module_name}", recursive=True),
               key=len,
           )
           if not modules:
