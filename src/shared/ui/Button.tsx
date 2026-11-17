@@ -3,6 +3,7 @@ import { cn } from '@/shared/utils'
 
 const VARIANTS = {
   primary: 'bg-accent text-accent-fg hover:bg-accent-hover',
+  secondary: 'bg-field text-fg-2 ring-1 ring-inset ring-line-soft hover:text-fg hover:ring-line',
   tinted: 'bg-accent-soft text-accent-ink ring-1 ring-inset ring-accent-line hover:bg-accent/25 hover:ring-accent',
   outline: 'text-fg ring-1 ring-inset ring-line hover:bg-surface-hover',
   chip: 'bg-panel text-fg ring-1 ring-inset ring-line-soft hover:ring-line',

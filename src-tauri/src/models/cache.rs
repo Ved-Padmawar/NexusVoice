@@ -2,23 +2,20 @@
 //! when the model changes or it idles.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
-use tauri_specta::Event;
 use tokio::sync::watch;
 
-use crate::bridge::events::LanguageReset;
+use crate::engine::Canceller;
 use crate::settings::Settings;
 use crate::sync::lock_recovering;
 
-use super::language::{primary_of, AUTO, DEFAULT};
 use super::library::best_on_disk;
-use super::provider::{detect_backend, select_model};
 use super::TranscriptionEngine;
 
-pub type SharedEngine = Arc<Mutex<TranscriptionEngine>>;
+pub type SharedEngine = Arc<TranscriptionEngine>;
 
 /// Generic over the engine only so tests can install one without a model.
 struct Slot<E = SharedEngine> {
@@ -132,13 +129,12 @@ impl<E> Slot<E> {
 
 pub struct EngineCache {
     models_dir: PathBuf,
+    /// Where engine workers find the CUDA pack.
+    app_data_dir: PathBuf,
     slot: Arc<Mutex<Slot>>,
     /// Serializes loading, so two callers racing an empty slot build one engine.
     loading: tokio::sync::Mutex<()>,
     used_at: Mutex<Instant>,
-    /// Copied out at load: the engine mutex is held for a whole streaming
-    /// recording.
-    backend: RwLock<Option<String>>,
     /// Signalled when a lease drops.
     released: Arc<tokio::sync::Notify>,
     deferred: Arc<watch::Sender<Deferred>>,
@@ -182,13 +178,13 @@ fn edit<R>(
 }
 
 impl EngineCache {
-    pub fn new(models_dir: PathBuf) -> Self {
+    pub fn new(models_dir: PathBuf, app_data_dir: PathBuf) -> Self {
         Self {
             models_dir,
+            app_data_dir,
             slot: Arc::default(),
             loading: tokio::sync::Mutex::new(()),
             used_at: Mutex::new(Instant::now()),
-            backend: RwLock::new(None),
             released: Arc::new(tokio::sync::Notify::new()),
             deferred: Arc::new(watch::Sender::new(Deferred::default())),
         }
@@ -262,19 +258,11 @@ impl EngineCache {
                 Ok(engine) => return Ok(engine),
                 Err(generation) => generation,
             };
-            let engine = self.build(settings).await?;
-            let backend = engine.backend();
-            let languages = engine.languages().to_vec();
-            let engine = Arc::new(Mutex::new(engine));
+            let engine = Arc::new(self.build(settings).await?);
             if !self.edit(|slot| slot.install(Arc::clone(&engine), generation)) {
                 log::info!("model changed while loading; loading the new selection");
                 continue;
             }
-            reset_unsupported_language(settings, &languages, settings.language().as_deref());
-            *self
-                .backend
-                .write()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(backend);
             return Ok(engine);
         }
     }
@@ -287,24 +275,25 @@ impl EngineCache {
 
     /// Build the selected model's engine off the runtime.
     async fn build(&self, settings: &Settings) -> Result<TranscriptionEngine, String> {
-        let mut model = settings.model();
-        let entry = select_model(detect_backend(), model.as_deref());
-        // The selected model may still be downloading. Load whatever is present
-        // so recording keeps working, but never rewrite the choice; that would
-        // silently cancel the user's pick mid-download.
-        if !self.models_dir.join(&entry.filename).exists() {
-            let fallback = best_on_disk(&self.models_dir, None)
-                .ok_or_else(|| "model not downloaded yet".to_string())?;
-            log::warn!(
-                "selected model not on disk; loading {} for now",
-                fallback.id
-            );
-            model = Some(fallback.id.clone());
-        }
-
+        let selected = settings.active_model();
         let models_dir = self.models_dir.clone();
+        let app_data_dir = self.app_data_dir.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            TranscriptionEngine::new(&models_dir, model.as_deref())
+            // A fallback never rewrites the saved model or language.
+            let model = if models_dir.join(&selected.filename).exists() {
+                selected
+            } else {
+                let fallback = best_on_disk(&models_dir, None)
+                    .ok_or_else(|| "model not downloaded yet".to_string())?;
+                log::warn!(
+                    "selected model not on disk; loading {} for now",
+                    fallback.id
+                );
+                fallback
+            };
+            let canceller = Canceller::default();
+            let mark = canceller.mark();
+            TranscriptionEngine::new(&models_dir, &app_data_dir, Some(&model.id), canceller, mark)
         })
         .await
         .map_err(|e| {
@@ -322,14 +311,8 @@ impl EngineCache {
             let cache = app.state::<Self>();
             cache.superseded_released().await;
             let settings = app.state::<Settings>();
-            let before = settings.language();
             if let Err(e) = cache.get_or_load(&settings).await {
                 log::info!("engine warmup skipped: {e}");
-                return;
-            }
-            // The load resets a language the new model can't speak.
-            if before.is_some() && settings.language() != before {
-                let _ = LanguageReset.emit(&app);
             }
         });
     }
@@ -351,13 +334,6 @@ impl EngineCache {
         self.edit(Slot::supersede_unless_leased)
     }
 
-    /// Drop an engine that panicked, even mid-recording: it cannot be trusted.
-    pub fn discard(&self) {
-        self.edit(|slot| {
-            slot.clear();
-        });
-    }
-
     pub fn in_use(&self) -> bool {
         !lock_recovering(&self.slot).leases.is_empty()
     }
@@ -371,26 +347,9 @@ impl EngineCache {
         lock_recovering(&self.used_at).elapsed()
     }
 
-    /// Backend the last loaded model bound to; `None` before the first load.
+    /// Backend the loaded model runs on now; `None` while none is loaded.
     pub fn backend(&self) -> Option<String> {
-        self.backend
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
-    }
-}
-
-/// Otherwise every decode silently falls back to English and the picker still
-/// shows a language the model cannot speak.
-fn reset_unsupported_language(settings: &Settings, languages: &[String], saved: Option<&str>) {
-    let Some(code) = saved.filter(|c| *c != AUTO && *c != DEFAULT) else {
-        return;
-    };
-    if languages.is_empty() || languages.iter().any(|l| l == code || primary_of(l) == code) {
-        return;
-    }
-    if let Err(e) = settings.set_language(Some(DEFAULT.to_string())) {
-        log::warn!("could not reset unsupported language {code}: {e}");
+        self.loaded().map(|engine| engine.backend())
     }
 }
 

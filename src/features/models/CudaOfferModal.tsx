@@ -13,7 +13,7 @@ const ICON_BUTTON =
 /** Offers the CUDA pack on NVIDIA GPUs, and a retry when replacing an
  * unverified pack failed. */
 export function CudaOfferModal() {
-  const cuda = useCuda().data
+  const cuda = useCuda()
   const error = useAppStore(s => s.cudaError)
   const close = useAppStore(s => s.closeCudaOffer)
   const [gpuName, setGpuName] = useState<string | null>(null)

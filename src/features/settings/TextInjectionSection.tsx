@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
-import { CheckIcon, KeyboardIcon, ArrowsClockwiseIcon, WarningIcon, MinusIcon } from '@phosphor-icons/react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { CheckIcon, KeyboardIcon, ArrowsClockwiseIcon, WarningIcon, MinusIcon, InfoIcon } from '@phosphor-icons/react'
 import { commands } from '../../shared/bindings'
 import { Button } from '../../shared/ui/Button'
-import type { InjectionStatus } from '../../shared/types'
+import { CopyButton } from '../../shared/ui/CopyButton'
+import { Popover } from '../../shared/ui/Popover'
+import type { InjectionStatus, InjectionTool } from '../../shared/types'
 
 /**
  * Linux needs an external helper to type transcripts, because Wayland does not
@@ -74,19 +76,56 @@ export function TextInjectionSection() {
           {status.tools.map((tool) => (
             <li
               key={tool.name}
-              data-tip={tool.preferred ? 'In use' : tool.available ? 'Installed' : tool.installHint}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 ring-1 ring-inset ${
+              className={`flex h-8 items-center gap-1.5 rounded-lg pr-0.5 pl-2.5 ring-1 ring-inset ${
                 tool.preferred ? 'bg-accent-soft ring-accent-line' : 'bg-field ring-line-soft'
               }`}
             >
               {tool.available
                 ? <CheckIcon size={12} weight="bold" className={tool.preferred ? 'text-accent-ink' : 'text-success'} />
                 : <MinusIcon size={12} className="text-muted" />}
-              <code className={`text-xs font-semibold ${tool.preferred ? 'text-accent-ink' : 'text-fg-2'}`}>{tool.name}</code>
+              <code className={`min-w-0 flex-1 truncate text-xs font-semibold ${tool.preferred ? 'text-accent-ink' : 'text-fg-2'}`}>{tool.name}</code>
+              {!tool.available && <InstallInfo tool={tool} />}
             </li>
           ))}
         </ul>
       </div>
     </section>
+  )
+}
+
+/** The ⓘ on a missing tool. Opens on click, not hover, so the box stays put
+ *  while a command is copied. */
+function InstallInfo({ tool }: { tool: InjectionTool }) {
+  const [open, setOpen] = useState(false)
+  const anchorRef = useRef<HTMLButtonElement>(null)
+
+  return (
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        aria-label={`How to install ${tool.name}`}
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+        className={`grid size-7 shrink-0 cursor-pointer place-items-center rounded-md transition-colors hover:text-fg ${open ? 'text-fg' : 'text-muted'}`}
+      >
+        <InfoIcon size={14} />
+      </button>
+      <Popover open={open} onOpenChange={setOpen} anchorRef={anchorRef} placement="bottom-end" aria-label={`Install ${tool.name}`} className="w-72">
+        {tool.install.length > 0 && (
+          <ul className="divide-y divide-line-soft">
+            {tool.install.map(command => (
+              <li key={command} className="flex items-center gap-2 py-1 pr-1.5 pl-3.5">
+                <code className="min-w-0 flex-1 truncate text-xs text-fg-2 select-all">{command}</code>
+                <CopyButton text={command} label={`Copy ${command}`} />
+              </li>
+            ))}
+          </ul>
+        )}
+        {tool.note && (
+          <p className={`px-3.5 py-2.5 text-xs text-muted ${tool.install.length > 0 ? 'border-t border-line-soft' : ''}`}>{tool.note}</p>
+        )}
+      </Popover>
+    </>
   )
 }

@@ -11,4 +11,7 @@ pub struct GpuDescriptor {
     pub name: String,
     pub vendor_id: Option<u32>,
     pub vram_bytes: u64,
+    /// Integrated GPUs report shared system RAM as VRAM, which can exceed a
+    /// discrete card's dedicated memory; a discrete GPU is preferred regardless.
+    pub discrete: bool,
 }

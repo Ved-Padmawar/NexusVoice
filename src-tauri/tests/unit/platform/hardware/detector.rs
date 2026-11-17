@@ -53,11 +53,13 @@ fn selects_highest_vram_gpu() {
                 name: "Low".to_string(),
                 vendor_id: Some(NVIDIA_VENDOR_ID),
                 vram_bytes: 2 * 1_073_741_824,
+                discrete: true,
             },
             GpuDescriptor {
                 name: "High".to_string(),
                 vendor_id: Some(NVIDIA_VENDOR_ID),
                 vram_bytes: 8 * 1_073_741_824,
+                discrete: true,
             },
         ],
         ram_gb: 32.0,
@@ -75,6 +77,7 @@ fn intel_maps_to_vulkan() {
             name: "Intel".to_string(),
             vendor_id: Some(INTEL_VENDOR_ID),
             vram_bytes: 1_073_741_824,
+            discrete: true,
         }],
         ram_gb: 16.0,
     };
@@ -89,6 +92,7 @@ fn amd_maps_to_vulkan() {
             name: "Radeon RX 7800".to_string(),
             vendor_id: Some(AMD_VENDOR_ID),
             vram_bytes: 16 * 1_073_741_824,
+            discrete: true,
         }],
         ram_gb: 32.0,
     };
@@ -103,6 +107,7 @@ fn an_unrecognized_vendor_id_falls_back_to_cpu() {
             name: "Mystery Accelerator".to_string(),
             vendor_id: Some(0xDEAD),
             vram_bytes: 8 * 1_073_741_824,
+            discrete: true,
         }],
         ram_gb: 16.0,
     };
@@ -118,6 +123,7 @@ fn a_missing_vendor_id_is_resolved_from_the_device_name() {
                 name: name.to_string(),
                 vendor_id: None,
                 vram_bytes: 8 * 1_073_741_824,
+                discrete: true,
             }],
             ram_gb: 16.0,
         };
@@ -140,6 +146,7 @@ fn name_matching_ignores_case() {
             name: "nvidia geforce gtx 1660".to_string(),
             vendor_id: None,
             vram_bytes: 6 * 1_073_741_824,
+            discrete: true,
         }],
         ram_gb: 16.0,
     };
@@ -154,6 +161,7 @@ fn a_vendor_id_outranks_a_contradicting_device_name() {
             name: "NVIDIA-branded AMD reference board".to_string(),
             vendor_id: Some(AMD_VENDOR_ID),
             vram_bytes: 8 * 1_073_741_824,
+            discrete: true,
         }],
         ram_gb: 16.0,
     };
@@ -168,8 +176,54 @@ fn vram_is_reported_in_gb_to_one_decimal() {
             vendor_id: Some(NVIDIA_VENDOR_ID),
             // 6.5 GiB
             vram_bytes: 6_979_321_856,
+            discrete: true,
         }],
         ram_gb: 16.0,
     };
     assert_eq!(detect_profile(&provider).vram_gb, 6.5);
+}
+
+#[test]
+fn a_discrete_gpu_outranks_an_integrated_one_reporting_more_shared_memory() {
+    // A hybrid laptop: the iGPU's Vulkan heap is shared system RAM.
+    let provider = MockProvider {
+        gpus: vec![
+            GpuDescriptor {
+                name: "Intel(R) UHD Graphics".to_string(),
+                vendor_id: Some(INTEL_VENDOR_ID),
+                vram_bytes: 11 * 1_073_741_824,
+                discrete: false,
+            },
+            GpuDescriptor {
+                name: "NVIDIA GeForce RTX 3050 Laptop GPU".to_string(),
+                vendor_id: Some(NVIDIA_VENDOR_ID),
+                vram_bytes: 4 * 1_073_741_824,
+                discrete: true,
+            },
+        ],
+        ram_gb: 16.0,
+    };
+    let profile = detect_profile(&provider);
+    assert_eq!(profile.gpu_type, "NVIDIA GeForce RTX 3050 Laptop GPU");
+    assert_eq!(profile.execution_provider, "cuda");
+    assert_eq!(profile.vram_gb, 4.0);
+}
+
+#[test]
+fn an_integrated_gpu_on_its_own_is_still_used() {
+    // Most laptops have only an iGPU; preferring discrete GPUs must not mean
+    // dropping integrated ones and leaving such machines on the CPU.
+    let provider = MockProvider {
+        gpus: vec![GpuDescriptor {
+            name: "Intel(R) Iris(R) Xe Graphics".to_string(),
+            vendor_id: Some(INTEL_VENDOR_ID),
+            vram_bytes: 8 * 1_073_741_824,
+            discrete: false,
+        }],
+        ram_gb: 16.0,
+    };
+    let profile = detect_profile(&provider);
+    assert_eq!(profile.gpu_type, "Intel(R) Iris(R) Xe Graphics");
+    assert_eq!(profile.execution_provider, "vulkan");
+    assert_eq!(profile.vram_gb, 8.0);
 }

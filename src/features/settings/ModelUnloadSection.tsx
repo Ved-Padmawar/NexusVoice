@@ -1,11 +1,10 @@
-import { useEffect } from 'react'
 import { TimerIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { useLiveChoice } from '../../app/useLiveChoice'
 import { Select } from '../../shared/ui/Select'
-import { modelUnloadOptions, useModelUnload } from '../models/queries'
+import { SettingRow } from './SettingRow'
+import { useSetting } from './queries'
 import type { ModelUnload } from '../../shared/types'
 
 const OPTIONS: { value: ModelUnload; label: string }[] = [
@@ -22,30 +21,22 @@ const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Could not
 
 /** When an idle model is unloaded to free memory. */
 export function ModelUnloadSection() {
-  const { data, error } = useModelUnload()
-  const { pending, choose } = useLiveChoice(modelUnloadOptions, saveUnload, saveFailed)
-
-  useEffect(() => {
-    if (error) toast.error(extractErrorMessage(error, 'Could not load the unload setting'))
-  }, [error])
-
-  // The select waits for the saved value, so a late read can never overwrite a click.
-  const policy = pending ? pending.value : data ?? null
+  const [policy, choose] = useSetting('modelUnload', saveUnload, saveFailed)
 
   return (
-    <div className="inline-flex h-8 items-center gap-2 rounded-lg bg-panel pr-1 pl-3 text-xs ring-1 ring-line-soft ring-inset">
-      <TimerIcon size={14} weight="bold" className="text-accent-ink" />
-      <span className="font-semibold text-fg">Unload when idle</span>
-      <div className="w-22">
+    <SettingRow
+      icon={<TimerIcon size={16} weight="duotone" />}
+      title="Unload the model when idle"
+      description={<p className="text-xs text-pretty text-muted">Frees memory; the next recording reloads it.</p>}
+    >
+      <div className="w-28 shrink-0">
         <Select
-          size="sm"
           value={policy}
           options={OPTIONS}
-          onChange={(v) => { if (v !== policy) void choose(v) }}
-          aria-label="Unload when idle"
-          disabled={policy === null}
+          onChange={(v) => { if (v !== policy) choose(v) }}
+          aria-label="Unload idle model"
         />
       </div>
-    </div>
+    </SettingRow>
   )
 }

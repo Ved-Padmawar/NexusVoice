@@ -2,15 +2,16 @@
 
 use chrono::{DateTime, Local, NaiveDate, NaiveTime, TimeDelta, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
-use std::io::Write;
-use std::path::{Component, Path, PathBuf};
 use tauri::{AppHandle, Manager, State};
 
-use crate::data::repositories::transcript::{Cursor, TranscriptRepository};
+use crate::data::export::{export, ExportFormat, Selection};
+use crate::data::repositories::transcript::{Cursor, Filter, TranscriptRepository};
 use crate::data::Database;
+use crate::mirror::Committed;
+use crate::recordings::Recordings;
 use crate::text::dictionary::{Dictionary, DictionaryError};
 
-use super::dto::{DictionaryResponse, TranscriptResponse};
+use super::dto::TranscriptResponse;
 use super::error::ApiError;
 
 #[derive(Debug, Serialize, specta::Type)]
@@ -59,6 +60,13 @@ const MAX_DAYS: u32 = 366;
 /// UTC−12 to UTC+14, the range real time zones span.
 const UTC_OFFSET_RANGE: std::ops::RangeInclusive<i32> = -12 * 60..=14 * 60;
 
+/// The apps History can be filtered to, most used first.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_history_apps(db: State<'_, Database>) -> Result<Vec<String>, ApiError> {
+    Ok(TranscriptRepository::new(db.pool().await?).apps().await?)
+}
+
 /// Words per day for the dashboard's waveform, in the caller's time zone.
 #[tauri::command]
 #[specta::specta]
@@ -66,6 +74,7 @@ pub async fn get_daily_words(
     db: State<'_, Database>,
     days: u32,
     utc_offset_minutes: i32,
+    local_date: String,
 ) -> Result<Vec<DailyWordsResponse>, ApiError> {
     if !UTC_OFFSET_RANGE.contains(&utc_offset_minutes) {
         return Err(ApiError::new(
@@ -73,10 +82,13 @@ pub async fn get_daily_words(
             "Couldn't work out your time zone.",
         ));
     }
+    let day = NaiveDate::parse_from_str(&local_date, "%Y-%m-%d")
+        .map_err(|_| ApiError::new("invalid_input", "Couldn't work out today's date."))?;
     let rows = TranscriptRepository::new(db.pool().await?)
         .daily_words(
             i64::from(days.clamp(1, MAX_DAYS)),
             i64::from(utc_offset_minutes),
+            &day.to_string(),
         )
         .await?;
     Ok(rows
@@ -97,6 +109,8 @@ pub struct PageQuery {
     cursor_id: Option<i64>,
     from: Option<String>,
     to: Option<String>,
+    /// Only entries dictated into this app.
+    app: Option<String>,
     sort_asc: Option<bool>,
 }
 
@@ -154,6 +168,16 @@ struct CreatedAtRange {
     end: Option<String>,
 }
 
+impl CreatedAtRange {
+    fn filter<'a>(&'a self, app: Option<&'a str>) -> Filter<'a> {
+        Filter {
+            from: self.start.as_deref(),
+            to: self.end.as_deref(),
+            app,
+        }
+    }
+}
+
 /// Dates come from the calendar, never typed, so this is our fault, not the user's.
 fn bad_date_filter() -> ApiError {
     ApiError::new(
@@ -189,6 +213,7 @@ fn sqlite_datetime(at: DateTime<Utc>) -> String {
 #[specta::specta]
 pub async fn get_transcripts(
     db: State<'_, Database>,
+    recordings: State<'_, Recordings>,
     page: PageQuery,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
     let range = page.created_at_range()?;
@@ -197,18 +222,21 @@ pub async fn get_transcripts(
         .list_keyset(
             page.limit(),
             page.cursor(),
-            range.start.as_deref(),
-            range.end.as_deref(),
+            &range.filter(page.app.as_deref()),
             page.sort_desc(),
         )
         .await?;
-    Ok(items.into_iter().map(TranscriptResponse::from).collect())
+    Ok(items
+        .into_iter()
+        .map(|t| TranscriptResponse::new(t, &recordings))
+        .collect())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn search_transcripts(
     db: State<'_, Database>,
+    recordings: State<'_, Recordings>,
     query: String,
     page: PageQuery,
 ) -> Result<Vec<TranscriptResponse>, ApiError> {
@@ -232,30 +260,34 @@ pub async fn search_transcripts(
             &fts_query,
             page.limit(),
             page.cursor(),
-            range.start.as_deref(),
-            range.end.as_deref(),
+            &range.filter(page.app.as_deref()),
             page.sort_desc(),
         )
         .await?;
-    Ok(items.into_iter().map(TranscriptResponse::from).collect())
+    Ok(items
+        .into_iter()
+        .map(|t| TranscriptResponse::new(t, &recordings))
+        .collect())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub async fn delete_transcript(db: State<'_, Database>, id: i64) -> Result<(), ApiError> {
+pub async fn delete_transcript(
+    app: AppHandle,
+    db: State<'_, Database>,
+    id: i64,
+) -> Result<(), ApiError> {
+    crate::jobs::cancel(&app, id).await;
+    // The entry goes first: a save still writing its audio then finds it
+    // gone and deletes its own file. A file that won't delete is swept up by
+    // the next launch's reconcile.
     TranscriptRepository::new(db.pool().await?)
         .delete_by_id(id)
         .await?;
+    if let Err(e) = crate::recordings::remove(&app, id).await {
+        log::warn!("{e}");
+    }
     Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn get_dictionary(
-    dictionary: State<'_, Dictionary>,
-) -> Result<Vec<DictionaryResponse>, ApiError> {
-    let entries = dictionary.entries().await;
-    Ok(entries.into_iter().map(DictionaryResponse::from).collect())
 }
 
 /// Add an entry, or with `id` edit that one (a rename keeps its use count).
@@ -267,16 +299,15 @@ pub async fn update_dictionary(
     term: String,
     replacement: String,
     id: Option<i64>,
-) -> Result<DictionaryResponse, ApiError> {
-    let entry = dictionary
+) -> Result<Committed, ApiError> {
+    dictionary
         .save(&db.pool().await?, id, &term, &replacement)
         .await
         .map_err(|e| match e {
             DictionaryError::Invalid(message) => ApiError::new("invalid_input", message),
             DictionaryError::Duplicate(message) => ApiError::new("dictionary_duplicate", message),
             DictionaryError::Database(e) => e.into(),
-        })?;
-    Ok(entry.into())
+        })
 }
 
 #[tauri::command]
@@ -285,36 +316,70 @@ pub async fn delete_dictionary_entry(
     db: State<'_, Database>,
     dictionary: State<'_, Dictionary>,
     id: i64,
-) -> Result<(), ApiError> {
+) -> Result<Committed, ApiError> {
     Ok(dictionary.delete(&db.pool().await?, id).await?)
 }
 
-/// Write an export into the user's Downloads folder and return where it went.
-/// An existing file is never overwritten: the name gets " (2)", " (3)", ….
+/// What History shows, to export: its search, filters and the rows it hides
+/// behind an Undo.
+#[derive(Debug, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportRequest {
+    query: String,
+    from: Option<String>,
+    to: Option<String>,
+    app: Option<String>,
+    sort_asc: bool,
+    exclude: Vec<i64>,
+    format: ExportFormat,
+}
+
+#[derive(Debug, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Exported {
+    pub path: String,
+    pub count: usize,
+}
+
+/// Export what History shows into the user's Downloads folder, never over an
+/// existing file. `None` when nothing matches.
 #[tauri::command]
 #[specta::specta]
-pub async fn save_export(
+pub async fn export_transcripts(
     app: AppHandle,
-    file_name: String,
-    content: String,
-) -> Result<String, ApiError> {
-    if !is_bare_file_name(&file_name) {
-        return Err(ApiError::new(
-            "invalid_input",
-            "Couldn't save the export to Downloads.",
-        ));
+    db: State<'_, Database>,
+    request: ExportRequest,
+) -> Result<Option<Exported>, ApiError> {
+    let range = PageQuery {
+        from: request.from,
+        to: request.to,
+        ..PageQuery::default()
     }
+    .created_at_range()?;
     let downloads = app.path().download_dir().map_err(|e| {
         log::warn!("downloads folder not found: {e}");
         ApiError::new("io_error", "Couldn't find your Downloads folder.")
     })?;
-    // Off the main thread: a large export or a slow folder would freeze every window.
-    let path = tauri::async_runtime::spawn_blocking(move || {
-        write_without_overwriting(&downloads, &file_name, &content)
-    })
-    .await
-    .expect("export write panicked")?;
-    Ok(path.to_string_lossy().into_owned())
+    let query = request.query.trim();
+    let selection = Selection {
+        search: (!query.is_empty()).then(|| TranscriptRepository::build_fts_query(query)),
+        from: range.start,
+        to: range.end,
+        app: request.app,
+        sort_desc: !request.sort_asc,
+        exclude: request.exclude.into_iter().collect(),
+    };
+    let repo = TranscriptRepository::new(db.pool().await?);
+    let exported = export(&repo, selection, downloads, request.format)
+        .await
+        .map_err(|e| {
+            log::warn!("export failed: {e}");
+            ApiError::new("io_error", "Couldn't save the export to Downloads.")
+        })?;
+    Ok(exported.map(|(path, count)| Exported {
+        path: path.to_string_lossy().into_owned(),
+        count,
+    }))
 }
 
 /// Open the file manager with `path` selected.
@@ -325,59 +390,6 @@ pub fn reveal_in_folder(path: String) -> Result<(), ApiError> {
         log::warn!("reveal in folder failed: {e}");
         ApiError::new("open_error", "Couldn't open the folder.")
     })
-}
-
-/// A single file name: no directories, and none of the characters Windows
-/// refuses in one. Backslash is listed because Unix would accept it as a
-/// plain character.
-fn is_bare_file_name(name: &str) -> bool {
-    let mut components = Path::new(name).components();
-    matches!(
-        (components.next(), components.next()),
-        (Some(Component::Normal(_)), None)
-    ) && !name.contains(['\\', '<', '>', ':', '"', '|', '?', '*'])
-}
-
-/// Create `dir/file_name`, or the first free "name (n).ext", and fill it.
-/// Creation is exclusive, so a file that appears meanwhile is not clobbered.
-fn write_without_overwriting(
-    dir: &Path,
-    file_name: &str,
-    content: &str,
-) -> std::io::Result<PathBuf> {
-    let name = Path::new(file_name);
-    let stem = name.file_stem().unwrap_or_default().to_string_lossy();
-    let extension = name
-        .extension()
-        .map(|e| format!(".{}", e.to_string_lossy()))
-        .unwrap_or_default();
-    for attempt in 1.. {
-        let candidate = if attempt == 1 {
-            dir.join(file_name)
-        } else {
-            dir.join(format!("{stem} ({attempt}){extension}"))
-        };
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-        {
-            Ok(mut file) => {
-                return match file.write_all(content.as_bytes()) {
-                    Ok(()) => Ok(candidate),
-                    // A partial export would look complete and take the name.
-                    Err(e) => {
-                        drop(file);
-                        let _ = std::fs::remove_file(&candidate);
-                        Err(e)
-                    }
-                };
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(e) => return Err(e),
-        }
-    }
-    unreachable!("the attempt counter is unbounded")
 }
 
 #[cfg(test)]

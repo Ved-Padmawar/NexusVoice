@@ -5,19 +5,25 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Toaster } from 'sonner'
 
 import { useAppStore } from './store/useAppStore'
-import { addTranscript } from '../features/history/queries'
-import { refreshDictionaryUses } from '../features/dictionary/queries'
-import { listenForModelEvents } from '../features/models/queries'
-import { listenForCudaEvents, useCuda } from '../features/models/cuda'
-import { followPillSettings, listenForRecordingState } from '../features/settings/queries'
+import { listenForJobsFinishing } from '../features/history/jobs'
+import { listenForLanguageReset } from '../features/models/queries'
+import { listenForCudaNotices, useCuda } from '../features/models/cuda'
+import { migrateLegacyPill } from '../features/settings/queries'
 import { ROUTES } from './routes'
-import { useEventListener, useDelayedFlag } from '../shared/hooks'
+import { useDelayedFlag } from '../shared/hooks'
 import { Layout } from './Layout'
 import { ErrorBoundary } from './ErrorBoundary'
 import { Dashboard } from '../features/history/Dashboard'
 import { SettingsPage as Settings, DictionaryPage as Dictionary, preloadRoute } from './routeModules'
 import { showMainWindow } from './showMainWindow'
 import { setWindowVisible } from '../shared/frameClock'
+import { setWindowShown } from './mirror'
+
+/** Hidden to the tray, the window stops its animations and its History reads. */
+function setShown(shown: boolean) {
+  setWindowVisible(shown)
+  setWindowShown(shown)
+}
 
 const Spinner = () => (
   <div className="size-7 animate-spin rounded-full border-2 border-line border-t-accent" />
@@ -25,7 +31,7 @@ const Spinner = () => (
 
 /** Full-screen startup loader. Spinner appears only after a short delay so a fast
  * database open doesn't flash it; the themed background shows immediately. */
-function StartupLoader() {
+export function StartupLoader() {
   const showSpinner = useDelayedFlag(true, 250)
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-3.5 bg-bg" role="status" aria-live="polite" data-tauri-drag-region>
@@ -87,12 +93,12 @@ function App() {
   }, [startup])
 
   useEffect(() => {
-    const cleanups = [listenForModelEvents(), listenForCudaEvents(), listenForRecordingState()]
+    const cleanups = [listenForLanguageReset(), listenForCudaNotices(), listenForJobsFinishing()]
     return () => { cleanups.forEach(cleanup => cleanup.then(fn => fn()).catch(() => {})) }
   }, [])
 
   // Not tied to setup: new installs see it once the picker closes, upgrades on launch.
-  const cudaKnown = useCuda().data !== undefined
+  const cudaKnown = useCuda() !== null
   useEffect(() => {
     if (!starting && modelChosen && cudaKnown) useAppStore.getState().offerCuda()
   }, [starting, modelChosen, cudaKnown])
@@ -104,12 +110,7 @@ function App() {
     return () => clearTimeout(t)
   }, [])
 
-  useEventListener('transcriptSaved', (transcript) => {
-    void addTranscript(transcript)
-    void refreshDictionaryUses()
-  })
-
-  useEffect(followPillSettings, [])
+  useEffect(() => { void migrateLegacyPill() }, [])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -118,7 +119,7 @@ function App() {
   useEffect(() => {
     const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
       event.preventDefault()
-      setWindowVisible(false)
+      setShown(false)
       await getCurrentWindow().hide()
     })
     return () => { unlisten.then(fn => fn()) }
@@ -127,7 +128,7 @@ function App() {
   // Every path that shows the window from the tray or a shortcut also focuses it.
   useEffect(() => {
     const unlisten = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      if (focused) setWindowVisible(true)
+      if (focused) setShown(true)
     })
     return () => { unlisten.then(fn => fn()) }
   }, [])

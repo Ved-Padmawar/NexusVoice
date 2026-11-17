@@ -304,6 +304,22 @@
 
 /* Copy to tick, no script: a click focuses the button and focus runs one
    cross-fade. `:not(:active)` drops it while held, so every click restarts it. */
+/* The audio line: a thin track; its thumb shows on hover and while it plays. */
+.track { position: relative; height: 16px; display: flex; align-items: center; cursor: pointer; touch-action: none; }
+.track::before { content: ''; position: absolute; inset: 7px 0; border-radius: 999px; background: var(--border-soft); }
+.track .fill { position: absolute; left: 0; top: 7px; height: 2px; border-radius: 999px; background: var(--accent); width: calc(var(--p) * 100%); }
+.track .thumb { position: absolute; top: 50%; left: calc(var(--p) * 100%); width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 999px; background: var(--accent);
+  scale: 0; transition: scale 160ms var(--ease-out-quint); }
+.player:hover .thumb, .player[data-state="playing"] .thumb, .player[data-state="paused"] .thumb { scale: 1; }
+.player[data-state="idle"] .fill { opacity: 0; }
+
+/* Text as its own skeleton: on an inline element each line becomes a bar of
+   that line's width, so the row keeps its shape while the text is redone. */
+.text-skeleton { border-radius: 4px; -webkit-box-decoration-break: clone; box-decoration-break: clone;
+  transition: color 150ms var(--ease-out-quint), background-color 150ms var(--ease-out-quint); }
+.text-skeleton[aria-busy="true"] { color: transparent; background-color: var(--surface); user-select: none; }
+
+
 .copy-btn > svg { grid-area: 1 / 1; }
 .copy-btn .c-done { opacity: 0; color: var(--success); }
 .copy-btn:focus:not(:focus-visible):not(:active) .c-idle { animation: copy-out 1.8s var(--ease-out-quint) both; }

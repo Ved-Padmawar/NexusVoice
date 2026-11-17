@@ -1,12 +1,9 @@
 //! Recording commands and microphone selection.
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
-use crate::models::cache::EngineCache;
-use crate::session::{
-    recorder::{Action, RecordingSnapshot},
-    Recorder,
-};
+use crate::mirror::Committed;
+use crate::session::{recorder::Action, Recorder};
 use crate::settings::Settings;
 
 use super::error::ApiError;
@@ -38,8 +35,7 @@ pub async fn commit_dictation(
     Ok(recorder.request(&app, Action::Commit).await?)
 }
 
-/// A selectable microphone. `is_default` marks the OS default; `is_selected`
-/// marks the saved preference.
+/// A selectable microphone. `is_default` marks the OS default.
 #[derive(Debug, serde::Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct InputDeviceInfo {
@@ -47,15 +43,13 @@ pub struct InputDeviceInfo {
     pub id: String,
     pub name: String,
     pub is_default: bool,
-    pub is_selected: bool,
 }
 
 /// Usable input devices, excluding loopback and virtual endpoints. The UI
 /// lists "Default" first; these are the named alternatives.
 #[tauri::command]
 #[specta::specta]
-pub async fn list_input_devices(app: AppHandle) -> Vec<InputDeviceInfo> {
-    let selected = app.state::<Settings>().input_device();
+pub async fn list_input_devices() -> Vec<InputDeviceInfo> {
     // Enumerating audio endpoints blocks on the OS: off the main thread.
     let devices = tauri::async_runtime::spawn_blocking(crate::audio::list_input_devices)
         .await
@@ -63,7 +57,6 @@ pub async fn list_input_devices(app: AppHandle) -> Vec<InputDeviceInfo> {
     devices
         .into_iter()
         .map(|d| InputDeviceInfo {
-            is_selected: selected.as_deref() == Some(d.id.as_str()),
             is_default: d.is_default,
             id: d.id,
             name: d.name,
@@ -79,17 +72,11 @@ pub fn set_input_device(
     settings: State<'_, Settings>,
     recorder: State<'_, Recorder>,
     id: Option<String>,
-) -> Result<(), ApiError> {
+) -> Result<Committed, ApiError> {
     let id = id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-    settings.set_input_device(id)?;
+    let committed = settings.set_input_device(id)?;
     recorder.change_mic(&app);
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn get_keep_mic_open(settings: State<'_, Settings>) -> bool {
-    settings.keep_mic_open()
+    Ok(committed)
 }
 
 #[tauri::command]
@@ -98,17 +85,8 @@ pub fn set_keep_mic_open(
     settings: State<'_, Settings>,
     recorder: State<'_, Recorder>,
     keep: bool,
-) -> Result<(), ApiError> {
-    settings.set_keep_mic_open(keep)?;
+) -> Result<Committed, ApiError> {
+    let committed = settings.set_keep_mic_open(keep)?;
     recorder.set_keep_mic_open(keep);
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn get_recording_state(
-    recorder: State<'_, Recorder>,
-    engine: State<'_, EngineCache>,
-) -> RecordingSnapshot {
-    recorder.snapshot(&engine)
+    Ok(committed)
 }

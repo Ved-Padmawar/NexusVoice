@@ -22,6 +22,9 @@ pub fn query_gpus() -> Result<Vec<GpuDescriptor>, String> {
                 name: device.name().to_string(),
                 vendor_id: Some(APPLE_VENDOR_ID),
                 vram_bytes: working_set,
+                // Apple Silicon's GPU is integrated; Intel Macs may carry a
+                // discrete AMD card alongside one.
+                discrete: !device.is_low_power(),
             }
         })
         .collect())

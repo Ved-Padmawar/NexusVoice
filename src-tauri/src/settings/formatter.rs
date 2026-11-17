@@ -1,7 +1,7 @@
 //! Smart-formatting provider settings. Each provider keeps its own endpoint,
 //! so switching between them and back preserves what was entered for each.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -13,14 +13,14 @@ use super::Secrets;
 const DEFAULT_PROVIDER: &str = "ollama";
 
 /// One provider's endpoint as saved. Its key is in the credential store.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Endpoint {
     pub base_url: String,
     pub model: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct FormatterSettings {
     pub enabled: bool,
@@ -40,7 +40,8 @@ impl Default for FormatterSettings {
 }
 
 impl FormatterSettings {
-    pub fn view(&self, secrets: &Secrets) -> FormatterView {
+    /// The settings screen's view; `keyed` are the providers with a saved key.
+    pub fn view(&self, keyed: &BTreeSet<String>) -> FormatterView {
         FormatterView {
             enabled: self.enabled,
             provider: self.provider.clone(),
@@ -51,7 +52,7 @@ impl FormatterSettings {
                     let view = ProfileView {
                         base_url: endpoint.base_url.clone(),
                         model: endpoint.model.clone(),
-                        has_api_key: secrets.api_key(provider).is_some(),
+                        has_api_key: keyed.contains(provider),
                     };
                     (provider.clone(), view)
                 })
@@ -65,13 +66,17 @@ impl FormatterSettings {
             .get(&self.provider)
             .cloned()
             .unwrap_or_default();
-        let api_key = secrets.api_key(&self.provider).unwrap_or_default();
+        let api_key = if self.enabled {
+            secrets.api_key(&self.provider).unwrap_or_default()
+        } else {
+            String::new()
+        };
         active_config(self.enabled, &self.provider, endpoint, api_key)
     }
 }
 
 /// The settings screen's view: whether a key is saved, never the key.
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct FormatterView {
     pub enabled: bool,
@@ -79,7 +84,7 @@ pub struct FormatterView {
     pub profiles: HashMap<String, ProfileView>,
 }
 
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileView {
     pub base_url: String,
@@ -87,13 +92,13 @@ pub struct ProfileView {
     pub has_api_key: bool,
 }
 
-/// A change from the settings screen.
+/// One provider's endpoint from the provider modal. Saving it touches only that
+/// endpoint, so a toggle landing mid-save can't bring back an older one.
 #[derive(Debug, Clone, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct FormatterUpdate {
-    pub enabled: bool,
+pub struct FormatterDraft {
     pub provider: String,
-    pub profiles: HashMap<String, ProfileUpdate>,
+    pub profile: ProfileUpdate,
 }
 
 #[derive(Debug, Clone, Deserialize, Type)]
@@ -105,63 +110,38 @@ pub struct ProfileUpdate {
     pub api_key: Option<String>,
 }
 
-impl FormatterUpdate {
-    /// Reject a draft whose active provider has an address no request could
-    /// reach. An empty address is a draft in progress, not an error, and
-    /// turning formatting off never needs a reachable address.
+impl FormatterDraft {
+    /// Reject an address no request could reach. An empty address is a draft
+    /// in progress, not an error.
     pub fn validate(&self) -> Result<(), &'static str> {
-        if !self.enabled {
+        if self.provider == "anthropic" || self.profile.base_url.trim().is_empty() {
             return Ok(());
         }
-        let Some(profile) = self.profiles.get(&self.provider) else {
-            return Ok(());
-        };
-        if self.provider == "anthropic" || profile.base_url.trim().is_empty() {
-            return Ok(());
-        }
-        check_base_url(&profile.base_url)
+        check_base_url(&self.profile.base_url)
     }
 
-    pub fn store_keys(&self, secrets: &Secrets) -> Result<(), String> {
-        for (provider, profile) in &self.profiles {
-            match profile.api_key.as_deref().map(str::trim) {
-                None => {}
-                Some("") => secrets.delete_api_key(provider)?,
-                Some(key) => secrets.set_api_key(provider, key)?,
-            }
+    fn endpoint(&self) -> Endpoint {
+        Endpoint {
+            base_url: self.profile.base_url.trim().to_string(),
+            model: self.profile.model.trim().to_string(),
         }
-        Ok(())
     }
 
-    pub fn into_settings(self) -> FormatterSettings {
-        FormatterSettings {
-            enabled: self.enabled,
-            provider: self.provider,
-            endpoints: self
-                .profiles
-                .into_iter()
-                .map(|(provider, p)| {
-                    let endpoint = Endpoint {
-                        base_url: p.base_url.trim().to_string(),
-                        model: p.model.trim().to_string(),
-                    };
-                    (provider, endpoint)
-                })
-                .collect(),
-        }
+    /// Make this the active endpoint and turn formatting on.
+    pub fn apply(&self, saved: &mut FormatterSettings) {
+        saved
+            .endpoints
+            .insert(self.provider.clone(), self.endpoint());
+        saved.provider.clone_from(&self.provider);
+        saved.enabled = true;
     }
 
     pub fn resolve(&self, secrets: &Secrets) -> FormatConfig {
-        let profile = self.profiles.get(&self.provider);
-        let endpoint = profile.map_or_else(Endpoint::default, |p| Endpoint {
-            base_url: p.base_url.trim().to_string(),
-            model: p.model.trim().to_string(),
-        });
-        let api_key = match profile.and_then(|p| p.api_key.as_deref()) {
+        let api_key = match self.profile.api_key.as_deref() {
             Some(key) => key.trim().to_string(),
             None => secrets.api_key(&self.provider).unwrap_or_default(),
         };
-        active_config(self.enabled, &self.provider, endpoint, api_key)
+        active_config(true, &self.provider, self.endpoint(), api_key)
     }
 }
 

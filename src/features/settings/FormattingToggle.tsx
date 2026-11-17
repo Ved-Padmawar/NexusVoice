@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   SparkleIcon, SlidersHorizontalIcon, XIcon, CheckIcon, CheckCircleIcon, SpinnerGapIcon, WarningCircleIcon,
   PlugIcon, PlugsConnectedIcon, LinkIcon, CubeIcon, KeyIcon, LockSimpleIcon,
 } from '@phosphor-icons/react'
-import { commands } from '../../shared/bindings'
+import { commands, type Committed } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { VendorMark } from '../../shared/ui/VendorMark'
 import { Button } from '../../shared/ui/Button'
@@ -12,11 +12,11 @@ import { Switch } from '../../shared/ui/Switch'
 import { TextInput } from '../../shared/ui/TextInput'
 import type { VendorId } from '../../shared/vendors'
 import { toast } from 'sonner'
-import { readFresh } from '../../app/queryClient'
-import { useLiveChoice } from '../../app/useLiveChoice'
-import { formatConfigOptions, useFormatConfig } from './queries'
-import { isConfigured, keepingKeys } from './formatConfig'
-import type { FormatterUpdate, FormatterView, ProfileView } from '../../shared/types'
+import { mirrored, useSlice } from '../../app/mirror'
+import { useChoice } from '../../app/useChoice'
+import { SettingRow } from './SettingRow'
+import { isConfigured } from './formatConfig'
+import type { FormatterDraft, FormatterView, ProfileView } from '../../shared/types'
 
 const EMPTY_PROFILE: ProfileView = { baseUrl: '', model: '', hasApiKey: false }
 
@@ -43,21 +43,16 @@ const PRESETS: Preset[] = [
   { id: 'custom',     label: 'Custom',     hint: 'Any OpenAI-compatible', baseUrl: '',                      needsKey: false, modelHint: 'your-model-name' },
 ]
 
-const DEFAULT_CONFIG: FormatterView = { enabled: false, provider: 'ollama', profiles: {} }
-
 /** Host and path of a base URL, without the scheme. */
 const hostOf = (url: string) => url.replace(/^https?:\/\//, '').replace(/\/+$/, '')
 
+const saveEnabled = (enabled: boolean) => commands.setFormatEnabled(enabled)
 const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Failed to save formatting settings'))
 
 /** Smart-formatting toggle + provider config. The formatter is an HTTP call,
  *  off by default; enabling without an endpoint opens the modal. */
 export function FormattingToggle() {
-  const { data, error } = useFormatConfig()
-  // Nothing is editable until the saved setup is here: a save built on a
-  // placeholder would erase every other provider's profile.
-  const loaded = data !== undefined
-  const config = data ?? DEFAULT_CONFIG
+  const config = useSlice('settings', settings => settings.formatter)
   const [modalOpen, setModalOpen] = useState(false)
   // Bumped per opening, so the form starts from the saved config each time.
   const [formKey, setFormKey] = useState(0)
@@ -66,78 +61,64 @@ export function FormattingToggle() {
     setModalOpen(true)
   }
 
-  useEffect(() => {
-    if (error) toast.error(extractErrorMessage(error, 'Could not load formatting settings'))
-  }, [error])
-
-  const saveEnabled = useCallback(
-    (enabled: boolean) => commands.setFormatConfig(keepingKeys({ ...config, enabled })),
-    [config],
-  )
-  const { pending, choose } = useLiveChoice(formatConfigOptions, saveEnabled, saveFailed)
+  const { pending, choose } = useChoice('settings', 'formatter.enabled', saveEnabled, saveFailed)
 
   const active = activeProfile(config)
   const configured = isConfigured(config.provider, active)
   // On while a first endpoint is being set up; closing unsaved puts it back.
   const enabled = pending ? pending.value : config.enabled || (modalOpen && !configured)
-  const dim = enabled ? '' : 'opacity-50'
 
   const toggle = (next: boolean) => {
     if (next && !configured) openModal()
-    else void choose(next)
+    else choose(next)
   }
 
-  const saved = () => {
-    setModalOpen(false)
-    void readFresh(formatConfigOptions).catch(() => {})
+  // Closes once the saved setup is on screen, so the switch never flickers off.
+  const saved = ({ rev }: Committed) => {
+    void mirrored(rev).then(() => setModalOpen(false))
   }
 
   const preset = PRESETS.find((p) => p.id === config.provider)
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl bg-panel p-4 ring-1 ring-line-soft ring-inset">
-      <div className="flex items-center gap-3">
-        <span className="grid size-8 place-items-center rounded-[10px] bg-accent-soft text-base text-accent-ink">
-          <SparkleIcon size={16} weight="duotone" />
-        </span>
-        <p className="flex-1 text-sm font-semibold text-fg">Smart formatting</p>
-        <Switch checked={enabled} disabled={!loaded} onChange={toggle} aria-label="Smart formatting" />
-      </div>
-      <p className="text-xs text-pretty text-muted">
-        Sends each transcript to your LLM to fix punctuation and turn spoken lists into real ones. If it fails, you get the raw transcript.
-      </p>
-
-      {/* The formatter in use, at the same height as the live-transcript
-          preview beside it, so the two cards line up. */}
-      <div className={`mt-auto flex h-20 items-center gap-3 rounded-lg bg-field px-4 ring-1 ring-line-soft ring-inset`}>
-        <span className={`grid size-11 shrink-0 place-items-center rounded-xl bg-panel shadow-(--shadow-sm) ring-1 ring-line-soft ring-inset transition-opacity ${dim}`}>
-          {configured
-            ? <VendorMark vendor={config.provider as VendorId} className="size-5.5" />
-            : <PlugIcon size={20} className="text-muted" />}
-        </span>
-        <span className="min-w-0 flex-1">
-          {configured ? (
-            <>
-              <span className="block text-sm font-semibold text-fg">{preset?.label ?? config.provider}</span>
-              <span className="block truncate text-xs text-muted">
+    <SettingRow
+      tone="accent"
+      icon={<SparkleIcon size={16} weight="duotone" />}
+      title="Smart formatting"
+      tip="Each transcript goes to the endpoint below. If it fails or times out, the raw transcript is pasted. Pick a small instruct model, not a reasoning one."
+      description={<p className="text-xs text-pretty text-muted">Your LLM fixes punctuation and spoken lists.</p>}
+      below={
+        <div className={`flex h-11 items-center gap-2.5 rounded-lg bg-[light-dark(var(--surface),var(--field))] pr-1.5 pl-2 ring-1 ring-line-soft ring-inset transition-opacity ${enabled ? '' : 'opacity-60'}`}>
+          <span className="grid size-7 shrink-0 place-items-center rounded-md bg-panel ring-1 ring-line-soft ring-inset">
+            {configured
+              ? <VendorMark vendor={config.provider as VendorId} className="size-4" />
+              : <PlugIcon size={14} className="text-muted" />}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-xs text-muted">
+            {configured ? (
+              <>
+                <span className="font-semibold text-fg">{preset?.label ?? config.provider}</span>
+                {' · '}
                 <span className="font-mono text-fg-2">{active.model}</span>
                 {active.baseUrl && ` at ${hostOf(active.baseUrl)}`}
-              </span>
-            </>
-          ) : (
-            <span className="block text-sm font-semibold text-fg">No endpoint configured</span>
-          )}
-        </span>
-        <Button variant="chip" disabled={!loaded} onClick={openModal} className="hover:text-accent-ink hover:ring-accent-line">
-          <SlidersHorizontalIcon size={12} weight="bold" />
-          Configure
-        </Button>
-      </div>
+              </>
+            ) : (
+              <span className="font-semibold text-fg">No endpoint configured</span>
+            )}
+          </span>
+          <Button variant="chip" size="sm" onClick={openModal} className="hover:text-accent-ink hover:ring-accent-line">
+            <SlidersHorizontalIcon size={12} weight="bold" />
+            Configure
+          </Button>
+        </div>
+      }
+    >
+      <Switch checked={enabled} onChange={toggle} aria-label="Smart formatting" />
 
       <Modal open={modalOpen} aria-labelledby="format-title" className="w-135" onClose={() => setModalOpen(false)}>
         <ProviderForm key={formKey} initial={config} onClose={() => setModalOpen(false)} onSaved={saved} />
       </Modal>
-    </div>
+    </SettingRow>
   )
 }
 
@@ -148,7 +129,7 @@ function ProviderForm({
 }: {
   initial: FormatterView
   onClose: () => void
-  onSaved: () => void
+  onSaved: (committed: Committed) => void
 }) {
   const [providerId, setProviderId] = useState(initial.provider || 'ollama')
   const seed = activeProfile(initial)
@@ -183,16 +164,10 @@ function ProviderForm({
     setRemoveKey(false)
   }
 
-  // Only the edited provider can change its key; the rest keep theirs.
-  const draft = (): FormatterUpdate => {
+  const draft = (): FormatterDraft => {
     const typed = apiKey.trim()
     const key = typed !== '' ? typed : removeKey ? '' : null
-    const base = keepingKeys(initial)
-    return {
-      ...base,
-      provider: providerId,
-      profiles: { ...base.profiles, [providerId]: { baseUrl: baseUrl.trim(), model: model.trim(), apiKey: key } },
-    }
+    return { provider: providerId, profile: { baseUrl: baseUrl.trim(), model: model.trim(), apiKey: key } }
   }
 
   const canSubmit = isConfigured(providerId, { baseUrl, model })
@@ -239,9 +214,9 @@ function ProviderForm({
     setSaving(true)
     // Saving also enables formatting: an endpoint is configured to be used.
     try {
-      await commands.setFormatConfig({ ...draft(), enabled: true })
+      const committed = await commands.saveFormatEndpoint(draft())
       toast.success('Smart formatting enabled')
-      onSaved()
+      onSaved(committed)
     } catch (e) {
       toast.error(extractErrorMessage(e, 'Failed to save settings'))
     } finally {

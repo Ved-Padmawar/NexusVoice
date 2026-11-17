@@ -31,13 +31,3 @@ fn only_a_current_worker_signals_that_the_stream_is_done() {
     });
     assert!(*lock_recovering(&flag.0));
 }
-
-#[test]
-fn retiring_makes_the_current_ticket_stale() {
-    let generation = Generation::default();
-    let ticket = generation.begin();
-
-    generation.retire();
-
-    assert!(!ticket.is_current());
-}

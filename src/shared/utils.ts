@@ -13,21 +13,24 @@ export function fmtTime(s: number): string {
   return rm > 0 ? `${h}h ${rm}m` : `${h}h`
 }
 
-// Creating an Intl formatter per row dominated Dashboard render time.
-const transcriptDateFormat = new Intl.DateTimeFormat(undefined, {
-  month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-})
-
 const SQLITE_UTC = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
+
+export function localDateKey(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/** Playback time: `1:05`, or `1:02:03` past an hour. */
+export function fmtClock(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds))
+  const sec = String(s % 60).padStart(2, '0')
+  if (s < 3600) return `${Math.floor(s / 60)}:${sec}`
+  return `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${sec}`
+}
 
 /** SQLite's CURRENT_TIMESTAMP is UTC with no zone, which `new Date` reads as
  *  local time. Fixed here, not in Rust: the raw string is also the pagination cursor. */
 export function parseSqliteDate(d: string): Date {
   return new Date(SQLITE_UTC.test(d) ? `${d.replace(' ', 'T')}Z` : d)
-}
-
-export function fmtDate(d: string): string {
-  const date = parseSqliteDate(d)
-  return Number.isNaN(date.getTime()) ? 'Invalid Date' : transcriptDateFormat.format(date)
 }
 

@@ -45,7 +45,7 @@ pub fn import(dir: &Path, secrets: &Secrets) -> Imported {
 
     let hotkeys = read(HOTKEYS)
         .and_then(|json| serde_json::from_str::<HashMap<String, String>>(&json).ok())
-        .map(|map| {
+        .map_or_default(|map| {
             let get = |key: &str| {
                 map.get(key)
                     .map(|s| s.trim().to_string())
@@ -56,8 +56,7 @@ pub fn import(dir: &Path, secrets: &Secrets) -> Imported {
                 dictation: get("dictation"),
                 dictation_commit: get("dictationCommit"),
             }
-        })
-        .unwrap_or_default();
+        });
     let model = trimmed(read(MODEL));
     let model_unload = read(MODEL_UNLOAD)
         .and_then(|json| serde_json::from_str(&json).ok())
@@ -66,8 +65,7 @@ pub fn import(dir: &Path, secrets: &Secrets) -> Imported {
     let input_device = trimmed(read(INPUT_DEVICE));
     let formatter = read(FORMATTER)
         .and_then(|json| serde_json::from_str::<FormatConfig>(&json).ok())
-        .map(|config| formatter_from(config, secrets))
-        .unwrap_or_default();
+        .map_or_default(|config| formatter_from(config, secrets));
 
     Imported {
         file: SettingsFile {

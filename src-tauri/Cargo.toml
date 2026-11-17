@@ -1,6 +1,6 @@
 [package]
 name = "nexusvoice"
-version = "1.20.8"
+version = "1.21.0"
 edition = "2021"
 
 [features]
@@ -12,7 +12,7 @@ gpu = ["transcribe-cpp/vulkan"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "protocol-asset"] }
 # Pinned exactly — release candidates; a caret range could pull a breaking rc.
 specta = "=2.0.0-rc.22"
 specta-typescript = "0.0.9"
@@ -21,6 +21,7 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
 tauri-plugin-log = { version = "2", features = ["colored"] }
 log = "0.4"
 opener = { version = "0.9", features = ["reveal"] }
@@ -30,7 +31,6 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-enigo = "0.6"
 cpal = "0.18"
 sysinfo = { version = "0.39", default-features = false, features = ["system", "disk"] }
 reqwest = { version = "0.13", features = ["stream"] }
@@ -46,14 +46,25 @@ libloading = "0.9"
 # both single-shot (`Session::run`) and native streaming (`Session::stream`).
 # `dynamic-backends` loads the backend modules at runtime instead of link time,
 # so one binary covers every backend it was built with. Only Vulkan is, today.
-transcribe-cpp = { version = "0.4", default-features = false }
+# `serde` carries its options and results to and from the worker process.
+transcribe-cpp = { version = "0.4", default-features = false, features = ["serde"] }
+# The worker process claims its stdout and exits without C++ teardown.
+libc = "0.2"
 rubato = "5"
+# Saved dictation audio is kept as 16 kHz mono WAV.
+hound = "3"
+symphonia = { version = "0.5", default-features = false, features = ["wav", "pcm", "mp3", "isomp4", "aac", "flac", "ogg", "vorbis"] }
+symphonia-adapter-libopus = "0.2"
 rphonetic = "4"
 rustfft = "6.4.1"
 tokio-util = "0.7.19"
 earshot = "1.2.1"
 # Formatter API keys live in the OS credential store; the store crate is per platform.
 keyring-core = "1"
+
+# Linux injects through its own helpers (platform/injection/linux.rs).
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+enigo = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_Devices_DeviceAndDriverInstallation", "Win32_Devices_Properties", "Win32_Graphics_Dxgi", "Win32_Graphics_Gdi", "Win32_Media_Audio", "Win32_Security", "Win32_System_Com", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Threading", "Win32_System_Variant", "Win32_UI_Accessibility", "Win32_UI_WindowsAndMessaging"] }
@@ -82,7 +93,7 @@ tempfile = "3"
 serial_test = "4"
 
 [profile.release]
-# Must stay "unwind" — the recording path's catch_unwind guards are no-ops under "abort".
+# Must stay "unwind": the recorder recovers from a panicked task, which "abort" would crash.
 panic = "unwind"
 codegen-units = 1
 lto = true

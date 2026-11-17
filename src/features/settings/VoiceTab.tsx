@@ -14,11 +14,11 @@ import { VendorMark } from '../../shared/ui/VendorMark'
 import { ModelManagerModal } from '../models/ModelManagerModal'
 import { vendorForFamily } from '../../shared/vendors'
 import { cn } from '../../shared/utils'
-import type { DownloadedModel, HardwareProfile } from '../../shared/types'
+import type { HardwareProfile } from '../../shared/types'
 import {
-  NO_MODELS, cancelDownload, startDownload, switchModel, useActiveModel, useCatalog, useDownload, usePendingDownloads,
+  NO_MODELS, cancelDownload, startDownload, switchModel, useActiveModelId, useCatalog, useDownload, useDownloadedModels,
 } from '../models/queries'
-import { ModelUnloadSection } from './ModelUnloadSection'
+import { LanguageSection } from './LanguageSection'
 import { useKeptByRecording } from './queries'
 
 const VENDOR_NAME: Record<string, string> = {
@@ -118,7 +118,7 @@ const ModelCard = memo(function ModelCard({
   onUse: (id: ModelId) => void
 }) {
   // Per-card subscription: a progress tick re-renders only this card.
-  const download = useDownload(model.id).data
+  const download = useDownload(model.id)
   const streaming = isStreaming(model)
   const vendor = vendorForFamily(model.family)
   const failed = download?.status === 'error'
@@ -230,29 +230,21 @@ const FILTER_LABEL: Record<Filter, string> = {
 export function VoiceTab() {
   const [profile, setProfile] = useState<HardwareProfile | null>(null)
   const [modelSaving, setModelSaving] = useState(false)
-  const [onDisk, setOnDisk] = useState<DownloadedModel[]>([])
   const [managerOpen, setManagerOpen] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
 
   const catalog = useCatalog().data ?? NO_MODELS
-  const pendingCount = usePendingDownloads().data
-  const selected = useActiveModel().data?.id ?? null
-
-  const refreshOnDisk = useCallback(() => {
-    commands.getDownloadedModels().then(setOnDisk).catch(() => setOnDisk([]))
-  }, [])
+  const onDisk = useDownloadedModels()
+  const selected = useActiveModelId()
 
   useEffect(() => {
     commands.getHardwareProfile().then(setProfile).catch(() => {})
   }, [])
 
-  // Reads the disk on mount, and again when a finished download adds a file.
-  useEffect(() => { refreshOnDisk() }, [pendingCount, refreshOnDisk])
-
   const onDiskVariants = useMemo(() => new Set(onDisk.map(m => m.variant)), [onDisk])
   const recommendedVariant = profile ? modelNameToId(profile.recommendedModel, catalog) : null
   // `selected` is set even with nothing downloaded, so require the file too.
-  const loadedVariant = selected && onDiskVariants.has(selected) ? selected : null
+  const loadedVariant = onDiskVariants.has(selected) ? selected : null
   const modelKept = useKeptByRecording('model')
 
   // On disk first, then the rest; smallest first. Choosing a model never reorders.
@@ -291,13 +283,13 @@ export function VoiceTab() {
       <div className="flex flex-wrap items-center gap-3">
         <Segmented value={filter} options={filterOptions} onChange={setFilter} aria-label="Filter models" />
         <div className="ml-auto flex items-center gap-3">
+          <LanguageSection />
           <Button variant="chip" onClick={() => setManagerOpen(true)} className="group">
             <HardDrivesIcon size={14} weight="bold" className="text-accent-ink" />
             Manage downloads
             <span className="font-normal text-muted tabular-nums">{formatModelSize(diskBytes)}</span>
             <CaretRightIcon size={10} weight="bold" className="text-muted transition-transform group-hover:translate-x-0.5" />
           </Button>
-          <ModelUnloadSection />
         </div>
       </div>
 
@@ -323,13 +315,7 @@ export function VoiceTab() {
         </div>
       </div>
 
-      <ModelManagerModal
-        open={managerOpen}
-        onClose={() => {
-          setManagerOpen(false)
-          refreshOnDisk()
-        }}
-      />
+      <ModelManagerModal open={managerOpen} onClose={() => setManagerOpen(false)} />
     </div>
   )
 }

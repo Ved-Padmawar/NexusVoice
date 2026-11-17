@@ -16,6 +16,7 @@
     "core:window:allow-set-always-on-top",
     "core:event:allow-listen",
     "core:event:allow-emit",
+    "dialog:allow-open",
     "updater:default",
     "log:default",
     "log:allow-log"

@@ -3,35 +3,44 @@ import { act, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { Settings } from '../../../features/settings/Settings'
 import { useAppStore } from '../../../app/store/useAppStore'
-import { queryClient } from '../../../app/queryClient'
-import { queryKeys } from '../../../shared/queryKeys'
+import { latest } from '../../../app/mirror'
 import type { HotkeyBindings } from '../../../shared/types'
 import { invoke } from '@tauri-apps/api/core'
-import { renderWithQuery } from '../../utils'
+import { mirror, renderWithQuery, settingsAt } from '../../utils'
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 const mockInvoke = vi.mocked(invoke)
 
-/** What the General tab's sections load on mount, plus the saved hotkeys. */
-const respond = (hotkeys = { pushToTalk: null as string | null, dictation: null, dictationCommit: null }) =>
-  mockInvoke.mockImplementation((cmd) => Promise.resolve(({
-    get_hotkeys: hotkeys,
-    get_bound_hotkeys: hotkeys,
-    get_model_catalog: [],
-    get_model_info: { modelName: 'Whisper Tiny', downloaded: true },
-    list_input_devices: [],
-    get_keep_mic_open: false,
-    get_language_options: { supported: false, options: [] },
-    get_format_config: { enabled: false, provider: 'ollama', profiles: {} },
-    get_recording_state: { revision: 0, status: 'idle', deferred: [] },
-  } as Record<string, unknown>)[cmd]))
+const NO_HOTKEYS: HotkeyBindings = { pushToTalk: null, dictation: null, dictationCommit: null }
+
+/** What the General tab's sections load on mount, and the saved hotkeys,
+ *  which `set_hotkey` changes and sends as Rust would. `granted` are the ones
+ *  the OS bound. */
+async function respond(initial = NO_HOTKEYS, granted = initial) {
+  let hotkeys = initial
+  let rev = 0
+  mockInvoke.mockImplementation((cmd, args) => {
+    if (cmd === 'set_hotkey') {
+      const { kind, hotkey } = args as { kind: keyof HotkeyBindings; hotkey: string | null }
+      hotkeys = { ...hotkeys, [kind]: hotkey }
+      rev += 1
+      setTimeout(() => { void send(settingsAt(rev, { hotkeys })) })
+      return Promise.resolve({ rev })
+    }
+    return Promise.resolve(({
+      get_model_catalog: [],
+      list_input_devices: [],
+      get_jobs: [],
+    } as Record<string, unknown>)[cmd])
+  })
+  const send = await mirror([settingsAt(0, { hotkeys }), { slice: 'hotkeys', rev: 0, value: granted }])
+}
 
 // The Recording (push-to-talk) row's recorder — uniquely identified by its aria-label.
 const recordingRecorder = () => screen.getByRole('button', { name: /click to record recording hotkey/i })
 
-const cachedPushToTalk = () => queryClient.getQueryData<HotkeyBindings>(queryKeys.hotkeys)?.pushToTalk
+const savedPushToTalk = () => latest('settings').hotkeys.pushToTalk
 
 // HotkeySection lives in the "General" tab; the tab is controlled by the store.
 // The tab also mounts the microphone and language sections, which fetch on
@@ -48,56 +57,9 @@ async function renderSettings() {
   return result
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   mockInvoke.mockReset()
-  respond()
-})
-
-describe('FormattingToggle', () => {
-  it('shows the saved setting again when turning it off fails to save', async () => {
-    const saved = {
-      enabled: true,
-      provider: 'ollama',
-      profiles: { ollama: { baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5-3b-instruct', hasApiKey: false } },
-    }
-    const base = mockInvoke.getMockImplementation()!
-    mockInvoke.mockImplementation((cmd, args) => {
-      if (cmd === 'get_format_config') return Promise.resolve(saved)
-      if (cmd === 'set_format_config') return Promise.reject({ code: 'io', message: 'disk full' })
-      return base(cmd, args)
-    })
-    await renderSettings()
-    const toggle = await screen.findByRole('switch', { name: /smart formatting/i })
-    await waitFor(() => expect(toggle).toBeChecked())
-
-    fireEvent.click(toggle)
-
-    await waitFor(() => expect(mockInvoke).toHaveBeenCalledWith('set_format_config', expect.anything()))
-    await waitFor(() => expect(toggle).toBeChecked())
-  })
-
-  it('shows the previous setting when the save and the re-read both fail', async () => {
-    const saved = {
-      enabled: true,
-      provider: 'ollama',
-      profiles: { ollama: { baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5-3b-instruct', hasApiKey: false } },
-    }
-    const base = mockInvoke.getMockImplementation()!
-    let reads = 0
-    mockInvoke.mockImplementation((cmd, args) => {
-      if (cmd === 'get_format_config') return reads++ === 0 ? Promise.resolve(saved) : Promise.reject({ code: 'io', message: 'gone' })
-      if (cmd === 'set_format_config') return Promise.reject({ code: 'io', message: 'disk full' })
-      return base(cmd, args)
-    })
-    await renderSettings()
-    const toggle = await screen.findByRole('switch', { name: /smart formatting/i })
-    await waitFor(() => expect(toggle).toBeChecked())
-
-    fireEvent.click(toggle)
-
-    await waitFor(() => expect(reads).toBe(2))
-    await waitFor(() => expect(toggle).toBeChecked())
-  })
+  await respond()
 })
 
 describe('HotkeySection', () => {
@@ -131,7 +93,7 @@ describe('HotkeySection', () => {
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: 'Ctrl+A' })
     })
-    expect(cachedPushToTalk()).toBe('Ctrl+A')
+    expect(savedPushToTalk()).toBe('Ctrl+A')
   })
 
   it('keeps the Windows key as a modifier', async () => {
@@ -182,24 +144,20 @@ describe('HotkeySection', () => {
   })
 
   it('shows the saved hotkey on mount', async () => {
-    respond({ pushToTalk: 'Ctrl+Space', dictation: null, dictationCommit: null })
+    await respond({ pushToTalk: 'Ctrl+Space', dictation: null, dictationCommit: null })
     await renderSettings()
     expect(await screen.findByText('Space')).toBeInTheDocument()
   })
 
   it('warns when a saved hotkey is not the one the OS granted', async () => {
     const saved = { pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null }
-    const base = mockInvoke.getMockImplementation()!
-    mockInvoke.mockImplementation((cmd, args) =>
-      cmd === 'get_hotkeys' ? Promise.resolve(saved)
-        : cmd === 'get_bound_hotkeys' ? Promise.resolve({ ...saved, pushToTalk: null })
-          : base(cmd, args))
+    await respond(saved, { ...saved, pushToTalk: null })
     await renderSettings()
     expect(await screen.findByText(/another app is using this shortcut/i)).toBeInTheDocument()
   })
 
   it('releases the hotkeys while editing without changing the saved one', async () => {
-    respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
+    await respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
     await renderSettings()
     fireEvent.click(await screen.findByRole('button', { name: /change recording hotkey/i }))
 
@@ -208,7 +166,7 @@ describe('HotkeySection', () => {
   })
 
   it('binds the hotkeys again when the page closes mid-edit', async () => {
-    respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
+    await respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
     const { unmount } = await renderSettings()
     fireEvent.click(await screen.findByRole('button', { name: /change recording hotkey/i }))
 
@@ -218,7 +176,7 @@ describe('HotkeySection', () => {
   })
 
   it('does not resume the hotkeys after a new one is saved', async () => {
-    respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
+    await respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
     const { unmount } = await renderSettings()
     fireEvent.click(await screen.findByRole('button', { name: /change recording hotkey/i }))
     fireEvent.keyDown(window, { key: 'Control', code: 'ControlLeft' })
@@ -234,7 +192,7 @@ describe('HotkeySection', () => {
   })
 
   it('binds the hotkeys again right away when a save fails', async () => {
-    respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
+    await respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
     const base = mockInvoke.getMockImplementation()!
     mockInvoke.mockImplementation((cmd, args) =>
       cmd === 'set_hotkey' ? Promise.reject({ code: 'hotkey', message: 'in use' }) : base(cmd, args))
@@ -254,7 +212,7 @@ describe('HotkeySection', () => {
     let rejectSave: (e: unknown) => void
 
     beforeEach(async () => {
-      respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
+      await respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
       const base = mockInvoke.getMockImplementation()!
       mockInvoke.mockImplementation((cmd, args) =>
         cmd === 'set_hotkey' && (args as { hotkey: string | null }).hotkey === 'Ctrl+B'
@@ -279,7 +237,7 @@ describe('HotkeySection', () => {
   })
 
   it('unbinds the hotkey on remove', async () => {
-    respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
+    await respond({ pushToTalk: 'Ctrl+A', dictation: null, dictationCommit: null })
     await renderSettings()
     const removeBtn = await screen.findByRole('button', { name: /remove recording hotkey/i })
     await waitFor(() => expect(removeBtn).toBeEnabled())
@@ -287,6 +245,6 @@ describe('HotkeySection', () => {
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('set_hotkey', { kind: 'pushToTalk', hotkey: null })
     })
-    await waitFor(() => expect(cachedPushToTalk()).toBeNull())
+    await waitFor(() => expect(savedPushToTalk()).toBeNull())
   })
 })

@@ -9,7 +9,6 @@ import { Button } from '@/shared/ui/Button'
 import { Kbd } from '@/shared/ui/Kbd'
 import { MenuItem, Popover } from '@/shared/ui/Popover'
 import { TextInput } from '@/shared/ui/TextInput'
-import { SectionState } from '../../shared/ui/SectionState'
 
 type SortKey = 'hits' | 'az' | 'recent'
 const SORTS: { value: SortKey; label: string }[] = [
@@ -25,20 +24,6 @@ const cell = 'h-10.5 px-2.5 border-b border-line-soft first:pl-7 last:pr-4.5'
 const headCell = 'sticky top-0 z-2 h-8.5 bg-bg px-2.5 text-left text-2xs font-semibold tracking-widest text-muted uppercase shadow-[inset_0_-1px_0_var(--border)] first:pl-7 last:pr-4.5'
 const iconAction = 'grid size-7 cursor-pointer place-items-center rounded-[7px] text-muted transition-colors'
 
-function DictionarySkeleton() {
-  return (
-    <div className="flex flex-col">
-      {[0, 1, 2, 3, 4].map(i => (
-        <div key={i} className="flex items-center gap-4 border-b border-line-soft px-7 py-3.5">
-          <div className="h-3.5 w-[28%] animate-pulse rounded bg-surface" />
-          <div className="h-3.5 w-[28%] animate-pulse rounded bg-surface" />
-          <div className="ml-auto h-3.5 w-8 animate-pulse rounded bg-surface" />
-        </div>
-      ))}
-    </div>
-  )
-}
-
 /** Sits in its own column, so it stays centred between the two entries in every row. */
 function ArrowCell() {
   return (
@@ -51,7 +36,7 @@ function ArrowCell() {
 }
 
 export function Dictionary() {
-  const { data: dictionary = [], status, error, refetch } = useDictionary()
+  const dictionary = useDictionary()
   const updateDictionary = useUpdateDictionary()
   const deleteEntry = useDeleteDictionaryEntry()
 
@@ -144,8 +129,8 @@ export function Dictionary() {
       <td className={cn(cell, 'text-right text-xs text-muted tabular-nums')}>{hits}</td>
       <td className={cell}>
         <div className="flex justify-end gap-2">
-          <Button size="sm" variant="outline" onClick={cancelEdit}>Cancel</Button>
-          <Button size="sm" variant="primary" disabled={!canSave} onClick={() => void commitEdit()}>{id === NEW ? 'Add' : 'Save'}</Button>
+          <Button size="sm" variant="secondary" onClick={cancelEdit}>Cancel</Button>
+          <Button size="sm" variant="tinted" disabled={!canSave} onClick={() => void commitEdit()}>{id === NEW ? 'Add' : 'Save'}</Button>
         </div>
       </td>
     </tr>
@@ -208,71 +193,69 @@ export function Dictionary() {
       </div>
 
       <div className="page-scroll min-h-0 flex-1 overflow-y-auto overscroll-none">
-        <SectionState status={status} error={error?.message} onRetry={refetch} skeleton={<DictionarySkeleton />}>
-          {showEmpty ? (
-            // Centred on the page, not the list area under the toolbar.
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
-              <span className="grid size-14 place-items-center rounded-2xl bg-accent-soft text-accent-ink">
-                <BookOpenTextIcon size={28} weight="duotone" />
-              </span>
-              <p className="text-md font-semibold text-fg">No corrections yet</p>
-              <p className="max-w-72 text-sm text-muted text-balance">Add the names and acronyms NexusVoice gets wrong.</p>
-            </div>
-          ) : (
-            <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
-              <colgroup><col className="w-[36%]" /><col className="w-16" /><col className="w-[36%]" /><col className="w-20" /><col /></colgroup>
-              <thead>
-                <tr>
-                  <th scope="col" className={headCell}>When it hears</th>
-                  <th aria-hidden="true" className={headCell} />
-                  <th scope="col" className={headCell}>Write instead</th>
-                  <th scope="col" className={cn(headCell, 'text-right')}>Uses</th>
-                  <th scope="col" aria-label="Actions" className={headCell} />
+        {showEmpty ? (
+          // Centred on the page, not the list area under the toolbar.
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+            <span className="grid size-14 place-items-center rounded-2xl bg-accent-soft text-accent-ink">
+              <BookOpenTextIcon size={28} weight="duotone" />
+            </span>
+            <p className="text-md font-semibold text-fg">No corrections yet</p>
+            <p className="max-w-72 text-sm text-muted text-balance">Add the names and acronyms NexusVoice gets wrong.</p>
+          </div>
+        ) : (
+          <table className="w-full table-fixed border-separate border-spacing-0 text-sm">
+            <colgroup><col className="w-[36%]" /><col className="w-16" /><col className="w-[36%]" /><col className="w-20" /><col /></colgroup>
+            <thead>
+              <tr>
+                <th scope="col" className={headCell}>When it hears</th>
+                <th aria-hidden="true" className={headCell} />
+                <th scope="col" className={headCell}>Write instead</th>
+                <th scope="col" className={cn(headCell, 'text-right')}>Uses</th>
+                <th scope="col" aria-label="Actions" className={headCell} />
+              </tr>
+            </thead>
+            <tbody>
+              {editId === NEW && editing(NEW, '—', NEW)}
+              {shown.map(entry => entry.id === editId ? editing(entry.id, String(entry.hits), String(entry.id)) : (
+                <tr
+                  key={entry.id}
+                  className="group cursor-pointer [&>td]:transition-colors [&:hover>td]:bg-[color-mix(in_oklab,var(--fg)_4%,var(--bg))]"
+                  onClick={() => startEdit(entry.id, entry.term, entry.replacement)}
+                >
+                  <td className={cell}>
+                    <span className="block truncate text-fg-2" title={entry.term}>{entry.term}</span>
+                  </td>
+                  <ArrowCell />
+                  <td className={cell}><span className="block truncate font-semibold text-fg" title={entry.replacement}>{entry.replacement}</span></td>
+                  <td className={cn(cell, 'text-right text-xs text-muted tabular-nums')}>{entry.hits}</td>
+                  <td className={cell}>
+                    <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                      <button
+                        type="button"
+                        aria-label={`Edit ${entry.term}`}
+                        className={cn(iconAction, 'hover:bg-accent-soft hover:text-accent-ink')}
+                        onClick={e => { e.stopPropagation(); startEdit(entry.id, entry.term, entry.replacement) }}
+                      >
+                        <PencilSimpleIcon size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete ${entry.term}`}
+                        className={cn(iconAction, 'hover:bg-danger-soft hover:text-danger')}
+                        onClick={e => { e.stopPropagation(); deleteEntry(entry) }}
+                      >
+                        <TrashIcon size={15} />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {editId === NEW && editing(NEW, '—', NEW)}
-                {shown.map(entry => entry.id === editId ? editing(entry.id, String(entry.hits), String(entry.id)) : (
-                  <tr
-                    key={entry.id}
-                    className="group cursor-pointer [&>td]:transition-colors [&:hover>td]:bg-[color-mix(in_oklab,var(--fg)_4%,var(--bg))]"
-                    onClick={() => startEdit(entry.id, entry.term, entry.replacement)}
-                  >
-                    <td className={cell}>
-                      <span className="block truncate text-fg-2" title={entry.term}>{entry.term}</span>
-                    </td>
-                    <ArrowCell />
-                    <td className={cell}><span className="block truncate font-semibold text-fg" title={entry.replacement}>{entry.replacement}</span></td>
-                    <td className={cn(cell, 'text-right text-xs text-muted tabular-nums')}>{entry.hits}</td>
-                    <td className={cell}>
-                      <div className="flex justify-end gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-                        <button
-                          type="button"
-                          aria-label={`Edit ${entry.term}`}
-                          className={cn(iconAction, 'hover:bg-accent-soft hover:text-accent-ink')}
-                          onClick={e => { e.stopPropagation(); startEdit(entry.id, entry.term, entry.replacement) }}
-                        >
-                          <PencilSimpleIcon size={15} />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={`Delete ${entry.term}`}
-                          className={cn(iconAction, 'hover:bg-danger-soft hover:text-danger')}
-                          onClick={e => { e.stopPropagation(); deleteEntry(entry) }}
-                        >
-                          <TrashIcon size={15} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {shown.length === 0 && editId !== NEW && (
-                  <tr><td colSpan={5} className="h-30 text-center text-muted">No word matches “{query.trim()}”</td></tr>
-                )}
-              </tbody>
-            </table>
-          )}
-        </SectionState>
+              ))}
+              {shown.length === 0 && editId !== NEW && (
+                <tr><td colSpan={5} className="h-30 text-center text-muted">No word matches “{query.trim()}”</td></tr>
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   )

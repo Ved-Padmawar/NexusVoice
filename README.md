@@ -11,7 +11,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 <br/>
 
 ![Tauri](https://img.shields.io/badge/Tauri_2-24C8DB?style=for-the-badge&logo=tauri&logoColor=white)
-![Rust](https://img.shields.io/badge/Rust_1.99-CE422B?style=for-the-badge&logo=rust&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust_1.100-CE422B?style=for-the-badge&logo=rust&logoColor=white)
 ![React](https://img.shields.io/badge/React_19-61DAFB?style=for-the-badge&logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 ![Tailwind](https://img.shields.io/badge/Tailwind_v4-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white)
@@ -22,7 +22,7 @@ A lightweight, privacy-first voice-to-text desktop app. Transcription runs entir
 
 ![Platform](https://img.shields.io/badge/Platform-Windows_%7C_Linux-0078D4?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-v1.20.8-violet?style=flat-square)
+![Version](https://img.shields.io/badge/Version-v1.21.0-violet?style=flat-square)
 
 </div>
 
@@ -48,12 +48,15 @@ NexusVoice is a push-to-talk voice transcription tool that lives in your system 
 - **First-run model picker** — choose your model on first launch with a hardware-aware recommendation, then download on demand
 - **Personal dictionary** — map spoken words to their correct form (e.g. "gonna" → "going to"), including names speech-to-text splits into several words ("next js" → "Next.js")
 - **Filler words removed** — "uh", "umm" and "hmm" are dropped from every transcript, plus "um", "er" and "ah" in English, with or without smart formatting
+- **Paste shortcut that fits the app (Windows)** — pastes with Ctrl+Shift+V in terminals and Ctrl+V everywhere else; or choose Ctrl+V, Ctrl+Shift+V, Shift+Insert or copy only (Settings → General)
 - **Your clipboard kept (Windows)** — whatever you had copied is put back after the paste, and the transcript stays out of clipboard history
-- **Unload when idle (optional)** — free the model's memory after 2, 5, 10, 15 or 60 minutes without dictation (Settings → Voice); the next dictation reloads it
-- **Smart formatting (optional)** — clean up punctuation and turn spoken lists into real lists using any OpenAI-compatible LLM. Off by default; works fully local with Ollama or LM Studio, or with a cloud provider (OpenAI, OpenRouter) if you prefer
+- **Unload when idle (optional)** — free the model's memory after 2, 5, 10, 15 or 60 minutes without dictation (Settings → General); the next dictation reloads it
+- **Smart formatting (optional)** — clean up punctuation and turn spoken lists into real lists using any OpenAI-compatible LLM. Off by default; works fully local with Ollama or LM Studio, or with a cloud provider (OpenAI, OpenRouter, Anthropic) if you prefer
 - **8 themes** — Steel, Midnight, Mocha, Crimson (dark) + Canvas, Dawn, Breeze, Blossom (light)
 - **Compact pill overlay** — draggable recording indicator that stays on top while you work
-- **Dashboard** — transcription history, word count, session stats
+- **Dashboard** — transcription history, word count and session stats; search it, filter by date or by the app you dictated into (with one-click 7-day, 30-day and this-month ranges), and export what it shows
+- **Transcribe audio files** — import a WAV, MP3, M4A, FLAC or OGG file (up to an hour): it lands in History at once and transcribes in the background, with progress and Cancel in its own row. Files and re-transcriptions queue, and a dictation always goes first
+- **Saved dictation audio** — your last few entries keep their audio, stored locally, so you can replay one or transcribe it again with your active model (and undo). Choose how many, or switch it off, in Settings; pinned entries keep theirs
 - **System tray** — runs silently in the background
 
 ---
@@ -74,8 +77,9 @@ Hotkey released  →  a brief post-roll captures trailing speech, then only the
                  →  filler words removed
                  →  (optional) transcript reformatted by your chosen LLM
                  →  dictionary corrections applied
-                 →  text written to clipboard + Ctrl+V pasted; on Windows the
-                    previous clipboard returns once the app has read it
+                 →  text written to clipboard + pasted with the shortcut that
+                    fits the app; on Windows the previous clipboard returns
+                    once the app has read it
 ```
 
 Transcription runs while you speak rather than waiting until you finish, so releasing the hotkey only leaves the last few seconds to process — the longer you talk, the bigger the saving. Each pass re-reads the recent audio in full sentence context, and a word is only committed once two consecutive passes agree on it, so accuracy matches decoding everything at the end. Committed text is never revised, so what you see never rewrites itself.
@@ -138,8 +142,8 @@ Use a small **instruct** model (e.g. `qwen2.5-3b-instruct`) — not a reasoning/
 | Database | SQLite via sqlx |
 | Frontend | React 19 + TypeScript |
 | Styling | Tailwind CSS v4 + shadcn/ui |
-| State | Zustand |
-| Icons | lucide-react |
+| State | TanStack Query (app data), Zustand (UI) |
+| Icons | Phosphor Icons |
 
 ---
 
@@ -161,7 +165,7 @@ Download the latest build for your platform from [Releases](../../releases/lates
 | `NexusVoice_x.x.x_amd64.deb` | Debian, Ubuntu, Zorin — update via `apt` |
 | `NexusVoice_x.x.x.x86_64.rpm` | Fedora, RHEL — update via `dnf` |
 
-Only the AppImage can update itself: Tauri'''s updater has no `.deb`/`.rpm`
+Only the AppImage can update itself: Tauri's updater has no `.deb`/`.rpm`
 installer, so package installs are updated through the package manager.
 
 One build covers every machine: GPU backends are loaded at runtime and the CPU
@@ -171,7 +175,7 @@ Settings → About.
 
 **Requirements:**
 - **Windows:** Windows 10 1803+ or Windows 11 (WebView2 is pre-installed).
-- **Linux:** WebKitGTK 4.1 (`libwebkit2gtk-4.1`) and `libxdo3`, both pulled in automatically by the `.deb`/`.rpm`. For GPU acceleration, install your distro's Vulkan driver (Mesa for AMD/Intel, the NVIDIA driver for NVIDIA).
+- **Linux:** WebKitGTK 4.1 (`libwebkit2gtk-4.1`) and `libxdo3`, both pulled in automatically by the `.deb`/`.rpm`, which also recommend `xdotool`. For GPU acceleration, install your distro's Vulkan driver (Mesa for AMD/Intel, the NVIDIA driver for NVIDIA).
 
 No Rust, Node, CMake, or any dev tools needed on the target machine.
 
@@ -191,14 +195,18 @@ shows what was found and what will be used.
 |---------|---------|
 | X11 (any) | `sudo apt install xdotool` |
 | GNOME / KDE Wayland | usually nothing — approve the portal prompt on first use |
-| GNOME (portal unavailable) | `sudo apt install ydotool`, then `sudo systemctl enable --now ydotool` |
+| GNOME (portal unavailable) | `sudo apt install ydotool` (see below) |
 | sway / wlroots | `sudo apt install wtype` |
 
 `ydotool` works on every compositor because it writes through `/dev/uinput`,
-below the display server — it just needs its daemon running.
+below the display server. The 1.x release needs its daemon running
+(`sudo systemctl enable --now ydotool`). Debian and Ubuntu ship the older 0.1.x,
+which has no service file and works without the daemon as long as your user can
+write `/dev/uinput` (for example through the `input` group). NexusVoice
+handles either release.
 
 **2. Bind the dictation shortcut yourself.** On Wayland the compositor owns key
-grabs, so add a custom shortcut in your desktop'''s keyboard settings pointing at:
+grabs, so add a custom shortcut in your desktop's keyboard settings pointing at:
 
 ```
 nexusvoice --toggle-dictation
@@ -249,7 +257,7 @@ bun run tauri dev
 
 ## Privacy
 
-All **audio processing and transcription happen locally** on your device — audio is never transmitted anywhere. The only network request in the default setup is the one-time model download from HuggingFace.
+All **audio processing and transcription happen locally** on your device — audio is never transmitted anywhere. Saved dictation audio stays on your disk, and you can delete it or switch it off in Settings. The only network request in the default setup is the one-time model download from HuggingFace.
 
 **Smart Formatting** is the one optional exception, and it's **off by default**. When enabled, your transcript text (never the audio) is sent to whichever LLM endpoint you configure. Point it at a local server (Ollama or LM Studio) to keep everything on-device, or at a cloud provider (OpenAI, OpenRouter) if you choose — in which case the transcript text is sent to that provider. The choice, and whether to enable it at all, is entirely yours.
 

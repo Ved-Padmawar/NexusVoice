@@ -6,18 +6,22 @@ pub mod formatter;
 mod migrate;
 mod secrets;
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::mirror::{Committed, Patch, Slice, Store};
+use crate::models::catalog::{self, ModelEntry};
 use crate::models::idle::ModelUnload;
+use crate::models::language::{self, LanguageSettings};
+use crate::models::provider::{canonical_override, recommend_model};
 use crate::sync::lock_recovering;
 use crate::text::llm::FormatConfig;
 
-use formatter::{FormatterSettings, FormatterUpdate, FormatterView};
+use formatter::{FormatterDraft, FormatterSettings, FormatterView};
 pub use secrets::Secrets;
 
 const FILE_NAME: &str = "settings.json";
@@ -46,6 +50,57 @@ pub enum WaveformStyle {
     Spectrum,
 }
 
+/// How a finished transcript is pasted where the clipboard route applies.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PasteMode {
+    /// Ctrl+Shift+V in a terminal, Ctrl+V anywhere else.
+    #[default]
+    Auto,
+    CtrlV,
+    CtrlShiftV,
+    ShiftInsert,
+    /// Leave the transcript on the clipboard and send no keys.
+    CopyOnly,
+}
+
+/// Whether dictations keep their audio, and for how many of the newest ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SavedAudio {
+    pub enabled: bool,
+    pub keep: u32,
+}
+
+impl SavedAudio {
+    pub const KEEP_RANGE: std::ops::RangeInclusive<u32> = 1..=100;
+
+    fn apply(&mut self, change: SavedAudioSetting) {
+        match change {
+            SavedAudioSetting::Enabled(on) => self.enabled = on,
+            SavedAudioSetting::Keep(keep) => self.keep = keep,
+        }
+    }
+}
+
+/// One saved-audio choice, changed on its own, so a quick toggle and a change
+/// of the limit can't overwrite each other.
+#[derive(Debug, Clone, Copy, Deserialize, Type)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+pub enum SavedAudioSetting {
+    Enabled(bool),
+    Keep(u32),
+}
+
+impl Default for SavedAudio {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            keep: 10,
+        }
+    }
+}
+
 /// Preferences both windows read: the settings screen edits them, the pill
 /// draws with them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -59,12 +114,26 @@ pub struct PillSettings {
     pub start_sound: bool,
 }
 
-/// `PillSettings` as of a revision. Revisions only grow, so a window can drop
-/// an event older than the snapshot it already holds.
-#[derive(Debug, Clone, Copy, Serialize, Type)]
-pub struct PillSettingsSnapshot {
-    pub revision: u64,
-    pub settings: PillSettings,
+/// One pill preference, changed on its own, so two quick edits of different
+/// ones can't overwrite each other.
+#[derive(Debug, Clone, Copy, Deserialize, Type)]
+#[serde(rename_all = "camelCase", tag = "kind", content = "value")]
+pub enum PillSetting {
+    Theme(PillTheme),
+    WaveformStyle(WaveformStyle),
+    LiveTranscript(bool),
+    StartSound(bool),
+}
+
+impl PillSettings {
+    fn apply(&mut self, change: PillSetting) {
+        match change {
+            PillSetting::Theme(theme) => self.theme = theme,
+            PillSetting::WaveformStyle(style) => self.waveform_style = style,
+            PillSetting::LiveTranscript(on) => self.live_transcript = on,
+            PillSetting::StartSound(on) => self.start_sound = on,
+        }
+    }
 }
 
 /// The global shortcuts, by role. `None` leaves a role unbound.
@@ -76,7 +145,7 @@ pub struct HotkeyBindings {
     pub dictation_commit: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 struct SettingsFile {
     version: u32,
@@ -89,15 +158,86 @@ struct SettingsFile {
     /// Input device id (`host:device`); `None` follows the OS default.
     input_device: Option<String>,
     keep_mic_open: bool,
+    saved_audio: SavedAudio,
+    paste_mode: PasteMode,
     formatter: FormatterSettings,
     pill: PillSettings,
 }
 
+/// What a write can change: the file, and which providers have a key in the
+/// credential store, so building the view never asks the store.
+#[derive(Debug, Clone, PartialEq)]
+struct Saved {
+    file: SettingsFile,
+    keyed: BTreeSet<String>,
+    recommended: &'static str,
+}
+
+impl Saved {
+    fn active_model(&self) -> &'static ModelEntry {
+        let id = self
+            .file
+            .model
+            .as_deref()
+            .and_then(canonical_override)
+            .unwrap_or(self.recommended);
+        catalog::find(id).expect("selected model is in the catalog")
+    }
+
+    fn set_key_status(&mut self, provider: &str, has_key: bool) {
+        if has_key {
+            self.keyed.insert(provider.to_owned());
+        } else {
+            self.keyed.remove(provider);
+        }
+    }
+}
+
+/// What the windows mirror of the saved preferences. Keys never belong here.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsView {
+    /// Catalog id of the model recordings use: the saved choice, else the
+    /// hardware pick.
+    pub active_model: String,
+    /// The saved shortcuts; the OS may grant fewer (`Patch::Hotkeys`).
+    pub hotkeys: HotkeyBindings,
+    /// The active model's languages, with the saved one marked.
+    pub language: LanguageSettings,
+    pub model_unload: ModelUnload,
+    /// Input device id; `None` follows the OS default.
+    pub input_device: Option<String>,
+    pub keep_mic_open: bool,
+    pub saved_audio: SavedAudio,
+    pub paste_mode: PasteMode,
+    pub formatter: FormatterView,
+    pub pill: PillSettings,
+}
+
+impl Slice for Saved {
+    fn patch(&self) -> Patch {
+        let file = &self.file;
+        let model = self.active_model();
+        Patch::Settings(SettingsView {
+            active_model: model.id.clone(),
+            hotkeys: file.hotkeys.clone(),
+            language: language::options(model, file.language.as_deref()),
+            model_unload: file.model_unload,
+            input_device: file.input_device.clone(),
+            keep_mic_open: file.keep_mic_open,
+            saved_audio: file.saved_audio,
+            paste_mode: file.paste_mode,
+            formatter: file.formatter.view(&self.keyed),
+            pill: file.pill,
+        })
+    }
+}
+
 pub struct Settings {
     path: PathBuf,
-    file: Mutex<SettingsFile>,
-    revision: AtomicU64,
+    saved: Store<Saved>,
     secrets: Secrets,
+    changing_formatter: Mutex<()>,
 }
 
 impl Settings {
@@ -118,112 +258,211 @@ impl Settings {
             }
             imported.file
         };
+        let keyed = file
+            .formatter
+            .endpoints
+            .keys()
+            .filter(|provider| secrets.api_key(provider).is_some())
+            .cloned()
+            .collect();
         Self {
             path,
-            file: Mutex::new(file),
-            revision: AtomicU64::new(0),
+            saved: Store::new(Saved {
+                file,
+                keyed,
+                recommended: &recommend_model().id,
+            }),
             secrets,
+            changing_formatter: Mutex::default(),
         }
     }
 
-    /// Apply `change` and persist it; memory only changes once the file has.
-    fn update(&self, change: impl FnOnce(&mut SettingsFile)) -> std::io::Result<u64> {
-        let mut file = lock_recovering(&self.file);
-        let mut next = file.clone();
-        change(&mut next);
-        write_atomic(&self.path, &next)?;
-        *file = next;
-        Ok(self.revision.fetch_add(1, Ordering::SeqCst) + 1)
+    /// The only write: apply `change` and write the file; memory and the
+    /// windows change only once the file has.
+    fn update(&self, change: impl FnOnce(&mut Saved)) -> std::io::Result<Committed> {
+        self.saved
+            .update(change, |next| write_atomic(&self.path, &next.file))
     }
 
     fn read<T>(&self, get: impl FnOnce(&SettingsFile) -> T) -> T {
-        get(&lock_recovering(&self.file))
+        self.saved.read(|saved| get(&saved.file))
     }
 
     pub fn hotkeys(&self) -> HotkeyBindings {
         self.read(|f| f.hotkeys.clone())
     }
 
-    pub fn set_hotkeys(&self, hotkeys: HotkeyBindings) -> std::io::Result<()> {
-        self.update(|f| f.hotkeys = hotkeys).map(drop)
+    pub fn set_hotkeys(&self, hotkeys: HotkeyBindings) -> std::io::Result<Committed> {
+        self.update(|s| s.file.hotkeys = hotkeys)
     }
 
-    pub fn model(&self) -> Option<String> {
+    #[cfg(test)]
+    fn model(&self) -> Option<String> {
         self.read(|f| f.model.clone())
     }
 
-    pub fn set_model(&self, id: Option<String>) -> std::io::Result<()> {
-        self.update(|f| f.model = id).map(drop)
+    pub fn active_model(&self) -> &'static ModelEntry {
+        self.saved.read(Saved::active_model)
+    }
+
+    /// The language reset shares the model write, so a newer selection or
+    /// language change cannot land between the decision and its commit.
+    pub fn select_model(&self, entry: Option<&ModelEntry>) -> std::io::Result<(Committed, bool)> {
+        let mut reset = false;
+        let committed =
+            self.update(|saved| {
+                let changed = entry.is_some_and(|entry| saved.active_model().id != entry.id);
+                saved.file.model = entry.map(|entry| entry.id.clone());
+                if changed
+                    && saved.file.language.as_deref().is_some_and(|code| {
+                        code != language::AUTO
+                            && code != language::DEFAULT
+                            && !saved.active_model().languages.iter().any(|offered| {
+                                offered == code || language::primary_of(offered) == code
+                            })
+                    })
+                {
+                    saved.file.language = Some(language::DEFAULT.to_owned());
+                    reset = true;
+                }
+            })?;
+        Ok((committed, reset))
     }
 
     pub fn model_unload(&self) -> ModelUnload {
         self.read(|f| f.model_unload)
     }
 
-    pub fn set_model_unload(&self, policy: ModelUnload) -> std::io::Result<()> {
-        self.update(|f| f.model_unload = policy).map(drop)
+    pub fn set_model_unload(&self, policy: ModelUnload) -> std::io::Result<Committed> {
+        self.update(|s| s.file.model_unload = policy)
     }
 
     pub fn language(&self) -> Option<String> {
         self.read(|f| f.language.clone())
     }
 
-    pub fn set_language(&self, code: Option<String>) -> std::io::Result<()> {
-        self.update(|f| f.language = code).map(drop)
+    #[cfg(test)]
+    fn set_language(&self, code: Option<String>) -> std::io::Result<Committed> {
+        self.update(|s| s.file.language = code)
+    }
+
+    pub fn set_supported_language(
+        &self,
+        code: Option<String>,
+    ) -> std::io::Result<Option<Committed>> {
+        let mut accepted = false;
+        let committed = self.update(|saved| {
+            accepted = code.as_deref().is_none_or(|code| {
+                code == language::AUTO
+                    || saved
+                        .active_model()
+                        .languages
+                        .iter()
+                        .any(|offered| offered == code)
+            });
+            if accepted {
+                saved.file.language = code;
+            }
+        })?;
+        Ok(accepted.then_some(committed))
     }
 
     pub fn input_device(&self) -> Option<String> {
         self.read(|f| f.input_device.clone())
     }
 
-    pub fn set_input_device(&self, id: Option<String>) -> std::io::Result<()> {
-        self.update(|f| f.input_device = id).map(drop)
+    pub fn set_input_device(&self, id: Option<String>) -> std::io::Result<Committed> {
+        self.update(|s| s.file.input_device = id)
     }
 
     pub fn keep_mic_open(&self) -> bool {
         self.read(|f| f.keep_mic_open)
     }
 
-    pub fn set_keep_mic_open(&self, keep: bool) -> std::io::Result<()> {
-        self.update(|f| f.keep_mic_open = keep).map(drop)
+    pub fn set_keep_mic_open(&self, keep: bool) -> std::io::Result<Committed> {
+        self.update(|s| s.file.keep_mic_open = keep)
     }
 
-    pub fn pill(&self) -> PillSettingsSnapshot {
-        let file = lock_recovering(&self.file);
-        PillSettingsSnapshot {
-            revision: self.revision.load(Ordering::SeqCst),
-            settings: file.pill,
+    pub fn saved_audio(&self) -> SavedAudio {
+        self.read(|f| f.saved_audio)
+    }
+
+    pub fn set_saved_audio(&self, change: SavedAudioSetting) -> std::io::Result<Committed> {
+        self.update(|s| s.file.saved_audio.apply(change))
+    }
+
+    /// Only Windows pastes through the clipboard with a chosen shortcut.
+    #[cfg(windows)]
+    pub fn paste_mode(&self) -> PasteMode {
+        self.read(|f| f.paste_mode)
+    }
+
+    pub fn set_paste_mode(&self, mode: PasteMode) -> std::io::Result<Committed> {
+        self.update(|s| s.file.paste_mode = mode)
+    }
+
+    pub fn pill(&self) -> PillSettings {
+        self.read(|f| f.pill)
+    }
+
+    /// The pill settings, and the settings revision they were read at.
+    pub fn pill_at(&self) -> (PillSettings, u64) {
+        self.saved.read_at(|saved| saved.file.pill)
+    }
+
+    pub fn set_pill(&self, change: PillSetting) -> std::io::Result<Committed> {
+        self.update(|s| s.file.pill.apply(change))
+    }
+
+    pub fn set_formatter_enabled(&self, enabled: bool) -> std::io::Result<Committed> {
+        self.update(|s| s.file.formatter.enabled = enabled)
+    }
+
+    /// The endpoint goes to the file, its key to the credential store.
+    pub fn save_formatter_endpoint(&self, draft: &FormatterDraft) -> Result<Committed, String> {
+        let _changing = lock_recovering(&self.changing_formatter);
+        let Some(key) = draft.profile.api_key.as_deref().map(str::trim) else {
+            return self
+                .update(|s| draft.apply(&mut s.file.formatter))
+                .map_err(|e| e.to_string());
+        };
+        let provider = &draft.provider;
+        let before = self.secrets.read_api_key(provider)?;
+        let next = (!key.is_empty()).then_some(key);
+        self.secrets.replace_api_key(provider, next)?;
+        match self.update(|s| {
+            draft.apply(&mut s.file.formatter);
+            s.set_key_status(provider, next.is_some());
+        }) {
+            Ok(committed) => Ok(committed),
+            Err(e) => {
+                if let Err(restore) = self.secrets.replace_api_key(provider, before.as_deref()) {
+                    log::error!("saving the formatter endpoint failed: {e}; restoring its API key failed: {restore}");
+                    let has_key = self.secrets.read_api_key(provider).map_or_else(
+                        |e| {
+                            log::warn!("{e}");
+                            next.is_some()
+                        },
+                        |key| key.is_some(),
+                    );
+                    self.saved.set(|s| s.set_key_status(provider, has_key));
+                    return Err("The formatter endpoint wasn’t saved, and the previous API key couldn’t be restored.".into());
+                }
+                Err(e.to_string())
+            }
         }
-    }
-
-    pub fn set_pill(&self, pill: PillSettings) -> std::io::Result<PillSettingsSnapshot> {
-        let revision = self.update(|f| f.pill = pill)?;
-        Ok(PillSettingsSnapshot {
-            revision,
-            settings: pill,
-        })
-    }
-
-    pub fn formatter(&self) -> FormatterView {
-        self.read(|f| f.formatter.view(&self.secrets))
-    }
-
-    /// Endpoint details go to the file, keys to the credential store.
-    pub fn set_formatter(&self, update: FormatterUpdate) -> Result<(), String> {
-        update.store_keys(&self.secrets)?;
-        self.update(|f| f.formatter = update.into_settings())
-            .map(drop)
-            .map_err(|e| e.to_string())
     }
 
     /// The formatter as the finalize step calls it, with its key.
     pub fn format_config(&self) -> FormatConfig {
-        self.read(|f| f.formatter.resolve(&self.secrets))
+        let _changing = lock_recovering(&self.changing_formatter);
+        self.read(|f| f.formatter.clone()).resolve(&self.secrets)
     }
 
     /// An unsaved draft from the settings screen, completed with the saved
     /// key where the draft leaves it unchanged.
-    pub fn format_config_for(&self, draft: &FormatterUpdate) -> FormatConfig {
+    pub fn format_config_for(&self, draft: &FormatterDraft) -> FormatConfig {
+        let _changing = lock_recovering(&self.changing_formatter);
         draft.resolve(&self.secrets)
     }
 }

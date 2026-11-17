@@ -1,42 +1,47 @@
 //! Streaming decode for models that own their session state.
 
-use transcribe_cpp::{RunOptions, Stream, StreamOptions};
+use transcribe_cpp::StreamText;
+
+use crate::engine::{Finalized, StreamHandle};
 
 pub struct Streamed {
     pub text: String,
     pub truncated: bool,
 }
 
-/// A live streaming decode. Borrows the session for its lifetime, so the owning
-/// engine cannot run a single-shot decode concurrently.
+/// A live streaming decode. Holds the engine's worker for its lifetime, so
+/// no single-shot decode runs concurrently.
 pub struct StreamSession<'a> {
-    stream: Stream<'a>,
+    stream: StreamHandle<'a>,
+    /// The text as of the last feed that changed it.
+    text: StreamText,
     /// A chunk failed to feed, so the streamed text has a hole in it.
     dropped_chunk: bool,
 }
 
 impl<'a> StreamSession<'a> {
-    /// Begin streaming on `session`. Default options let each family apply the
-    /// commit strategy it was tuned for.
-    pub fn begin(
-        session: &'a mut transcribe_cpp::Session,
-        run: &RunOptions,
-    ) -> Result<Self, String> {
-        let stream = session
-            .stream(run, &StreamOptions::default())
-            .map_err(|e| format!("failed to begin stream: {e}"))?;
-        Ok(Self {
+    pub fn new(stream: StreamHandle<'a>) -> Self {
+        Self {
             stream,
+            text: StreamText::default(),
             dropped_chunk: false,
-        })
+        }
     }
 
     /// Feed one chunk of 16 kHz mono f32 audio, returning `true` when the text
     /// changed. A failed chunk doesn't abort the session; [`Self::finalize`]
     /// then hands the whole recording back for a single-shot decode.
     pub fn feed(&mut self, pcm: &[f32]) -> bool {
+        // The stream's text is already incomplete; finalize won't use it.
+        if self.dropped_chunk {
+            return false;
+        }
         match self.stream.feed(pcm) {
-            Ok(update) => update.committed_changed || update.tentative_changed,
+            Ok(Some(text)) => {
+                self.text = text;
+                true
+            }
+            Ok(None) => false,
             Err(e) => {
                 self.drop_chunk(&format!("stream feed failed: {e}"));
                 false
@@ -56,14 +61,14 @@ impl<'a> StreamSession<'a> {
     pub fn partial(&self) -> (String, String) {
         const IN_FLUX_WORDS: usize = 4;
 
-        let text = self.stream.text();
+        let text = &self.text;
         if !text.committed.is_empty() {
-            return (text.committed, text.tentative);
+            return (text.committed.clone(), text.tentative.clone());
         }
 
         let words: Vec<&str> = text.full.split_whitespace().collect();
         if words.len() <= IN_FLUX_WORDS {
-            return (String::new(), text.full);
+            return (String::new(), text.full.clone());
         }
         let split = words.len() - IN_FLUX_WORDS;
         (
@@ -74,17 +79,16 @@ impl<'a> StreamSession<'a> {
 
     /// Flush the stream and return the complete transcript. `None` means the
     /// caller should fall back to a single-shot decode of the buffered audio.
-    pub fn finalize(mut self) -> Option<String> {
+    pub fn finalize(self) -> Option<Streamed> {
         if self.dropped_chunk {
             log::warn!("stream dropped a chunk — decoding the full recording instead");
             return None;
         }
-        match self.stream.finalize() {
-            Ok(_) => Some(self.stream.text().full),
-            Err(e) => {
-                log::error!("stream finalize failed: {e}");
-                None
-            }
-        }
+        self.stream
+            .finalize()
+            .map(|Finalized { text, truncated }| Streamed {
+                text: text.full,
+                truncated,
+            })
     }
 }

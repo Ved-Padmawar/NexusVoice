@@ -1,32 +1,36 @@
-import { memo, useState, useRef, useEffect, useCallback, useMemo, type CSSProperties, type RefObject } from 'react'
+import { Fragment, memo, useState, useRef, useEffect, useCallback, useMemo, type CSSProperties, type RefObject } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  ArrowCounterClockwiseIcon, BracketsCurlyIcon, CalendarBlankIcon, CaretLeftIcon, CaretRightIcon, CheckIcon,
-  CopyIcon, ExportIcon, FileTextIcon, FunnelSimpleIcon, KeyboardIcon, MagnifyingGlassIcon, MicrophoneIcon,
-  TrashIcon, WarningCircleIcon, XIcon,
+  BracketsCurlyIcon,
+  ArrowsClockwiseIcon, ExportIcon, FileAudioIcon, FileTextIcon, KeyboardIcon, MagnifyingGlassIcon, MicrophoneIcon,
+  PushPinIcon, TrashIcon, WarningCircleIcon, WaveformIcon, XIcon,
 } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { commands } from '../../shared/bindings'
+import { commands, type ExportFormat, type JobSnapshot } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { useHotkeys } from '../settings/queries'
 import {
   useDailyWords,
-  useTranscripts,
-  useTranscriptSearch,
+  useHistoryFeed,
   useStats,
+  hiddenForUndo,
   useDeleteTranscript,
-  fetchAllTranscripts,
   NO_FILTERS,
 } from './queries'
-import type { TranscriptFilters } from '../../shared/queryKeys'
+import { isFiltered, isNarrowed, type TranscriptFilters } from '../../shared/queryKeys'
+import { useSlice } from '../../app/mirror'
 import { ROUTES } from '../../app/routes'
-import { cn, fmtTime, fmtDate, parseSqliteDate } from '../../shared/utils'
+import { cn, fmtTime, parseSqliteDate } from '../../shared/utils'
 import { Button } from '@/shared/ui/Button'
 import { Kbd } from '@/shared/ui/Kbd'
 import { MenuItem, Popover } from '@/shared/ui/Popover'
-import { Segmented } from '@/shared/ui/Segmented'
+import { CopyButton } from '@/shared/ui/CopyButton'
 import { TextInput } from '@/shared/ui/TextInput'
 import { SectionState } from '../../shared/ui/SectionState'
+import { AudioPlayer } from './AudioPlayer'
+import { ImportControls } from './ImportFlow'
+import { FilterChip, FilterDropdown, ToolbarButton } from './HistoryFilters'
+import { cancelJob, useHasJob, useJob, useJobs } from './jobs'
+import { ACTION_BUTTON, PinButton, RetranscribeButton } from './RowActions'
 import type { Transcript } from '../../shared/types'
 
 const TYPING_WPM = 40
@@ -51,25 +55,6 @@ function FeedSkeleton() {
   )
 }
 
-function IconButton({ className, ...props }: React.ComponentProps<'button'>) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        'grid size-8 cursor-pointer place-items-center rounded-lg bg-panel text-fg-2 ring-1 ring-inset ring-line-soft transition hover:text-fg hover:ring-line disabled:opacity-50',
-        className,
-      )}
-      {...props}
-    />
-  )
-}
-
-type ExportFormat = 'txt' | 'json'
-
-const serialize = (items: Transcript[], format: ExportFormat) => format === 'txt'
-  ? items.map(t => `[${fmtDate(t.createdAt)}]\n${t.content}`).join('\n\n---\n\n')
-  : JSON.stringify(items.map(t => ({ id: t.id, content: t.content, createdAt: t.createdAt, wordCount: t.wordCount, durationSeconds: t.durationSeconds })), null, 2)
-
 /** Exports what the search box and filters ask for, without waiting on the debounce. */
 function ExportButton({ typedRef, filters }: { typedRef: RefObject<string>; filters: TranscriptFilters }) {
   const [open, setOpen] = useState(false)
@@ -80,16 +65,16 @@ function ExportButton({ typedRef, filters }: { typedRef: RefObject<string>; filt
     setOpen(false)
     setExporting(true)
     try {
-      const items = await fetchAllTranscripts(typedRef.current.trim(), filters)
-      if (items.length === 0) {
+      const exported = await commands.exportTranscripts({
+        query: typedRef.current.trim(), ...filters, exclude: hiddenForUndo(), format,
+      })
+      if (!exported) {
         toast.info('Nothing to export')
         return
       }
-      const date = new Date().toISOString().slice(0, 10)
-      const path = await commands.saveExport(`nexusvoice-transcripts-${date}.${format}`, serialize(items, format))
-      toast.success(`Exported ${plural(items.length, 'dictation')}`, {
-        description: path,
-        action: { label: 'Show in folder', onClick: () => void commands.revealInFolder(path).catch(e => toast.error(extractErrorMessage(e, 'Could not open the folder'))) },
+      toast.success(`Exported ${plural(exported.count, 'dictation')}`, {
+        description: exported.path,
+        action: { label: 'Show in folder', onClick: () => void commands.revealInFolder(exported.path).catch(e => toast.error(extractErrorMessage(e, 'Could not open the folder'))) },
       })
     } catch (e) {
       toast.error(extractErrorMessage(e, 'Export failed'))
@@ -100,7 +85,7 @@ function ExportButton({ typedRef, filters }: { typedRef: RefObject<string>; filt
 
   return (
     <>
-      <IconButton
+      <ToolbarButton
         ref={anchorRef}
         aria-label="Export"
         aria-haspopup="menu"
@@ -112,7 +97,7 @@ function ExportButton({ typedRef, filters }: { typedRef: RefObject<string>; filt
         onClick={() => setOpen(o => !o)}
       >
         <ExportIcon size={14} weight="bold" />
-      </IconButton>
+      </ToolbarButton>
       <Popover open={open} onOpenChange={setOpen} anchorRef={anchorRef} placement="bottom-end" className="min-w-44">
         <MenuItem onClick={() => doExport('txt')}>
           <FileTextIcon size={16} className="text-muted" />Plain text<span className="ml-auto font-mono text-2xs text-muted">.txt</span>
@@ -120,268 +105,6 @@ function ExportButton({ typedRef, filters }: { typedRef: RefObject<string>; filt
         <MenuItem onClick={() => doExport('json')}>
           <BracketsCurlyIcon size={16} className="text-muted" />JSON<span className="ml-auto font-mono text-2xs text-muted">.json</span>
         </MenuItem>
-      </Popover>
-    </>
-  )
-}
-
-function CopyButton({ text }: { text: string }) {
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text).catch(() => toast.error('Could not copy to the clipboard'))
-  }
-  return (
-    <button
-      type="button"
-      aria-label="Copy"
-      onClick={handleCopy}
-      className="copy-btn grid size-8 cursor-pointer place-items-center rounded-lg text-muted hover:bg-surface-hover hover:text-fg"
-    >
-      <CopyIcon size={15} className="c-idle" />
-      <CheckIcon size={15} weight="bold" className="c-done" />
-    </button>
-  )
-}
-
-type DateMode = 'range' | 'on'
-type DateKey = 'from' | 'to' | 'on'
-type Dates = Record<DateKey, string>
-
-const pad = (n: number) => String(n).padStart(2, '0')
-const toIso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-const fromIso = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d) }
-const dateFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-const monthFmt = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' })
-const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
-
-const calFootButton = 'h-6.5 cursor-pointer rounded-[7px] px-2 text-xs font-semibold text-fg-2 transition-colors hover:bg-surface-hover hover:text-fg'
-
-type CalendarProps = {
-  view: Date
-  onView: (view: Date) => void
-  picked: string
-  /** A band between the range's ends, only while choosing From or To. */
-  band: { from: string; to: string } | null
-  onPick: (value: string) => void
-}
-
-function Calendar({ view, onView, picked, band, onPick }: CalendarProps) {
-  const y = view.getFullYear()
-  const m = view.getMonth()
-  const lead = new Date(y, m, 1).getDay()
-  const today = toIso(new Date())
-  const shift = (by: number) => onView(new Date(y, m + by, 1))
-  const navButton = 'grid size-7 cursor-pointer place-items-center rounded-[7px] text-fg-2 transition-colors hover:bg-surface-hover hover:text-fg'
-
-  return (
-    <>
-      <div className="mb-2 flex items-center justify-between">
-        <button type="button" aria-label="Previous month" className={navButton} onClick={() => shift(-1)}><CaretLeftIcon size={14} weight="bold" /></button>
-        <b className="text-sm font-semibold">{monthFmt.format(view)}</b>
-        <button type="button" aria-label="Next month" className={navButton} onClick={() => shift(1)}><CaretRightIcon size={14} weight="bold" /></button>
-      </div>
-      <div className="grid grid-cols-7 gap-0.5">
-        {WEEKDAYS.map(d => (
-          <span key={d} className="grid h-6 place-items-center text-2xs font-semibold tracking-wider text-muted uppercase">{d}</span>
-        ))}
-        {Array.from({ length: 42 }, (_, i) => {
-          const d = new Date(y, m, 1 - lead + i)
-          const v = toIso(d)
-          return (
-            <button
-              key={v}
-              type="button"
-              // Nothing can be dictated tomorrow.
-              disabled={v > today}
-              onClick={() => onPick(v)}
-              className={cn(
-                'grid h-7.5 cursor-pointer place-items-center rounded-[7px] text-xs text-fg transition-colors hover:bg-surface-hover disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent',
-                d.getMonth() !== m && 'text-muted',
-                v === today && 'ring-1 ring-inset ring-line',
-                band && v > band.from && v < band.to && 'rounded-none bg-surface',
-                v === picked && 'rounded-[7px] bg-accent-soft font-semibold text-accent-ink ring-1 ring-inset ring-accent-line',
-              )}
-            >
-              {d.getDate()}
-            </button>
-          )
-        })}
-      </div>
-      <div className="mt-2 flex justify-between border-t border-line-soft pt-2">
-        <button type="button" className={calFootButton} onClick={() => onPick('')}>Clear</button>
-        <button type="button" className={cn(calFootButton, 'text-accent-ink')} onClick={() => onPick(toIso(new Date()))}>Today</button>
-      </div>
-    </>
-  )
-}
-
-function DateFieldButton({ value, expanded, onClick }: {
-  value: string
-  expanded: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      aria-expanded={expanded}
-      onClick={onClick}
-      className={cn(
-        'flex h-8 w-full cursor-pointer items-center gap-2 rounded-lg bg-field px-2.5 text-left text-xs ring-1 ring-inset ring-line-soft transition-shadow hover:ring-line',
-        expanded && 'ring-accent hover:ring-accent',
-      )}
-    >
-      <CalendarBlankIcon size={14} className="shrink-0 text-muted" />
-      <span className={cn('min-w-0 truncate', value ? 'text-fg' : 'text-muted')}>{value ? dateFmt.format(fromIso(value)) : 'Pick a date'}</span>
-    </button>
-  )
-}
-
-const fieldLabel = 'text-xs font-semibold text-fg-2'
-
-/** The editor's state for applied filters: a range whose ends match is one day. */
-function datesOf({ from, to }: TranscriptFilters): { mode: DateMode; dates: Dates } {
-  if (from && from === to) return { mode: 'on', dates: { from: '', to: '', on: from } }
-  return { mode: 'range', dates: { from: from ?? '', to: to ?? '', on: '' } }
-}
-
-type FilterDropdownProps = {
-  filters: TranscriptFilters
-  onChange: (filters: TranscriptFilters) => void
-}
-
-function FilterDropdown({ filters, onChange }: FilterDropdownProps) {
-  const { sortAsc: filterSortAsc } = filters
-  const [open, setOpen] = useState(false)
-  const [dateMode, setDateMode] = useState(() => datesOf(filters).mode)
-  const [dates, setDates] = useState(() => datesOf(filters).dates)
-  const [sortAsc, setSortAsc] = useState(filterSortAsc)
-  const [calField, setCalField] = useState<DateKey | null>(null)
-  const [calView, setCalView] = useState(() => new Date())
-  const hasActive = isFiltered(filters)
-
-  const anchorRef = useRef<HTMLButtonElement>(null)
-  const bodyRef = useRef<HTMLDivElement>(null)
-  const calRef = useRef<HTMLDivElement>(null)
-  const calInside = useMemo(() => [calRef], [])
-
-  const handleOpenChange = (next: boolean) => {
-    if (next) {
-      const applied = datesOf(filters)
-      setDateMode(applied.mode)
-      setDates(applied.dates)
-      setSortAsc(filterSortAsc)
-    }
-    setCalField(null)
-    setOpen(next)
-  }
-
-  const toggleField = (key: DateKey) => {
-    if (calField === key) { setCalField(null); return }
-    const value = dates[key]
-    const v = value ? fromIso(value) : new Date()
-    setCalView(new Date(v.getFullYear(), v.getMonth(), 1))
-    setCalField(key)
-  }
-
-  const pickDate = (value: string) => {
-    if (!calField) return
-    const next = { ...dates, [calField]: value }
-    // Keep the range ordered: picking one end past the other swaps them, so neither is lost.
-    if (calField !== 'on' && next.from && next.to && next.from > next.to) {
-      [next.from, next.to] = [next.to, next.from]
-    }
-    setDates(next)
-    setCalField(null)
-  }
-
-  const apply = () => {
-    // Only the visible mode counts, so a cleared day can't fall back to a hidden range.
-    if (dateMode === 'on') {
-      onChange({ from: dates.on || null, to: dates.on || null, sortAsc })
-    } else {
-      onChange({ from: dates.from || null, to: dates.to || null, sortAsc })
-    }
-    handleOpenChange(false)
-  }
-  const reset = () => {
-    setDates({ from: '', to: '', on: '' })
-    setSortAsc(false)
-    onChange(NO_FILTERS)
-    handleOpenChange(false)
-  }
-
-  const field = (key: DateKey) => (
-    <DateFieldButton value={dates[key]} expanded={calField === key} onClick={() => toggleField(key)} />
-  )
-
-  return (
-    <>
-      <IconButton
-        ref={anchorRef}
-        aria-label="Filter"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        data-tip="Filter"
-        data-tip-pos="bottom"
-        data-tip-align="end"
-        onClick={() => handleOpenChange(!open)}
-        className={hasActive ? 'bg-accent-soft text-accent-ink ring-accent-line hover:text-accent-ink hover:ring-accent' : undefined}
-      >
-        <FunnelSimpleIcon size={14} weight="bold" />
-      </IconButton>
-      <Popover open={open} onOpenChange={handleOpenChange} anchorRef={anchorRef} placement="bottom-end" insideRefs={calInside} className="w-72 rounded-2xl p-4">
-        <div ref={bodyRef} className="flex flex-col gap-3.5">
-          <div className="flex flex-col gap-1.5">
-            <span className={fieldLabel}>Date</span>
-            <Segmented
-              size="sm"
-              fill
-              value={dateMode}
-              onChange={setDateMode}
-              options={[{ value: 'range', label: 'Range' }, { value: 'on', label: 'One day' }]}
-            />
-          </div>
-          {dateMode === 'on' ? (
-            <div className="flex flex-col gap-1.5"><span className={fieldLabel}>On</span>{field('on')}</div>
-          ) : (
-            <div className="flex gap-2">
-              <div className="flex min-w-0 flex-1 flex-col gap-1.5"><span className={fieldLabel}>From</span>{field('from')}</div>
-              <div className="flex min-w-0 flex-1 flex-col gap-1.5"><span className={fieldLabel}>To</span>{field('to')}</div>
-            </div>
-          )}
-          <div className="flex flex-col gap-1.5">
-            <span className={fieldLabel}>Order</span>
-            <Segmented
-              size="sm"
-              fill
-              value={sortAsc ? 'asc' : 'desc'}
-              onChange={v => setSortAsc(v === 'asc')}
-              options={[{ value: 'desc', label: 'Newest first' }, { value: 'asc', label: 'Oldest first' }]}
-            />
-          </div>
-          <div className="flex items-center gap-2 border-t border-line-soft pt-3">
-            <Button size="sm" variant="ghost" onClick={reset}><ArrowCounterClockwiseIcon size={12} weight="bold" />Reset</Button>
-            <Button size="sm" variant="tinted" onClick={apply} className="ml-auto px-4">Apply</Button>
-          </div>
-        </div>
-      </Popover>
-      <Popover
-        open={open && calField !== null}
-        onOpenChange={() => setCalField(null)}
-        // Beside the filter panel, never on top of the fields it edits.
-        anchorRef={bodyRef}
-        placement="side"
-        offset={22}
-        className="w-64"
-      >
-        <div ref={calRef} className="p-3">
-          <Calendar
-            view={calView}
-            onView={setCalView}
-            picked={calField ? dates[calField] : ''}
-            band={calField !== 'on' && dates.from && dates.to ? { from: dates.from, to: dates.to } : null}
-            onPick={pickDate}
-          />
-        </div>
       </Popover>
     </>
   )
@@ -453,32 +176,168 @@ function groupByDay(items: Transcript[]) {
   return groups
 }
 
+/** The last entry whose audio the limit still keeps, when older ones lost theirs. */
+function audioBoundary(rows: Transcript[], keep: number, more: boolean): number | null {
+  const kept = rows.filter(row => row.audioPath && !row.pinned)
+  if (keep === 0 || kept.length !== keep) return null
+  const last = kept[keep - 1]
+  const older = rows.slice(rows.indexOf(last) + 1)
+  return more || older.some(row => !row.audioPath) ? last.id : null
+}
+
 const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
+
+/** Where the saved-audio limit falls in the feed. */
+function AudioBoundary({ keep, onChange }: { keep: number; onChange: () => void }) {
+  return (
+    <li className="flex items-center gap-3 py-2 pl-26 text-xs text-muted">
+      <span className="h-px w-6 bg-line-soft" />
+      <WaveformIcon size={13} />
+      <span>Audio is kept for your last {keep === 1 ? 'entry' : `${keep} entries`} and anything pinned. Older ones keep their text.</span>
+      <button type="button" onClick={onChange} className="cursor-pointer font-semibold text-accent-ink hover:underline">Change</button>
+      <span className="h-px flex-1 bg-line-soft" />
+    </li>
+  )
+}
+
+const ROW = "group relative grid grid-cols-[84px_minmax(0,1fr)_124px] gap-x-5 py-4 not-first:before:absolute not-first:before:top-0 not-first:before:right-0 not-first:before:left-26 not-first:before:h-px not-first:before:bg-line-soft not-first:before:content-['']"
+
+const NONE_SHOWN: ReadonlySet<number> = new Set()
+
+const jobStatus = (job: JobSnapshot) => {
+  if (job.queued) return `Waiting · ${job.model}`
+  if (job.paused) return 'Paused · dictation goes first'
+  return `${job.model} · ${Math.floor(job.progress * 100)}%`
+}
+
+/** A job's progress, status and Cancel, one line tall. */
+function JobControls({ job, className }: { job: JobSnapshot; className?: string }) {
+  return (
+    <span className={cn('flex min-w-0 items-center gap-2.5 text-xs text-muted tabular-nums', className)}>
+      <span className="relative h-1 min-w-12 max-w-48 flex-1 overflow-hidden rounded-full bg-line-soft">
+        <span className="absolute inset-y-0 left-0 rounded-full bg-accent" style={{ width: `${job.progress * 100}%` }} />
+      </span>
+      <span className="min-w-0 truncate">{jobStatus(job)}</span>
+      <button type="button" onClick={() => void cancelJob(job.transcriptId)} className="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md px-2 font-semibold text-fg-2 hover:bg-surface-hover hover:text-fg">
+        <XIcon size={11} weight="bold" />Cancel
+      </button>
+    </span>
+  )
+}
+
+/** A row's own job. Its own component, so only it wakes for progress. */
+function RowJob({ id }: { id: number }) {
+  const job = useJob(id)
+  if (!job) return null
+  return (
+    <>
+      <span className="h-3.5 w-px shrink-0 bg-line-soft" />
+      <JobControls job={job} className="flex-1" />
+    </>
+  )
+}
+
+/** Jobs whose rows a search, filter or feed error hides, so their Cancel is
+ *  never out of reach. Shows nothing while every job's row is in the feed. */
+function HiddenJobs({ shown }: { shown: ReadonlySet<number> }) {
+  const jobs = useJobs()
+  const hidden = jobs.filter(job => !shown.has(job.transcriptId))
+  return hidden.length > 0 ? <HiddenJobsChip jobs={hidden} /> : null
+}
+
+function HiddenJobsChip({ jobs }: { jobs: JobSnapshot[] }) {
+  const anchorRef = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+        className="flex h-6.5 cursor-pointer items-center gap-1.5 rounded-full bg-panel px-2.5 text-xs font-semibold text-fg-2 ring-1 ring-inset ring-line-soft transition-shadow hover:ring-line aria-expanded:ring-line"
+      >
+        <ArrowsClockwiseIcon size={12} weight="bold" />
+        {plural(jobs.length, 'transcription')} running
+      </button>
+      <Popover open={open} onOpenChange={setOpen} anchorRef={anchorRef} placement="bottom-start" className="w-md">
+        <ul className="py-1">
+          {jobs.map(job => (
+            <li key={job.transcriptId} className="flex h-10 items-center gap-3 pr-2 pl-3.5">
+              {job.kind === 'import'
+                ? <FileAudioIcon size={14} weight="duotone" className="shrink-0 text-fg-2" />
+                : <ArrowsClockwiseIcon size={14} className="shrink-0 text-fg-2" />}
+              <span className="min-w-0 flex-1 truncate text-xs font-semibold text-fg-2">{job.label}</span>
+              <JobControls job={job} className="w-72 shrink-0" />
+            </li>
+          ))}
+        </ul>
+      </Popover>
+    </>
+  )
+}
 
 const TranscriptRow = memo(function TranscriptRow({ item, onDelete }: { item: Transcript; onDelete: (id: number) => void }) {
   const { clock, meridiem } = splitClock(parseSqliteDate(item.createdAt))
+  // A pending import is busy before its job shows in the list too.
+  const busy = useHasJob(item.id) || item.pending
+  const parts = [
+    item.sourceName
+      ? (
+        <span key="source" className="inline-flex items-center gap-1 font-semibold text-fg-2">
+          <FileAudioIcon size={12} weight="bold" /><span className="max-w-56 truncate">{item.sourceName}</span>
+        </span>
+      )
+      : <span key="source" className="font-semibold text-fg-2">{item.targetApp ?? 'Clipboard'}</span>,
+    !item.pending && <span key="words">{plural(item.wordCount, 'word')}</span>,
+    !item.audioPath && item.durationSeconds != null && <span key="seconds">{fmtTime(Math.round(item.durationSeconds))}</span>,
+    item.pinned && (
+      <span key="pinned" className="inline-flex items-center gap-1 font-semibold text-accent-ink">
+        <PushPinIcon size={11} weight="fill" />Pinned
+      </span>
+    ),
+  ].filter(Boolean)
   return (
-    <li
-      className="group relative grid grid-cols-[84px_minmax(0,1fr)_72px] gap-x-5 py-4 not-first:before:absolute not-first:before:top-0 not-first:before:right-0 not-first:before:left-26 not-first:before:h-px not-first:before:bg-line-soft not-first:before:content-['']"
-    >
+    <li className={ROW}>
       <p className="text-xl leading-tight font-bold tracking-tight text-fg tabular-nums">
         {clock}{meridiem && <small className="ml-0.5 text-xs font-semibold tracking-normal text-muted">{meridiem}</small>}
       </p>
       <div className="min-w-0">
-        <p className="text-[14.5px] leading-relaxed text-fg-2 text-pretty">{item.content}</p>
-        <p className="mt-1 text-xs text-muted tabular-nums">
-          <span className="font-semibold text-fg-2">{item.targetApp ?? 'Clipboard'}</span>
-          {' · '}{plural(item.wordCount, 'word')}
-          {item.durationSeconds != null && ` · ${item.durationSeconds}s`}
-        </p>
+        {item.pending ? (
+          // No text yet to take the shape of: three lines, as a guess.
+          <div aria-hidden="true" className="flex h-[4.875em] flex-col justify-center gap-2.5 text-[14.5px]">
+            <div className="h-3.5 w-full animate-pulse rounded bg-surface" />
+            <div className="h-3.5 w-full animate-pulse rounded bg-surface" />
+            <div className="h-3.5 w-2/3 animate-pulse rounded bg-surface" />
+          </div>
+        ) : (
+          <p className="text-[14.5px] leading-relaxed text-pretty text-fg-2">
+            <span aria-busy={busy} className={cn('text-skeleton', busy && 'animate-pulse')}>{item.content}</span>
+          </p>
+        )}
+        <div className="mt-1.5 flex min-h-6 items-center gap-2.5 text-xs text-muted tabular-nums">
+          <span className="flex min-w-0 items-center gap-1.5">
+            {parts.map((part, i) => <Fragment key={i}>{i > 0 && <span className="text-line">·</span>}{part}</Fragment>)}
+          </span>
+          {busy
+            ? <RowJob id={item.id} />
+            : item.audioPath && (
+              <>
+                <span className="h-3.5 w-px bg-line-soft" />
+                <AudioPlayer id={item.id} path={item.audioPath} seconds={item.durationSeconds} />
+              </>
+            )}
+        </div>
       </div>
-      <div className="-mt-1.5 -mr-2 flex justify-self-end gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-        <CopyButton text={item.content} />
+      <div className="-mt-1 -mr-2 flex justify-self-end gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 has-aria-expanded:opacity-100">
+        {!busy && <CopyButton text={item.content} />}
+        {!busy && item.audioPath && <RetranscribeButton id={item.id} />}
+        {item.audioPath && <PinButton id={item.id} pinned={item.pinned} />}
         <button
           type="button"
           aria-label="Delete"
           onClick={() => onDelete(item.id)}
-          className="grid size-8 cursor-pointer place-items-center rounded-lg text-muted hover:bg-danger-soft hover:text-danger"
+          className={cn(ACTION_BUTTON, 'hover:bg-danger-soft hover:text-danger')}
         >
           <TrashIcon size={15} />
         </button>
@@ -531,63 +390,32 @@ const DayWave = memo(function DayWave() {
   )
 })
 
-const hasDates = ({ from, to }: TranscriptFilters) => !!from || !!to
-const isFiltered = (filters: TranscriptFilters) => hasDates(filters) || filters.sortAsc
+type EmptyFeedProps = { searching: boolean; narrowed: boolean; hotkey: string | null; onClearFilters: () => void }
 
-const chipDateFmt = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' })
-
-/** "3 Nov – 9 Nov · Oldest first": what the feed is narrowed to, in words. */
-function describeFilters({ from, to, sortAsc }: TranscriptFilters) {
-  const day = (iso: string) => chipDateFmt.format(fromIso(iso))
-  const dates = from && to
-    ? from === to ? `On ${day(from)}` : `${day(from)} – ${day(to)}`
-    : from ? `Since ${day(from)}` : to ? `Until ${day(to)}` : null
-  return [dates, sortAsc && 'Oldest first'].filter(Boolean).join(' · ')
-}
-
-/** Shows that the feed is filtered, and clears it in one click. */
-function FilterChip({ filters, onClear }: { filters: TranscriptFilters; onClear: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClear}
-      aria-label={`Clear filters: ${describeFilters(filters)}`}
-      className="flex h-6.5 cursor-pointer items-center gap-1.5 rounded-full bg-accent-soft pr-2 pl-2.5 text-xs font-semibold text-accent-ink ring-1 ring-inset ring-accent-line transition-shadow hover:ring-accent"
-    >
-      {describeFilters(filters)}
-      <XIcon size={11} weight="bold" />
-    </button>
-  )
-}
-
-type EmptyFeedProps = { searching: boolean; dated: boolean; hotkey: string | null; onClearFilters: () => void }
-
-/** The empty feed says why it is empty: a search, a date range, or no dictations yet. */
-function EmptyFeed({ searching, dated, hotkey, onClearFilters }: EmptyFeedProps) {
-  const narrowed = searching || dated
+/** The empty feed says why it is empty: a search, a filter, or no dictations yet. */
+function EmptyFeed({ searching, narrowed, hotkey, onClearFilters }: EmptyFeedProps) {
   const hint = searching
-    ? dated ? 'Try different keywords or a wider date range.' : 'Try different keywords or check your spelling.'
-    : 'Try a wider date range.'
+    ? narrowed ? 'Try different keywords or wider filters.' : 'Try different keywords or check your spelling.'
+    : 'Try a wider date range or another app.'
   return (
     <div className="flex flex-col items-center gap-3 px-6 py-14 text-center">
       <span className="grid size-14 place-items-center rounded-full bg-accent-soft text-accent-ink">
-        {narrowed ? <MagnifyingGlassIcon size={24} /> : <MicrophoneIcon size={24} weight="duotone" />}
+        {searching || narrowed ? <MagnifyingGlassIcon size={24} /> : <MicrophoneIcon size={24} weight="duotone" />}
       </span>
       <p className="text-md font-semibold text-fg">
-        {searching ? 'No results found' : dated ? 'Nothing in this date range' : 'Your first dictation lands here'}
+        {searching ? 'No results found' : narrowed ? 'Nothing matches these filters' : 'Your first dictation lands here'}
       </p>
       <p className="max-w-64 text-sm text-muted text-balance">
-        {narrowed ? hint : <>Hold {hotkey ? <HotkeyKeys hotkey={hotkey} /> : 'your hotkey'} in any text box, speak, and let go.</>}
+        {searching || narrowed ? hint : <>Hold {hotkey ? <HotkeyKeys hotkey={hotkey} /> : 'your hotkey'} in any text box, speak, and let go.</>}
       </p>
-      {dated && <Button size="sm" variant="outline" onClick={onClearFilters}>Clear date filter</Button>}
+      {narrowed && <Button size="sm" variant="outline" onClick={onClearFilters}>Clear filters</Button>}
     </div>
   )
 }
 
 export function Dashboard() {
-  const pushToTalk = useHotkeys(hotkeys => hotkeys.pushToTalk)
-  const keys = pushToTalk.data ?? null
-  const missingHotkey = pushToTalk.isSuccess && keys === null
+  const keys = useSlice('settings', settings => settings.hotkeys.pushToTalk)
+  const missingHotkey = keys === null
   const navigate = useNavigate()
   const [searchTerm, setSearchTerm] = useState('')
   const typedRef = useRef('')
@@ -595,9 +423,7 @@ export function Dashboard() {
   const observerRef = useRef<IntersectionObserver | null>(null)
 
   const isSearchMode = searchTerm.length > 0
-  const feed = useTranscripts(filters, !isSearchMode)
-  const search = useTranscriptSearch(searchTerm, filters)
-  const active = isSearchMode ? search : feed
+  const active = useHistoryFeed(searchTerm, filters)
   const stats = useStats()
   const deleteTranscript = useDeleteTranscript()
   // Both read the same database: when both fail, one error says it once.
@@ -606,22 +432,29 @@ export function Dashboard() {
     ? () => { void stats.refetch(); void active.refetch() }
     : active.refetch
 
-  const groups = useMemo(() => {
-    const rows = active.data?.pages.flatMap(page => page.rows) ?? []
-    const seen = new Set<number>()
-    return groupByDay(rows.filter(row => !seen.has(row.id) && seen.add(row.id)))
-  }, [active.data])
 
   // A ref callback, not an effect: the sentinel mounts only after the feed's
   // skeleton is replaced, which changes no effect dependency — an effect would
   // read a null ref and never re-run.
   const { fetchNextPage, hasNextPage, isFetching } = active
+  const keep = useSlice('settings', settings => (settings.savedAudio.enabled ? settings.savedAudio.keep : 0))
+  // Only an unfiltered feed shows where the audio limit falls.
+  const wholeFeed = !isSearchMode && !isFiltered(filters)
+  const { groups, boundaryId, seen } = useMemo(() => {
+    const rows = active.data?.pages.flatMap(page => page.rows) ?? []
+    const seen = new Set<number>()
+    const unique = rows.filter(row => !seen.has(row.id) && seen.add(row.id))
+    return { groups: groupByDay(unique), boundaryId: wholeFeed ? audioBoundary(unique, keep, hasNextPage) : null, seen }
+  }, [active.data, keep, wholeFeed, hasNextPage])
+  // A feed error shows its message instead of the rows.
+  const shown = active.status === 'success' ? seen : NONE_SHOWN
   const canFetchNext = hasNextPage && !isFetching
   const sentinelRef = useCallback((node: HTMLDivElement | null) => {
     observerRef.current?.disconnect()
     if (!node || !canFetchNext) return
     observerRef.current = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) void fetchNextPage() },
+      // Never cancels a reread in flight: the next page would join the old pages.
+      (entries) => { if (entries[0].isIntersecting) void fetchNextPage({ cancelRefetch: false }) },
       { threshold: 0.1 }
     )
     observerRef.current.observe(node)
@@ -710,9 +543,11 @@ export function Dashboard() {
         <div className="sticky top-0 z-10 -mx-2 flex items-center gap-2.5 bg-bg px-2 py-2.5">
           <h2 className="text-md font-semibold tracking-tight text-fg">Recent dictations</h2>
           {isFiltered(filters) && <FilterChip filters={filters} onClear={() => setFilters(NO_FILTERS)} />}
+          <HiddenJobs shown={shown} />
           <div className="ml-auto flex items-center gap-1.5">
             <SearchBox onSearch={setSearchTerm} typedRef={typedRef} />
             <FilterDropdown filters={filters} onChange={setFilters} />
+            <ImportControls />
             <ExportButton typedRef={typedRef} filters={filters} />
           </div>
         </div>
@@ -724,7 +559,7 @@ export function Dashboard() {
           skeleton={<FeedSkeleton />}
         >
           {groups.length === 0 ? (
-            <EmptyFeed searching={isSearchMode} dated={hasDates(filters)} hotkey={keys} onClearFilters={() => setFilters(NO_FILTERS)} />
+            <EmptyFeed searching={isSearchMode} narrowed={isNarrowed(filters)} hotkey={keys} onClearFilters={() => setFilters(NO_FILTERS)} />
           ) : (
             <div className="flex flex-col">
               {groups.map(group => (
@@ -736,7 +571,12 @@ export function Dashboard() {
                   </h3>
                   <ol>
                     {group.items.map(item => (
-                      <TranscriptRow key={item.id} item={item} onDelete={deleteTranscript} />
+                      <Fragment key={item.id}>
+                        <TranscriptRow item={item} onDelete={deleteTranscript} />
+                        {item.id === boundaryId && (
+                          <AudioBoundary keep={keep} onChange={() => navigate(ROUTES.SETTINGS, { state: { tab: 'general' } })} />
+                        )}
+                      </Fragment>
                     ))}
                   </ol>
                 </section>

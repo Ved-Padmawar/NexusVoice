@@ -1,5 +1,6 @@
-use super::{keyset_sql, Cursor, TranscriptRepository};
+use super::{keyset_sql, Cursor, Filter, TranscriptRepository};
 use crate::data::connection::init_database;
+use crate::data::dto::transcript::CreateTranscript;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Row, SqlitePool};
 
@@ -26,25 +27,38 @@ async fn insert(pool: &SqlitePool, content: &str, created_at: &str) -> i64 {
     .expect("insert")
 }
 
-/// Insert `words` words at `now` shifted by an SQLite modifier like `'-3 days'`.
-async fn insert_ago(pool: &SqlitePool, words: i64, ago: &str) {
-    sqlx::query("INSERT INTO transcripts (content, word_count, created_at) VALUES ('t', ?, datetime('now', ?))")
-        .bind(words)
-        .bind(ago)
-        .execute(pool)
-        .await
-        .expect("insert");
+/// Entries 1 to 6, one a day from 2026-01-01, alternating Slack and Notes.
+async fn entries_in_two_apps(pool: &SqlitePool) {
+    for i in 1..=6 {
+        let id = insert(
+            pool,
+            &format!("notes {i}"),
+            &format!("2026-01-0{i} 00:00:00"),
+        )
+        .await;
+        sqlx::query("UPDATE transcripts SET target_app = ? WHERE id = ?")
+            .bind(if i % 2 == 1 { "Slack" } else { "Notes" })
+            .bind(id)
+            .execute(pool)
+            .await
+            .expect("app");
+    }
 }
 
 #[tokio::test]
 async fn daily_words_sums_each_day_in_the_window_oldest_first() {
     let pool = pool().await;
-    insert_ago(&pool, 5, "-0 minutes").await;
-    insert_ago(&pool, 7, "-0 minutes").await;
-    insert_ago(&pool, 3, "-2 days").await;
-    insert_ago(&pool, 100, "-40 days").await; // outside a 30-day window
+    sqlx::query(
+        "INSERT INTO transcripts (content, word_count, created_at) VALUES
+         ('t', 5, '2026-03-10 10:00:00'), ('t', 7, '2026-03-10 10:01:00'),
+         ('t', 3, '2026-03-08 10:00:00'), ('t', 100, '2026-01-25 10:00:00'),
+         ('t', 100, '2026-03-11 00:00:00')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let rows = TranscriptRepository::new(pool)
-        .daily_words(30, 0)
+        .daily_words(30, 0, "2026-03-10")
         .await
         .expect("query");
     let words: Vec<i64> = rows.iter().map(|(_, w)| *w).collect();
@@ -55,17 +69,13 @@ async fn daily_words_sums_each_day_in_the_window_oldest_first() {
 #[tokio::test]
 async fn daily_words_counts_by_the_callers_local_day() {
     let pool = pool().await;
-    insert_ago(&pool, 4, "-0 minutes").await;
-    // UTC+14: for most of the UTC day this instant is already tomorrow there.
-    let ahead = TranscriptRepository::new(pool.clone())
-        .daily_words(1, 14 * 60)
+    insert(&pool, "today", "2026-03-09 10:00:00").await;
+    insert(&pool, "yesterday", "2026-03-09 09:59:59").await;
+    let ahead = TranscriptRepository::new(pool)
+        .daily_words(1, 14 * 60, "2026-03-10")
         .await
         .expect("query");
-    let local_today: String = sqlx::query_scalar("SELECT date('now', '+840 minutes')")
-        .fetch_one(&pool)
-        .await
-        .expect("date");
-    assert_eq!(ahead, [(local_today, 4)]);
+    assert_eq!(ahead, [(String::from("2026-03-10"), 1)]);
 }
 
 #[tokio::test]
@@ -84,7 +94,7 @@ async fn keyset_walks_every_row_without_repeats() {
             id: *id,
         });
         let rows = repo
-            .list_keyset(3, c, None, None, true)
+            .list_keyset(3, c, &Filter::default(), true)
             .await
             .expect("page");
         if rows.is_empty() {
@@ -103,25 +113,46 @@ async fn keyset_walks_every_row_without_repeats() {
 }
 
 #[tokio::test]
-async fn keyset_cursor_seeks_the_index_instead_of_scanning() {
+async fn keyset_pages_seek_the_index_instead_of_scanning() {
     let pool = pool().await;
-    for sort_desc in [true, false] {
-        let sql = format!("EXPLAIN QUERY PLAN {}", keyset_sql(sort_desc, true));
-        let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
-            .bind(None::<&str>)
-            .bind(None::<&str>)
-            .bind(None::<&str>)
-            .bind(None::<&str>)
-            .bind("2026-01-01 00:00:00")
-            .bind(1_i64)
-            .bind(50_i64)
-            .fetch_all(&pool)
-            .await
-            .expect("plan");
+    let cursor = Cursor {
+        created_at: "2026-01-01 00:00:00",
+        id: 1,
+    };
+    let dates = Filter {
+        from: Some("2026-01-01 00:00:00"),
+        to: Some("2026-01-31 23:59:59"),
+        app: None,
+    };
+    let app = Filter {
+        app: Some("Slack"),
+        ..dates
+    };
+    // A cursor page, a first page under a date filter, and both under an app.
+    for (sort_desc, cursor, filter) in [
+        (true, Some(cursor), Filter::default()),
+        (false, Some(cursor), Filter::default()),
+        (true, None, dates),
+        (false, None, dates),
+        (true, Some(cursor), app),
+        (false, None, app),
+    ] {
+        let sql = format!(
+            "EXPLAIN QUERY PLAN {}",
+            keyset_sql(sort_desc, cursor, &filter)
+        );
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
+        for value in [filter.app, filter.from, filter.to].into_iter().flatten() {
+            q = q.bind(value);
+        }
+        if let Some(c) = cursor {
+            q = q.bind(c.created_at).bind(c.id);
+        }
+        let rows = q.bind(50_i64).fetch_all(&pool).await.expect("plan");
         let plan: Vec<String> = rows.iter().map(|r| r.get("detail")).collect();
         assert!(
             plan.iter().any(|d| d.starts_with("SEARCH")),
-            "cursor page must seek the keyset index, got {plan:?}"
+            "page must seek the keyset index, got {plan:?}"
         );
     }
 }
@@ -137,7 +168,7 @@ async fn keyset_breaks_ties_on_id_within_one_second() {
     let repo = TranscriptRepository::new(pool);
 
     let first = repo
-        .list_keyset(2, None, None, None, true)
+        .list_keyset(2, None, &Filter::default(), true)
         .await
         .expect("p1");
     assert_eq!(first.iter().map(|r| r.id).collect::<Vec<_>>(), vec![4, 3]);
@@ -151,8 +182,7 @@ async fn keyset_breaks_ties_on_id_within_one_second() {
                 created_at: &last_ts,
                 id: last.id,
             }),
-            None,
-            None,
+            &Filter::default(),
             true,
         )
         .await
@@ -169,7 +199,7 @@ async fn keyset_is_stable_when_a_row_is_inserted_mid_scroll() {
     let repo = TranscriptRepository::new(pool.clone());
 
     let first = repo
-        .list_keyset(3, None, None, None, true)
+        .list_keyset(3, None, &Filter::default(), true)
         .await
         .expect("p1");
     assert_eq!(
@@ -190,8 +220,7 @@ async fn keyset_is_stable_when_a_row_is_inserted_mid_scroll() {
                 created_at: &last_ts,
                 id: last.id,
             }),
-            None,
-            None,
+            &Filter::default(),
             true,
         )
         .await
@@ -212,7 +241,7 @@ async fn keyset_ascending_walks_forward() {
     let repo = TranscriptRepository::new(pool);
 
     let first = repo
-        .list_keyset(2, None, None, None, false)
+        .list_keyset(2, None, &Filter::default(), false)
         .await
         .expect("p1");
     assert_eq!(first.iter().map(|r| r.id).collect::<Vec<_>>(), vec![1, 2]);
@@ -226,8 +255,7 @@ async fn keyset_ascending_walks_forward() {
                 created_at: &last_ts,
                 id: last.id,
             }),
-            None,
-            None,
+            &Filter::default(),
             false,
         )
         .await
@@ -250,8 +278,11 @@ async fn keyset_respects_date_range_with_cursor() {
                 created_at: "2026-01-05 00:00:00",
                 id: 5,
             }),
-            Some("2026-01-02 00:00:00"),
-            Some("2026-01-05 00:00:00"),
+            &Filter {
+                from: Some("2026-01-02 00:00:00"),
+                to: Some("2026-01-05 00:00:00"),
+                app: None,
+            },
             true,
         )
         .await
@@ -273,7 +304,7 @@ async fn search_pages_newest_first_without_repeats() {
     let repo = TranscriptRepository::new(pool);
 
     let page1 = repo
-        .search("\"meeting\"", 3, None, None, None, true)
+        .search("\"meeting\"", 3, None, &Filter::default(), true)
         .await
         .expect("page 1");
     assert_eq!(
@@ -291,8 +322,7 @@ async fn search_pages_newest_first_without_repeats() {
                 created_at: "",
                 id: last.id,
             }),
-            None,
-            None,
+            &Filter::default(),
             true,
         )
         .await
@@ -317,7 +347,7 @@ async fn search_ascending_walks_forward() {
     let repo = TranscriptRepository::new(pool);
 
     let rows = repo
-        .search("\"report\"", 2, None, None, None, false)
+        .search("\"report\"", 2, None, &Filter::default(), false)
         .await
         .expect("page");
     assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![1, 2]);
@@ -342,13 +372,64 @@ async fn search_respects_the_date_range() {
             "\"invoice\"",
             10,
             None,
-            Some("2026-01-02 00:00:00"),
-            Some("2026-01-04 23:59:59"),
+            &Filter {
+                from: Some("2026-01-02 00:00:00"),
+                to: Some("2026-01-04 23:59:59"),
+                app: None,
+            },
             true,
         )
         .await
         .expect("page");
     assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![4, 3, 2]);
+}
+
+#[tokio::test]
+async fn keyset_keeps_to_one_app_across_dates_and_cursor() {
+    let pool = pool().await;
+    entries_in_two_apps(&pool).await;
+    let repo = TranscriptRepository::new(pool);
+
+    let rows = repo
+        .list_keyset(
+            10,
+            Some(Cursor {
+                created_at: "2026-01-05 00:00:00",
+                id: 5,
+            }),
+            &Filter {
+                from: Some("2026-01-02 00:00:00"),
+                to: None,
+                app: Some("Slack"),
+            },
+            true,
+        )
+        .await
+        .expect("page");
+    assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![3]);
+}
+
+#[tokio::test]
+async fn search_keeps_to_one_app_within_the_dates() {
+    let pool = pool().await;
+    entries_in_two_apps(&pool).await;
+    let repo = TranscriptRepository::new(pool);
+
+    let rows = repo
+        .search(
+            "\"notes\"",
+            10,
+            None,
+            &Filter {
+                from: Some("2026-01-02 00:00:00"),
+                to: Some("2026-01-05 23:59:59"),
+                app: Some("Notes"),
+            },
+            true,
+        )
+        .await
+        .expect("page");
+    assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![4, 2]);
 }
 
 /// A bare `YYYY-MM-DD` upper bound compares lexicographically against
@@ -361,7 +442,16 @@ async fn a_bare_end_date_would_exclude_its_own_day() {
     let repo = TranscriptRepository::new(pool);
 
     let narrow = repo
-        .list_keyset(10, None, Some("2026-01-15"), Some("2026-01-15"), true)
+        .list_keyset(
+            10,
+            None,
+            &Filter {
+                from: Some("2026-01-15"),
+                to: Some("2026-01-15"),
+                app: None,
+            },
+            true,
+        )
         .await
         .expect("narrow");
     assert!(narrow.is_empty(), "bare bound drops the whole day");
@@ -370,8 +460,11 @@ async fn a_bare_end_date_would_exclude_its_own_day() {
         .list_keyset(
             10,
             None,
-            Some("2026-01-15"),
-            Some("2026-01-15 23:59:59"),
+            &Filter {
+                from: Some("2026-01-15"),
+                to: Some("2026-01-15 23:59:59"),
+                app: None,
+            },
             true,
         )
         .await
@@ -445,7 +538,7 @@ async fn raw_user_input_produces_a_query_sqlite_accepts() {
         if fts.trim().is_empty() {
             continue;
         }
-        repo.search(&fts, 10, None, None, None, true)
+        repo.search(&fts, 10, None, &Filter::default(), true)
             .await
             .unwrap_or_else(|e| panic!("user input {raw:?} produced invalid FTS {fts:?}: {e}"));
     }
@@ -459,8 +552,144 @@ async fn a_prefix_search_finds_a_partially_typed_word() {
 
     let fts = TranscriptRepository::build_fts_query("project");
     let rows = repo
-        .search(&fts, 10, None, None, None, true)
+        .search(&fts, 10, None, &Filter::default(), true)
         .await
         .expect("search");
     assert_eq!(rows.len(), 1, "prefix match should find 'projections'");
+}
+
+#[tokio::test]
+async fn releasing_audio_skips_pinned_entries_and_never_the_newest() {
+    let pool = pool().await;
+    // Oldest first: a pinned one, two unpinned with audio, one unpinned without, the newest with audio.
+    let pinned = insert(&pool, "pinned", "2024-01-01 10:00:00").await;
+    let old = insert(&pool, "old", "2024-01-02 10:00:00").await;
+    let mid = insert(&pool, "mid", "2024-01-03 10:00:00").await;
+    insert(&pool, "text only", "2024-01-04 10:00:00").await;
+    let newest = insert(&pool, "newest", "2024-01-05 10:00:00").await;
+    let repo = TranscriptRepository::new(pool);
+    for id in [pinned, old, mid, newest] {
+        repo.set_has_audio(id, true).await.unwrap();
+    }
+    repo.set_pinned(pinned, true).await.unwrap();
+
+    // Two kept: the pinned one doesn't count, the entry without audio can't.
+    assert_eq!(repo.release_audio_beyond(Some(2)).await.unwrap(), [old]);
+    assert_eq!(repo.release_audio_beyond(Some(1)).await.unwrap(), [mid]);
+    assert_eq!(repo.release_audio_beyond(None).await.unwrap(), [newest]);
+    let has_audio = |id| {
+        let repo = &repo;
+        async move { repo.get_by_id(id).await.unwrap().unwrap().has_audio }
+    };
+    assert!(has_audio(pinned).await);
+    assert!(!has_audio(old).await);
+}
+
+#[tokio::test]
+async fn an_undo_applies_only_to_the_rewrite_it_belongs_to() {
+    let pool = pool().await;
+    let id = insert(&pool, "original", "2024-01-01 10:00:00").await;
+    let repo = TranscriptRepository::new(pool);
+    let (original, original_model, first) = repo
+        .set_text(id, "same words", "model-a")
+        .await
+        .unwrap()
+        .unwrap();
+    // A newer retry with another model that happens to produce the same words.
+    let (replaced, replaced_model, second) = repo
+        .set_text(id, "same words", "model-b")
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(!repo
+        .restore_text(id, first.revision, &original, original_model.as_deref())
+        .await
+        .unwrap());
+    assert!(repo
+        .restore_text(id, second.revision, &replaced, replaced_model.as_deref())
+        .await
+        .unwrap());
+    let entry = repo.get_by_id(id).await.unwrap().unwrap();
+    assert_eq!(entry.model.as_deref(), Some("model-a"));
+    let (replaced, replaced_model, _) = repo
+        .set_text(id, "new words", "model-c")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (replaced.as_str(), replaced_model.as_deref()),
+        ("same words", Some("model-a"))
+    );
+}
+
+fn created(content: &str) -> CreateTranscript {
+    CreateTranscript {
+        content: content.into(),
+        word_count: 2,
+        duration_seconds: None,
+        target_app: None,
+        source_name: None,
+        model: None,
+        pending: false,
+        language: None,
+    }
+}
+
+#[tokio::test]
+async fn a_write_takes_the_history_revisions_it_changes_and_reads_take_none() {
+    // The windows only reread History when told: a silent write leaves them
+    // stale, and a needless one rereads every page and the totals.
+    let repo = TranscriptRepository::new(pool().await);
+    let revs = || {
+        (
+            repo.history.rows.committed(),
+            repo.history.totals.committed(),
+        )
+    };
+    let entry = repo.create(created("one two")).await.expect("create");
+
+    let before = revs();
+    repo.set_pinned(entry.id, true).await.expect("pin");
+    let pinned = revs();
+    assert!(pinned.0.rev > before.0.rev);
+    assert_eq!(pinned.1, before.1);
+
+    repo.set_pinned(entry.id, true).await.expect("pin again");
+    repo.get_by_id(entry.id).await.expect("read");
+    repo.get_stats().await.expect("stats");
+    repo.delete_by_id(entry.id + 1)
+        .await
+        .expect("delete nothing");
+    assert_eq!(revs(), pinned);
+
+    repo.set_text(entry.id, "three", "whisper-small")
+        .await
+        .expect("set text");
+    let rewritten = revs();
+    assert!(rewritten.0.rev > pinned.0.rev);
+    assert_eq!(rewritten.0, rewritten.1);
+}
+
+#[tokio::test]
+async fn search_finds_a_rewritten_entry_by_its_new_text_only() {
+    let repo = TranscriptRepository::new(pool().await);
+    let entry = repo.create(created("walrus tusk")).await.expect("create");
+    repo.set_pinned(entry.id, true).await.expect("pin");
+    repo.set_text(entry.id, "narwhal horn", "whisper-small")
+        .await
+        .expect("set text");
+
+    let find = |word: &str| {
+        let query = TranscriptRepository::build_fts_query(word);
+        let repo = repo.clone();
+        async move {
+            repo.search(&query, 10, None, &Filter::default(), true)
+                .await
+                .expect("search")
+                .len()
+        }
+    };
+    assert_eq!(find("narwhal").await, 1);
+    assert_eq!(find("walrus").await, 0);
 }

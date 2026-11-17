@@ -8,34 +8,58 @@ use keyring_core::{CredentialStore, Entry, Error};
 pub struct Secrets {
     /// The app identifier, so dev and release builds keep separate keys.
     service: String,
+    store: Option<Arc<CredentialStore>>,
 }
 
 impl Secrets {
-    /// Registers the platform store as `keyring-core`'s default. Without one
-    /// (no Secret Service running, say) keys read as absent and saving fails.
+    /// Open the platform credential store. Without one (no Secret Service
+    /// running, say) keys read as absent and saving fails.
     pub fn new(service: impl Into<String>) -> Self {
-        match platform_store() {
-            Ok(store) => keyring_core::set_default_store(store),
-            Err(e) => log::warn!("no credential store available: {e}"),
-        }
+        let store = off_runtime(platform_store)
+            .map_err(|e| log::warn!("no credential store available: {e}"))
+            .ok();
         Self {
             service: service.into(),
+            store,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn mock() -> Self {
+        Self {
+            service: "nexusvoice-tests".into(),
+            store: Some(keyring_core::mock::Store::new().unwrap()),
         }
     }
 
     fn entry(&self, provider: &str) -> Result<Entry, Error> {
-        Entry::new(&self.service, &format!("formatter-api-key:{provider}"))
+        self.store.as_ref().ok_or(Error::NoDefaultStore)?.build(
+            &self.service,
+            &format!("formatter-api-key:{provider}"),
+            None,
+        )
     }
 
     /// `None` when no key is saved or the store cannot be read.
     pub fn api_key(&self, provider: &str) -> Option<String> {
+        self.read_api_key(provider)
+            .map_err(|e| log::warn!("{e}"))
+            .ok()
+            .flatten()
+    }
+
+    pub fn read_api_key(&self, provider: &str) -> Result<Option<String>, String> {
         match off_runtime(|| self.entry(provider)?.get_password()) {
-            Ok(key) => Some(key),
-            Err(Error::NoEntry) => None,
-            Err(e) => {
-                log::warn!("could not read the {provider} API key: {e}");
-                None
-            }
+            Ok(key) => Ok(Some(key)),
+            Err(Error::NoEntry) => Ok(None),
+            Err(e) => Err(format!("could not read the {provider} API key: {e}")),
+        }
+    }
+
+    pub fn replace_api_key(&self, provider: &str, key: Option<&str>) -> Result<(), String> {
+        match key {
+            Some(key) => self.set_api_key(provider, key),
+            None => self.delete_api_key(provider),
         }
     }
 
@@ -44,7 +68,7 @@ impl Secrets {
             .map_err(|e| format!("could not save the API key: {e}"))
     }
 
-    pub fn delete_api_key(&self, provider: &str) -> Result<(), String> {
+    fn delete_api_key(&self, provider: &str) -> Result<(), String> {
         match off_runtime(|| self.entry(provider)?.delete_credential()) {
             Ok(()) | Err(Error::NoEntry) => Ok(()),
             Err(e) => Err(format!("could not remove the API key: {e}")),

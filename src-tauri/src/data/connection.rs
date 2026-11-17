@@ -6,6 +6,9 @@ use sqlx::{
     SqlitePool,
 };
 
+/// SQLite's suggested cap on the rows `PRAGMA optimize` samples per index.
+const ANALYSIS_LIMIT: u32 = 400;
+
 pub async fn create_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     let options = SqliteConnectOptions::new()
         .filename(database_url.trim_start_matches("sqlite://"))
@@ -13,7 +16,9 @@ pub async fn create_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> 
         .busy_timeout(Duration::from_secs(5))
         // Per-connection pragma: run once through the pool it reaches one
         // connection. sqlx already enables foreign_keys on each.
-        .synchronous(SqliteSynchronous::Normal);
+        .synchronous(SqliteSynchronous::Normal)
+        // A tray app rarely closes cleanly, so `init_database` also optimizes.
+        .optimize_on_close(true, ANALYSIS_LIMIT);
 
     SqlitePoolOptions::new()
         .max_connections(5)
@@ -32,17 +37,43 @@ pub async fn init_database(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
     reconcile_ledger(pool).await?;
 
-    sqlx::migrate!("src/data/migrations")
+    let migrator = sqlx::migrate!("src/data/migrations");
+    if column_names(pool, "transcripts").await?.is_empty() {
+        // 0003's triggers read late columns the original schema lacks.
+        migrator
+            .run_to(2, pool)
+            .await
+            .map_err(|err| sqlx::Error::Migrate(Box::new(err)))?;
+        add_missing_columns(pool).await?;
+    }
+
+    migrator
         .run(pool)
         .await
-        .map_err(|err| sqlx::Error::Migrate(Box::new(err)))
+        .map_err(|err| sqlx::Error::Migrate(Box::new(err)))?;
+
+    // 0x10002: also analyze tables never analyzed, as on a first launch.
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "PRAGMA analysis_limit = {ANALYSIS_LIMIT}; PRAGMA optimize = 0x10002;"
+    )))
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
-/// Columns an older database may predate, with their original definitions.
+/// Columns a database may lack, with their definitions: ones that predate the
+/// squashed schema, and ones added since without editing a checksummed migration.
 const LATE_COLUMNS: &[(&str, &str, &str)] = &[
     ("transcripts", "duration_seconds", "REAL"),
     ("transcripts", "word_count", "INTEGER NOT NULL DEFAULT 0"),
     ("transcripts", "target_app", "TEXT"),
+    ("transcripts", "pinned", "INTEGER NOT NULL DEFAULT 0"),
+    ("transcripts", "has_audio", "INTEGER NOT NULL DEFAULT 0"),
+    ("transcripts", "source_name", "TEXT"),
+    ("transcripts", "model", "TEXT"),
+    ("transcripts", "pending", "INTEGER NOT NULL DEFAULT 0"),
+    ("transcripts", "language", "TEXT"),
+    ("transcripts", "revision", "INTEGER NOT NULL DEFAULT 0"),
     ("dictionary", "hits", "INTEGER NOT NULL DEFAULT 0"),
 ];
 
@@ -94,15 +125,20 @@ async fn reconcile_ledger(pool: &SqlitePool) -> Result<(), sqlx::Error> {
 
     let migrator = sqlx::migrate!("src/data/migrations");
     let applied: Vec<(i64, Vec<u8>, bool)> =
-        sqlx::query_as("SELECT version, checksum, success FROM _sqlx_migrations")
+        sqlx::query_as("SELECT version, checksum, success FROM _sqlx_migrations ORDER BY version")
             .fetch_all(pool)
             .await?;
-    let in_step = applied.iter().all(|(version, checksum, success)| {
-        *success
-            && migrator
-                .iter()
-                .any(|m| m.version == *version && m.checksum.as_ref() == checksum.as_slice())
-    });
+    // In order: a gap replays everything after it, or 0002 would overwrite
+    // 0003's totals.
+    let in_step = applied.len() <= migrator.iter().count()
+        && applied
+            .iter()
+            .zip(migrator.iter())
+            .all(|((version, checksum, success), migration)| {
+                *success
+                    && migration.version == *version
+                    && migration.checksum.as_ref() == checksum.as_slice()
+            });
     if in_step {
         return Ok(());
     }
@@ -152,11 +188,12 @@ mod tests {
 
     #[test]
     fn migrations_are_checked_out_with_lf_endings() {
-        for sql in [
-            include_str!("migrations/0001_init.sql"),
-            include_str!("migrations/0002_transcript_stats.sql"),
-        ] {
-            assert!(!sql.contains('\r'));
+        for migration in sqlx::migrate!("src/data/migrations").iter() {
+            assert!(
+                !migration.sql.as_str().contains('\r'),
+                "{} has CRLF endings",
+                migration.description
+            );
         }
     }
 
@@ -384,7 +421,8 @@ mod tests {
 
         // The query that was failing in the UI.
         sqlx::query(
-            "SELECT id, content, word_count, duration_seconds, target_app, created_at
+            "SELECT id, content, word_count, duration_seconds, target_app, pinned, has_audio,
+                    source_name, model, created_at
              FROM transcripts",
         )
         .fetch_all(&pool)
@@ -401,8 +439,13 @@ mod tests {
 
     #[tokio::test]
     async fn the_stats_migration_totals_the_existing_transcripts() {
-        let pool = legacy_database().await;
-        sqlx::query("INSERT INTO transcripts (content, word_count, duration_seconds) VALUES ('a', 3, 1.5), ('b', 2, NULL)")
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::migrate!("src/data/migrations")
+            .run_to(2, &pool)
+            .await
+            .unwrap();
+        add_missing_columns(&pool).await.unwrap();
+        sqlx::query("INSERT INTO transcripts (content, word_count, duration_seconds, pending) VALUES ('a', 3, 1.5, 0), ('b', 2, NULL, 0), ('', 0, 3600, 1)")
             .execute(&pool)
             .await
             .unwrap();
@@ -422,7 +465,7 @@ mod tests {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         init_database(&pool).await.expect("init succeeds");
 
-        sqlx::query("INSERT INTO transcripts (content, word_count, duration_seconds) VALUES ('a', 3, 2.0), ('b', 4, 1.0)")
+        sqlx::query("INSERT INTO transcripts (content, word_count, duration_seconds, pending) VALUES ('a', 3, 2.0, 0), ('b', 4, 1.0, 0), ('', 0, 3600, 1), ('cancelled', 0, 600, 1)")
             .execute(&pool)
             .await
             .unwrap();
@@ -434,6 +477,10 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        sqlx::query("DELETE FROM transcripts WHERE content = 'cancelled'")
+            .execute(&pool)
+            .await
+            .unwrap();
 
         let totals: (i64, i64, f64) =
             sqlx::query_as("SELECT sessions, words, duration_seconds FROM transcript_stats")
@@ -441,6 +488,17 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(totals, (1, 10, 2.0));
+
+        sqlx::query("UPDATE transcripts SET pending = 0, content = 'file text', word_count = 2 WHERE pending = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let completed: (i64, i64, f64) =
+            sqlx::query_as("SELECT sessions, words, duration_seconds FROM transcript_stats")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(completed, (2, 12, 3602.0));
     }
 
     #[tokio::test]
@@ -609,9 +667,14 @@ mod tests {
     async fn every_migration_can_run_twice() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         for _ in 0..2 {
+            sqlx::raw_sql(include_str!("migrations/0001_init.sql"))
+                .execute(&pool)
+                .await
+                .unwrap();
+            add_missing_columns(&pool).await.unwrap();
             for sql in [
-                include_str!("migrations/0001_init.sql"),
                 include_str!("migrations/0002_transcript_stats.sql"),
+                include_str!("migrations/0003_completed_transcript_stats.sql"),
             ] {
                 sqlx::raw_sql(sql).execute(&pool).await.unwrap();
             }

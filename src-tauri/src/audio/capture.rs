@@ -84,6 +84,19 @@ pub(super) fn device_id(device: &cpal::Device) -> Option<String> {
     device.id().ok().map(|id| id.to_string())
 }
 
+/// ALSA's `null` PCM captures endless silence; it is never a microphone.
+fn is_null_pcm(device: &cpal::Device) -> bool {
+    #[cfg(target_os = "linux")]
+    return device
+        .id()
+        .is_ok_and(|id| id.host() == cpal::HostId::Alsa && id.id() == "null");
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = device;
+        false
+    }
+}
+
 fn describe(device: &cpal::Device) -> Option<(String, String)> {
     Some((device_id(device)?, device_name(device)?))
 }
@@ -99,7 +112,7 @@ pub fn list_input_devices() -> Vec<InputDevice> {
 
     let mut listed = Vec::new();
     if let Ok(devices) = host.input_devices() {
-        for device in devices {
+        for device in devices.filter(|device| !is_null_pcm(device)) {
             let Some(entry) = describe(&device) else {
                 continue;
             };

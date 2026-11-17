@@ -8,6 +8,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tokio::sync::Mutex;
 
+use crate::mirror::{Committed, Patch, Slice, Store};
 use crate::session::{recorder::Action, Recorder};
 use crate::settings::{HotkeyBindings, Settings};
 use crate::sync::lock_recovering;
@@ -87,24 +88,43 @@ pub fn conflicting_role(
 
 /// The shortcuts bound with the OS right now. A saved shortcut another
 /// application holds at startup stays saved but is missing here.
-/// The lock also spans each read-modify-save of the saved set (this is its
-/// only writer), so concurrent changes can't overwrite each other.
-#[derive(Default)]
+#[derive(Clone, PartialEq)]
+struct Bound(HotkeyBindings);
+
+impl Slice for Bound {
+    fn patch(&self) -> Patch {
+        Patch::Hotkeys(self.0.clone())
+    }
+}
+
 pub struct Hotkeys {
-    bound: Mutex<HotkeyBindings>,
+    /// Spans each change of what is bound, its save included (this is the
+    /// saved set's only writer), so concurrent changes can't overwrite each
+    /// other.
+    changing: Mutex<()>,
+    bound: Store<Bound>,
     /// Ends the current capture lease on its own if it is never released.
     lease_expiry: std::sync::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
 
 impl Hotkeys {
+    pub fn new() -> Self {
+        Self {
+            changing: Mutex::new(()),
+            bound: Store::new(Bound(HotkeyBindings::default())),
+            lease_expiry: std::sync::Mutex::new(None),
+        }
+    }
+
     /// Bind the saved shortcuts at startup, each on its own.
     pub async fn restore(&self, app: &AppHandle, settings: &Settings) {
+        let _changing = self.changing.lock().await;
         if let Err(e) = app.global_shortcut().unregister_all() {
             log::error!("failed to clear hotkeys: {e}");
             return;
         }
-        *self.bound.lock().await =
-            bind_available(&settings.hotkeys(), |kind, hotkey| bind(app, hotkey, kind));
+        let bound = bind_available(&settings.hotkeys(), |kind, hotkey| bind(app, hotkey, kind));
+        self.bound.set(|b| b.0 = bound);
     }
 
     /// Bind `hotkey` to `kind`, or unbind it with `None`. A rejected change
@@ -115,8 +135,9 @@ impl Hotkeys {
         settings: &Settings,
         kind: HotkeyKind,
         hotkey: Option<String>,
-    ) -> Result<(), HotkeyError> {
-        let mut bound = self.bound.lock().await;
+    ) -> Result<Committed, HotkeyError> {
+        let _changing = self.changing.lock().await;
+        let bound = self.bound.read(|b| b.0.clone());
         let mut saved = settings.hotkeys();
         if let Some((hotkey, with)) = hotkey
             .as_deref()
@@ -134,22 +155,20 @@ impl Hotkeys {
             let _ = bind_all(app, &bound);
             return Err(e);
         }
-        *bound = next;
-        self.end_lease();
         *kind.slot(&mut saved) = hotkey;
-        settings
-            .set_hotkeys(saved)
-            .map_err(|e| HotkeyError::Save(e.to_string()))
-    }
-
-    /// The shortcuts the OS actually granted, which can be fewer than saved.
-    pub async fn bound(&self) -> HotkeyBindings {
-        self.bound.lock().await.clone()
+        // A shortcut that wasn't saved must not stay live for the session.
+        let committed = settings.set_hotkeys(saved).map_err(|e| {
+            let _ = bind_all(app, &bound);
+            HotkeyError::Save(e.to_string())
+        })?;
+        self.bound.set(|b| b.0 = next);
+        self.end_lease();
+        Ok(committed)
     }
 
     /// Release every shortcut with the OS until `resume`, a `set`, or the lease expires.
     pub async fn suspend(&self, app: &AppHandle) -> Result<(), HotkeyError> {
-        let _bound = self.bound.lock().await;
+        let _changing = self.changing.lock().await;
         app.global_shortcut()
             .unregister_all()
             .map_err(|e| HotkeyError::Unregister(e.to_string()))?;

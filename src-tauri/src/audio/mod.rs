@@ -1,6 +1,7 @@
 pub mod capture;
 pub mod chime;
 pub mod error;
+pub mod file;
 pub mod resampler;
 pub mod waveform;
 

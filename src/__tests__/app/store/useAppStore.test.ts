@@ -3,7 +3,9 @@ import { invoke } from '@tauri-apps/api/core'
 import { useAppStore } from '../../../app/store/useAppStore'
 import { queryClient } from '../../../app/queryClient'
 import { queryKeys } from '../../../shared/queryKeys'
-import { NO_FILTERS, type TranscriptPages } from '../../../features/history/queries'
+import { revisionOf } from '../../../app/mirror'
+import { NO_FILTERS } from '../../../features/history/queries'
+import type { Transcript } from '../../../shared/types'
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => {})) }))
@@ -22,7 +24,8 @@ const page = (start: number, count: number) =>
   }))
 
 const feedRows = () =>
-  queryClient.getQueryData<TranscriptPages>(queryKeys.transcripts(NO_FILTERS))?.pages.flatMap(page => page.rows) ?? []
+  queryClient.getQueryData<{ pages: { rows: Transcript[] }[] }>([...queryKeys.transcripts(NO_FILTERS), revisionOf('history')])
+    ?.pages.flatMap(page => page.rows) ?? []
 
 beforeEach(() => {
   mockInvoke.mockReset()
@@ -42,7 +45,7 @@ describe('useAppStore — startup', () => {
     expect(first).toBe(second)
     await vi.waitFor(() => expect(finishTranscripts).toBeTypeOf('function'))
     expect(useAppStore.getState().starting).toBe(true)
-    for (const command of ['wait_for_app_ready', 'get_transcripts', 'get_usage_stats', 'get_dictionary']) {
+    for (const command of ['wait_for_app_ready', 'get_transcripts', 'get_usage_stats']) {
       expect(mockInvoke.mock.calls.filter(([cmd]) => cmd === command)).toHaveLength(1)
     }
     finishTranscripts([])

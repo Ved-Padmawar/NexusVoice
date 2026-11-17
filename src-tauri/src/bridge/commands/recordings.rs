@@ -1,0 +1,237 @@
+//! Saved dictation audio, and the jobs that transcribe it: re-transcribing a
+//! history entry and importing an audio file.
+
+use std::path::PathBuf;
+
+use serde::Serialize;
+use tauri::{AppHandle, State};
+
+use crate::data::repositories::transcript::TranscriptRepository;
+use crate::data::Database;
+use crate::jobs::Previous;
+use crate::mirror::Committed;
+use crate::models::catalog::ModelEntry;
+use crate::models::library::ModelLibrary;
+use crate::settings::{SavedAudio, SavedAudioSetting, Settings};
+
+use super::error::ApiError;
+
+/// Save one part of the policy and apply it now: audio past the new limit, or
+/// all of it when switched off. A failed cleanup shows in the saved-audio
+/// slice; the preference is still saved.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_saved_audio(
+    app: AppHandle,
+    settings: State<'_, Settings>,
+    change: SavedAudioSetting,
+) -> Result<Committed, ApiError> {
+    if let SavedAudioSetting::Keep(keep) = change {
+        if !SavedAudio::KEEP_RANGE.contains(&keep) {
+            return Err(ApiError::new(
+                "invalid_input",
+                "Keep between 1 and 100 entries.",
+            ));
+        }
+    }
+    let committed = settings.set_saved_audio(change)?;
+    if let Err(e) = crate::recordings::apply_limit(&app).await {
+        log::warn!("could not apply the saved audio limit: {e}");
+    }
+    Ok(committed)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn retry_saved_audio_cleanup(app: AppHandle) -> Result<(), ApiError> {
+    crate::recordings::apply_limit(&app).await.map_err(|e| {
+        log::warn!("could not apply the saved audio limit: {e}");
+        ApiError::new("io_error", "Couldn't finish the saved audio cleanup.")
+    })
+}
+
+/// Delete every unpinned entry's audio. The entries and their text stay.
+/// Refused while files wait to be transcribed: they still need theirs.
+#[tauri::command]
+#[specta::specta]
+pub async fn clear_saved_audio(
+    app: AppHandle,
+    db: State<'_, Database>,
+) -> Result<ClearedAudio, ApiError> {
+    let repo = TranscriptRepository::new(db.pool().await?);
+    if !repo.pending().await?.is_empty() {
+        return Err(ApiError::new(
+            "imports_pending",
+            "Files are still being transcribed. Clear the audio once they finish.",
+        ));
+    }
+    let deleted = crate::recordings::trim(&app, None).await.map_err(|e| {
+        log::warn!("could not clear the saved audio: {e}");
+        ApiError::new("io_error", "Couldn't delete the saved audio.")
+    })?;
+    Ok(ClearedAudio {
+        deleted,
+        kept: repo.ids_with_audio().await?.len(),
+    })
+}
+
+/// What clearing the saved audio did; what is left is pinned.
+#[derive(Debug, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearedAudio {
+    pub deleted: usize,
+    pub kept: usize,
+}
+
+/// Pin an entry to keep its audio past the limit; unpinning applies the limit again.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_transcript_pinned(
+    app: AppHandle,
+    db: State<'_, Database>,
+    id: i64,
+    pinned: bool,
+) -> Result<(), ApiError> {
+    TranscriptRepository::new(db.pool().await?)
+        .set_pinned(id, pinned)
+        .await?;
+    // The unpin is saved either way; pruning is its own outcome.
+    if !pinned {
+        if let Err(e) = crate::recordings::apply_limit(&app).await {
+            log::warn!("could not apply the saved audio limit: {e}");
+        }
+    }
+    Ok(())
+}
+
+/// Put back what a re-transcription replaced, which is how one is undone.
+/// `revision` is the entry's after that re-transcription: once it moved on, a
+/// later change happened and this undo no longer applies.
+#[tauri::command]
+#[specta::specta]
+pub async fn restore_transcript(
+    db: State<'_, Database>,
+    id: i64,
+    previous: Previous,
+    revision: i64,
+) -> Result<(), ApiError> {
+    if previous.text.trim().is_empty() {
+        return Err(ApiError::new(
+            "invalid_input",
+            "A transcript can't be empty.",
+        ));
+    }
+    if !TranscriptRepository::new(db.pool().await?)
+        .restore_text(id, revision, &previous.text, previous.model.as_deref())
+        .await?
+    {
+        return Err(ApiError::new(
+            "stale",
+            "This entry changed since, so there's nothing to undo.",
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioFileInfo {
+    pub name: String,
+    pub size_bytes: u64,
+    /// `None` when the file doesn't say how long it plays.
+    pub duration_seconds: Option<f64>,
+}
+
+/// What the import dialog shows about a picked or dropped file.
+#[tauri::command]
+#[specta::specta]
+pub async fn inspect_audio_file(path: String) -> Result<AudioFileInfo, ApiError> {
+    let path = PathBuf::from(path);
+    tauri::async_runtime::spawn_blocking(move || {
+        let size_bytes = std::fs::metadata(&path)
+            .ok()
+            .filter(std::fs::Metadata::is_file)
+            .ok_or_else(|| ApiError::new("invalid_input", "Couldn't open that file."))?
+            .len();
+        let duration_seconds = crate::audio::file::duration_seconds(&path)
+            .map_err(|message| ApiError::new("invalid_input", message))?;
+        Ok(AudioFileInfo {
+            name: path
+                .file_name()
+                .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
+            size_bytes,
+            duration_seconds,
+        })
+    })
+    .await
+    .expect("audio inspection panicked")
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn cancel_job(app: AppHandle, transcript_id: i64) -> Result<(), ApiError> {
+    crate::jobs::cancel(&app, transcript_id).await;
+    Ok(())
+}
+
+/// The active model, refused while it isn't on disk.
+fn active_model(
+    settings: &Settings,
+    library: &ModelLibrary,
+) -> Result<&'static ModelEntry, ApiError> {
+    Some(settings.active_model())
+        .filter(|entry| library.is_downloaded(entry))
+        .ok_or_else(|| ApiError::new("model_missing", "Download a model first."))
+}
+
+/// Queue an entry's saved audio to be transcribed again with the active model.
+#[tauri::command]
+#[specta::specta]
+pub async fn retranscribe_transcript(
+    app: AppHandle,
+    db: State<'_, Database>,
+    settings: State<'_, Settings>,
+    library: State<'_, ModelLibrary>,
+    id: i64,
+) -> Result<(), ApiError> {
+    let entry = TranscriptRepository::new(db.pool().await?)
+        .get_by_id(id)
+        .await?
+        .filter(|t| t.has_audio)
+        .ok_or_else(|| ApiError::new("audio_missing", "This entry's audio is no longer saved."))?;
+    // Checked as the job is queued, and the model checked is the one it runs.
+    let model = active_model(&settings, &library)?;
+    if !crate::jobs::retranscribe(&app, &entry, model) {
+        return Err(ApiError::new(
+            "job_queued",
+            "This entry is already being transcribed.",
+        ));
+    }
+    Ok(())
+}
+
+/// Add an audio file to History and queue its transcription with the active
+/// model. Nothing is pasted.
+#[tauri::command]
+#[specta::specta]
+pub async fn import_audio_file(
+    app: AppHandle,
+    settings: State<'_, Settings>,
+    library: State<'_, ModelLibrary>,
+    path: String,
+    language: Option<String>,
+) -> Result<(), ApiError> {
+    let model = active_model(&settings, &library)?;
+    if language.as_deref().is_some_and(|code| {
+        code != crate::models::language::AUTO
+            && !model.languages.iter().any(|offered| offered == code)
+    }) {
+        return Err(ApiError::new(
+            "invalid_language",
+            "This model doesn't support that language.",
+        ));
+    }
+    crate::jobs::import(&app, &PathBuf::from(path), model, language)
+        .await
+        .map_err(|message| ApiError::new("invalid_input", message))
+}

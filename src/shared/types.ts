@@ -3,9 +3,9 @@ export type {
   TranscriptResponse as Transcript,
   DictionaryResponse as DictionaryEntry,
   UsageStatsResponse as UsageStats,
-  ModelInfoResponse as ModelInfo,
   HardwareProfileResponse as HardwareProfile,
   ModelUnload,
+  PasteMode,
   CudaStatus,
   PackState as CudaPackState,
   InjectionTool,
@@ -22,6 +22,6 @@ export type {
   PillTheme,
   WaveformStyle,
   FormatterView,
-  FormatterUpdate,
+  FormatterDraft,
   ProfileView,
 } from './bindings'

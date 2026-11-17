@@ -72,7 +72,7 @@ describe('useEventListener', () => {
     // The handler is held in a ref precisely so an inline arrow — a new function
     // every render — does not tear down and rebuild the subscription.
     vi.mocked(listen).mockResolvedValue(vi.fn())
-    const { rerender } = renderHook(({ n }) => useEventListener('cudaDownloadProgress', () => n), {
+    const { rerender } = renderHook(({ n }) => useEventListener('cudaDownloadError', () => n), {
       initialProps: { n: 1 },
     })
     rerender({ n: 2 })
@@ -84,24 +84,24 @@ describe('useEventListener', () => {
     // The flip side of the ref: a stale handler silently acts on old state.
     let received = 0
     vi.mocked(listen).mockResolvedValue(vi.fn())
-    const { rerender } = renderHook(({ n }) => useEventListener('cudaDownloadProgress', () => { received = n }), {
+    const { rerender } = renderHook(({ n }) => useEventListener('cudaDownloadError', () => { received = n }), {
       initialProps: { n: 1 },
     })
     rerender({ n: 99 })
 
-    const tauriHandler = vi.mocked(listen).mock.calls[0][1] as (e: { payload: number }) => void
-    act(() => tauriHandler({ payload: 0 }))
+    const tauriHandler = vi.mocked(listen).mock.calls[0][1] as (e: { payload: string }) => void
+    act(() => tauriHandler({ payload: 'offline' }))
     expect(received).toBe(99)
   })
 
   it('passes the payload through, not the whole event envelope', async () => {
     const handler = vi.fn()
     vi.mocked(listen).mockResolvedValue(vi.fn())
-    renderHook(() => useEventListener('modelDownloadProgress', handler))
+    renderHook(() => useEventListener('modelDownloadCancelled', handler))
 
     const tauriHandler = vi.mocked(listen).mock.calls[0][1] as (e: { payload: unknown }) => void
-    act(() => tauriHandler({ payload: { id: 'model', pct: 42 } }))
-    expect(handler).toHaveBeenCalledWith({ id: 'model', pct: 42 })
+    act(() => tauriHandler({ payload: { id: 'model' } }))
+    expect(handler).toHaveBeenCalledWith({ id: 'model' })
   })
 
   it('resubscribes when the event changes', async () => {

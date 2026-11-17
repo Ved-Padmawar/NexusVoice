@@ -9,12 +9,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use tauri::AppHandle;
-use tauri_specta::Event;
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 
-use crate::bridge::events::ModelDownloadProgress;
 use crate::models::catalog::{self, ModelEntry};
 use crate::models::library::Downloads;
 
@@ -34,13 +31,12 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// download keeps going.
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Download `entry` into `models_dir`, reporting progress via events.
+/// Download `entry` into `models_dir`, recording progress on its entry.
 /// Returns `Err(CANCELLED)` on user cancel so the caller can tell it from a
 /// genuine failure.
 pub async fn download_model(
     models_dir: &Path,
     entry: &ModelEntry,
-    app: &AppHandle,
     downloads: &Downloads,
     cancel: CancellationToken,
 ) -> Result<(), String> {
@@ -53,11 +49,6 @@ pub async fn download_model(
     let id = entry.id.as_str();
     download_file(&entry.url, &dest, &cancel, entry.size_bytes, |pct| {
         downloads.set_progress(id, pct);
-        let _ = ModelDownloadProgress {
-            id: id.to_string(),
-            pct,
-        }
-        .emit(app);
     })
     .await
 }

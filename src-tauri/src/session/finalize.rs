@@ -7,16 +7,14 @@
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 
-use crate::bridge::commands::dto::TranscriptResponse;
-use crate::bridge::events::{
-    TranscriptSaved, TranscriptionComplete, TranscriptionError, TranscriptionWarning,
-};
+use crate::bridge::events::{TranscriptionComplete, TranscriptionError, TranscriptionWarning};
 use crate::data::dto::transcript::CreateTranscript;
 use crate::data::repositories::transcript::TranscriptRepository;
 use crate::data::Database;
 use crate::models::cache::{EngineCache, EngineLease, SharedEngine};
 use crate::models::decode::{contains_speech, FinalText, Streamed, StreamingSession};
 use crate::models::transcript::strip_leading_dashes;
+use crate::models::TranscriptionEngine;
 use crate::platform::focus::{foreground_app, FocusTarget};
 use crate::settings::Settings;
 use crate::text::dictionary::Dictionary;
@@ -51,16 +49,14 @@ pub async fn run(app: &AppHandle, recording: Recording) {
     } = recording;
 
     let language = lease.language().map(str::to_string);
-    let decoded = decode(
-        app,
-        engine,
-        session,
-        streamed,
-        samples,
-        sample_rate,
-        language,
-    )
-    .await;
+    let model = engine.entry.id.clone();
+    // Kept apart from the decode, which consumes the samples.
+    let audio = app
+        .state::<Settings>()
+        .saved_audio()
+        .enabled
+        .then(|| samples.clone());
+    let decoded = decode(engine, session, streamed, samples, sample_rate, language).await;
     // A long dictation is use too: the idle clock starts when it ends.
     app.state::<EngineCache>().touch();
     drop(lease);
@@ -108,7 +104,8 @@ pub async fn run(app: &AppHandle, recording: Recording) {
 
     // Where the text lands is whatever has focus now, not where recording began.
     let landed = foreground_app().or(focus);
-    let saved = save(app, pool.ok(), &text, duration_seconds, landed).await;
+    let saved_id = save(app, pool.ok(), &text, duration_seconds, landed, model).await;
+    let saved = saved_id.is_some();
     let paste_error = crate::platform::injection::type_text(app, &text)
         .await
         .err();
@@ -116,10 +113,12 @@ pub async fn run(app: &AppHandle, recording: Recording) {
         log::warn!("paste failed: {e}");
     }
     let _ = TranscriptionComplete { paste_error, saved }.emit(app);
+    if let (Some(id), Some(samples)) = (saved_id, audio) {
+        crate::recordings::keep_native(app, id, samples, sample_rate);
+    }
 }
 
-const ENGINE_FAILED: &str =
-    "Transcription engine encountered an error and was reset. Please try again.";
+const ENGINE_FAILED: &str = "Transcription failed unexpectedly. Please try again.";
 const AUDIO_FAILED: &str = "Couldn't process the recorded audio. Please try again.";
 
 /// A finished decode, cleaned up and ready to format.
@@ -132,9 +131,9 @@ struct Decoded {
     heard_speech: bool,
 }
 
-/// Engine failures discard the engine, so the next recording loads a fresh one.
+/// The engine recovers from its own crashes and hangs, so a failure here
+/// only costs this recording.
 async fn decode(
-    app: &AppHandle,
     engine: SharedEngine,
     session: Option<StreamingSession>,
     streamed: Option<Streamed>,
@@ -142,11 +141,9 @@ async fn decode(
     sample_rate: u32,
     language: Option<String>,
 ) -> Result<Decoded, &'static str> {
-    let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let language = language.as_deref();
-        let run_buffer =
-            |session| decode_buffer(&app, &engine, session, &samples, sample_rate, language);
+        let run_buffer = |session| decode_buffer(&engine, session, &samples, sample_rate, language);
         let FinalText { text, complete } = match streamed {
             Some(Streamed {
                 text,
@@ -165,10 +162,7 @@ async fn decode(
             },
             None => run_buffer(session)?,
         };
-        let output = engine
-            .lock()
-            .ok()
-            .and_then(|guard| guard.output_language(language));
+        let output = engine.output_language(language);
         // Whisper emits "- " at the start of short utterances.
         let text = remove_fillers(strip_leading_dashes(&text), output.as_deref());
         let heard_speech = text.is_empty() && contains_speech(&samples, sample_rate);
@@ -186,24 +180,13 @@ async fn decode(
 }
 
 fn decode_buffer(
-    app: &AppHandle,
-    engine: &SharedEngine,
+    engine: &TranscriptionEngine,
     session: Option<StreamingSession>,
     samples: &[f32],
     sample_rate: u32,
     language: Option<&str>,
 ) -> Result<FinalText, &'static str> {
-    let decoded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::models::decode::finalize(session, samples, sample_rate, engine, language)
-    }));
-    if decoded.is_err() || engine.is_poisoned() {
-        log::error!("engine failed during finalize; discarding it");
-        app.state::<EngineCache>().discard();
-    }
-    let Ok(decoded) = decoded else {
-        return Err(ENGINE_FAILED);
-    };
-    decoded.map_err(|e| {
+    crate::models::decode::finalize(session, samples, sample_rate, engine, language).map_err(|e| {
         log::error!("finalize failed: {e}");
         AUDIO_FAILED
     })
@@ -227,14 +210,16 @@ async fn format(app: &AppHandle, text: String, focus: Option<&FocusTarget>) -> S
     }
 }
 
-/// A failed save is reported but does not stop the paste.
+/// A failed save is reported but does not stop the paste. Returns the new
+/// entry's id.
 async fn save(
     app: &AppHandle,
     pool: Option<sqlx::SqlitePool>,
     text: &str,
     duration_seconds: Option<f64>,
     landed: Option<FocusTarget>,
-) -> bool {
+    model: String,
+) -> Option<i64> {
     #[allow(clippy::cast_possible_wrap)] // word count never exceeds i64::MAX
     let word_count = text.split_whitespace().count() as i64;
     let saved = match pool {
@@ -244,23 +229,24 @@ async fn save(
                 word_count,
                 duration_seconds,
                 target_app: landed.map(|f| f.name),
+                source_name: None,
+                model: Some(model),
+                pending: false,
+                language: None,
             })
             .await
             .map_err(|e| e.to_string()),
         None => Err("database unavailable".to_string()),
     };
     match saved {
-        Ok(saved) => {
-            let _ = TranscriptSaved(TranscriptResponse::from(saved)).emit(app);
-            true
-        }
+        Ok(saved) => Some(saved.id),
         Err(e) => {
             log::error!("could not save the transcript: {e}");
             let _ = TranscriptionWarning(
                 "This dictation couldn't be saved to your history.".to_string(),
             )
             .emit(app);
-            false
+            None
         }
     }
 }

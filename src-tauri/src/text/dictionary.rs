@@ -4,11 +4,13 @@
 use std::collections::HashMap;
 
 use sqlx::SqlitePool;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 
+use crate::bridge::commands::dto::DictionaryResponse;
 use crate::data::dto::dictionary::CreateDictionaryEntry;
 use crate::data::repositories::dictionary::DictionaryRepository;
 use crate::data::rows::dictionary::DictionaryEntry;
+use crate::mirror::{Committed, Patch, Slice, Store};
 use crate::text::dictionary_engine::{match_key, MAX_SPAN};
 use crate::text::DictionaryCorrectionEngine;
 
@@ -48,24 +50,41 @@ fn validate(term: &str, replacement: &str) -> Result<(String, String), Dictionar
     Ok((term.to_string(), replacement.to_string()))
 }
 
-#[derive(Default)]
+/// Keyed by term, which the matcher reports its hits by.
+#[derive(Clone, Default, PartialEq)]
+struct Entries(HashMap<String, DictionaryEntry>);
+
+impl Slice for Entries {
+    /// Sorted by term, so rows hold still across edits.
+    fn patch(&self) -> Patch {
+        let mut value: Vec<DictionaryResponse> = self.0.values().cloned().map(Into::into).collect();
+        value.sort_unstable_by(|a, b| a.term.cmp(&b.term));
+        Patch::Dictionary(value)
+    }
+}
+
+/// The entries change in memory only once the database holds the change.
 pub struct Dictionary {
-    /// Keyed by term, which the matcher reports its hits by.
-    entries: RwLock<HashMap<String, DictionaryEntry>>,
+    entries: Store<Entries>,
+    /// Held across each write and its database round trip, so two saves cannot
+    /// both pass the duplicate check, and a hit is never counted twice.
+    writing: Mutex<()>,
 }
 
 impl Dictionary {
-    pub async fn load(&self, pool: &SqlitePool) -> Result<(), sqlx::Error> {
-        let entries = DictionaryRepository::new(pool.clone()).list_all().await?;
-        *self.entries.write().await = entries.into_iter().map(|e| (e.term.clone(), e)).collect();
-        Ok(())
+    pub fn new() -> Self {
+        Self {
+            entries: Store::new(Entries::default()),
+            writing: Mutex::new(()),
+        }
     }
 
-    /// Sorted by term, so rows hold still across edits.
-    pub async fn entries(&self) -> Vec<DictionaryEntry> {
-        let mut entries: Vec<_> = self.entries.read().await.values().cloned().collect();
-        entries.sort_unstable_by(|a, b| a.term.cmp(&b.term));
-        entries
+    pub async fn load(&self, pool: &SqlitePool) -> Result<(), sqlx::Error> {
+        let _writing = self.writing.lock().await;
+        let loaded = DictionaryRepository::new(pool.clone()).list_all().await?;
+        let loaded = loaded.into_iter().map(|e| (e.term.clone(), e)).collect();
+        self.entries.set(|entries| entries.0 = loaded);
+        Ok(())
     }
 
     /// Add an entry, or with `id` edit that one in place: a rename keeps its
@@ -76,15 +95,16 @@ impl Dictionary {
         id: Option<i64>,
         term: &str,
         replacement: &str,
-    ) -> Result<DictionaryEntry, DictionaryError> {
+    ) -> Result<Committed, DictionaryError> {
         let (term, replacement) = validate(term, replacement)?;
-        // Held across the write, so two saves cannot both pass the duplicate check.
-        let mut entries = self.entries.write().await;
+        let _writing = self.writing.lock().await;
         let key = match_key(&term);
-        if entries
-            .values()
-            .any(|e| Some(e.id) != id && match_key(&e.term) == key)
-        {
+        if self.entries.read(|entries| {
+            entries
+                .0
+                .values()
+                .any(|e| Some(e.id) != id && match_key(&e.term) == key)
+        }) {
             return Err(DictionaryError::Duplicate(format!(
                 "“{term}” is already in your dictionary."
             )));
@@ -96,41 +116,50 @@ impl Dictionary {
             Some(id) => repo.update(id, input).await?,
             None => repo.create(input).await?,
         };
-        entries.retain(|_, e| e.id != entry.id);
-        entries.insert(entry.term.clone(), entry.clone());
-        Ok(entry)
+        Ok(self.entries.set(|entries| {
+            entries.0.retain(|_, e| e.id != entry.id);
+            entries.0.insert(entry.term.clone(), entry);
+        }))
     }
 
-    pub async fn delete(&self, pool: &SqlitePool, id: i64) -> Result<(), sqlx::Error> {
-        if DictionaryRepository::new(pool.clone())
+    pub async fn delete(&self, pool: &SqlitePool, id: i64) -> Result<Committed, sqlx::Error> {
+        let _writing = self.writing.lock().await;
+        DictionaryRepository::new(pool.clone())
             .delete_by_id(id)
-            .await?
-        {
-            self.entries.write().await.retain(|_, e| e.id != id);
-        }
-        Ok(())
+            .await?;
+        Ok(self
+            .entries
+            .set(|entries| entries.0.retain(|_, e| e.id != id)))
     }
 
     /// Apply every correction to `text`, counting a hit for each term used.
     pub async fn correct(&self, pool: &SqlitePool, text: &str) -> String {
-        let entries: Vec<_> = self.entries.read().await.values().cloned().collect();
+        let entries = self
+            .entries
+            .read(|entries| entries.0.values().cloned().collect());
         let (corrected, matched) = DictionaryCorrectionEngine::new(entries).apply_to_text(text);
         if matched.is_empty() {
             return corrected;
         }
 
+        // Like `save`: an edit reading the row back meanwhile would already
+        // hold this hit, and count it again here.
+        let _writing = self.writing.lock().await;
+        // Counted in memory only once saved, so a restart never takes hits back.
         if let Err(e) = DictionaryRepository::new(pool.clone())
             .increment_hits_batch(&matched)
             .await
         {
             log::warn!("could not count dictionary hits: {e}");
+            return corrected;
         }
-        let mut entries = self.entries.write().await;
-        for term in &matched {
-            if let Some(entry) = entries.get_mut(term) {
-                entry.hits += 1;
+        self.entries.set(|entries| {
+            for term in &matched {
+                if let Some(entry) = entries.0.get_mut(term) {
+                    entry.hits += 1;
+                }
             }
-        }
+        });
         corrected
     }
 }

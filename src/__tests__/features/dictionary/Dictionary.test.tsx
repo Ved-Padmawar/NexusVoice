@@ -2,11 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { Dictionary } from '../../../features/dictionary/Dictionary'
 import { invoke } from '@tauri-apps/api/core'
-import { renderWithQuery } from '../../utils'
+import { mirror, renderWithQuery } from '../../utils'
 import type { DictionaryEntry } from '../../../shared/types'
 import { toast } from 'sonner'
 
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
 const undoToasts = vi.hoisted(() => [] as { onAutoClose?: () => void }[])
 vi.mock('sonner', () => ({
   toast: Object.assign((_: string, options: { onAutoClose?: () => void }) => { undoToasts.push(options) }, { success: vi.fn(), error: vi.fn() }),
@@ -16,12 +15,10 @@ const mockInvoke = vi.mocked(invoke)
 
 const sampleEntry: DictionaryEntry = { id: 1, term: 'teh', replacement: 'the', hits: 3, createdAt: '' }
 
-function mockBackend(entries: DictionaryEntry[] = []) {
-  mockInvoke.mockImplementation((cmd) => {
-    if (cmd === 'get_dictionary') return Promise.resolve(entries)
-    if (cmd === 'update_dictionary') return Promise.resolve(sampleEntry)
-    return Promise.resolve(undefined)
-  })
+/** Rust holds `entries`; a save lands at a revision the list already shows. */
+async function mockBackend(entries: DictionaryEntry[] = []) {
+  mockInvoke.mockImplementation(cmd => Promise.resolve(cmd === 'update_dictionary' || cmd === 'delete_dictionary_entry' ? { rev: 0 } : undefined))
+  await mirror([{ slice: 'dictionary', rev: 0, value: entries }])
 }
 
 const render = () => renderWithQuery(<Dictionary />)
@@ -34,9 +31,9 @@ const termField = () => screen.getByPlaceholderText('Heard word')
 const replacementField = () => screen.getByPlaceholderText('Replacement')
 const saveButton = () => screen.getByRole('button', { name: /^add$/i })
 
-beforeEach(() => {
+beforeEach(async () => {
   mockInvoke.mockReset()
-  mockBackend()
+  await mockBackend()
 })
 
 describe('Dictionary — empty state', () => {
@@ -100,8 +97,8 @@ describe('Dictionary — add entry', () => {
 })
 
 describe('Dictionary — existing entries', () => {
-  beforeEach(() => {
-    mockBackend([sampleEntry])
+  beforeEach(async () => {
+    await mockBackend([sampleEntry])
   })
 
   it('preserves a failed edit for retry without an unhandled rejection', async () => {
@@ -117,6 +114,8 @@ describe('Dictionary — existing entries', () => {
   })
 
   it('hides a deleted entry at once and deletes it by id when the undo window closes', async () => {
+    // An id of its own: a committed delete stays hidden for the session.
+    await mockBackend([{ ...sampleEntry, id: 9 }])
     render()
     await screen.findByText('teh')
     fireEvent.click(screen.getByRole('button', { name: /delete teh/i }))
@@ -124,7 +123,7 @@ describe('Dictionary — existing entries', () => {
     expect(mockInvoke).not.toHaveBeenCalledWith('delete_dictionary_entry', expect.anything())
     undoToasts.at(-1)?.onAutoClose?.()
     await waitFor(() => {
-      expect(mockInvoke).toHaveBeenCalledWith('delete_dictionary_entry', { id: 1 })
+      expect(mockInvoke).toHaveBeenCalledWith('delete_dictionary_entry', { id: 9 })
     })
   })
 

@@ -6,51 +6,43 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .commands(tauri_specta::collect_commands![
-            commands::get_recording_state,
+            commands::subscribe,
             commands::list_input_devices,
             commands::set_input_device,
-            commands::get_keep_mic_open,
             commands::set_keep_mic_open,
             commands::pause_dictation,
             commands::resume_dictation,
             commands::commit_dictation,
             commands::get_usage_stats,
             commands::get_daily_words,
+            commands::get_history_apps,
             commands::get_transcripts,
             commands::search_transcripts,
-            commands::get_dictionary,
             commands::delete_transcript,
             commands::update_dictionary,
             commands::delete_dictionary_entry,
-            commands::save_export,
+            commands::export_transcripts,
             commands::reveal_in_folder,
             commands::get_injection_status,
-            commands::get_hotkeys,
-            commands::get_bound_hotkeys,
+            commands::set_paste_mode,
             commands::set_hotkey,
             commands::suspend_hotkeys,
             commands::resume_hotkeys,
-            commands::get_pill_settings,
-            commands::set_pill_settings,
-            commands::get_model_info,
+            commands::set_pill_setting,
             commands::start_model_download,
-            commands::get_active_downloads,
             commands::cancel_model_download,
             commands::set_model_override,
-            commands::get_language_options,
             commands::set_language,
-            commands::get_model_unload,
             commands::set_model_unload,
             commands::get_hardware_profile,
             commands::get_model_catalog,
-            commands::get_downloaded_models,
+            commands::rescan_models,
             commands::delete_model,
-            commands::get_cuda_status,
             commands::start_cuda_download,
             commands::cancel_cuda_download,
             commands::remove_cuda_pack,
-            commands::get_format_config,
-            commands::set_format_config,
+            commands::set_format_enabled,
+            commands::save_format_endpoint,
             commands::test_format_connection,
             commands::open_logs_folder,
             commands::resize_pill,
@@ -60,44 +52,47 @@ pub fn command_bindings() -> tauri_specta::Builder<tauri::Wry> {
             commands::prepare_restart,
             commands::cancel_restart,
             commands::relaunch_app,
+            commands::set_saved_audio,
+            commands::retry_saved_audio_cleanup,
+            commands::clear_saved_audio,
+            commands::set_transcript_pinned,
+            commands::restore_transcript,
+            commands::inspect_audio_file,
+            commands::cancel_job,
+            commands::retranscribe_transcript,
+            commands::import_audio_file,
         ])
         .events(tauri_specta::collect_events![
-            events::RecordingStateChanged,
             events::TranscriptionPartial,
             events::TranscriptionPartialEnd,
             events::TranscriptionComplete,
             events::TranscriptionError,
             events::TranscriptionWarning,
-            events::TranscriptSaved,
             events::PillWaveform,
-            events::PillSettingsChanged,
-            events::ModelDownloadStart,
-            events::ModelDownloadRunning,
-            events::ModelDownloadProgress,
-            events::ModelDownloadComplete,
-            events::ModelDownloadError,
             events::ModelDownloadCancelled,
-            events::ModelEvicted,
-            events::ModelSwitched,
             events::LanguageReset,
-            events::CudaDownloadProgress,
-            events::CudaDownloadVerifying,
             events::CudaDownloadComplete,
-            events::CudaDownloadCancelled,
             events::CudaDownloadError,
+            events::JobFinished,
         ])
 }
 
 /// Write `src/shared/bindings.ts`; debug launches and the test suite both regenerate it.
 #[cfg(any(debug_assertions, test))]
 pub fn export_bindings(builder: &tauri_specta::Builder<tauri::Wry>) {
-    builder
-        .export(
+    let generated = builder
+        .export_str(
             specta_typescript::Typescript::default()
                 .bigint(specta_typescript::BigIntExportBehavior::Number),
-            "../src/shared/bindings.ts",
         )
         .expect("failed to export typescript bindings");
+    let mut normalized = String::with_capacity(generated.len());
+    for line in generated.lines() {
+        normalized.push_str(line.trim_end());
+        normalized.push('\n');
+    }
+    std::fs::write("../src/shared/bindings.ts", normalized)
+        .expect("failed to write typescript bindings");
 }
 
 #[cfg(test)]

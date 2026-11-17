@@ -20,4 +20,15 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // Rust pushes its state; nothing in a window edits or re-reads it by hand.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/__tests__/**'],
+    rules: {
+      'no-restricted-syntax': ['error', {
+        selector: 'CallExpression[callee.property.name=/^(setQueryData|setQueriesData|invalidateQueries|refetchQueries|cancelQueries|resetQueries|removeQueries)$/]',
+        message: "Read Rust state with useSlice; key a History read on useRevision('history'); after a save, await mirrored(slice, rev).",
+      }],
+    },
+  },
 ])

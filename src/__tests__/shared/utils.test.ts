@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fmtTime, fmtDate } from '../../shared/utils'
+import { fmtTime, parseSqliteDate } from '../../shared/utils'
 
 describe('fmtTime', () => {
   it('reports sub-minute durations in seconds', () => {
@@ -39,34 +39,8 @@ describe('fmtTime', () => {
   })
 })
 
-describe('fmtDate', () => {
-  it('formats a valid ISO timestamp', () => {
-    // Locale-dependent, so assert the parts rather than an exact string.
-    const out = fmtDate('2026-03-15T14:30:00Z')
-    expect(out).toMatch(/Mar/)
-    expect(out).toMatch(/15/)
-    expect(out).not.toBe('Invalid Date')
-  })
-
-  it('reports an unparseable timestamp rather than throwing', () => {
-    // A corrupt created_at must not crash the transcript list.
-    expect(fmtDate('not a date')).toBe('Invalid Date')
-    expect(fmtDate('')).toBe('Invalid Date')
-  })
-
-  it('is stable across calls for the same input', () => {
-    // The Intl formatter is created once at module scope; reuse must not
-    // accumulate state or drift.
-    const input = '2026-03-15T14:30:00Z'
-    expect(fmtDate(input)).toBe(fmtDate(input))
-  })
-
-  it('accepts the space-separated shape SQLite returns', () => {
-    // `created_at` comes back as "YYYY-MM-DD HH:MM:SS", not strict ISO.
-    expect(fmtDate('2026-03-15 14:30:00')).not.toBe('Invalid Date')
-  })
-
-  it('reads the SQLite shape as UTC, not local time', () => {
-    expect(fmtDate('2026-03-15 14:30:00')).toBe(fmtDate('2026-03-15T14:30:00Z'))
+describe('parseSqliteDate', () => {
+  it('reads the zone-less shape SQLite returns as UTC, not local time', () => {
+    expect(parseSqliteDate('2026-03-15 14:30:00').getTime()).toBe(Date.parse('2026-03-15T14:30:00Z'))
   })
 })

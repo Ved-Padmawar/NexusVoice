@@ -5,8 +5,10 @@ mod bindings;
 use tauri::Manager;
 
 use crate::data::Database;
+use crate::jobs::Jobs;
 use crate::models::{cache::EngineCache, cuda::CudaPack, library::ModelLibrary};
 use crate::platform::{hardware, hotkeys::Hotkeys, pill, remote, tray};
+use crate::recordings::Recordings;
 use crate::session::Recorder;
 use crate::settings::{Secrets, Settings};
 use crate::text::dictionary::Dictionary;
@@ -42,28 +44,6 @@ fn session_id() -> &'static str {
     })
 }
 
-/// Register compute backends before any model loads, the CUDA pack first so ggml
-/// prefers it. Returns whether the installed CUDA pack failed verification.
-fn init_compute_backends(app_data_dir: &std::path::Path) -> bool {
-    let cuda_damaged = crate::models::cuda::activate(app_data_dir);
-    match transcribe_cpp::init_backends_default() {
-        Ok(()) => {
-            let devices = transcribe_cpp::devices();
-            log::info!(
-                "transcribe.cpp: {} compute device(s) [{}]",
-                devices.len(),
-                devices
-                    .iter()
-                    .map(|d| format!("{} ({})", d.name, d.kind))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
-        Err(e) => log::warn!("transcribe.cpp backend init failed: {e}"),
-    }
-    cuda_damaged
-}
-
 fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     let file = tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
         file_name: Some("nexusvoice".into()),
@@ -80,8 +60,6 @@ fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri_plugin_log::Builder::new()
         .targets(targets)
         .level(log::LevelFilter::Info)
-        // transcribe.cpp/GGML per-token tracing is extremely verbose; mute it.
-        .level_for("transcribe_cpp", log::LevelFilter::Warn)
         .max_file_size(LOG_MAX_SIZE)
         .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
         // One JSON object per line, so logs are queryable.
@@ -99,10 +77,7 @@ fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
 }
 
 pub fn run() {
-    // Route GGML's stderr through `log`, so the level filter applies to it.
-    transcribe_cpp::init_logging();
-
-    // Debug only: release unwinds, so `catch_unwind` on the recording path recovers.
+    // Debug only: log panics before the default hook prints them.
     #[cfg(debug_assertions)]
     {
         let default_hook = std::panic::take_hook();
@@ -133,6 +108,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(specta_builder.invoke_handler())
         .setup(move |app| {
             specta_builder.mount_events(app);
@@ -156,7 +132,7 @@ pub fn run() {
 fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let app_data_dir = app.path().app_data_dir().map_err(std::io::Error::other)?;
     std::fs::create_dir_all(&app_data_dir)?;
-    let cuda_damaged = init_compute_backends(&app_data_dir);
+    let cuda_damaged = crate::models::cuda::install_staged(&app_data_dir);
 
     let models_dir = shared_models_dir(&app_data_dir);
     std::fs::create_dir_all(&models_dir)?;
@@ -168,16 +144,18 @@ fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(Settings::load(&app_data_dir, secrets));
     reset_input_device_saved_by_name(&app.state::<Settings>());
     app.manage(Database::default());
-    app.manage(Dictionary::default());
-    app.manage(EngineCache::new(models_dir.clone()));
+    app.manage(Dictionary::new());
+    app.manage(EngineCache::new(models_dir.clone(), app_data_dir.clone()));
     app.manage(ModelLibrary::new(models_dir));
     app.manage(CudaPack::new(app_data_dir.clone(), cuda_damaged));
-    CudaPack::replace_unverified(app.handle());
+    CudaPack::check_at_start(app.handle());
     app.manage(Recorder::new());
     app.state::<Recorder>()
         .set_keep_mic_open(app.state::<Settings>().keep_mic_open());
     Recorder::follow_engine(app.handle());
-    app.manage(Hotkeys::default());
+    app.manage(Hotkeys::new());
+    app.manage(Recordings::open(app_data_dir.join("recordings")));
+    app.manage(Jobs::new());
 
     spawn_open_database(app.handle().clone(), app_data_dir.join("nexusvoice.db"));
     spawn_log_hardware();
@@ -216,18 +194,28 @@ fn spawn_open_database(app: tauri::AppHandle, db_path: std::path::PathBuf) {
     tauri::async_runtime::spawn(async move {
         // May run migrations; this is the slow part.
         let result = crate::data::connection::open_database(&db_path).await;
+        // Before the pool is published: a dictation waiting on it would
+        // otherwise be corrected against an empty dictionary.
+        if let Ok(pool) = &result {
+            if let Err(e) = app.state::<Dictionary>().load(pool).await {
+                log::error!("could not load the dictionary: {e}");
+            }
+        }
         // Publish either outcome, so waiting commands are released.
         app.state::<Database>().set(result.clone());
-        let pool = match result {
-            Ok(pool) => pool,
-            Err(e) => {
-                log::error!("database init failed: {e}");
-                return;
-            }
-        };
+        if let Err(e) = result {
+            log::error!("database init failed: {e}");
+            return;
+        }
         log::info!("database ready");
-        if let Err(e) = app.state::<Dictionary>().load(&pool).await {
-            log::error!("could not load the dictionary: {e}");
+        if let Err(e) = crate::recordings::reconcile(&app).await {
+            log::warn!("could not reconcile the saved audio: {e}");
+        }
+        if let Err(e) = crate::recordings::apply_limit(&app).await {
+            log::warn!("could not apply the saved audio limit on startup: {e}");
+        }
+        if let Err(e) = crate::jobs::resume(&app).await {
+            log::warn!("could not resume the interrupted imports: {e}");
         }
     });
 }

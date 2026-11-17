@@ -3,10 +3,20 @@ use sqlx::SqlitePool;
 
 /// Via the migrator, not a hand `;` split — the triggers contain semicolons.
 async fn apply_schema(pool: &SqlitePool) {
-    sqlx::migrate!("src/data/migrations")
+    let migrator = sqlx::migrate!("src/data/migrations");
+    migrator
+        .run_to(2, pool)
+        .await
+        .expect("initial schema applies");
+    // Startup supplies this late column before applying the stats migration.
+    sqlx::query("ALTER TABLE transcripts ADD COLUMN pending INTEGER NOT NULL DEFAULT 0")
+        .execute(pool)
+        .await
+        .unwrap();
+    migrator
         .run(pool)
         .await
-        .expect("schema applies");
+        .expect("completed stats schema applies");
 }
 
 async fn table_exists(pool: &SqlitePool, name: &str) -> bool {

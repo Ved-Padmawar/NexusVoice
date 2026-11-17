@@ -49,7 +49,7 @@ fn a_load_superseded_by_a_model_switch_is_never_installed() {
 
 #[test]
 fn a_warmup_after_a_mid_recording_switch_waits_for_the_recording_to_let_go() {
-    let cache = Arc::new(EngineCache::new(std::env::temp_dir()));
+    let cache = Arc::new(EngineCache::new(std::env::temp_dir(), std::env::temp_dir()));
     let dir = tempfile::tempdir().unwrap();
     let settings = Settings::load(
         dir.path(),
@@ -79,7 +79,7 @@ fn a_warmup_after_a_mid_recording_switch_waits_for_the_recording_to_let_go() {
 
 #[test]
 fn a_warmup_with_nothing_pending_proceeds_at_once() {
-    let cache = EngineCache::new(std::env::temp_dir());
+    let cache = EngineCache::new(std::env::temp_dir(), std::env::temp_dir());
     tauri::async_runtime::block_on(async {
         tokio::time::timeout(Duration::from_millis(100), cache.superseded_released())
             .await
@@ -89,7 +89,7 @@ fn a_warmup_with_nothing_pending_proceeds_at_once() {
 
 #[test]
 fn a_switch_is_deferred_only_while_a_recording_holds_a_loaded_engine() {
-    let cache = EngineCache::new(std::env::temp_dir());
+    let cache = EngineCache::new(std::env::temp_dir(), std::env::temp_dir());
     // Idle: nothing holds the engine, so the switch applies now.
     cache.unload();
     assert_eq!(cache.deferred(), Deferred::default());
@@ -128,19 +128,6 @@ fn a_language_saved_mid_recording_applies_from_the_next_recording() {
     // The next recording starts in the saved language, so nothing waits.
     slot.lease(Some("fr".into()));
     assert!(!slot.deferred().language);
-}
-
-#[test]
-fn a_discarded_engine_takes_its_waiting_unload_with_it() {
-    let mut slot = slot_with(Some("old model"), &[None]);
-    slot.supersede();
-    assert!(slot.unload_pending);
-
-    // The engine panics mid-recording; finalize then loads a replacement.
-    slot.clear();
-    assert!(slot.install("replacement", slot.generation));
-    slot.release(None);
-    assert_eq!(slot.engine, Some("replacement"));
 }
 
 #[test]

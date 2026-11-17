@@ -22,6 +22,10 @@ async fn database_roundtrip() {
             word_count: 1,
             duration_seconds: None,
             target_app: Some("VS Code".to_string()),
+            source_name: None,
+            model: None,
+            pending: false,
+            language: None,
         })
         .await
         .expect("create transcript");

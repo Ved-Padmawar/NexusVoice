@@ -25,7 +25,7 @@ use std::cell::RefCell;
 use std::sync::{Mutex, MutexGuard, Once};
 use std::time::{Duration, Instant};
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_specta::Event;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{
@@ -46,16 +46,19 @@ use windows::Win32::System::Ole::{
     CF_METAFILEPICT, CF_OWNERDISPLAY, CF_PALETTE, CF_UNICODETEXT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, KillTimer,
-    PostQuitMessage, RegisterClassW, SetTimer, HWND_MESSAGE, MSG, WINDOW_EX_STYLE, WINDOW_STYLE,
-    WM_DESTROYCLIPBOARD, WM_RENDERALLFORMATS, WM_RENDERFORMAT, WM_TIMER, WNDCLASSW,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetForegroundWindow,
+    GetMessageW, KillTimer, PostQuitMessage, RegisterClassW, SetTimer, HWND_MESSAGE, MSG,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WM_DESTROYCLIPBOARD, WM_RENDERALLFORMATS, WM_RENDERFORMAT,
+    WM_TIMER, WNDCLASSW,
 };
 
 use super::caret;
+use super::chord::{self, Chord};
 use super::settle::{Landing, Step, Timeline};
 use super::spacing::needs_space;
 use crate::bridge::events::TranscriptionWarning;
 use crate::platform::focus;
+use crate::settings::Settings;
 
 const CLASS_NAME: PCWSTR = w!("NexusVoicePaste");
 const TIMER_ID: usize = 1;
@@ -71,6 +74,10 @@ const PRIVACY_FORMATS: [(PCWSTR, u32); 3] = [
 /// Another app can hold the clipboard open for a moment; retry this long.
 const OPEN_ATTEMPTS: u32 = 5;
 const OPEN_RETRY: Duration = Duration::from_millis(10);
+
+/// Where our previous paste went and the last character it ended with.
+/// Terminals cannot report their caret, so this stands in for it.
+static LAST_PASTE: Mutex<Option<(isize, char)>> = Mutex::new(None);
 
 const ADMIN_WINDOW: &str = "Can't paste into an admin window. Copied - press Ctrl+V.";
 const NOT_PASTED: &str = "Couldn't paste here. Copied - press Ctrl+V.";
@@ -90,8 +97,13 @@ struct Paste {
     app: AppHandle,
     /// The target is elevated and we are not: the chord would be dropped.
     admin_window: bool,
+    /// `None`: the user chose to copy only, so no keys go out.
+    chord: Option<Chord>,
     /// NUL-terminated UTF-16.
     text: Vec<u16>,
+    /// The target window and the text's last character, for [`LAST_PASTE`]
+    /// once the target reads the paste.
+    ends: Option<(isize, char)>,
     snapshot: Vec<SavedFormat>,
     /// Clipboard sequence number right after publishing.
     sequence: u32,
@@ -115,17 +127,22 @@ struct SavedFormat {
 /// the clipboard is then left as it was.
 pub async fn paste(app: &AppHandle, text: &str) -> Result<(), String> {
     let admin_window = focus::foreground_outranks_us();
-    let text = if admin_window {
+    let mode = app.state::<Settings>().paste_mode();
+    let chord = chord::resolve(mode, focus::foreground_app().map(|target| target.category));
+    // SAFETY: a plain query of the foreground window.
+    let target = unsafe { GetForegroundWindow() }.0 as isize;
+    let text = if admin_window || chord.is_none() {
         text.to_string()
     } else {
-        spaced(text).await
+        spaced(text, target).await
     };
+    let ends = text.chars().last().map(|end| (target, end));
     let text: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     let (ready, published) = tokio::sync::oneshot::channel();
     let app = app.clone();
     std::thread::Builder::new()
         .name("paste".into())
-        .spawn(move || run(app, admin_window, text, ready))
+        .spawn(move || run(app, admin_window, chord, text, ends, ready))
         .map_err(|e| format!("failed to start paste thread: {e}"))?;
     published
         .await
@@ -133,9 +150,12 @@ pub async fn paste(app: &AppHandle, text: &str) -> Result<(), String> {
 }
 
 /// `text`, with a space in front when it would otherwise run into the word
-/// before the caret.
-async fn spaced(text: &str) -> String {
-    if needs_space(caret::before_caret().await, text) {
+/// before the caret, or before our previous paste into this same `target`.
+async fn spaced(text: &str, target: isize) -> String {
+    let last_pasted_end = (*lock(&LAST_PASTE))
+        .filter(|&(window, _)| window == target)
+        .map(|(_, end)| end);
+    if needs_space(caret::before_caret().await, text, last_pasted_end) {
         format!(" {text}")
     } else {
         text.to_string()
@@ -145,10 +165,15 @@ async fn spaced(text: &str) -> String {
 fn run(
     app: AppHandle,
     admin_window: bool,
+    chord: Option<Chord>,
     text: Vec<u16>,
+    ends: Option<(isize, char)>,
     ready: tokio::sync::oneshot::Sender<Result<(), String>>,
 ) {
     let _turn = lock(&TURN);
+    // Forgotten until this paste lands: one that never did says nothing
+    // about what is before the caret.
+    *lock(&LAST_PASTE) = None;
     let hwnd = match create_window() {
         Ok(hwnd) => hwnd,
         Err(e) => {
@@ -156,7 +181,7 @@ fn run(
             return;
         }
     };
-    match begin(hwnd, app, admin_window, text) {
+    match begin(hwnd, app, admin_window, chord, text, ends) {
         Ok(paste) => {
             PASTE.with(|cell| *cell.borrow_mut() = Some(paste));
             // SAFETY: `hwnd` is this thread's live window.
@@ -187,7 +212,14 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// Snapshot the clipboard, then publish the transcript in its place.
-fn begin(hwnd: HWND, app: AppHandle, admin_window: bool, text: Vec<u16>) -> Result<Paste, String> {
+fn begin(
+    hwnd: HWND,
+    app: AppHandle,
+    admin_window: bool,
+    chord: Option<Chord>,
+    text: Vec<u16>,
+    ends: Option<(isize, char)>,
+) -> Result<Paste, String> {
     let snapshot = snapshot(hwnd)?;
     let sequence = match publish(hwnd) {
         Ok(sequence) => sequence,
@@ -201,10 +233,12 @@ fn begin(hwnd: HWND, app: AppHandle, admin_window: bool, text: Vec<u16>) -> Resu
     Ok(Paste {
         app,
         admin_window,
+        chord,
         text,
+        ends,
         snapshot,
         sequence,
-        timeline: if admin_window {
+        timeline: if admin_window || chord.is_none() {
             Timeline::copy_only(published_at)
         } else {
             Timeline::new(published_at)
@@ -317,7 +351,9 @@ fn tick(hwnd: HWND) {
         Some(Step::SendChord) => {
             // Marked before sending: the target may read while keys go out.
             let sent_at = Instant::now();
-            let ok = super::send_paste_chord();
+            let ok = with_paste(|paste| paste.chord)
+                .flatten()
+                .is_some_and(super::send_paste_chord);
             with_paste(|paste| paste.timeline.chord_sent(sent_at, ok));
             if !ok {
                 log::warn!("paste chord could not be sent");
@@ -336,11 +372,16 @@ fn settle(hwnd: HWND) {
             return None;
         }
         paste.settled = true;
+        let kept = keep_reason(paste);
+        // Only a paste the target read is before its caret now.
+        if kept.is_none() {
+            *lock(&LAST_PASTE) = paste.ends;
+        }
         Some((
             std::mem::take(&mut paste.snapshot),
             paste.sequence,
             paste.timeline.ownership_lost(),
-            keep_reason(paste),
+            kept,
         ))
     })
     .flatten() else {
@@ -354,6 +395,7 @@ fn settle(hwnd: HWND) {
                 log::warn!("paste did not land; keeping the transcript on the clipboard");
                 let _ = TranscriptionWarning(message.to_string()).emit(&app);
             }
+            Keep::Copied => log::info!("copy only: the transcript stays on the clipboard"),
             Keep::Unconfirmed => {
                 log::info!("a clipboard watcher read the transcript first; keeping it");
             }
@@ -379,6 +421,8 @@ fn settle(hwnd: HWND) {
 enum Keep {
     /// Not pasted; the user is told to paste it.
     Warn(AppHandle, &'static str),
+    /// The user asked for a copy: the transcript is the clipboard now.
+    Copied,
     /// May have landed unseen; restoring could hand the target the old clipboard.
     Unconfirmed,
 }
@@ -387,6 +431,9 @@ enum Keep {
 fn keep_reason(paste: &Paste) -> Option<Keep> {
     if paste.admin_window {
         return Some(Keep::Warn(paste.app.clone(), ADMIN_WINDOW));
+    }
+    if paste.chord.is_none() {
+        return Some(Keep::Copied);
     }
     match paste.timeline.landing() {
         Landing::Landed => None,

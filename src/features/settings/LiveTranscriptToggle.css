@@ -1,5 +1,5 @@
 /* Settings preview from redesign: retain the 332 × 132 layout before the
-   wrapper scales it to 60%. The stage intentionally crops the card's foot. */
+   wrapper scales it to 75%. The stage intentionally crops the card's foot. */
 .live-transcript-preview {
   position: relative;
   isolation: isolate;

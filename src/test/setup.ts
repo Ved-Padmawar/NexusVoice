@@ -4,6 +4,12 @@ import "@testing-library/jest-dom/vitest";
 // Mock Tauri APIs for tests (no backend in Vitest)
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
+  Channel: class<T> {
+    onmessage: (message: T) => void;
+    constructor(onmessage: (message: T) => void) {
+      this.onmessage = onmessage;
+    }
+  },
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({

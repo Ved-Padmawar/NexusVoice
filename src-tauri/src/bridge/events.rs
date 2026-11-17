@@ -1,17 +1,17 @@
 //! Every event the backend emits. Each is a type registered in
 //! `command_bindings()`, so `bindings.ts` carries its name and payload and the
 //! frontend never spells either by hand.
+//!
+//! State reaches the windows one way: through its owner's `Store`, pushed by
+//! the `mirror`. These events are streams (the live transcript, the waveform)
+//! and notices of something that happened, for a toast or a one-off reaction.
+//! Neither carries state a window keeps.
 
 use serde::Serialize;
 use specta::Type;
 use tauri_specta::Event;
 
 use crate::audio::waveform::BANDS;
-use crate::bridge::commands::dto::TranscriptResponse;
-use crate::settings::PillSettingsSnapshot;
-
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct RecordingStateChanged(pub crate::session::recorder::RecordingSnapshot);
 
 /// Live transcript while recording. Both decode paths produce the same split,
 /// so the pill never needs to know which one ran.
@@ -46,75 +46,35 @@ pub struct TranscriptionError(pub String);
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct TranscriptionWarning(pub String);
 
+/// A transcription job ended, by finishing, being cancelled or failing.
 #[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct TranscriptSaved(pub TranscriptResponse);
+pub struct JobFinished(pub crate::jobs::JobFinish);
 
 /// Capture levels for the pill waveform, one per band, 0–1.
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct PillWaveform(pub [f32; BANDS]);
 
-/// The pill's preferences changed. Carries the revision so a window can drop
-/// an update older than the snapshot it already holds.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct PillSettingsChanged(pub PillSettingsSnapshot);
-
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct ModelDownloadStart {
-    pub id: String,
-}
-
-/// A queued download got a transfer slot.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct ModelDownloadRunning {
-    pub id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct ModelDownloadProgress {
-    pub id: String,
-    pub pct: u8,
-}
-
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct ModelDownloadComplete {
-    pub id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct ModelDownloadError {
-    pub id: String,
-    pub error: String,
-}
-
+/// A model download was cancelled, from any window.
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct ModelDownloadCancelled {
     pub id: String,
 }
-
-/// The active model was deleted and no other is on disk.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct ModelEvicted;
-
-/// The active model was deleted and another on disk took its place.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct ModelSwitched;
 
 /// The new model cannot speak the saved dictation language, so it was reset.
 #[derive(Debug, Clone, Serialize, Type, Event)]
 pub struct LanguageReset;
 
 #[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct CudaDownloadProgress(pub u8);
+pub struct CudaDownloadComplete {
+    pub attempt: u64,
+    pub after: crate::mirror::Committed,
+}
 
-/// Every file is downloaded; the pack is being unpacked and checked.
+/// The CUDA download failed; `after` is the status revision that shows it
+/// ended, so the offer reopens on a status without the download.
 #[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct CudaDownloadVerifying;
-
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct CudaDownloadComplete;
-
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct CudaDownloadCancelled;
-
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub struct CudaDownloadError(pub String);
+pub struct CudaDownloadError {
+    pub attempt: u64,
+    pub message: String,
+    pub after: crate::mirror::Committed,
+}

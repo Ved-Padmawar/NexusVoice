@@ -67,11 +67,19 @@ fn a_missing_or_partial_archive_is_fetched() {
 fn only_one_download_can_claim_the_pack() {
     let data = tempfile::tempdir().unwrap();
     let pack = CudaPack::new(data.path().to_path_buf(), false);
-
-    assert!(pack.claim().is_some());
+    let (first, _) = pack.claim().unwrap();
     assert!(pack.claim().is_none());
-    assert_eq!(pack.progress(), Some(0));
-    assert!(!pack.verifying());
+    let status = pack.status.read(|s| s.0.clone()).unwrap();
+    assert_eq!(status.download_progress, Some(0));
+    assert!(!status.verifying);
+
+    let after = pack.complete();
+    let completed = pack.status.read(|s| s.0.clone()).unwrap();
+    assert_eq!(completed.attempt, first);
+    assert_eq!(completed.download_progress, None);
+    let (second, _) = pack.claim().unwrap();
+    assert!(second > first);
+    assert!(pack.status.committed().rev > after.rev);
 }
 
 #[test]
@@ -97,7 +105,7 @@ fn an_unsigned_staged_pack_cannot_replace_an_existing_pack() {
     install(&data.path().join(STAGING_DIR), &transcribe_cpp::version());
     assert_eq!(pack_state(data.path()), PackState::Unverified);
 
-    activate(data.path());
+    install_staged(data.path());
 
     assert!(data.path().join(STAGING_DIR).exists());
     let retained: Manifest =
@@ -107,14 +115,14 @@ fn an_unsigned_staged_pack_cannot_replace_an_existing_pack() {
 }
 
 #[test]
-fn a_pack_marked_for_removal_is_deleted_at_activation() {
+fn a_pack_marked_for_removal_is_deleted_at_start() {
     let data = tempfile::tempdir().unwrap();
     let dir = data.path().join(PACK_DIR);
     install(&dir, &transcribe_cpp::version());
     std::fs::write(dir.join(REMOVE_MARKER), b"").unwrap();
     assert_eq!(pack_state(data.path()), PackState::PendingRemoval);
 
-    activate(data.path());
+    install_staged(data.path());
 
     assert!(!dir.exists());
     assert_eq!(pack_state(data.path()), PackState::Absent);
@@ -160,8 +168,10 @@ fn a_driver_older_than_cuda_13_never_qualifies() {
 fn an_idle_download_reports_no_progress_and_ignores_cancel() {
     // The UI reads `None` as "no download running".
     let download = CudaPack::new(std::env::temp_dir(), false);
+    download.check_pack();
     download.cancel();
-    assert_eq!(download.progress(), None);
+    let status = download.status.read(|s| s.0.clone()).unwrap();
+    assert_eq!(status.download_progress, None);
 }
 
 #[test]

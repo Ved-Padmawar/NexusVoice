@@ -3,12 +3,12 @@ import { MicrophoneIcon, ArrowsClockwiseIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { readFresh } from '../../app/queryClient'
-import { useLiveChoice } from '../../app/useLiveChoice'
+import { useSlice } from '../../app/mirror'
+import { useChoice } from '../../app/useChoice'
 import { Select } from '../../shared/ui/Select'
-import { KeepMicOpenToggle } from './KeepMicOpenToggle'
+import { SettingRow } from './SettingRow'
 import { InputHint } from './InputHint'
-import { inputDevices, useInputDevices } from './queries'
+import { useInputDevices } from './queries'
 import type { InputDevice } from '../../shared/types'
 
 /** Sentinel for the "Default" option — maps to no saved preference. */
@@ -34,10 +34,13 @@ function labelled(devices: InputDevice[]) {
 export const MicrophoneSection = memo(function MicrophoneSection() {
   const devicesQuery = useInputDevices()
   const devices = devicesQuery.data ?? NO_DEVICES
+  const refetchDevices = devicesQuery.refetch
   const [refreshing, setRefreshing] = useState(false)
-  const { pending, choose } = useLiveChoice(inputDevices, saveDevice, saveFailed)
+  const savedId = useSlice('settings', settings => settings.inputDevice)
+  const { pending, choose } = useChoice('settings', 'inputDevice', saveDevice, saveFailed)
 
-  const saved = devices.find(d => d.isSelected && !d.isDefault)?.id ?? DEFAULT_VALUE
+  // A saved mic that is unplugged, or is the OS default, shows as Default.
+  const saved = devices.find(d => d.id === savedId && !d.isDefault)?.id ?? DEFAULT_VALUE
   const selected = pending ? pending.value : saved
 
   useEffect(() => {
@@ -50,10 +53,10 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
     if (refreshing) return
     setRefreshing(true)
     Promise.all([
-      readFresh(inputDevices).catch(listFailed),
+      refetchDevices(),
       new Promise(r => setTimeout(r, 500)),
     ]).finally(() => setRefreshing(false))
-  }, [refreshing])
+  }, [refreshing, refetchDevices])
 
   const listed = labelled(devices)
   const defaultLabel = listed.find(d => d.isDefault)?.label
@@ -68,23 +71,18 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
   ]
 
   return (
-    <div className="flex min-w-0 flex-col gap-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-fg">Microphone</p>
-          <InputHint input="microphone">The device that records your voice.</InputHint>
-        </div>
-        <KeepMicOpenToggle />
-      </div>
-
-      <div className="flex gap-2">
+    <SettingRow
+      icon={<MicrophoneIcon size={16} weight="duotone" />}
+      title="Microphone"
+      description={<InputHint input="microphone">The device that records your voice.</InputHint>}
+    >
+      <div className="flex min-w-0 flex-1 gap-1">
         <div className="min-w-0 flex-1">
           <Select
             value={selected}
             options={options}
-            onChange={(v) => { if (v !== selected) void choose(v) }}
+            onChange={(v) => { if (v !== selected) choose(v) }}
             aria-label="Microphone"
-            icon={<MicrophoneIcon size={14} weight="bold" />}
             disabled={devicesQuery.isPending}
           />
         </div>
@@ -95,11 +93,11 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
           aria-label="Refresh the device list"
           data-tip="Refresh the device list"
           data-tip-pos="bottom"
-          className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-lg bg-field text-fg-2 ring-1 ring-line-soft ring-inset transition hover:text-fg hover:ring-line disabled:opacity-50"
+          className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-lg text-fg-2 transition hover:bg-surface-hover hover:text-fg disabled:opacity-50"
         >
           <ArrowsClockwiseIcon size={14} weight="bold" className={refreshing ? 'animate-spin' : undefined} />
         </button>
       </div>
-    </div>
+    </SettingRow>
   )
 })

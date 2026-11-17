@@ -13,6 +13,7 @@ export function detectPlatform(ua = typeof navigator === 'undefined' ? '' : navi
 }
 
 export const isMac = detectPlatform() === 'macos'
+export const isWindows = detectPlatform() === 'windows'
 
 /**
  * Display label for the "Super" modifier (Windows logo / Command key). The

@@ -74,9 +74,8 @@ pub async fn send_chat(
 
     let resp = req.send().await.map_err(|e| error::request_failed(&e))?;
 
-    let status = resp.status();
-    if !status.is_success() {
-        return Err(error::status_failed(status));
+    if !resp.status().is_success() {
+        return Err(error::status_failed(resp).await);
     }
 
     let parsed: ChatResponse = resp

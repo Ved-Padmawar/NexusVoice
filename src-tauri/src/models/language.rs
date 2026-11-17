@@ -4,6 +4,10 @@
 //! be labelled differently across chunks — a sentence that mixes languages.
 //! [`AUTO`] is therefore offered but is not the default.
 
+use serde::Serialize;
+
+use super::catalog::ModelEntry;
+
 /// Sentinel for "detect per decode".
 pub const AUTO: &str = "auto";
 
@@ -46,6 +50,76 @@ pub fn resolve(saved: Option<&str>) -> Option<&str> {
         None => Some(DEFAULT),
         Some(AUTO) => None,
         Some(code) => Some(code),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageOption {
+    /// ISO code, or `auto` for the detect-per-decode sentinel.
+    pub code: String,
+    pub name: String,
+    pub is_selected: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageSettings {
+    /// Whether the model handles anything but English.
+    pub supported: bool,
+    /// Empty when `supported` is false.
+    pub options: Vec<LanguageOption>,
+}
+
+/// `model`'s picker list with the `saved` choice marked, `auto` first. Codes
+/// come from the catalog, so the list is complete whether or not a model has
+/// loaded.
+pub fn options(model: &ModelEntry, saved: Option<&str>) -> LanguageSettings {
+    if !model.multilingual {
+        return LanguageSettings {
+            supported: false,
+            options: Vec::new(),
+        };
+    }
+
+    let advertised = &model.languages;
+    let active = resolve(saved);
+
+    // Region shown only where a language has several locales.
+    let mut named: Vec<(String, String)> = advertised
+        .iter()
+        .map(|code| {
+            let base = primary_of(code);
+            let regioned = advertised.iter().filter(|c| primary_of(c) == base).count() > 1;
+            (code.clone(), display_name(code, regioned))
+        })
+        .collect();
+    named.sort_by(|a, b| {
+        a.1.to_lowercase()
+            .cmp(&b.1.to_lowercase())
+            .then_with(|| a.0.cmp(&b.0))
+    });
+
+    let codes: Vec<&str> = named.iter().map(|(code, _)| code.as_str()).collect();
+    let selected = active
+        .and_then(|want| offered_for(&codes, want))
+        .map(str::to_owned);
+
+    let options = std::iter::once(LanguageOption {
+        code: AUTO.to_string(),
+        name: "Auto-detect".to_string(),
+        is_selected: active.is_none(),
+    })
+    .chain(named.into_iter().map(|(code, name)| LanguageOption {
+        is_selected: selected.as_deref() == Some(code.as_str()),
+        code,
+        name,
+    }))
+    .collect();
+
+    LanguageSettings {
+        supported: true,
+        options,
     }
 }
 

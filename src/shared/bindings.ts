@@ -5,8 +5,12 @@
 
 
 export const commands = {
-async getRecordingState() : Promise<RecordingSnapshot> {
-    return await TAURI_INVOKE("get_recording_state");
+/**
+ * The newest value of each of `slices`, then every commit on `changes`, in
+ * order.
+ */
+async subscribe(slices: SliceName[], changes: TAURI_CHANNEL<Change>) : Promise<Change> {
+    return await TAURI_INVOKE("subscribe", { slices, changes });
 },
 /**
  * Usable input devices, excluding loopback and virtual endpoints. The UI
@@ -18,13 +22,10 @@ async listInputDevices() : Promise<InputDeviceInfo[]> {
 /**
  * Choose an input device by id; `None` follows the OS default.
  */
-async setInputDevice(id: string | null) : Promise<null> {
+async setInputDevice(id: string | null) : Promise<Committed> {
     return await TAURI_INVOKE("set_input_device", { id });
 },
-async getKeepMicOpen() : Promise<boolean> {
-    return await TAURI_INVOKE("get_keep_mic_open");
-},
-async setKeepMicOpen(keep: boolean) : Promise<null> {
+async setKeepMicOpen(keep: boolean) : Promise<Committed> {
     return await TAURI_INVOKE("set_keep_mic_open", { keep });
 },
 async pauseDictation() : Promise<null> {
@@ -42,8 +43,14 @@ async getUsageStats() : Promise<UsageStatsResponse> {
 /**
  * Words per day for the dashboard's waveform, in the caller's time zone.
  */
-async getDailyWords(days: number, utcOffsetMinutes: number) : Promise<DailyWordsResponse[]> {
-    return await TAURI_INVOKE("get_daily_words", { days, utcOffsetMinutes });
+async getDailyWords(days: number, utcOffsetMinutes: number, localDate: string) : Promise<DailyWordsResponse[]> {
+    return await TAURI_INVOKE("get_daily_words", { days, utcOffsetMinutes, localDate });
+},
+/**
+ * The apps History can be filtered to, most used first.
+ */
+async getHistoryApps() : Promise<string[]> {
+    return await TAURI_INVOKE("get_history_apps");
 },
 async getTranscripts(page: PageQuery) : Promise<TranscriptResponse[]> {
     return await TAURI_INVOKE("get_transcripts", { page });
@@ -51,27 +58,24 @@ async getTranscripts(page: PageQuery) : Promise<TranscriptResponse[]> {
 async searchTranscripts(query: string, page: PageQuery) : Promise<TranscriptResponse[]> {
     return await TAURI_INVOKE("search_transcripts", { query, page });
 },
-async getDictionary() : Promise<DictionaryResponse[]> {
-    return await TAURI_INVOKE("get_dictionary");
-},
 async deleteTranscript(id: number) : Promise<null> {
     return await TAURI_INVOKE("delete_transcript", { id });
 },
 /**
  * Add an entry, or with `id` edit that one (a rename keeps its use count).
  */
-async updateDictionary(term: string, replacement: string, id: number | null) : Promise<DictionaryResponse> {
+async updateDictionary(term: string, replacement: string, id: number | null) : Promise<Committed> {
     return await TAURI_INVOKE("update_dictionary", { term, replacement, id });
 },
-async deleteDictionaryEntry(id: number) : Promise<null> {
+async deleteDictionaryEntry(id: number) : Promise<Committed> {
     return await TAURI_INVOKE("delete_dictionary_entry", { id });
 },
 /**
- * Write an export into the user's Downloads folder and return where it went.
- * An existing file is never overwritten: the name gets " (2)", " (3)", ….
+ * Export what History shows into the user's Downloads folder, never over an
+ * existing file. `None` when nothing matches.
  */
-async saveExport(fileName: string, content: string) : Promise<string> {
-    return await TAURI_INVOKE("save_export", { fileName, content });
+async exportTranscripts(request: ExportRequest) : Promise<Exported | null> {
+    return await TAURI_INVOKE("export_transcripts", { request });
 },
 /**
  * Open the file manager with `path` selected.
@@ -85,20 +89,13 @@ async revealInFolder(path: string) : Promise<null> {
 async getInjectionStatus() : Promise<InjectionStatus> {
     return await TAURI_INVOKE("get_injection_status");
 },
-async getHotkeys() : Promise<HotkeyBindings> {
-    return await TAURI_INVOKE("get_hotkeys");
-},
-/**
- * What is bound with the OS right now. A saved shortcut another application
- * holds is saved but missing here.
- */
-async getBoundHotkeys() : Promise<HotkeyBindings> {
-    return await TAURI_INVOKE("get_bound_hotkeys");
+async setPasteMode(mode: PasteMode) : Promise<Committed> {
+    return await TAURI_INVOKE("set_paste_mode", { mode });
 },
 /**
  * Bind `hotkey` to `kind`, or unbind it with `None`.
  */
-async setHotkey(kind: HotkeyKind, hotkey: string | null) : Promise<null> {
+async setHotkey(kind: HotkeyKind, hotkey: string | null) : Promise<Committed> {
     return await TAURI_INVOKE("set_hotkey", { kind, hotkey });
 },
 /**
@@ -111,34 +108,18 @@ async suspendHotkeys() : Promise<null> {
 async resumeHotkeys() : Promise<null> {
     return await TAURI_INVOKE("resume_hotkeys");
 },
-async getPillSettings() : Promise<PillSettingsSnapshot> {
-    return await TAURI_INVOKE("get_pill_settings");
-},
-/**
- * Save the pill's preferences and tell both windows.
- */
-async setPillSettings(pill: PillSettings) : Promise<PillSettingsSnapshot> {
-    return await TAURI_INVOKE("set_pill_settings", { pill });
-},
-async getModelInfo() : Promise<ModelInfoResponse> {
-    return await TAURI_INVOKE("get_model_info");
+async setPillSetting(change: PillSetting) : Promise<Committed> {
+    return await TAURI_INVOKE("set_pill_setting", { change });
 },
 /**
  * With `activate`, the model becomes the active one once it is on disk.
  */
-async startModelDownload(id: string, activate: boolean) : Promise<null> {
+async startModelDownload(id: string, activate: boolean) : Promise<Committed> {
     return await TAURI_INVOKE("start_model_download", { id, activate });
 },
 /**
- * Every download queued, running or holding an error, so the UI can
- * rehydrate after a reload without waiting for the next event.
- */
-async getActiveDownloads() : Promise<ActiveDownload[]> {
-    return await TAURI_INVOKE("get_active_downloads");
-},
-/**
  * A cancel pressed in the last moments of a transfer arrives after the file
- * is published; the download then stands, reported by its complete event.
+ * is published; the download then stands.
  */
 async cancelModelDownload(id: string) : Promise<void> {
     await TAURI_INVOKE("cancel_model_download", { id });
@@ -146,48 +127,38 @@ async cancelModelDownload(id: string) : Promise<void> {
 /**
  * Make a model on disk the active one.
  */
-async setModelOverride(variant: string) : Promise<null> {
+async setModelOverride(variant: string) : Promise<Committed> {
     return await TAURI_INVOKE("set_model_override", { variant });
 },
-/**
- * The picker's list with the active choice marked, `auto` first. Codes come
- * from the catalog, so the list is complete whether or not a model has loaded.
- */
-async getLanguageOptions() : Promise<LanguageSettings> {
-    return await TAURI_INVOKE("get_language_options");
-},
-async setLanguage(code: string | null) : Promise<null> {
+async setLanguage(code: string | null) : Promise<Committed> {
     return await TAURI_INVOKE("set_language", { code });
-},
-async getModelUnload() : Promise<ModelUnload> {
-    return await TAURI_INVOKE("get_model_unload");
 },
 /**
  * Takes effect at the idle watcher's next check.
  */
-async setModelUnload(policy: ModelUnload) : Promise<null> {
+async setModelUnload(policy: ModelUnload) : Promise<Committed> {
     return await TAURI_INVOKE("set_model_unload", { policy });
 },
 async getHardwareProfile() : Promise<HardwareProfileResponse> {
     return await TAURI_INVOKE("get_hardware_profile");
 },
 /**
- * The catalog with per-model download state, for the model picker.
+ * Every model the app offers. Fixed for the life of the app.
  */
 async getModelCatalog() : Promise<CatalogModel[]> {
     return await TAURI_INVOKE("get_model_catalog");
 },
-async getDownloadedModels() : Promise<DownloadedModel[]> {
-    return await TAURI_INVOKE("get_downloaded_models");
+/**
+ * Look at the model files again, for a view that lists them as it opens.
+ */
+async rescanModels() : Promise<Committed> {
+    return await TAURI_INVOKE("rescan_models");
 },
 /**
  * Delete a downloaded model, the active one included.
  */
-async deleteModel(variant: string) : Promise<null> {
+async deleteModel(variant: string) : Promise<Committed> {
     return await TAURI_INVOKE("delete_model", { variant });
-},
-async getCudaStatus() : Promise<CudaStatus> {
-    return await TAURI_INVOKE("get_cuda_status");
 },
 async startCudaDownload() : Promise<null> {
     return await TAURI_INVOKE("start_cuda_download");
@@ -201,18 +172,21 @@ async cancelCudaDownload() : Promise<void> {
 async removeCudaPack() : Promise<null> {
     return await TAURI_INVOKE("remove_cuda_pack");
 },
-async getFormatConfig() : Promise<FormatterView> {
-    return await TAURI_INVOKE("get_format_config");
+async setFormatEnabled(enabled: boolean) : Promise<Committed> {
+    return await TAURI_INVOKE("set_format_enabled", { enabled });
 },
-async setFormatConfig(config: FormatterUpdate) : Promise<null> {
-    return await TAURI_INVOKE("set_format_config", { config });
+/**
+ * Save the provider modal's endpoint as the active one, and turn formatting on.
+ */
+async saveFormatEndpoint(draft: FormatterDraft) : Promise<Committed> {
+    return await TAURI_INVOKE("save_format_endpoint", { draft });
 },
 /**
  * Send one trivial request with a draft from the provider modal. Saves
  * nothing.
  */
-async testFormatConnection(config: FormatterUpdate) : Promise<null> {
-    return await TAURI_INVOKE("test_format_connection", { config });
+async testFormatConnection(draft: FormatterDraft) : Promise<null> {
+    return await TAURI_INVOKE("test_format_connection", { draft });
 },
 async openLogsFolder() : Promise<null> {
     return await TAURI_INVOKE("open_logs_folder");
@@ -260,6 +234,60 @@ async cancelRestart() : Promise<void> {
  */
 async relaunchApp() : Promise<null> {
     return await TAURI_INVOKE("relaunch_app");
+},
+/**
+ * Save one part of the policy and apply it now: audio past the new limit, or
+ * all of it when switched off. A failed cleanup shows in the saved-audio
+ * slice; the preference is still saved.
+ */
+async setSavedAudio(change: SavedAudioSetting) : Promise<Committed> {
+    return await TAURI_INVOKE("set_saved_audio", { change });
+},
+async retrySavedAudioCleanup() : Promise<null> {
+    return await TAURI_INVOKE("retry_saved_audio_cleanup");
+},
+/**
+ * Delete every unpinned entry's audio. The entries and their text stay.
+ * Refused while files wait to be transcribed: they still need theirs.
+ */
+async clearSavedAudio() : Promise<ClearedAudio> {
+    return await TAURI_INVOKE("clear_saved_audio");
+},
+/**
+ * Pin an entry to keep its audio past the limit; unpinning applies the limit again.
+ */
+async setTranscriptPinned(id: number, pinned: boolean) : Promise<null> {
+    return await TAURI_INVOKE("set_transcript_pinned", { id, pinned });
+},
+/**
+ * Put back what a re-transcription replaced, which is how one is undone.
+ * `revision` is the entry's after that re-transcription: once it moved on, a
+ * later change happened and this undo no longer applies.
+ */
+async restoreTranscript(id: number, previous: Previous, revision: number) : Promise<null> {
+    return await TAURI_INVOKE("restore_transcript", { id, previous, revision });
+},
+/**
+ * What the import dialog shows about a picked or dropped file.
+ */
+async inspectAudioFile(path: string) : Promise<AudioFileInfo> {
+    return await TAURI_INVOKE("inspect_audio_file", { path });
+},
+async cancelJob(transcriptId: number) : Promise<null> {
+    return await TAURI_INVOKE("cancel_job", { transcriptId });
+},
+/**
+ * Queue an entry's saved audio to be transcribed again with the active model.
+ */
+async retranscribeTranscript(id: number) : Promise<null> {
+    return await TAURI_INVOKE("retranscribe_transcript", { id });
+},
+/**
+ * Add an audio file to History and queue its transcription with the active
+ * model. Nothing is pasted.
+ */
+async importAudioFile(path: string, language: string | null) : Promise<null> {
+    return await TAURI_INVOKE("import_audio_file", { path, language });
 }
 }
 
@@ -267,48 +295,24 @@ async relaunchApp() : Promise<null> {
 
 
 export const events = __makeEvents__<{
-cudaDownloadCancelled: CudaDownloadCancelled,
 cudaDownloadComplete: CudaDownloadComplete,
 cudaDownloadError: CudaDownloadError,
-cudaDownloadProgress: CudaDownloadProgress,
-cudaDownloadVerifying: CudaDownloadVerifying,
+jobFinished: JobFinished,
 languageReset: LanguageReset,
 modelDownloadCancelled: ModelDownloadCancelled,
-modelDownloadComplete: ModelDownloadComplete,
-modelDownloadError: ModelDownloadError,
-modelDownloadProgress: ModelDownloadProgress,
-modelDownloadRunning: ModelDownloadRunning,
-modelDownloadStart: ModelDownloadStart,
-modelEvicted: ModelEvicted,
-modelSwitched: ModelSwitched,
-pillSettingsChanged: PillSettingsChanged,
 pillWaveform: PillWaveform,
-recordingStateChanged: RecordingStateChanged,
-transcriptSaved: TranscriptSaved,
 transcriptionComplete: TranscriptionComplete,
 transcriptionError: TranscriptionError,
 transcriptionPartial: TranscriptionPartial,
 transcriptionPartialEnd: TranscriptionPartialEnd,
 transcriptionWarning: TranscriptionWarning
 }>({
-cudaDownloadCancelled: "cuda-download-cancelled",
 cudaDownloadComplete: "cuda-download-complete",
 cudaDownloadError: "cuda-download-error",
-cudaDownloadProgress: "cuda-download-progress",
-cudaDownloadVerifying: "cuda-download-verifying",
+jobFinished: "job-finished",
 languageReset: "language-reset",
 modelDownloadCancelled: "model-download-cancelled",
-modelDownloadComplete: "model-download-complete",
-modelDownloadError: "model-download-error",
-modelDownloadProgress: "model-download-progress",
-modelDownloadRunning: "model-download-running",
-modelDownloadStart: "model-download-start",
-modelEvicted: "model-evicted",
-modelSwitched: "model-switched",
-pillSettingsChanged: "pill-settings-changed",
 pillWaveform: "pill-waveform",
-recordingStateChanged: "recording-state-changed",
-transcriptSaved: "transcript-saved",
 transcriptionComplete: "transcription-complete",
 transcriptionError: "transcription-error",
 transcriptionPartial: "transcription-partial",
@@ -322,51 +326,88 @@ transcriptionWarning: "transcription-warning"
 
 /** user-defined types **/
 
-export type ActiveDownload = { id: string; status: DownloadStatus; progress: number; error: string | null }
 export type ApiError = { code: string; message: string }
-export type CatalogModel = { id: string; displayName: string; family: string; 
+export type AudioFileInfo = { name: string; sizeBytes: number;
+/**
+ * `None` when the file doesn't say how long it plays.
+ */
+durationSeconds: number | null }
+export type CatalogModel = { id: string; displayName: string; family: string;
 /**
  * Every decode path this model supports.
  */
-pipelines: Pipeline[]; defaultPipeline: Pipeline; sizeBytes: number; multilingual: boolean; description: string; detail: string; downloaded: boolean; isActive: boolean }
-export type CudaDownloadCancelled = null
-export type CudaDownloadComplete = null
-export type CudaDownloadError = string
-export type CudaDownloadProgress = number
+pipelines: Pipeline[]; defaultPipeline: Pipeline; sizeBytes: number; multilingual: boolean; description: string; detail: string }
 /**
- * Every file is downloaded; the pack is being unpacked and checked.
+ * What a window receives: the slices one commit changed, at its revision.
+ * A window gets every revision, with no patches when none of its slices
+ * changed, so it can always tell when it holds a write.
  */
-export type CudaDownloadVerifying = null
-export type CudaStatus = { 
+export type Change = { rev: number; patches: Patch[] }
+/**
+ * What clearing the saved audio did; what is left is pinned.
+ */
+export type ClearedAudio = { deleted: number; kept: number }
+/**
+ * The revision a write left its store at, so the window that made it knows
+ * when its mirror holds the result. A write that changed nothing returns the
+ * revision the store last changed at.
+ */
+export type Committed = { rev: number }
+export type CudaDownloadComplete = { attempt: number; after: Committed }
+/**
+ * The CUDA download failed; `after` is the status revision that shows it
+ * ended, so the offer reopens on a status without the download.
+ */
+export type CudaDownloadError = { attempt: number; message: string; after: Committed }
+export type CudaStatus = {
 /**
  * An NVIDIA GPU on a platform the pack is built for; CUDA is hidden otherwise.
  */
-supported: boolean; pack: PackState; 
+supported: boolean; pack: PackState;
 /**
  * Percent of the running download; `None` when idle.
  */
-downloadProgress: number | null; 
+downloadProgress: number | null;
 /**
  * The running download is unpacking and checking the pack.
  */
-verifying: boolean }
-export type DailyWordsResponse = { 
+verifying: boolean;
+/**
+ * The latest download attempt, including after it finishes.
+ */
+attempt: number }
+export type DailyWordsResponse = {
 /**
  * Local calendar day, `YYYY-MM-DD`.
  */
 day: string; words: number }
 export type DictionaryResponse = { id: number; term: string; replacement: string; hits: number; createdAt: string }
-export type DownloadStatus = "queued" | "running" | "error"
-export type DownloadedModel = { variant: string; displayName: string; sizeBytes: number; isActive: boolean }
 /**
- * A change from the settings screen.
+ * A model download as the windows see it.
  */
-export type FormatterUpdate = { enabled: boolean; provider: string; profiles: Partial<{ [key in string]: ProfileUpdate }> }
+export type Download = { id: string; status: DownloadStatus; progress: number; error: string | null }
+export type DownloadStatus = "queued" | "running" | "error"
+/**
+ * A model on disk.
+ */
+export type DownloadedModel = { variant: string; displayName: string; sizeBytes: number }
+export type ExportFormat = "txt" | "json"
+/**
+ * What History shows, to export: its search, filters and the rows it hides
+ * behind an Undo.
+ */
+export type ExportRequest = { query: string; from: string | null; to: string | null; app: string | null; sortAsc: boolean; exclude: number[]; format: ExportFormat }
+export type Exported = { path: string; count: number }
+/**
+ * One provider's endpoint from the provider modal. Saving it touches only that
+ * endpoint, so a toggle landing mid-save can't bring back an older one.
+ */
+export type FormatterDraft = { provider: string; profile: ProfileUpdate }
 /**
  * The settings screen's view: whether a key is saved, never the key.
  */
 export type FormatterView = { enabled: boolean; provider: string; profiles: Partial<{ [key in string]: ProfileView }> }
-export type HardwareProfileResponse = { gpuName: string; 
+export type HardwareProfileResponse = { gpuName: string;
 /**
  * Backend in use: the loaded model's, else the one it is expected to get.
  */
@@ -375,43 +416,85 @@ executionProvider: string; vramGb: number; ramGb: number; recommendedModel: stri
  * The global shortcuts, by role. `None` leaves a role unbound.
  */
 export type HotkeyBindings = { pushToTalk: string | null; dictation: string | null; dictationCommit: string | null }
-export type HotkeyKind = 
+export type HotkeyKind =
 /**
  * Records while held.
  */
-"pushToTalk" | 
+"pushToTalk" |
 /**
  * Starts, pauses and resumes hands-free dictation.
  */
-"dictation" | 
+"dictation" |
 /**
  * Finishes hands-free dictation.
  */
 "dictationCommit"
-export type InjectionStatus = { 
+export type InjectionStatus = {
 /**
  * `true` where injection needs external tools the user must install.
  */
-configurable: boolean; 
+configurable: boolean;
 /**
  * Human-readable session, e.g. "Wayland (GNOME)". Empty off Linux.
  */
-session: string; selected: string | null; 
+session: string; selected: string | null;
 /**
  * Best first.
  */
 tools: InjectionTool[] }
-export type InjectionTool = { name: string; available: boolean; preferred: boolean; installHint: string }
+export type InjectionTool = { name: string; available: boolean; preferred: boolean;
 /**
- * A selectable microphone. `is_default` marks the OS default; `is_selected`
- * marks the saved preference.
+ * Terminal commands (or a link) to get it, each copied on its own.
  */
-export type InputDeviceInfo = { 
+install: string[]; note: string | null }
+/**
+ * A selectable microphone. `is_default` marks the OS default.
+ */
+export type InputDeviceInfo = {
 /**
  * What to save: identical mics share a name.
  */
-id: string; name: string; isDefault: boolean; isSelected: boolean }
-export type LanguageOption = { 
+id: string; name: string; isDefault: boolean }
+export type JobFinish = { transcriptId: number; kind: JobKind; outcome: JobOutcome;
+/**
+ * What a re-transcription replaced, which Undo restores.
+ */
+previous: Previous | null;
+/**
+ * The entry with its new text. An import that wasn't done is deleted.
+ */
+entry: TranscriptResponse | null;
+/**
+ * Why the job failed, for the user.
+ */
+message: string | null }
+/**
+ * A transcription job ended, by finishing, being cancelled or failing.
+ */
+export type JobFinished = JobFinish
+export type JobKind = "retranscribe" | "import"
+export type JobOutcome = "done" | "cancelled" | "failed"
+/**
+ * A queued or running job.
+ */
+export type JobSnapshot = { transcriptId: number; kind: JobKind;
+/**
+ * What the job is about: the file's name, or the start of the entry's text.
+ */
+label: string; model: string;
+/**
+ * Waiting for the jobs ahead of it.
+ */
+queued: boolean;
+/**
+ * 0 to 1.
+ */
+progress: number;
+/**
+ * Waiting for a recording to finish.
+ */
+paused: boolean }
+export type LanguageOption = {
 /**
  * ISO code, or `auto` for the detect-per-decode sentinel.
  */
@@ -420,55 +503,41 @@ code: string; name: string; isSelected: boolean }
  * The new model cannot speak the saved dictation language, so it was reset.
  */
 export type LanguageReset = null
-export type LanguageSettings = { 
+export type LanguageSettings = {
 /**
- * Whether the active model handles anything but English.
+ * Whether the model handles anything but English.
  */
-supported: boolean; 
+supported: boolean;
 /**
  * Empty when `supported` is false.
  */
 options: LanguageOption[] }
+/**
+ * A model download was cancelled, from any window.
+ */
 export type ModelDownloadCancelled = { id: string }
-export type ModelDownloadComplete = { id: string }
-export type ModelDownloadError = { id: string; error: string }
-export type ModelDownloadProgress = { id: string; pct: number }
-/**
- * A queued download got a transfer slot.
- */
-export type ModelDownloadRunning = { id: string }
-export type ModelDownloadStart = { id: string }
-/**
- * The active model was deleted and no other is on disk.
- */
-export type ModelEvicted = null
-export type ModelInfoResponse = { downloaded: boolean; modelName: string }
-/**
- * The active model was deleted and another on disk took its place.
- */
-export type ModelSwitched = null
 /**
  * When an idle model is unloaded.
  */
 export type ModelUnload = "never" | "after2Minutes" | "after5Minutes" | "after10Minutes" | "after15Minutes" | "after1Hour"
-export type PackState = "absent" | 
+export type PackState = "absent" |
 /**
  * Unsigned, so never loaded: installed before verification existed.
  */
-"unverified" | 
+"unverified" |
 /**
  * Usable by this build; loaded unless the driver is missing or too old.
  */
-"installed" | 
+"installed" |
 /**
  * Signed and current, but a library failed its integrity check at start, so
  * it was not loaded. Downloading again repairs it.
  */
-"damaged" | 
+"damaged" |
 /**
  * Downloaded; applied at the next start.
  */
-"pendingInstall" | 
+"pendingInstall" |
 /**
  * Removed while loaded; deleted at the next start.
  */
@@ -476,34 +545,89 @@ export type PackState = "absent" |
 /**
  * Pagination, cursor and filter args shared by the transcript list and search.
  */
-export type PageQuery = { limit: number | null; cursorCreatedAt: string | null; cursorId: number | null; from: string | null; to: string | null; sortAsc: boolean | null }
+export type PageQuery = { limit: number | null; cursorCreatedAt: string | null; cursorId: number | null; from: string | null; to: string | null;
+/**
+ * Only entries dictated into this app.
+ */
+app: string | null; sortAsc: boolean | null }
+/**
+ * How a finished transcript is pasted where the clipboard route applies.
+ */
+export type PasteMode =
+/**
+ * Ctrl+Shift+V in a terminal, Ctrl+V anywhere else.
+ */
+"auto" | "ctrlV" | "ctrlShiftV" | "shiftInsert" |
+/**
+ * Leave the transcript on the clipboard and send no keys.
+ */
+"copyOnly"
+/**
+ * One slice's whole value.
+ */
+export type Patch = { slice: "settings"; value: SettingsView } |
+/**
+ * The shortcuts the OS granted, which can be fewer than the saved ones.
+ */
+{ slice: "hotkeys"; value: HotkeyBindings } |
+/**
+ * The models on disk.
+ */
+{ slice: "models"; value: DownloadedModel[] } |
+/**
+ * Model downloads queued, running or failed.
+ */
+{ slice: "downloads"; value: Download[] } |
+/**
+ * The CUDA pack; `None` until the GPU has been probed.
+ */
+{ slice: "cuda"; value: CudaStatus | null } |
+/**
+ * The recording, and the saved changes it does not use.
+ */
+{ slice: "recording"; value: RecordingSnapshot } |
+/**
+ * The running transcription job, then the queued ones.
+ */
+{ slice: "jobs"; value: JobSnapshot[] } |
+/**
+ * Dictionary entries and their use counts, sorted by term.
+ */
+{ slice: "dictionary"; value: DictionaryResponse[] } |
+/**
+ * Bytes the saved audio takes and whether retention needs a retry.
+ */
+{ slice: "savedAudio"; value: SavedAudioStatus } |
+/**
+ * Writes to History rows; a window reads the rows it shows again at each.
+ */
+{ slice: "history"; value: number } |
+/**
+ * Writes that change History's totals and daily words.
+ */
+{ slice: "historyTotals"; value: number }
 /**
  * The pill's box in CSS pixels, relative to the window's client area.
  */
 export type PillHitbox = { x: number; y: number; width: number; height: number }
 /**
+ * One pill preference, changed on its own, so two quick edits of different
+ * ones can't overwrite each other.
+ */
+export type PillSetting = { kind: "theme"; value: PillTheme } | { kind: "waveformStyle"; value: WaveformStyle } | { kind: "liveTranscript"; value: boolean } | { kind: "startSound"; value: boolean }
+/**
  * Preferences both windows read: the settings screen edits them, the pill
  * draws with them.
  */
-export type PillSettings = { theme: PillTheme; waveformStyle: WaveformStyle; 
+export type PillSettings = { theme: PillTheme; waveformStyle: WaveformStyle;
 /**
  * Expand the pill into a card that fills in while recording.
  */
-liveTranscript: boolean; 
+liveTranscript: boolean;
 /**
  * Chime once the microphone is live, in either recording mode.
  */
 startSound: boolean }
-/**
- * The pill's preferences changed. Carries the revision so a window can drop
- * an update older than the snapshot it already holds.
- */
-export type PillSettingsChanged = PillSettingsSnapshot
-/**
- * `PillSettings` as of a revision. Revisions only grow, so a window can drop
- * an event older than the snapshot it already holds.
- */
-export type PillSettingsSnapshot = { revision: number; settings: PillSettings }
 export type PillTheme = "steel" | "midnight" | "aurora" | "canvas" | "dawn" | "glass"
 /**
  * Capture levels for the pill waveform, one per band, 0–1.
@@ -514,7 +638,11 @@ export type PillWaveform = [number, number, number, number, number, number, numb
  * buffer per call, [`Self::Streaming`] is fed incrementally.
  */
 export type Pipeline = "single-shot" | "streaming"
-export type ProfileUpdate = { baseUrl: string; model: string; 
+/**
+ * An entry's text and model before a re-transcription.
+ */
+export type Previous = { text: string; model: string | null }
+export type ProfileUpdate = { baseUrl: string; model: string;
 /**
  * `None` keeps the saved key, an empty string removes it.
  */
@@ -525,29 +653,86 @@ export type ProfileView = { baseUrl: string; model: string; hasApiKey: boolean }
  * it started with.
  */
 export type RecordingInput = "model" | "microphone" | "language"
-export type RecordingSnapshot = { revision: number; status: RecordingStatus; 
+export type RecordingSnapshot = { status: RecordingStatus;
 /**
  * Saved changes the recording in progress does not use.
  */
 deferred: RecordingInput[] }
-export type RecordingStateChanged = RecordingSnapshot
 export type RecordingStatus = "idle" | "recording" | "dictation" | "dictation-paused" | "processing"
-export type TranscriptResponse = { id: number; content: string; wordCount: number; durationSeconds: number | null; 
+/**
+ * Whether dictations keep their audio, and for how many of the newest ones.
+ */
+export type SavedAudio = { enabled: boolean; keep: number }
+/**
+ * One saved-audio choice, changed on its own, so a quick toggle and a change
+ * of the limit can't overwrite each other.
+ */
+export type SavedAudioSetting = { kind: "enabled"; value: boolean } | { kind: "keep"; value: number }
+export type SavedAudioStatus = { bytes: number; cleanupFailed: boolean }
+/**
+ * What the windows mirror of the saved preferences. Keys never belong here.
+ */
+export type SettingsView = {
+/**
+ * Catalog id of the model recordings use: the saved choice, else the
+ * hardware pick.
+ */
+activeModel: string;
+/**
+ * The saved shortcuts; the OS may grant fewer (`Patch::Hotkeys`).
+ */
+hotkeys: HotkeyBindings;
+/**
+ * The active model's languages, with the saved one marked.
+ */
+language: LanguageSettings; modelUnload: ModelUnload;
+/**
+ * Input device id; `None` follows the OS default.
+ */
+inputDevice: string | null; keepMicOpen: boolean; savedAudio: SavedAudio; pasteMode: PasteMode; formatter: FormatterView; pill: PillSettings }
+/**
+ * The name of a slice, for a window to say which ones it mirrors.
+ */
+export type SliceName = "settings" | "hotkeys" | "models" | "downloads" | "cuda" | "recording" | "jobs" | "dictionary" | "savedAudio" | "history" | "historyTotals"
+export type TranscriptResponse = { id: number; content: string; wordCount: number; durationSeconds: number | null;
 /**
  * App the transcript was dictated into; `None` when it wasn't determined.
  */
-targetApp: string | null; createdAt: string }
-export type TranscriptSaved = TranscriptResponse
+targetApp: string | null; createdAt: string;
+/**
+ * Kept past the saved-audio limit.
+ */
+pinned: boolean;
+/**
+ * Where the saved audio is, when the entry has some.
+ */
+audioPath: string | null;
+/**
+ * File name of the imported audio, for entries that were not dictated.
+ */
+sourceName: string | null;
+/**
+ * Catalog id of the model that produced the text.
+ */
+model: string | null;
+/**
+ * An import whose text is still being transcribed.
+ */
+pending: boolean;
+/**
+ * Changes with every rewrite of the text; Undo names the one it undoes.
+ */
+revision: number }
 /**
  * A recording finished. Saving and pasting are reported separately: a failed
  * paste leaves the transcript in history, a failed save still pastes.
  */
-export type TranscriptionComplete = { 
+export type TranscriptionComplete = {
 /**
  * Why the transcript could not be pasted; `None` when it was, or when
  * there was nothing to paste.
  */
-pasteError: string | null; 
+pasteError: string | null;
 /**
  * The transcript is in history. A failed paste may only point there
  * when this is set.

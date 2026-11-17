@@ -5,7 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { getName } from '@tauri-apps/api/app'
 import { useAppStore } from './store/useAppStore'
 import { ROUTES } from './routes'
-import { useHotkeys } from '../features/settings/queries'
+import { useSlice } from './mirror'
 import { preloadRoute } from './routeModules'
 import { cn } from '../shared/utils'
 import logoUrl from '../assets/logo.png'
@@ -84,7 +84,7 @@ const NAV = [
 
 export function Layout() {
   const setActiveRoute = useAppStore((s) => s.setActiveRoute)
-  const hasHotkey = useHotkeys(hotkeys => hotkeys.pushToTalk !== null).data ?? false
+  const hasHotkey = useSlice('settings', settings => settings.hotkeys.pushToTalk !== null)
   const location = useLocation()
 
   useEffect(() => {
