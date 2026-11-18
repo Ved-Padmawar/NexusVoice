@@ -9,13 +9,8 @@ import ibm from '../assets/providers/ibm.svg?react'
 import qwen from '../assets/providers/qwen.svg?react'
 import moonshinePng from '../assets/providers/moonshine.png'
 
-/**
- * The single registry of vendor logos.
- *
- * Both the LLM provider picker and the model catalog resolve through here, so a
- * logo is declared once. All marks are real vendor files inlined at build time —
- * nothing is fetched at runtime, which the app's CSP would block anyway.
- */
+/** Every vendor logo, for the provider picker and the model catalog. Inlined
+ *  at build time: the CSP blocks fetching them. */
 
 type Vendor = {
   Mark: ComponentType<SVGProps<SVGSVGElement>>

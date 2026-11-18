@@ -3,7 +3,7 @@ import { MinusIcon, PlusIcon, TrashIcon, WaveformIcon } from '@phosphor-icons/re
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { cn } from '../../shared/utils'
+import { cn, formatBytes } from '../../shared/utils'
 import { useSlice } from '../../app/mirror'
 import { useChoice } from '../../app/useChoice'
 import { Switch } from '../../shared/ui/Switch'
@@ -17,9 +17,6 @@ const MAX_KEEP = 100
 const saveEnabled = (value: boolean) => commands.setSavedAudio({ kind: 'enabled', value })
 const saveKeep = (value: number) => commands.setSavedAudio({ kind: 'keep', value })
 const saveFailed = (e: unknown) => toast.error(extractErrorMessage(e, 'Could not save the audio setting'))
-
-const fmtBytes = (bytes: number) =>
-  bytes >= 1_048_576 ? `${(bytes / 1_048_576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`
 
 const stepper = 'grid size-7 cursor-pointer place-items-center text-fg-2 hover:text-fg disabled:cursor-default disabled:opacity-40 disabled:hover:text-fg-2'
 
@@ -66,7 +63,7 @@ export function SavedAudioSection() {
         tip="Lets you replay or re-transcribe an entry from History. Dictations and imported files share the limit. Stored as WAV, about 1.9 MB a minute. Pinned entries always keep theirs, and a file still being transcribed keeps its audio until it finishes, even with this off."
         description={
           <p className="text-xs text-muted tabular-nums">
-            {shown.enabled ? `Last ${shown.keep} entries · ${fmtBytes(remaining)}` : remaining ? `Off · ${fmtBytes(remaining)} still saved` : 'Off'}
+            {shown.enabled ? `Last ${shown.keep} entries · ${formatBytes(remaining)}` : remaining ? `Off · ${formatBytes(remaining)} still saved` : 'Off'}
           </p>
         }
         below={cleanupFailed && (

@@ -6,7 +6,6 @@ import { showMainWindow } from './showMainWindow'
 import { bootstrapMirror } from './mirrorBootstrap'
 import { ALL_SLICES } from './mirror'
 
-// Forward browser console to Tauri log file (no-op if plugin unavailable)
 attachConsole().catch(() => {})
 
 // Apply the persisted theme before React's first paint. App keeps it in sync.

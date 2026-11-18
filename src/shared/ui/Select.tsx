@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { CheckIcon, CaretDownIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
-import { cn } from '@/shared/utils'
+import { cn } from '../utils'
 import { Popover } from './Popover'
 
 export type SelectOption<T extends string> = {

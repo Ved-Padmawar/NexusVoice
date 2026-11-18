@@ -1,30 +1,32 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import { createPortal } from 'react-dom'
 import { LightningIcon, CheckIcon, HardDrivesIcon, GraphicsCardIcon, GlobeIcon, BroadcastIcon, DownloadSimpleIcon, CircleNotchIcon, ArrowsClockwiseIcon } from '@phosphor-icons/react'
-import { commands } from '../../shared/bindings'
 import { useEventListener } from '../../shared/hooks'
 import { extractErrorMessage } from '../../shared/errors'
 import { cn } from '../../shared/utils'
 import { formatModelSize, isStreaming, modelNameToId, sortForDisplay, type ModelId } from './models'
 import {
-  NO_MODELS, startDownload, useActiveModelDownloaded, useActiveModelId, useCatalog, useDownload,
+  NO_MODELS, startDownload, useActiveModelDownloaded, useActiveModelId, useCatalog, useDownload, useHardwareProfile,
 } from './queries'
 import { useAppStore } from '../../app/store/useAppStore'
 import { Button } from '../../shared/ui/Button'
-import type { HardwareProfile } from '../../shared/types'
+import { Modal } from '../../shared/ui/Modal'
 
 export function ModelPickerModal() {
   const setModelChosen = useAppStore(s => s.setModelChosen)
   const catalogQuery = useCatalog()
   const catalog = catalogQuery.data ?? NO_MODELS
 
-  const [profile, setProfile] = useState<HardwareProfile | null>(null)
-  const [selected, setSelected] = useState<ModelId | null>(null)
+  const hardware = useHardwareProfile()
+  const profile = hardware.data
+  // Until the user picks, the pick is the recommendation.
+  const [picked, setPicked] = useState<ModelId | null>(null)
+  const recommended = profile ? modelNameToId(profile.recommendedModel, catalog) : null
+  const selected = picked ?? recommended
   const [confirming, setConfirming] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
-  // Otherwise Confirm sits disabled with no explanation when the probe fails.
-  const [hardwareError, setHardwareError] = useState<string | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
+  // Otherwise Confirm sits disabled with no explanation when the probe fails.
+  const hardwareError = hardware.isError ? extractErrorMessage(hardware.error, 'Could not detect your hardware') : null
   const loadError = catalogQuery.isError ? 'Could not load the model catalog.' : hardwareError ?? startError
 
   // Returning user whose modelChosen got reset but model is on disk: skip the
@@ -36,19 +38,6 @@ export function ModelPickerModal() {
     if (onDiskAtOpen) setModelChosen(true)
   }, [onDiskAtOpen, setModelChosen])
 
-  useEffect(() => {
-    if (catalog.length === 0) return
-    commands.getHardwareProfile()
-      .then(p => {
-        setProfile(p)
-        // Only a default: the probe can finish after the user has picked.
-        setSelected(current => current ?? modelNameToId(p.recommendedModel, catalog))
-      })
-      .catch((e: unknown) => {
-        // A model can still be picked by hand; only the recommendation is lost.
-        setHardwareError(extractErrorMessage(e, 'Could not detect your hardware'))
-      })
-  }, [catalog])
 
   // The pick whose download is awaited, from the click on, so a cancel that
   // lands while the download is still starting is not missed.
@@ -88,7 +77,6 @@ export function ModelPickerModal() {
     if (confirmed && switched) setModelChosen(true)
   }, [confirmed, switched, setModelChosen])
 
-  const recommended = profile ? modelNameToId(profile.recommendedModel, catalog) : null
   const selectedModel = catalog.find(m => m.id === selected) ?? null
   const ordered = useMemo(() => sortForDisplay(catalog), [catalog])
 
@@ -115,171 +103,168 @@ export function ModelPickerModal() {
     }
   }, [ordered.length])
 
-  // Portaled out of #root, which is a fixed-height `overflow: hidden` box.
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center overscroll-none bg-black/60 backdrop-blur-[2px]">
-      <div className="w-[min(660px,92vw)] max-h-[88vh] flex flex-col bg-panel border border-line rounded-xl shadow-(--shadow-lg) overflow-hidden transition-[opacity,scale,translate] duration-220 ease-out starting:translate-y-2 starting:scale-96 starting:opacity-0">
-        <div className="shrink-0 px-6 pt-5 pb-4 border-b border-line-soft">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-md bg-accent flex items-center justify-center text-accent-fg shrink-0">
-              <LightningIcon size={14} weight="bold" />
-            </div>
-            <div>
-              <h2 className="text-[15px] font-bold tracking-tight text-fg">Choose your AI model</h2>
-              <p className="text-[11px] text-muted mt-px">Select once - you can change this later in Settings.</p>
-            </div>
+  // No onClose: a model must be chosen before the app can record.
+  return (
+    <Modal open aria-labelledby="picker-title" className="max-h-[88vh] w-[min(660px,92vw)] overscroll-none">
+      <div className="shrink-0 px-6 pt-5 pb-4 border-b border-line-soft">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-8 h-8 rounded-md bg-accent flex items-center justify-center text-accent-fg shrink-0">
+            <LightningIcon size={14} weight="bold" />
           </div>
+          <div>
+            <h2 id="picker-title" className="text-[15px] font-bold tracking-tight text-fg">Choose your AI model</h2>
+            <p className="text-[11px] text-muted mt-px">Select once - you can change this later in Settings.</p>
+          </div>
+        </div>
 
-          {profile && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface border border-line-soft w-fit">
-              <GraphicsCardIcon size={10} className="text-muted" />
-              <span className="text-[10px] text-fg-2">
-                {profile.gpuName} · {profile.executionProvider.toUpperCase()}
-                {profile.vramGb > 0 ? ` · ${profile.vramGb} GB VRAM` : ''}
+        {profile && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface border border-line-soft w-fit">
+            <GraphicsCardIcon size={10} className="text-muted" />
+            <span className="text-[10px] text-fg-2">
+              {profile.gpuName} · {profile.executionProvider.toUpperCase()}
+              {profile.vramGb > 0 ? ` · ${profile.vramGb} GB VRAM` : ''}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Measured: an always-on `auto` box still takes wheel input when nothing is clipped. */}
+      <div
+        ref={bodyRef}
+        className={`min-h-0 overscroll-none overflow-x-hidden px-6 pt-2.75 pb-4 ${
+          overflowing ? 'overflow-y-auto' : 'overflow-y-hidden'
+        }`}
+      >
+        <div ref={gridRef} className="grid grid-cols-2 gap-2">
+          {ordered.map(model => {
+            const { id, displayName, description, sizeBytes, multilingual } = model
+            const streaming = isStreaming(model)
+            const isRecommended = recommended === id
+            const active = selected === id
+            return (
+              <button
+                key={id}
+                type="button"
+                disabled={confirming}
+                onClick={() => setPicked(id)}
+                title={model.detail}
+                className={cn(
+                  'flex items-start gap-2.5 px-3 py-2 rounded-lg border-[1.5px] text-left cursor-pointer disabled:cursor-not-allowed transition-[background-color,border-color,scale] duration-200 active:scale-99',
+                  active ? 'border-accent bg-accent-soft' : 'border-line bg-surface hover:bg-surface-hover',
+                )}
+              >
+                <div className={cn(
+                  'w-4 h-4 rounded-full border-[1.5px] flex items-center justify-center shrink-0 mt-0.5 transition-colors duration-200',
+                  active ? 'border-accent bg-accent' : 'border-line bg-transparent',
+                )}>
+                  {active && <CheckIcon size={9} className="text-accent-fg" weight="bold" />}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className={cn('text-[12.5px] font-semibold leading-tight truncate transition-colors duration-200', active ? 'text-accent-ink' : 'text-fg')}>
+                      {displayName}
+                    </span>
+                    {isRecommended && (
+                      <span className="shrink-0 text-[8.5px] font-bold text-accent-ink bg-accent-soft border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] rounded-xs px-1 py-px uppercase tracking-wider">
+                        Best
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10.5px] text-muted leading-snug truncate">
+                    {description}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1 text-[10px] text-muted">
+                    <span className="flex items-center gap-1">
+                      <HardDrivesIcon size={10} />
+                      <span className="tabular-nums">{formatModelSize(sizeBytes)}</span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <GlobeIcon size={10} />
+                      {multilingual ? 'Multilingual' : 'English'}
+                    </span>
+                    {streaming && (
+                      <span className="flex items-center gap-1 text-accent-ink font-semibold">
+                        <BroadcastIcon size={10} weight="bold" />
+                        Live
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="shrink-0 px-6 py-3 border-t border-line-soft">
+        {confirmed && download?.status === 'error' ? (
+          <div className="flex items-center justify-between gap-4 transition-opacity starting:opacity-0">
+            <p className="text-[11px] min-w-0 truncate text-danger">
+              {download.error ?? 'Download failed'}
+            </p>
+            <Button variant="tinted" className="shrink-0 min-w-44" onClick={backToChoice}>
+              <ArrowsClockwiseIcon size={12} weight="bold" />
+              Try again
+            </Button>
+          </div>
+        ) : confirmed ? (
+          <div className="flex flex-col gap-2 transition-opacity starting:opacity-0">
+            <div className="flex items-center justify-between text-[11px] mb-1">
+              <span className="text-fg-2">
+                {download ? 'Downloading model…' : 'Download complete - loading…'}
+              </span>
+              <span className="text-accent-ink font-semibold tabular-nums">
+                {download?.progress ?? 100}%
               </span>
             </div>
-          )}
-        </div>
-
-        {/* Measured: an always-on `auto` box still takes wheel input when nothing is clipped. */}
-        <div
-          ref={bodyRef}
-          className={`min-h-0 overscroll-none overflow-x-hidden px-6 pt-2.75 pb-4 ${
-            overflowing ? 'overflow-y-auto' : 'overflow-y-hidden'
-          }`}
-        >
-          <div ref={gridRef} className="grid grid-cols-2 gap-2">
-            {ordered.map(model => {
-              const { id, displayName, description, sizeBytes, multilingual } = model
-              const streaming = isStreaming(model)
-              const isRecommended = recommended === id
-              const active = selected === id
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  disabled={confirming}
-                  onClick={() => setSelected(id)}
-                  title={model.detail}
-                  className={cn(
-                    'flex items-start gap-2.5 px-3 py-2 rounded-lg border-[1.5px] text-left cursor-pointer disabled:cursor-not-allowed transition-[background-color,border-color,scale] duration-200 active:scale-99',
-                    active ? 'border-accent bg-accent-soft' : 'border-line bg-surface hover:bg-surface-hover',
-                  )}
-                >
-                  <div className={cn(
-                    'w-4 h-4 rounded-full border-[1.5px] flex items-center justify-center shrink-0 mt-0.5 transition-colors duration-200',
-                    active ? 'border-accent bg-accent' : 'border-line bg-transparent',
-                  )}>
-                    {active && <CheckIcon size={9} className="text-accent-fg" weight="bold" />}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className={cn('text-[12.5px] font-semibold leading-tight truncate transition-colors duration-200', active ? 'text-accent-ink' : 'text-fg')}>
-                        {displayName}
-                      </span>
-                      {isRecommended && (
-                        <span className="shrink-0 text-[8.5px] font-bold text-accent-ink bg-accent-soft border border-[color-mix(in_srgb,var(--accent)_30%,transparent)] rounded-xs px-1 py-px uppercase tracking-wider">
-                          Best
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[10.5px] text-muted leading-snug truncate">
-                      {description}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1 text-[10px] text-muted">
-                      <span className="flex items-center gap-1">
-                        <HardDrivesIcon size={10} />
-                        <span className="tabular-nums">{formatModelSize(sizeBytes)}</span>
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <GlobeIcon size={10} />
-                        {multilingual ? 'Multilingual' : 'English'}
-                      </span>
-                      {streaming && (
-                        <span className="flex items-center gap-1 text-accent-ink font-semibold">
-                          <BroadcastIcon size={10} weight="bold" />
-                          Live
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              )
-            })}
+            <div className="h-0.75 rounded-full bg-line overflow-hidden">
+              <div
+                className="h-full rounded-full bg-accent transition-[width] duration-300 ease-linear starting:w-0"
+                style={{ width: `${download?.progress ?? 100}%` }}
+              />
+            </div>
           </div>
-        </div>
-
-        <div className="shrink-0 px-6 py-3 border-t border-line-soft">
-          {confirmed && download?.status === 'error' ? (
-            <div className="flex items-center justify-between gap-4 transition-opacity starting:opacity-0">
-              <p className="text-[11px] min-w-0 truncate text-danger">
-                {download.error ?? 'Download failed'}
-              </p>
-              <Button variant="tinted" className="shrink-0 min-w-44" onClick={backToChoice}>
+        ) : (
+          <div className="flex items-center justify-between gap-4 transition-opacity starting:opacity-0">
+            <p className={`text-[11px] min-w-0 truncate ${loadError ? 'text-danger' : 'text-muted'}`}>
+              {loadError ??
+                (selectedModel
+                  ? `${selectedModel.displayName} · ${formatModelSize(selectedModel.sizeBytes)} download`
+                  : 'Select a model to continue')}
+            </p>
+            {loadError && catalog.length === 0 ? (
+              <Button
+                variant="primary"
+                className="shrink-0 min-w-44"
+                onClick={() => void catalogQuery.refetch()}
+              >
                 <ArrowsClockwiseIcon size={12} weight="bold" />
                 Try again
               </Button>
-            </div>
-          ) : confirmed ? (
-            <div className="flex flex-col gap-2 transition-opacity starting:opacity-0">
-              <div className="flex items-center justify-between text-[11px] mb-1">
-                <span className="text-fg-2">
-                  {download ? 'Downloading model…' : 'Download complete - loading…'}
-                </span>
-                <span className="text-accent-ink font-semibold tabular-nums">
-                  {download?.progress ?? 100}%
-                </span>
-              </div>
-              <div className="h-0.75 rounded-full bg-line overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-accent transition-[width] duration-300 ease-linear starting:w-0"
-                  style={{ width: `${download?.progress ?? 100}%` }}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between gap-4 transition-opacity starting:opacity-0">
-              <p className={`text-[11px] min-w-0 truncate ${loadError ? 'text-danger' : 'text-muted'}`}>
-                {loadError ??
-                  (selectedModel
-                    ? `${selectedModel.displayName} · ${formatModelSize(selectedModel.sizeBytes)} download`
-                    : 'Select a model to continue')}
-              </p>
-              {loadError && catalog.length === 0 ? (
-                <Button
-                  variant="primary"
-                  className="shrink-0 min-w-44"
-                  onClick={() => void catalogQuery.refetch()}
-                >
-                  <ArrowsClockwiseIcon size={12} weight="bold" />
-                  Try again
-                </Button>
+            ) : (
+            <Button
+              variant="tinted"
+              className="shrink-0 min-w-44"
+              onClick={handleConfirm}
+              disabled={confirming || !selected}
+            >
+              {confirming ? (
+                <>
+                  <CircleNotchIcon size={12} className="animate-spin" weight="bold" />
+                  Starting download…
+                </>
               ) : (
-              <Button
-                variant="tinted"
-                className="shrink-0 min-w-44"
-                onClick={handleConfirm}
-                disabled={confirming || !selected}
-              >
-                {confirming ? (
-                  <>
-                    <CircleNotchIcon size={12} className="animate-spin" weight="bold" />
-                    Starting download…
-                  </>
-                ) : (
-                  <>
-                    <DownloadSimpleIcon size={12} weight="bold" />
-                    Download &amp; continue
-                  </>
-                )}
-              </Button>
+                <>
+                  <DownloadSimpleIcon size={12} weight="bold" />
+                  Download &amp; continue
+                </>
               )}
-            </div>
-          )}
-        </div>
+            </Button>
+            )}
+          </div>
+        )}
       </div>
-    </div>,
-    document.body
+    </Modal>
   )
 }

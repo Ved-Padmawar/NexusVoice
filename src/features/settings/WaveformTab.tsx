@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from 'react'
+import { memo, useEffect, useRef, type RefObject } from 'react'
 import { Swatch } from '../../shared/ui/Swatch'
 import { WaveformCanvas } from '../../shared/ui/WaveformCanvas'
 import { BARS, ease } from '../../shared/waveform'
@@ -28,7 +28,7 @@ const MAX_H = 16
  * thread, which is silent here — random noise would make every style look
  * alike, so this fakes syllables, phonemes and breaths instead.
  */
-function usePreviewLevels(rootRef: React.RefObject<HTMLElement | null>) {
+function usePreviewLevels(rootRef: RefObject<HTMLElement | null>) {
   const levelsRef = useRef<number[]>(new Array(BARS).fill(0))
 
   useEffect(() => {
@@ -87,7 +87,7 @@ function usePreviewLevels(rootRef: React.RefObject<HTMLElement | null>) {
 
 /** The `bars` style is DOM-drawn, so the preview mirrors that rather than
  *  reimplementing it on canvas — what you see is what the pill renders. */
-function BarsPreview({ levelsRef, accent }: { levelsRef: React.RefObject<number[]>; accent: string }) {
+function BarsPreview({ levelsRef, accent }: { levelsRef: RefObject<number[]>; accent: string }) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -121,7 +121,7 @@ function BarsPreview({ levelsRef, accent }: { levelsRef: React.RefObject<number[
 /** The pill at true recording size (80px), in the user's pill theme. */
 function PreviewPill({ style, levelsRef, theme }: {
   style: WaveformStyle
-  levelsRef: React.RefObject<number[]>
+  levelsRef: RefObject<number[]>
   theme: PillThemeDef
 }) {
   return (
@@ -153,7 +153,7 @@ function StyleSwatch({ s, active, onPick, levelsRef, theme }: {
   s: StyleDef
   active: boolean
   onPick: () => void
-  levelsRef: React.RefObject<number[]>
+  levelsRef: RefObject<number[]>
   theme: PillThemeDef
 }) {
   return (

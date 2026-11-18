@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { WAVEFORM_RENDERERS, ACCENT_RGB, type RenderState } from '../waveform'
 import { subscribeEveryFrame, subscribeWhileVisible } from '../frameClock'
 import type { WaveformStyle } from '../types'
@@ -8,7 +8,7 @@ type Props = {
   width: number
   height: number
   /** Latest capture frame (8 levels, 0–1). Read through a ref each frame. */
-  levelsRef: React.RefObject<number[]>
+  levelsRef: RefObject<number[]>
   accent?: string
   /** Faint motion during silence. Settings previews only — see RenderArgs. */
   idleMotion?: boolean
@@ -17,12 +17,8 @@ type Props = {
   preview?: boolean
 }
 
-/**
- * Drives one canvas waveform style.
- *
- * Levels come in through a ref rather than a prop so a 30 Hz capture stream
- * never re-renders React — the loop just reads the newest frame it has.
- */
+/** Draws one canvas waveform style. Levels arrive through a ref, so a 30 Hz
+ *  stream never re-renders React. */
 export function WaveformCanvas({ style, width, height, levelsRef, accent = ACCENT_RGB, idleMotion = false, preview = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const stateRef = useRef<RenderState>({})

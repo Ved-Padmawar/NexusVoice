@@ -6,14 +6,9 @@ import { CopyButton } from '../../shared/ui/CopyButton'
 import { Popover } from '../../shared/ui/Popover'
 import type { InjectionStatus, InjectionTool } from '../../shared/types'
 
-/**
- * Linux needs an external helper to type transcripts, because Wayland does not
- * let an application send keystrokes to another window. Which helper works
- * depends on the compositor, so the choice is shown rather than left to fail
- * silently — a missing tool means nothing is ever pasted.
- *
- * Renders nothing on Windows and macOS, where the clipboard needs no setup.
- */
+/** Linux types transcripts through an external tool (Wayland forbids synthesized
+ *  keystrokes), and which one works depends on the compositor, so the choice is
+ *  shown: a missing tool means nothing is ever pasted. Nothing on Windows or macOS. */
 export function TextInjectionSection() {
   const [status, setStatus] = useState<InjectionStatus | null>(null)
   const [checking, setChecking] = useState(false)

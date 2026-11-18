@@ -1,12 +1,11 @@
-import { useState, useCallback, useRef, useEffect, memo } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { toast } from 'sonner'
 import { KeyboardIcon, MicrophoneIcon, FloppyDiskIcon, XIcon, PencilSimpleIcon, RecordIcon, type Icon } from '@phosphor-icons/react'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
-import { SUPER_KEY_LABEL } from '../../shared/platform'
 import type { HotkeyKind } from '../../shared/types'
 import { Button } from '../../shared/ui/Button'
-import { Kbd } from '../../shared/ui/Kbd'
+import { HotkeyKeys } from '../../shared/ui/Kbd'
 import { mirrored, useSlice } from '../../app/mirror'
 
 type HotkeyConfig = {
@@ -28,14 +27,6 @@ function getKeyName({ key, code }: KeyboardEvent): string {
   return code
 }
 
-const KEY_DISPLAY: Record<string, string> = {
-  // Super is the Windows logo key on Win/Linux and Command on macOS — the
-  // internal accelerator token stays "Super" everywhere; only the label differs.
-  Ctrl: 'Ctrl', Super: SUPER_KEY_LABEL, Return: 'Enter', Delete: 'Del',
-  ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
-}
-const displayKey = (k: string) => KEY_DISPLAY[k] ?? k
-
 function buildShortcut(keys: string[]): string {
   const ORDER = ['Ctrl', 'Alt', 'Shift', 'Super']
   const mods: string[] = []
@@ -50,14 +41,6 @@ function buildShortcut(keys: string[]): string {
   mods.sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b))
   return main ? [...mods, main].join('+') : mods.join('+')
 }
-
-const KeyBadges = memo(function KeyBadges({ keys }: { keys: string[] }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      {keys.map((k, idx) => <Kbd key={`${k}-${idx}`}>{displayKey(k)}</Kbd>)}
-    </span>
-  )
-})
 
 function HotkeyCard({ config, currentHotkey, inactive }: {
   config: HotkeyConfig
@@ -115,10 +98,11 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
         setPressedKeys(Array.from(keysRef.current))
       }
     }
+    // The first release ends the capture; the keys held so far are the shortcut.
     const onUp = (e: KeyboardEvent) => {
       e.preventDefault()
       e.stopPropagation()
-      setTimeout(() => setIsListening(false), 200)
+      setIsListening(false)
     }
     const onOutside = (e: MouseEvent) => {
       if (hotkeyRef.current && !hotkeyRef.current.contains(e.target as Node)) cancelListening()
@@ -198,13 +182,13 @@ function HotkeyCard({ config, currentHotkey, inactive }: {
         className={`flex h-9 min-w-40 cursor-pointer items-center justify-center gap-1 rounded-lg px-3 ring-1 ring-inset transition ${editing ? 'bg-accent-soft ring-accent' : 'bg-field ring-line-soft hover:ring-line'}`}
       >
         {pressedKeys.length > 0 ? (
-          <KeyBadges keys={pressedKeys} />
+          <HotkeyKeys keys={pressedKeys} />
         ) : isListening ? (
           <span className="flex items-center gap-1.5 text-xs font-semibold text-accent-ink">
             <RecordIcon size={14} weight="fill" />Press the keys
           </span>
         ) : currentHotkey ? (
-          <KeyBadges keys={currentHotkey.split('+')} />
+          <HotkeyKeys keys={currentHotkey.split('+')} />
         ) : (
           <span className="text-xs text-muted">Click to set</span>
         )}

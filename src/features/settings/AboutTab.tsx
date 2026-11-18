@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import {
   ArrowCircleUpIcon, ArrowClockwiseIcon, ArrowsClockwiseIcon, CheckCircleIcon, DownloadSimpleIcon,
   FolderOpenIcon, GraphicsCardIcon, HardDrivesIcon, LightningIcon, MemoryIcon, TrashIcon,
@@ -9,10 +9,10 @@ import { toast } from 'sonner'
 import { Button } from '../../shared/ui/Button'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
+import { plural } from '../../shared/utils'
 import { formatModelSize } from '../models/models'
 import { cancelCudaDownload, downloadCuda, removeCuda, useCuda } from '../models/cuda'
-import { useDownloadedModels } from '../models/queries'
-import type { HardwareProfile } from '../../shared/types'
+import { useDownloadedModels, useHardwareProfile } from '../models/queries'
 import { useAppStore } from '../../app/store/useAppStore'
 import logoUrl from '../../assets/logo.png'
 
@@ -237,12 +237,8 @@ function Stat({ icon, label, value, first }: { icon: ReactNode; label: string; v
 }
 
 export function AboutTab() {
-  const [profile, setProfile] = useState<HardwareProfile | null>(null)
+  const profile = useHardwareProfile().data
   const onDisk = useDownloadedModels()
-
-  useEffect(() => {
-    commands.getHardwareProfile().then(setProfile).catch(() => {})
-  }, [])
 
   const modelBytes = onDisk.reduce((acc, m) => acc + m.sizeBytes, 0)
 
@@ -282,7 +278,7 @@ export function AboutTab() {
         <Stat
           icon={<HardDrivesIcon size={14} />}
           label="Models on disk"
-          value={onDisk.length > 0 ? `${onDisk.length} model${onDisk.length > 1 ? 's' : ''}, ${formatModelSize(modelBytes)}` : 'None downloaded'}
+          value={onDisk.length > 0 ? `${plural(onDisk.length, 'model')}, ${formatModelSize(modelBytes)}` : 'None downloaded'}
         />
       </dl>
 

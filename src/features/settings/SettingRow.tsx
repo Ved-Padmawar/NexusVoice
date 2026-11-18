@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { InfoIcon } from '@phosphor-icons/react'
 
 /** An ⓘ beside a title: the longer explanation, on hover or focus. */
-export function InfoTip({ text }: { text: string }) {
+function InfoTip({ text }: { text: string }) {
   return (
     <span tabIndex={0} aria-label={text} data-tip={text} className="inline-grid size-4 shrink-0 cursor-help place-items-center text-muted transition-colors hover:text-fg">
       <InfoIcon size={14} />

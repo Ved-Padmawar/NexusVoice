@@ -1,5 +1,4 @@
 import { Fragment, memo, useState, useRef, useEffect, useCallback, useMemo, type CSSProperties, type RefObject } from 'react'
-import { useNavigate } from 'react-router'
 import {
   BracketsCurlyIcon,
   ArrowsClockwiseIcon, ExportIcon, FileAudioIcon, FileTextIcon, KeyboardIcon, MagnifyingGlassIcon, MicrophoneIcon,
@@ -18,13 +17,13 @@ import {
 } from './queries'
 import { isFiltered, isNarrowed, type TranscriptFilters } from '../../shared/queryKeys'
 import { useSlice } from '../../app/mirror'
-import { ROUTES } from '../../app/routes'
-import { cn, fmtTime, parseSqliteDate } from '../../shared/utils'
-import { Button } from '@/shared/ui/Button'
-import { Kbd } from '@/shared/ui/Kbd'
-import { MenuItem, Popover } from '@/shared/ui/Popover'
-import { CopyButton } from '@/shared/ui/CopyButton'
-import { TextInput } from '@/shared/ui/TextInput'
+import { useOpenSettings } from '../../app/useOpenSettings'
+import { cn, fmtTime, localDateKey, parseSqliteDate, plural } from '../../shared/utils'
+import { Button } from '../../shared/ui/Button'
+import { HotkeyKeys } from '../../shared/ui/Kbd'
+import { MenuItem, Popover } from '../../shared/ui/Popover'
+import { CopyButton } from '../../shared/ui/CopyButton'
+import { TextInput } from '../../shared/ui/TextInput'
 import { SectionState } from '../../shared/ui/SectionState'
 import { AudioPlayer } from './AudioPlayer'
 import { ImportControls } from './ImportFlow'
@@ -148,12 +147,6 @@ function dayLabel(date: Date) {
   return (date.getFullYear() === new Date().getFullYear() ? dayFmt : dayYearFmt).format(date)
 }
 
-/** The local calendar day, e.g. `2026-11-09`: unique across years, unlike a label. */
-function calendarDay(date: Date) {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
-
 function splitClock(date: Date) {
   const parts = timeFmt.formatToParts(date)
   const meridiem = parts.find(p => p.type === 'dayPeriod')?.value
@@ -167,7 +160,7 @@ function groupByDay(items: Transcript[]) {
   const groups: DayGroup[] = []
   for (const item of items) {
     const date = parseSqliteDate(item.createdAt)
-    const key = calendarDay(date)
+    const key = localDateKey(date)
     const last = groups.at(-1)
     if (last?.key === key) last.items.push(item)
     // Keyed by day, not first row, so a new row doesn't remount the day.
@@ -184,8 +177,6 @@ function audioBoundary(rows: Transcript[], keep: number, more: boolean): number 
   const older = rows.slice(rows.indexOf(last) + 1)
   return more || older.some(row => !row.audioPath) ? last.id : null
 }
-
-const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
 
 /** Where the saved-audio limit falls in the feed. */
 function AudioBoundary({ keep, onChange }: { keep: number; onChange: () => void }) {
@@ -349,14 +340,6 @@ const TranscriptRow = memo(function TranscriptRow({ item, onDelete }: { item: Tr
 const statLabel = 'text-xs text-muted'
 const statValue = 'text-xl font-semibold tracking-tight text-fg tabular-nums'
 
-function HotkeyKeys({ hotkey }: { hotkey: string }) {
-  return (
-    <span className="inline-flex gap-1 align-middle">
-      {hotkey.split('+').map(key => <Kbd key={key}>{key}</Kbd>)}
-    </span>
-  )
-}
-
 const WAVE_DAYS = 60
 const waveTipFmt = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 const waveAxisFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
@@ -406,7 +389,7 @@ function EmptyFeed({ searching, narrowed, hotkey, onClearFilters }: EmptyFeedPro
         {searching ? 'No results found' : narrowed ? 'Nothing matches these filters' : 'Your first dictation lands here'}
       </p>
       <p className="max-w-64 text-sm text-muted text-balance">
-        {searching || narrowed ? hint : <>Hold {hotkey ? <HotkeyKeys hotkey={hotkey} /> : 'your hotkey'} in any text box, speak, and let go.</>}
+        {searching || narrowed ? hint : <>Hold {hotkey ? <HotkeyKeys keys={hotkey.split('+')} /> : 'your hotkey'} in any text box, speak, and let go.</>}
       </p>
       {narrowed && <Button size="sm" variant="outline" onClick={onClearFilters}>Clear filters</Button>}
     </div>
@@ -416,7 +399,7 @@ function EmptyFeed({ searching, narrowed, hotkey, onClearFilters }: EmptyFeedPro
 export function Dashboard() {
   const keys = useSlice('settings', settings => settings.hotkeys.pushToTalk)
   const missingHotkey = keys === null
-  const navigate = useNavigate()
+  const openSettings = useOpenSettings()
   const [searchTerm, setSearchTerm] = useState('')
   const typedRef = useRef('')
   const [filters, setFilters] = useState<TranscriptFilters>(NO_FILTERS)
@@ -432,10 +415,6 @@ export function Dashboard() {
     ? () => { void stats.refetch(); void active.refetch() }
     : active.refetch
 
-
-  // A ref callback, not an effect: the sentinel mounts only after the feed's
-  // skeleton is replaced, which changes no effect dependency — an effect would
-  // read a null ref and never re-run.
   const { fetchNextPage, hasNextPage, isFetching } = active
   const keep = useSlice('settings', settings => (settings.savedAudio.enabled ? settings.savedAudio.keep : 0))
   // Only an unfiltered feed shows where the audio limit falls.
@@ -449,6 +428,9 @@ export function Dashboard() {
   // A feed error shows its message instead of the rows.
   const shown = active.status === 'success' ? seen : NONE_SHOWN
   const canFetchNext = hasNextPage && !isFetching
+  // A ref callback, not an effect: the sentinel mounts only after the feed's
+  // skeleton is replaced, which changes no effect dependency — an effect would
+  // read a null ref and never re-run.
   const sentinelRef = useCallback((node: HTMLDivElement | null) => {
     observerRef.current?.disconnect()
     if (!node || !canFetchNext) return
@@ -474,7 +456,7 @@ export function Dashboard() {
         <div className="mb-4 flex items-center gap-3 rounded-xl bg-warning-soft py-2.5 pr-2.5 pl-4 text-sm text-fg ring-1 ring-inset ring-warning/30">
           <WarningCircleIcon size={18} weight="fill" className="shrink-0 text-warning" />
           <span className="flex-1">No hotkey set. NexusVoice can't hear you until a hotkey is set.</span>
-          <Button size="sm" variant="primary" onClick={() => navigate(ROUTES.SETTINGS, { state: { tab: 'general' } })}>
+          <Button size="sm" variant="primary" onClick={() => openSettings('general')}>
             <KeyboardIcon size={14} weight="bold" />Set a hotkey
           </Button>
         </div>
@@ -508,7 +490,7 @@ export function Dashboard() {
               </div>
               <div className="flex shrink-0 flex-col items-end justify-between gap-5">
               {keys && (
-                <p className="flex items-center gap-1.5 text-xs text-muted">Hold <HotkeyKeys hotkey={keys} /> anywhere to dictate</p>
+                <p className="flex items-center gap-1.5 text-xs text-muted">Hold <HotkeyKeys keys={keys.split('+')} /> anywhere to dictate</p>
               )}
               <dl className="grid grid-cols-2 gap-x-9 gap-y-4 pb-1">
                 <div><dt className={statLabel}>Words</dt><dd className={statValue}>{dash(s?.totalWords.toLocaleString())}</dd></div>
@@ -574,7 +556,7 @@ export function Dashboard() {
                       <Fragment key={item.id}>
                         <TranscriptRow item={item} onDelete={deleteTranscript} />
                         {item.id === boundaryId && (
-                          <AudioBoundary keep={keep} onChange={() => navigate(ROUTES.SETTINGS, { state: { tab: 'general' } })} />
+                          <AudioBoundary keep={keep} onChange={() => openSettings('general')} />
                         )}
                       </Fragment>
                     ))}

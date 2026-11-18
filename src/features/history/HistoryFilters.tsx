@@ -1,14 +1,14 @@
-import { useRef, useState, type MouseEvent } from 'react'
+import { useRef, useState, type MouseEvent, type ComponentProps } from 'react'
 import { ArrowCounterClockwiseIcon, CalendarBlankIcon, CaretLeftIcon, CaretRightIcon, FunnelSimpleIcon, XIcon } from '@phosphor-icons/react'
-import { Button } from '@/shared/ui/Button'
-import { Popover } from '@/shared/ui/Popover'
-import { Segmented } from '@/shared/ui/Segmented'
-import { Select } from '@/shared/ui/Select'
+import { Button } from '../../shared/ui/Button'
+import { Popover } from '../../shared/ui/Popover'
+import { Segmented } from '../../shared/ui/Segmented'
+import { Select } from '../../shared/ui/Select'
 import { cn, localDateKey as toIso } from '../../shared/utils'
 import { isFiltered, type TranscriptFilters } from '../../shared/queryKeys'
 import { NO_FILTERS, useHistoryApps } from './queries'
 
-export function ToolbarButton({ className, ...props }: React.ComponentProps<'button'>) {
+export function ToolbarButton({ className, ...props }: ComponentProps<'button'>) {
   return (
     <button
       type="button"

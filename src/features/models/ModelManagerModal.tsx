@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
-import { TrashIcon, XIcon } from '@phosphor-icons/react'
+import { TrashIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
+import { plural } from '../../shared/utils'
 import { formatModelSize } from './models'
 import { VENDORS, vendorForFamily, isRaster } from '../../shared/vendors'
 import { mirrored } from '../../app/mirror'
 import { NO_MODELS, rescanModels, useActiveModelId, useCatalog, useModelsOnDisk } from './queries'
-import { Modal } from '../../shared/ui/Modal'
+import { Modal, ModalClose } from '../../shared/ui/Modal'
 import { VendorMark } from '../../shared/ui/VendorMark'
 
 type Props = {
@@ -52,18 +53,11 @@ export function ModelManagerModal({ open, onClose }: Props) {
             <span className="text-[30px] leading-none font-bold tracking-[-0.03em] text-fg">{total}</span>
             <span className="text-md font-semibold text-muted">{unit}</span>
             <span className="ml-1.5 text-xs text-muted">
-              {rows.length > 0 ? `across ${rows.length} model${rows.length === 1 ? '' : 's'}` : 'No models downloaded'}
+              {rows.length > 0 ? `across ${plural(rows.length, 'model')}` : 'No models downloaded'}
             </span>
           </p>
         </div>
-        <button
-          type="button"
-          aria-label="Close"
-          onClick={onClose}
-          className="grid size-6 cursor-pointer place-items-center rounded-md text-muted hover:bg-danger-soft hover:text-danger"
-        >
-          <XIcon size={12} weight="bold" />
-        </button>
+        <ModalClose onClick={onClose} />
       </div>
 
       <ul className="min-h-0 flex-1 overflow-y-auto overscroll-none px-3 pb-2">

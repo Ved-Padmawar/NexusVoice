@@ -1,6 +1,6 @@
 import { CheckIcon, CopyIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
-import { cn } from '@/shared/utils'
+import { cn } from '../utils'
 
 /** Copies `text`; the icon turns into a check for a moment. */
 export function CopyButton({ text, label = 'Copy', className }: { text: string; label?: string; className?: string }) {

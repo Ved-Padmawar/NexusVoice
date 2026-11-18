@@ -1,23 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
-import { FileAudioIcon, UploadSimpleIcon, WaveformIcon, XIcon } from '@phosphor-icons/react'
+import { FileAudioIcon, UploadSimpleIcon, WaveformIcon } from '@phosphor-icons/react'
 import { toast } from 'sonner'
 import { commands, type AudioFileInfo } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { useSlice } from '../../app/mirror'
-import { fmtClock } from '../../shared/utils'
+import { fmtClock, formatBytes } from '../../shared/utils'
 import { Button } from '../../shared/ui/Button'
-import { Modal } from '../../shared/ui/Modal'
+import { Modal, ModalClose } from '../../shared/ui/Modal'
 import { Select } from '../../shared/ui/Select'
 import { useActiveModelName } from '../models/queries'
 
 const EXTENSIONS = ['wav', 'mp3', 'm4a', 'aac', 'flac', 'ogg', 'opus']
 
 type PickedFile = AudioFileInfo & { path: string }
-
-const fmtSize = (bytes: number) =>
-  bytes >= 1_048_576 ? `${(bytes / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
 
 /** Read what the dialog shows about a file, or say why it can't be imported. */
 async function inspect(path: string): Promise<PickedFile | null> {
@@ -151,9 +148,7 @@ function ImportModal({ file, reading, onReading, onClose }: ImportModalProps) {
     <Modal open={file !== null} onClose={close} aria-labelledby="import-title" className="w-105">
       <div className="flex items-center justify-between px-5 pt-4.5">
         <h2 id="import-title" className="text-md font-semibold tracking-tight text-fg">Transcribe a file</h2>
-        <button type="button" aria-label="Close" disabled={reading} onClick={close} className="grid size-7 cursor-pointer place-items-center rounded-lg text-muted hover:bg-surface-hover hover:text-fg disabled:pointer-events-none disabled:opacity-40">
-          <XIcon size={13} weight="bold" />
-        </button>
+        <ModalClose disabled={reading} onClick={close} />
       </div>
       <div className="flex flex-col gap-4 px-5 pt-4 pb-5">
         <div className="flex items-center gap-3 rounded-xl bg-surface p-3 ring-1 ring-line-soft ring-inset">
@@ -161,7 +156,7 @@ function ImportModal({ file, reading, onReading, onClose }: ImportModalProps) {
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-fg">{file?.name}</p>
             <p className="text-xs text-muted tabular-nums">
-              {file?.durationSeconds != null && `${fmtClock(file.durationSeconds)} · `}{file && fmtSize(file.sizeBytes)}
+              {file?.durationSeconds != null && `${fmtClock(file.durationSeconds)} · `}{file && formatBytes(file.sizeBytes)}
             </p>
           </div>
         </div>

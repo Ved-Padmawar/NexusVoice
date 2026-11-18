@@ -13,6 +13,13 @@ export function fmtTime(s: number): string {
   return rm > 0 ? `${h}h ${rm}m` : `${h}h`
 }
 
+/** A file's size: `24 KB`, `3.4 MB`. */
+export const formatBytes = (bytes: number) =>
+  bytes >= 1_048_576 ? `${(bytes / 1_048_576).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`
+
+/** `1 word`, `1,204 words`. */
+export const plural = (n: number, word: string) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
+
 const SQLITE_UTC = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
 
 export function localDateKey(date: Date): string {
@@ -33,4 +40,3 @@ export function fmtClock(seconds: number): string {
 export function parseSqliteDate(d: string): Date {
   return new Date(SQLITE_UTC.test(d) ? `${d.replace(' ', 'T')}Z` : d)
 }
-

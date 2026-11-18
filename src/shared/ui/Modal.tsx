@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { cn } from '@/shared/utils'
+import { XIcon } from '@phosphor-icons/react'
+import { cn } from '../utils'
 import { registerLayer } from './dismissLayers'
 
 type Props = {
@@ -79,5 +80,20 @@ export function Modal({ open, onClose, 'aria-labelledby': labelledBy, className,
       </div>
     </div>,
     document.body,
+  )
+}
+
+/** A dialog's X, the same in every dialog. */
+export function ModalClose({ onClick, disabled, className }: { onClick: () => void; disabled?: boolean; className?: string }) {
+  return (
+    <button
+      type="button"
+      aria-label="Close"
+      disabled={disabled}
+      onClick={onClick}
+      className={cn('grid size-7 shrink-0 cursor-pointer place-items-center rounded-lg text-muted hover:bg-danger-soft hover:text-danger disabled:pointer-events-none disabled:opacity-40', className)}
+    >
+      <XIcon size={13} weight="bold" />
+    </button>
   )
 }

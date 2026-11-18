@@ -1,13 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import {
-  SparkleIcon, SlidersHorizontalIcon, XIcon, CheckIcon, CheckCircleIcon, SpinnerGapIcon, WarningCircleIcon,
+  SparkleIcon, SlidersHorizontalIcon, CheckIcon, CheckCircleIcon, SpinnerGapIcon, WarningCircleIcon,
   PlugIcon, PlugsConnectedIcon, LinkIcon, CubeIcon, KeyIcon, LockSimpleIcon,
 } from '@phosphor-icons/react'
 import { commands, type Committed } from '../../shared/bindings'
 import { extractErrorMessage } from '../../shared/errors'
 import { VendorMark } from '../../shared/ui/VendorMark'
 import { Button } from '../../shared/ui/Button'
-import { Modal } from '../../shared/ui/Modal'
+import { Modal, ModalClose } from '../../shared/ui/Modal'
 import { Switch } from '../../shared/ui/Switch'
 import { TextInput } from '../../shared/ui/TextInput'
 import type { VendorId } from '../../shared/vendors'
@@ -154,10 +154,8 @@ function ProviderForm({
     setProviderId(id)
     setTestResult('idle')
     // Preset URL is only a starting point for a provider never configured.
-    const saved = initial.profiles?.[id]
-    const preset = PRESETS.find((x) => x.id === id)
-    const fallbackUrl = preset && id !== 'custom' && id !== 'anthropic' ? preset.baseUrl : ''
-    setBaseUrl(saved?.baseUrl || fallbackUrl)
+    const saved = initial.profiles[id]
+    setBaseUrl(saved?.baseUrl || (PRESETS.find((x) => x.id === id)?.baseUrl ?? ''))
     setModel(saved?.model ?? '')
     setApiKey('')
     setKeySaved(saved?.hasApiKey ?? false)
@@ -231,14 +229,7 @@ function ProviderForm({
           <h2 id="format-title" className="text-xl font-bold tracking-tight text-fg">Smart formatting</h2>
           <p className="text-xs text-muted">Connect Anthropic or any OpenAI-compatible endpoint.</p>
         </div>
-        <button
-          type="button"
-          aria-label="Close"
-          onClick={onClose}
-          className="grid size-8 cursor-pointer place-items-center rounded-lg text-muted hover:bg-danger-soft hover:text-danger"
-        >
-          <XIcon size={14} weight="bold" />
-        </button>
+        <ModalClose onClick={onClose} />
       </div>
 
       <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-6 pb-5">
@@ -349,7 +340,7 @@ function ProviderForm({
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-xs font-semibold text-fg-2">{label}</span>

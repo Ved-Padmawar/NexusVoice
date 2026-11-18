@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { CheckIcon } from '@phosphor-icons/react'
-import { cn } from '@/shared/utils'
+import { cn } from '../utils'
 
 type Props = {
   active: boolean

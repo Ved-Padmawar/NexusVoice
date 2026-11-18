@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { cn } from '@/shared/utils'
+import { cn } from '../utils'
+import { SUPER_KEY_LABEL } from '../platform'
 
 export function Kbd({ children, className }: { children: ReactNode; className?: string }) {
   return (
@@ -11,5 +12,21 @@ export function Kbd({ children, className }: { children: ReactNode; className?: 
     >
       {children}
     </kbd>
+  )
+}
+
+const KEY_LABEL: Record<string, string> = {
+  // Super is the Windows logo key on Win/Linux and Command on macOS — the
+  // accelerator token stays "Super" everywhere; only the label differs.
+  Super: SUPER_KEY_LABEL, Return: 'Enter', Delete: 'Del',
+  ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
+}
+
+/** A shortcut's keys, by their accelerator tokens (`['Ctrl', 'Super']`), as labelled keycaps. */
+export function HotkeyKeys({ keys }: { keys: readonly string[] }) {
+  return (
+    <span className="inline-flex items-center gap-1 align-middle">
+      {keys.map((k, i) => <Kbd key={`${k}-${i}`}>{KEY_LABEL[k] ?? k}</Kbd>)}
+    </span>
   )
 }

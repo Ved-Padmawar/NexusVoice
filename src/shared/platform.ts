@@ -1,8 +1,4 @@
-/**
- * Lightweight host-OS detection for the webview. Used only for cosmetic,
- * OS-appropriate labelling (e.g. the Super/Command key). Reads the webview's
- * user-agent — no Tauri OS plugin needed for a display-only concern.
- */
+/** The host OS, from the webview's user agent. For labels only (e.g. the Super key). */
 
 export type Platform = 'macos' | 'windows' | 'linux'
 
@@ -12,11 +8,8 @@ export function detectPlatform(ua = typeof navigator === 'undefined' ? '' : navi
   return 'linux'
 }
 
-export const isMac = detectPlatform() === 'macos'
+const isMac = detectPlatform() === 'macos'
 export const isWindows = detectPlatform() === 'windows'
 
-/**
- * Display label for the "Super" modifier (Windows logo / Command key). The
- * internal accelerator token stays `Super` on every OS — this is label-only.
- */
+/** The label of the "Super" modifier: the Windows logo key, or Command on macOS. */
 export const SUPER_KEY_LABEL = isMac ? 'Cmd' : 'Win'

@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, useCallback, useRef, useMemo, useSyncExternalStore } from 'react'
+import { memo, useEffect, useState, useCallback, useRef, useMemo, useSyncExternalStore, type MouseEvent as ReactMouseEvent, type CSSProperties } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { CheckIcon, PauseIcon, PlayIcon } from '@phosphor-icons/react'
 import { commands, type TranscriptionPartial } from '../shared/bindings'
@@ -125,7 +125,7 @@ export function PillApp() {
     wantsCard, tooltip !== '', PILL_WIDTH[state], pillRef, innerRef, textRef,
   )
 
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
+  const handleDragStart = useCallback((e: ReactMouseEvent) => {
     if ((e.target as HTMLElement).closest('button')) return
     e.preventDefault()
     // startDragging must fire synchronously on the mousedown tick — awaiting
@@ -328,7 +328,7 @@ export function PillApp() {
             <div
               ref={textRef}
               className="pill__transcript"
-              style={{ '--card-w': `${CARD_W}px` } as React.CSSProperties}
+              style={{ '--card-w': `${CARD_W}px` } as CSSProperties}
             >
               <span ref={innerRef} style={{ display: 'block' }}>
                 <LiveText />

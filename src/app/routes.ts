@@ -4,8 +4,6 @@ export const ROUTES = {
   SETTINGS: '/settings',
 } as const
 
-export type AppRoute = typeof ROUTES[keyof typeof ROUTES]
-
 export const SETTINGS_TABS = {
   GENERAL: 'general',
   VOICE: 'voice',

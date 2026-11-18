@@ -3,7 +3,6 @@ import {
   ArrowClockwiseIcon, CaretRightIcon, CheckIcon, CpuIcon, DownloadSimpleIcon, HardDrivesIcon,
   HourglassMediumIcon, PlayIcon, WarningCircleIcon, XIcon,
 } from '@phosphor-icons/react'
-import { commands } from '../../shared/bindings'
 import { formatModelSize, isStreaming, modelNameToId, type CatalogModel, type ModelId } from '../models/models'
 import { toast } from 'sonner'
 import { extractErrorMessage } from '../../shared/errors'
@@ -14,9 +13,8 @@ import { VendorMark } from '../../shared/ui/VendorMark'
 import { ModelManagerModal } from '../models/ModelManagerModal'
 import { vendorForFamily } from '../../shared/vendors'
 import { cn } from '../../shared/utils'
-import type { HardwareProfile } from '../../shared/types'
 import {
-  NO_MODELS, cancelDownload, startDownload, switchModel, useActiveModelId, useCatalog, useDownload, useDownloadedModels,
+  NO_MODELS, cancelDownload, startDownload, switchModel, useActiveModelId, useCatalog, useDownload, useDownloadedModels, useHardwareProfile,
 } from '../models/queries'
 import { LanguageSection } from './LanguageSection'
 import { useKeptByRecording } from './queries'
@@ -228,7 +226,6 @@ const FILTER_LABEL: Record<Filter, string> = {
 
 /** The model catalog, filtered to what the chosen tab matches. */
 export function VoiceTab() {
-  const [profile, setProfile] = useState<HardwareProfile | null>(null)
   const [modelSaving, setModelSaving] = useState(false)
   const [managerOpen, setManagerOpen] = useState(false)
   const [filter, setFilter] = useState<Filter>('all')
@@ -236,10 +233,7 @@ export function VoiceTab() {
   const catalog = useCatalog().data ?? NO_MODELS
   const onDisk = useDownloadedModels()
   const selected = useActiveModelId()
-
-  useEffect(() => {
-    commands.getHardwareProfile().then(setProfile).catch(() => {})
-  }, [])
+  const profile = useHardwareProfile().data
 
   const onDiskVariants = useMemo(() => new Set(onDisk.map(m => m.variant)), [onDisk])
   const recommendedVariant = profile ? modelNameToId(profile.recommendedModel, catalog) : null

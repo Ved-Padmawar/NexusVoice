@@ -1,14 +1,11 @@
-import { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
+import type { ReactNode } from 'react'
 import { relaunchApp } from '../../shared/relaunch'
 import { WarningCircleIcon, CheckCircleIcon, DownloadSimpleIcon, HardDrivesIcon, ArrowsClockwiseIcon, ArrowCounterClockwiseIcon, ShieldCheckIcon, XIcon, LightningIcon } from '@phosphor-icons/react'
 import { Button } from '../../shared/ui/Button'
-import { commands } from '../../shared/bindings'
+import { Modal, ModalClose } from '../../shared/ui/Modal'
 import { useAppStore } from '../../app/store/useAppStore'
 import { cancelCudaDownload, downloadCuda, useCuda } from './cuda'
-
-const ICON_BUTTON =
-  'flex items-center justify-center w-6 h-6 shrink-0 rounded-sm text-muted bg-transparent border-none cursor-pointer transition-colors duration-120 hover:text-danger hover:bg-danger-soft'
+import { useHardwareProfile } from './queries'
 
 /** Offers the CUDA pack on NVIDIA GPUs, and a retry when replacing an
  * unverified pack failed. */
@@ -16,21 +13,16 @@ export function CudaOfferModal() {
   const cuda = useCuda()
   const error = useAppStore(s => s.cudaError)
   const close = useAppStore(s => s.closeCudaOffer)
-  const [gpuName, setGpuName] = useState<string | null>(null)
-
-  useEffect(() => {
-    commands.getHardwareProfile().then(p => setGpuName(p.gpuName)).catch(() => {})
-  }, [])
+  const gpuName = useHardwareProfile().data?.gpuName
 
   const progress = cuda?.downloadProgress ?? null
   const closeButton = (
-    <button type="button" title="Close" onClick={close} className={`absolute top-3 right-3 ${ICON_BUTTON}`}>
-      <XIcon size={13} weight="bold" />
-    </button>
+    <ModalClose onClick={close} className="absolute top-3 right-3" />
   )
 
+  const retrying = cuda?.pack === 'unverified' && !error
   const body =
-    cuda?.pack === 'unverified' && !error ? (
+    retrying ? (
       <>
         {closeButton}
         <div className="flex items-center gap-3 pr-7">
@@ -101,17 +93,16 @@ export function CudaOfferModal() {
       </>
     )
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px]">
-      <div className="relative w-95 p-5 bg-panel border border-line rounded-xl shadow-(--shadow-lg) transition-[opacity,scale,translate] duration-220 ease-out starting:translate-y-2 starting:scale-96 starting:opacity-0">
-        {body}
-      </div>
-    </div>,
-    document.body,
+  // A running download shows no Close, so Escape and the scrim don't close it either.
+  const closable = retrying || progress === null
+  return (
+    <Modal open onClose={closable ? close : undefined} aria-labelledby="cuda-offer-title" className="w-95 p-5">
+      {body}
+    </Modal>
   )
 }
 
-function Badge({ tone, inline, children }: { tone?: 'success' | 'danger'; inline?: boolean; children: React.ReactNode }) {
+function Badge({ tone, inline, children }: { tone?: 'success' | 'danger'; inline?: boolean; children: ReactNode }) {
   const colors = tone === 'success' ? 'bg-success-soft text-success'
     : tone === 'danger' ? 'bg-danger-soft text-danger'
       : 'bg-accent-soft text-accent-ink'
@@ -119,11 +110,11 @@ function Badge({ tone, inline, children }: { tone?: 'success' | 'danger'; inline
   return <div className={`grid place-items-center w-9 h-9 rounded-lg ${placement} ${colors}`}>{children}</div>
 }
 
-function Title({ children }: { children: React.ReactNode }) {
-  return <h4 className="text-[15px] font-bold tracking-tight text-fg">{children}</h4>
+function Title({ children }: { children: ReactNode }) {
+  return <h2 id="cuda-offer-title" className="text-[15px] font-bold tracking-tight text-fg">{children}</h2>
 }
 
-function Text({ children }: { children: React.ReactNode }) {
+function Text({ children }: { children: ReactNode }) {
   return <p className="mt-1.5 text-[12px] leading-normal text-muted">{children}</p>
 }
 
@@ -134,7 +125,7 @@ function Transfer({ progress, verifying, onCancel }: { progress: number; verifyi
       <div className="flex items-center gap-2 h-5 text-[11px] leading-none">
         <span className="flex-1 font-medium text-fg-2">{verifying ? 'Verifying…' : 'Downloading'}</span>
         <span className="font-semibold text-accent-ink tabular-nums">{progress}%</span>
-        <button type="button" title="Cancel" onClick={onCancel} className={`${ICON_BUTTON} w-5 h-5 -mr-1`}>
+        <button type="button" aria-label="Cancel download" onClick={onCancel} className="-mr-1 grid size-5 shrink-0 cursor-pointer place-items-center rounded-sm text-muted transition-colors hover:bg-danger-soft hover:text-danger">
           <XIcon size={12} weight="bold" />
         </button>
       </div>
@@ -157,6 +148,6 @@ function PackFacts() {
   )
 }
 
-function Actions({ children }: { children: React.ReactNode }) {
+function Actions({ children }: { children: ReactNode }) {
   return <div className="flex gap-2 mt-4.5 *:flex-1">{children}</div>
 }

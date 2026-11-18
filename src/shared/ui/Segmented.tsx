@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
-import { cn } from '@/shared/utils'
+import { cn } from '../utils'
 
 export type SegmentedOption<T extends string> = { value: T; label: ReactNode }
 

@@ -17,6 +17,16 @@ export function useCatalog() {
   })
 }
 
+/** GPU, memory, backend and the recommended model. The backend can change when
+ *  a model loads, so each view that shows it asks again as it opens. */
+export function useHardwareProfile() {
+  return useQuery({
+    queryKey: queryKeys.hardwareProfile,
+    queryFn: () => commands.getHardwareProfile(),
+    refetchOnMount: 'always',
+  })
+}
+
 /** The models on disk, as Rust last saw them. */
 export function useModelsOnDisk() {
   return useSlice('models', models => models)

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { WAVEFORM_RENDERERS, isCanvasStyle, BARS, type RenderState } from '../../shared/waveform'
+import { WAVEFORM_RENDERERS, BARS, type RenderState } from '../../shared/waveform'
 import type { WaveformStyle } from '../../shared/types'
 
 const STYLES: WaveformStyle[] = ['bars', 'memo', 'eq', 'spectrum']
+const isCanvasStyle = (style: WaveformStyle) => style !== 'bars'
 
 describe('waveform renderers', () => {
   it('has a canvas renderer for every style except bars', () => {

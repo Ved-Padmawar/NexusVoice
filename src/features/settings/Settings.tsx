@@ -1,9 +1,7 @@
 import { useShallow } from 'zustand/react/shallow'
-import { useRef, useEffect } from 'react'
-import { useLocation } from 'react-router'
 import { InfoIcon, MicrophoneIcon, PaletteIcon, SlidersHorizontalIcon, type Icon } from '@phosphor-icons/react'
 import { useAppStore } from '../../app/store/useAppStore'
-import { SETTINGS_TABS, type SettingsTab } from '../../app/routes'
+import { SETTINGS_TABS } from '../../app/routes'
 import { cn } from '../../shared/utils'
 import { Segmented } from '../../shared/ui/Segmented'
 import { AppearanceTab } from './AppearanceTab'
@@ -32,16 +30,6 @@ export function Settings() {
     tab: s.activeSettingsTab,
     setTab: s.setActiveSettingsTab,
   })))
-  const location = useLocation()
-
-  // Another page can open a specific tab: navigate(ROUTES.SETTINGS, { state: { tab } }).
-  const initialLocationState = useRef(location.state)
-  useEffect(() => {
-    const requested = (initialLocationState.current as { tab?: string } | null)?.tab
-    if (requested && (Object.values(SETTINGS_TABS) as string[]).includes(requested)) {
-      setTab(requested as SettingsTab)
-    }
-  }, [setTab])
 
   // Voice keeps the title, tabs and filter row still; only its grid scrolls.
   const voice = tab === SETTINGS_TABS.VOICE
@@ -58,11 +46,7 @@ export function Settings() {
         <Segmented kind="tabs" aria-label="Settings sections" value={tab} options={TABS} onChange={setTab} className="ml-auto" />
       </div>
 
-      <div
-        key={tab}
-        role="tabpanel"
-        className={cn('mt-5 animate-[page-in_260ms_var(--ease-out-quint)]', voice && 'flex min-h-0 flex-1 flex-col')}
-      >
+      <div role="tabpanel" className={cn('mt-5', voice && 'flex min-h-0 flex-1 flex-col')}>
         {tab === SETTINGS_TABS.GENERAL && <GeneralTab />}
         {tab === SETTINGS_TABS.VOICE && <VoiceTab />}
         {tab === SETTINGS_TABS.APPEARANCE && (

@@ -2,11 +2,8 @@ import { commands } from './bindings'
 
 type LogLevel = 'error' | 'warn' | 'info' | 'debug'
 
-/**
- * Frontend logger. Forwards records to the Rust backend so UI logs land in the
- * same unified, structured log file as backend events. Use instead of `console.*`.
- * Best-effort: a failed forward is swallowed (never throws into UI flows).
- */
+/** Sends UI logs to Rust's log file. Use instead of `console.*`; a failed
+ *  forward is dropped, never thrown. */
 function forward(level: LogLevel, message: string, context?: unknown): void {
   let ctx: string | undefined
   if (context !== undefined) {

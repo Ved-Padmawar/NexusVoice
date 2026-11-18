@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { toast } from 'sonner'
 import {
   BookOpenTextIcon, CaretDownIcon, CheckIcon, MagnifyingGlassIcon, PencilSimpleIcon, PlusIcon, TrashIcon,
 } from '@phosphor-icons/react'
 import { useDictionary, useUpdateDictionary, useDeleteDictionaryEntry } from './queries'
 import { cn } from '../../shared/utils'
-import { Button } from '@/shared/ui/Button'
-import { Kbd } from '@/shared/ui/Kbd'
-import { MenuItem, Popover } from '@/shared/ui/Popover'
-import { TextInput } from '@/shared/ui/TextInput'
+import { Button } from '../../shared/ui/Button'
+import { Kbd } from '../../shared/ui/Kbd'
+import { MenuItem, Popover } from '../../shared/ui/Popover'
+import { TextInput } from '../../shared/ui/TextInput'
 
 type SortKey = 'hits' | 'az' | 'recent'
 const SORTS: { value: SortKey; label: string }[] = [
@@ -92,7 +92,7 @@ export function Dictionary() {
     } finally { setSaving(false) }
   }
 
-  const onEditKey = (e: React.KeyboardEvent) => {
+  const onEditKey = (e: ReactKeyboardEvent) => {
     if (e.key === 'Enter') { e.preventDefault(); void commitEdit() }
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelEdit() }
   }

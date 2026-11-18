@@ -1,9 +1,5 @@
-/**
- * Pill theme values, mirrored from `.pill[data-pill-theme=…]` in
- * `src/pill/PillApp.css`. The pill window styles itself from that CSS; the
- * settings previews and the canvas waveforms need the same values in JS,
- * so this is the one place both read from.
- */
+/** Pill theme values for JS (settings previews, canvas waveforms). Keep in
+ *  sync with `.pill[data-pill-theme=…]` in `PillApp.css`. */
 
 import type { PillTheme } from '../shared/types'
 

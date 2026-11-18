@@ -1,13 +1,7 @@
 /**
- * Canvas renderers for the pill's capture waveform.
- *
- * Every style consumes the same frame the Rust capture thread emits as
- * `pillWaveform` — 8 spectrum levels, 0–1 — so switching styles costs
- * nothing at the backend. `bars` is the original DOM-based style and is
- * drawn by the pill itself; the three here are canvas-drawn.
- *
- * Each renderer owns a scratch object for its scroll/peak state, keyed off
- * the caller-supplied `RenderState`. Callers reuse one state per canvas.
+ * Canvas renderers for the pill's waveform. Every style draws the same
+ * `pillWaveform` frame (8 levels, 0–1); `bars` is DOM-drawn by the pill itself.
+ * Each renderer keeps its scroll/peak state in the caller's `RenderState`, one per canvas.
  */
 
 import type { WaveformStyle } from '../shared/types'
@@ -16,7 +10,7 @@ export const BARS = 8
 export const ACCENT_RGB = '120,162,244'
 
 /** Resting thickness, matching `bars`' MIN_H so silence looks the same in every style. */
-export const REST_H = 3
+const REST_H = 3
 
 /** A per-frame smoothing factor tuned at 60 Hz, scaled to the real frame time
  *  so the waveform reacts at the same speed on a 144 Hz display. */
@@ -278,8 +272,4 @@ export const WAVEFORM_RENDERERS: Partial<Record<WaveformStyle, (a: RenderArgs) =
   memo,
   eq,
   spectrum,
-}
-
-export function isCanvasStyle(style: WaveformStyle): boolean {
-  return style !== 'bars'
 }

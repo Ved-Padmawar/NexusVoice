@@ -34,11 +34,8 @@ export function sortForDisplay(catalog: CatalogModel[]): CatalogModel[] {
   })
 }
 
-
-/**
- * Resolve a backend display name (e.g. from `get_model_info`) to a catalog id.
- * Falls back to the first catalog entry when nothing matches.
- */
+/** A model's display name (e.g. the recommended one) as a catalog id; the first
+ *  entry when nothing matches. */
 export function modelNameToId(name: string, catalog: CatalogModel[]): ModelId | null {
   if (catalog.length === 0) return null
   const match = catalog.find(m => m.displayName.toLowerCase() === name.toLowerCase())

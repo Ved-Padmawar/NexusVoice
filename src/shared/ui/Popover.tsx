@@ -3,7 +3,7 @@ import {
   type ComponentProps, type CSSProperties, type ReactNode, type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { cn } from '@/shared/utils'
+import { cn } from '../utils'
 import { insideNewerLayer, registerLayer, type Layer } from './dismissLayers'
 
 /** `side` opens beside the anchor (left, or right without room), top-aligned. */

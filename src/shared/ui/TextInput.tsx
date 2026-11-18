@@ -1,5 +1,5 @@
 import type { ComponentProps, ReactNode } from 'react'
-import { cn } from '@/shared/utils'
+import { cn } from '../utils'
 
 type Props = ComponentProps<'input'> & {
   /** Leading icon, drawn inside the field. */

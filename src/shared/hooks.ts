@@ -2,11 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { EventCallback, UnlistenFn } from '@tauri-apps/api/event'
 import { events } from './bindings'
 
-/**
- * Returns `true` only after `active` has stayed truthy for `delayMs`.
- * Used to gate loaders so sub-second waits never flash a spinner/skeleton.
- * Flips back to `false` immediately when `active` becomes false.
- */
+/** True once `active` has held for `delayMs`, false as soon as it drops, so a
+ *  quick load never flashes a loader. */
 export function useDelayedFlag(active: boolean, delayMs = 250): boolean {
   const [shown, setShown] = useState(false)
   useEffect(() => {

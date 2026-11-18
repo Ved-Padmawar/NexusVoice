@@ -19,4 +19,5 @@ export const queryKeys = {
   historyApps: (rev: number) => ['historyApps', rev] as const,
   catalog: ['catalog'] as const,
   inputDevices: ['inputDevices'] as const,
+  hardwareProfile: ['hardwareProfile'] as const,
 }

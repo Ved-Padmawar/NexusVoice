@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react'
-import { cn } from '@/shared/utils'
+import { cn } from '../utils'
 
 const VARIANTS = {
   primary: 'bg-accent text-accent-fg hover:bg-accent-hover',

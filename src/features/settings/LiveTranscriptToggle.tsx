@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { ClosedCaptioningIcon, MicrophoneIcon } from '@phosphor-icons/react'
 import { Switch } from '../../shared/ui/Switch'
 import { SettingRow } from './SettingRow'
@@ -24,7 +25,7 @@ export function LiveTranscriptToggle() {
               <div
                 className="live-transcript-preview"
                 data-pill-theme={pillTheme}
-                style={{ background: theme.bg, color: theme.brand, '--preview-accent': theme.accent } as React.CSSProperties}
+                style={{ background: theme.bg, color: theme.brand, '--preview-accent': theme.accent } as CSSProperties}
               >
                 <span className="live-transcript-preview__tide" />
                 <div className="live-transcript-preview__text">

@@ -47,15 +47,11 @@ export const MicrophoneSection = memo(function MicrophoneSection() {
     if (devicesQuery.error) listFailed(devicesQuery.error)
   }, [devicesQuery.error])
 
-  // Refresh keeps the controls interactive; only the icon spins. A minimum
-  // duration guarantees the spin is visible even when the device list is cached.
+  // Refresh keeps the controls interactive; only the icon spins while it runs.
   const refresh = useCallback(() => {
     if (refreshing) return
     setRefreshing(true)
-    Promise.all([
-      refetchDevices(),
-      new Promise(r => setTimeout(r, 500)),
-    ]).finally(() => setRefreshing(false))
+    void refetchDevices().finally(() => setRefreshing(false))
   }, [refreshing, refetchDevices])
 
   const listed = labelled(devices)
