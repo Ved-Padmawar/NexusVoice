@@ -30,6 +30,7 @@ src-tauri/target
 # Claude Code
 .claude/
 CLAUDE.md
+AGENTS.md
 
 # Local dev tools
 docs/
